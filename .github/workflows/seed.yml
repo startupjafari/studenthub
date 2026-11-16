@@ -1,47 +1,48 @@
 name: prodDbSeed
-# Заголовок запуска: в списке прогонов ручные операции выглядели одинаково, и что
-# именно делали — читалось только внутри. Теперь видно режим и кто запустил.
-run-name: Налить данные · ${{ inputs.mode }} · метка ${{ inputs.tag }} · запустил ${{ github.actor }}
+# Заголовок запуска: в списке прогонов видно режим, метку и кто запустил.
+run-name: Налить данные · ${{ inputs.mode }} · метка ${{ inputs.tag || 'авто' }} · запустил ${{ github.actor }}
 
 # СХЕМА ПРОГОНА
 #
-#   режим seed    ─► проверка формы → сверка миграций → замер базы → генератор ДОЛИВАЕТ
-#                    строки и помечает их меткой прогона → итог цифрами
-#   режим cleanup ─► проверка формы → сверка миграций → замер базы → удаляются строки
-#                    ТОЛЬКО с указанной меткой → итог цифрами
+#   режим seed    ─► проверка формы → сверка миграций → база пустая? → замер →
+#                    генератор наливает ВСЕ разделы платформы, без фото и видео →
+#                    итог цифрами по разделам
+#   режим cleanup ─► проверка формы → сверка миграций → удаляются вузы ТОЛЬКО с
+#                    указанной меткой → итог цифрами
 #
-#   Миграции этот прогон не применяет, только сверяет: ветка выбирается в форме, и
-#   накатить на прод её схему без показа SQL — ровно то, от чего защищает «Прод-БД ·
-#   миграции» (migrate.yml). Расхождение — красный прогон до первой записи.
+# ЧТО НАЛИВАЕТСЯ. Каждый вуз генератора (prisma/seed/index.mjs) получает всё, что есть в
+# продукте: структуру и людей всех ролей (включая охрану и библиотекаря), академику
+# (расписание, журнал, посещаемость, экзамены, задания, консультации), библиотеку, ленту,
+# события, статьи, опросы, истории, чаты, документы и заявки, карьеру, журналы охраны,
+# камеры и опубликованный кампус. Плюс справочники платформы: КАТО, каталог услуг,
+# компании-работодатели.
 #
-#   Метка — единственный способ отличить налитое прогоном от настоящих данных.
-#   Режима «очистить и залить заново» здесь нет: база одна с продом.
+# БЕЗ ФОТО И ВИДЕО — жёстко, не полем формы. Медиа-пул, личные галереи и картинки постов
+# выключены, переменные MinIO в прогон не передаются вовсе: генератор не создаёт ни
+# одной строки File и ни одного объекта в хранилище. Стикеры (картинки) поэтому тоже
+# пропускаются — их отдельно заливает `pnpm db:seed:stickers`.
 #
-# РУЧНОЙ прогон генератора данных против БД Railway с настройкой состава из формы
-# запуска. Нужен потому, что с локальной машины прод-БД обычно недоступна (фильтр
-# исходящих портов), а у GitHub-раннера открытый egress до публичного proxy Postgres.
+# КАК ПОЛЬЗОВАТЬСЯ. Порядок — сброс, потом налив:
+#   1. prodDbReset (reset-db.yml) — база пустеет до одного PLATFORM_ADMIN;
+#   2. этот прогон, режим seed. Галочка «только в пустую базу» (по умолчанию включена)
+#      не даст налить второй слой поверх уже налитого.
+# Без галочки прогон доливает: id детерминированы, уже созданные вузы пропускаются по
+# маркеру, новые (universities больше прежнего) добавляются рядом.
 #
-# ВАЖНОЕ ПРО БАЗУ. Она одна с продом: в ней живут настоящие пользователи. Поэтому
-# режима «очистить и залить заново» здесь нет и быть не может. Сид только СОЗДАЁТ
-# строки, каждый прогон помечается меткой (tag), метка пишется в манифест AuditLog, и
-# режим `cleanup` по этой метке удаляет ровно то, что прогон налил. Отдельный workflow
-# «Reset DB» со сбросом остаётся — но это осознанно другая кнопка.
+# Метка пишется в манифест (AuditLog) и маркеры вузов; режим cleanup по ней удаляет
+# ровно налитое этим прогоном. Потолки объёма проверяет сам сид до первой записи:
+# выше 50 млн строк нужен `confirm: BIG`, выше 300 млн прогон отказывается работать.
 #
-# ПОТОЛКИ ОБЪЁМА проверяет сам сид до первой записи: выше 50 млн строк нужен
-# `confirm: BIG`, выше 300 млн прогон отказывается работать (prisma/seed/index.mjs).
-#
-# Ветка выбирается формой запуска — отдельного входа под неё не нужно. Всего входов
-# десять: это потолок workflow_dispatch, свободных мест нет.
-#
-# Секреты: DATABASE_PUBLIC_URL (обязательный, из сервиса Postgres в Railway),
-# SEED_PASSWORD (обязательный для режима seed: сгенерированный пароль пришлось бы
-# напечатать в лог прогона, а он публичный). Для медиа дополнительно MINIO_* (см. шаг «Seed»).
+# Секреты окружения production: DATABASE_PUBLIC_URL (строка подключения к Postgres
+# Railway) и SEED_PASSWORD (пароль всех аккаунтов налива: сгенерированный пришлось бы
+# печатать в публичный лог прогона). Миграции этот прогон не применяет — только сверяет;
+# применяет их prodDbMigrate (migrate.yml).
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Режим: seed (долить) / cleanup (удалить прогон по метке)'
+        description: 'Режим: seed (налить) / cleanup (удалить налитое по метке)'
         type: choice
         default: seed
         options:
@@ -55,64 +56,58 @@ on:
         description: 'Для cleanup — повторите метку. Для объёма выше 50 млн строк — BIG'
         type: string
         default: ''
+      only_empty:
+        description: 'Только в пустую базу (после prodDbReset). Снять — долить к уже налитому'
+        type: boolean
+        default: true
       universities:
-        description: 'Сколько вузов создать, 0–500'
+        description: 'Сколько вузов, 1–500'
         type: string
         default: '1'
       students:
-        description: 'Студентов на вуз: «1000-1500» или одно число'
+        description: 'Студентов на вуз: «1000-1500» или число. Меньше 400 не бывает: 4 факультета × 4 курса × 25'
         type: string
         default: '1000-1500'
       posts:
-        description: 'Постов на пользователя: «0-0» — не создавать вовсе'
+        description: 'Постов на пользователя: «A-B» или число («0» — без постов)'
         type: string
-        default: '0-0'
-      photos:
-        description: 'Фото на пользователя: «0-0» — не создавать вовсе'
-        type: string
-        default: '0-0'
-      videos:
-        description: 'Видео на пользователя: «0-0» — не создавать вовсе'
-        type: string
-        default: '0-0'
+        default: '5-20'
       articles:
-        description: 'Статей на пользователя: «0-0» — не создавать вовсе'
+        description: 'Статей на пользователя: «A-B» или число'
         type: string
-        default: '0-0'
+        default: '1-5'
       polls:
-        description: 'Опросов на пользователя: «0-0» — не создавать вовсе'
+        description: 'Опросов на пользователя: «A-B» или число'
         type: string
-        default: '0-0'
+        default: '1-5'
 
-# Одна группа со сбросом: сид, уборка и TRUNCATE не должны идти одновременно по одной БД.
-# Прогон ходит в прод-БД, а с кодом только читает: токену хватает contents: read.
+# Прогон пишет в БД Railway, а с кодом только читает: токену хватает contents: read.
 permissions:
   contents: read
 
+# Одна группа со сбросом: налив, уборка и TRUNCATE не должны идти одновременно по одной БД.
 concurrency:
   group: db-write-railway
   cancel-in-progress: false
 
 jobs:
   seed:
-    name: ${{ inputs.mode }} · ${{ inputs.universities }} вузов
+    name: ${{ inputs.mode }} · ${{ inputs.universities }} вуз(ов)
     runs-on: ubuntu-24.04
-    # Отдельное окружение — чтобы секрет прод-БД можно было ограничить ревью и правилами.
+    # Отдельное окружение — чтобы секрет БД можно было ограничить ревью и правилами.
     environment: production
-    # Потолок job'а у GitHub — 6 часов. Берём почти весь: 500 вузов без контента идут
-    # около пяти часов, и обрыв по таймауту посреди прогона оставит половину вуза без
-    # расписания и оценок.
+    # Потолок job'а у GitHub — 6 часов. 500 вузов идут около пяти часов, и обрыв по
+    # таймауту посреди прогона оставит половину вуза без расписания и оценок.
     timeout-minutes: 350
 
     env:
       DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
 
     steps:
-      # Всё, что можно проверить до checkout, проверяется до него: неверный ввод не должен
-      # тратить пять минут на установку зависимостей, чтобы упасть на первом же шаге.
-      # Входные строки приходят через env, а не подстановкой в текст скрипта: иначе
-      # значение вида `; rm -rf /` исполнилось бы шеллом раннера.
-      - name: Проверить подтверждение, секреты и параметры формы
+      # Всё, что можно проверить до checkout, проверяется до него: опечатка в форме не
+      # должна стоить пяти минут установки зависимостей. Значения формы приходят через
+      # env, а не подстановкой в текст скрипта: иначе `; rm -rf /` исполнился бы шеллом.
+      - name: Проверить форму и секреты
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
@@ -123,20 +118,18 @@ jobs:
           UNIS: ${{ inputs.universities }}
           STUDENTS: ${{ inputs.students }}
           POSTS: ${{ inputs.posts }}
-          PHOTOS: ${{ inputs.photos }}
-          VIDEOS: ${{ inputs.videos }}
           ARTICLES: ${{ inputs.articles }}
           POLLS: ${{ inputs.polls }}
         run: |
           set -euo pipefail
 
           if [ -z "${DATABASE_URL}" ]; then
-            echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
+            echo "::error::Секрет DATABASE_PUBLIC_URL не задан в окружении production." >&2
             exit 1
           fi
 
           # Метка по умолчанию привязана к номеру запуска: два прогона не сольются в один
-          # манифест, и по метке всегда видно, какой именно запуск её оставил.
+          # манифест, и по метке видно, какой запуск её оставил.
           RUN_TAG="${TAG:-seed-${GITHUB_RUN_NUMBER}}"
           [[ "$RUN_TAG" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || {
             echo "::error::tag: допустимы буквы, цифры, точка, дефис и подчёркивание (до 64 знаков)." >&2; exit 1; }
@@ -154,18 +147,16 @@ jobs:
             exit 0
           fi
 
-          # Без секрета сид сгенерировал бы пароль и напечатал его в лог, а лог прогона
-          # публичный — сид такой прогон всё равно отвергнет, но уже после установки.
           if [ "$SEED_PASSWORD_SET" != "true" ]; then
             echo "::error::Секрет SEED_PASSWORD не задан: сгенерированный пароль ушёл бы в публичный лог." >&2
             exit 1
           fi
 
           [[ "$UNIS" =~ ^[0-9]+$ ]] || { echo "::error::universities: ожидалось число, получено «$UNIS»." >&2; exit 1; }
-          [ "$UNIS" -le 500 ] || { echo "::error::universities: больше 500 не бывает." >&2; exit 1; }
+          [ "$UNIS" -ge 1 ] && [ "$UNIS" -le 500 ] || {
+            echo "::error::universities: от 1 до 500." >&2; exit 1; }
 
-          # Диапазоны сид разбирает сам (prisma/seed/config.mjs), но форма обязана
-          # отсеять мусор до установки зависимостей — иначе опечатка стоит пяти минут.
+          # Диапазоны разбирает сам сид (prisma/seed/config.mjs), здесь — только мусор.
           check_range() {
             local name="$1" value="$2"
             [[ "$value" =~ ^[0-9]+(-[0-9]+)?$ ]] || {
@@ -173,8 +164,6 @@ jobs:
           }
           check_range students "$STUDENTS"
           check_range posts "$POSTS"
-          check_range photos "$PHOTOS"
-          check_range videos "$VIDEOS"
           check_range articles "$ARTICLES"
           check_range polls "$POLLS"
 
@@ -184,50 +173,33 @@ jobs:
             echo "SEED_UNIVERSITIES=$UNIS"
             echo "SEED_STUDENTS=$STUDENTS"
             echo "SEED_POSTS=$POSTS"
-            echo "SEED_PHOTOS_PER_USER=$PHOTOS"
-            echo "SEED_VIDEOS_PER_USER=$VIDEOS"
             echo "SEED_ARTICLES=$ARTICLES"
             echo "SEED_POLLS=$POLLS"
           } >> "$GITHUB_ENV"
 
-          # Осознанное согласие на большой объём. Сам потолок считает сид: здесь только
-          # передаём разрешение, а отказ по жёсткому потолку не снимается ничем.
+          # Осознанное согласие на большой объём. Потолок считает сид; жёсткий не снимается.
           if [ "$CONFIRM" = "BIG" ]; then echo "SEED_CONFIRM_BIG=1" >> "$GITHUB_ENV"; fi
 
-          # Медиа включается, только если заказаны фото или видео: иначе прогон тянул бы
-          # из сети сотни мегабайт и требовал доступного MinIO без всякой надобности.
-          if [ "${PHOTOS##*-}" != "0" ] || [ "${VIDEOS##*-}" != "0" ]; then
-            echo "SEED_MEDIA=1" >> "$GITHUB_ENV"
-          else
-            echo "SEED_MEDIA=0" >> "$GITHUB_ENV"
-          fi
+          echo "Метка: $RUN_TAG · вузов: $UNIS · студентов на вуз: $STUDENTS"
+          echo "На пользователя — посты $POSTS, статьи $ARTICLES, опросы $POLLS. Фото и видео: нет."
 
-          echo "Метка: $RUN_TAG · вузов: $UNIS · студентов: $STUDENTS"
-          echo "Контент на пользователя — посты $POSTS, фото $PHOTOS, видео $VIDEOS, статьи $ARTICLES, опросы $POLLS"
-
-      # План прогона — в сводку запуска: что именно сейчас произойдёт с боевой базой,
-      # видно до того, как это произошло, и остаётся в истории запусков. Значения формы
-      # подставляются через env, а не в текст скрипта — как и в шаге проверки выше.
       - name: Схема прогона — в сводку запуска
         env:
           MODE: ${{ inputs.mode }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<MD
-          ## Генератор данных · режим \`${MODE}\` · метка \`${SEED_TAG}\`
+          ## Налив данных · режим \`${MODE}\` · метка \`${SEED_TAG}\`
 
           \`\`\`mermaid
           flowchart LR
-            A["параметры формы"] --> B["сверка миграций"]
-            B --> C["замер базы до"]
-            C --> D{"режим"}
-            D -- seed --> E["долить строки<br/>с меткой прогона"]
-            D -- cleanup --> F["удалить строки<br/>с этой меткой"]
+            A["форма"] --> B["сверка миграций"]
+            B --> C{"режим"}
+            C -- seed --> D["база пустая?"]
+            D --> E["все разделы<br/>без фото и видео"]
+            C -- cleanup --> F["удалить вузы<br/>с этой меткой"]
             E --> G["итог цифрами"]
             F --> G
           \`\`\`
-
-          База одна с продом: генератор только ДОЛИВАЕТ строки и помечает их меткой.
-          Убрать налитое можно этим же прогоном в режиме \`cleanup\` с той же меткой.
           MD
 
       - name: Забрать код
@@ -247,26 +219,50 @@ jobs:
       - name: Установить зависимости (frozen-lockfile)
         run: pnpm install --frozen-lockfile
 
+      # Шаг кампуса (prisma/seed/steps/85-campus.mjs) берёт раскладку, проверку этажа и
+      # граф маршрутов из dist campus-core — тех же функций, что у редактора и публикации.
+      - name: Собрать campus-core
+        run: pnpm --filter @studenthub/campus-core build
+
       - name: Сгенерировать Prisma Client
         run: pnpm db:generate
 
-      # Только сверка: забытые миграции ломают сид на первом же запросе, но применять их
-      # отсюда нельзя — ветка выбрана в форме, а SQL никто не видел (схема прогона выше).
+      # Только сверка: забытые миграции ломают сид на первом же запросе, а применять их
+      # отсюда нельзя — ветка выбрана в форме, SQL никто не видел.
       - name: Сверить миграции базы с веткой
         run: |
           set +e
           out=$(pnpm db:status 2>&1)
           set -e
           echo "$out"
-          # На код возврата не полагаемся (как в ci.yml): строка про актуальность схемы
-          # стабильнее кода выхода между версиями Prisma.
+          # Строка про актуальность схемы стабильнее кода выхода между версиями Prisma.
           if ! echo "$out" | grep -q "Database schema is up to date"; then
-            echo "::error::Схема базы расходится с prisma/migrations этой ветки. Миграции применяются только прогоном «Прод-БД · миграции» — сначала status и SQL, затем deploy." >&2
+            echo "::error::Схема базы расходится с prisma/migrations этой ветки. Сначала prodDbMigrate: status, SQL глазами, deploy." >&2
             exit 1
           fi
 
-      # Размер базы ДО прогона: рост боевой базы должен быть виден числом, а не на глаз.
-      - name: Замерить базу до прогона — строки и размер
+      # Пустая база — это то, что оставляет prodDbReset: один PLATFORM_ADMIN и ни одного
+      # вуза. Всё остальное значит, что налив пойдёт поверх уже существующих данных.
+      - name: Убедиться, что база пустая
+        if: ${{ inputs.mode == 'seed' && inputs.only_empty }}
+        run: |
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const [users, unis] = await Promise.all([p.user.count(), p.university.count()]);
+              await p.\$disconnect();
+              if (unis > 0 || users > 1) {
+                console.error('::error::В базе уже ' + unis + ' вуз(ов) и ' + users + ' пользователей. ' +
+                  'Сначала prodDbReset — или снимите галочку «только в пустую базу», чтобы долить.');
+                process.exit(1);
+              }
+              console.log('База пустая: вузов 0, пользователей ' + users + '.');
+            })().catch((e) => { console.error(e.message); process.exit(1); });
+          "
+
+      # Размер базы ДО прогона: рост должен быть виден числом, а не на глаз.
+      - name: Замерить базу до прогона
         id: before
         shell: bash
         run: |
@@ -282,26 +278,23 @@ jobs:
             })().catch((e) => { console.error(e.message); process.exit(0); });
           " >> "$GITHUB_OUTPUT"
 
-      # Демо-вуз «Алатау» выключен жёстко: на боевой базе сотни аккаунтов под одним
-      # паролем и dev-инвайт с известным токеном — это готовый вход, а не демонстрация.
-      # Медиа (если включено) требует переменных MINIO_*: без них шаг пула сам скажет,
-      # что хранилище недоступно, и прогон пойдёт дальше без картинок.
+      # Демо-вуз «Алатау» выключен: сотни аккаунтов под одним паролем и dev-инвайт с
+      # известным токеном на общей базе — это готовый вход, а не демонстрация.
+      # Медиа выключены всеми переключателями сразу, MINIO_* не передаются.
       - name: Налить данные — или убрать прогон по метке
         env:
           SEED_ALLOW_REMOTE: '1'
           SEED_DEMO_UNIVERSITY: '0'
-          SEED_SCALE: small
+          SEED_SCALE: full
           SEED_CONCURRENCY: '4'
+          SEED_MEDIA: '0'
+          SEED_PHOTOS_PER_USER: '0'
+          SEED_VIDEOS_PER_USER: '0'
+          SEED_POST_IMAGES_PER_USER: '0'
           SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
-          MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
-          MINIO_PORT: ${{ secrets.MINIO_PORT }}
-          MINIO_USE_SSL: ${{ secrets.MINIO_USE_SSL }}
-          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
-          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
-        run: pnpm db:seed
+        run: node --max-old-space-size=4096 prisma/seed.mjs
 
-      # Что в итоге в базе — цифрами, а не «прогон зелёный». Считается по факту, из той же
-      # базы: расхождение с ожиданием видно сразу, не дожидаясь входа в интерфейс.
+      # Что в итоге в базе — цифрами по разделам, из той же базы.
       - name: Итог цифрами — в сводку запуска
         if: ${{ always() }}
         shell: bash
@@ -313,30 +306,39 @@ jobs:
           node -e "
             const { PrismaClient } = require('@prisma/client');
             const p = new PrismaClient();
+            const sections = [
+              ['Вузы', 'university'], ['Факультеты', 'faculty'], ['Группы', 'group'],
+              ['Пользователи', 'user'], ['Пары', 'pair'], ['Оценки', 'grade'],
+              ['Посещаемость', 'attendance'], ['Книги · выдачи', 'book', 'loan'],
+              ['Посты', 'post'], ['События', 'event'], ['Статьи', 'profileArticle'],
+              ['Истории', 'story'], ['Чаты · сообщения', 'chat', 'message'],
+              ['Документы · заявки', 'document', 'application'],
+              ['Вакансии · отклики', 'vacancy', 'careerApplication'],
+              ['Журнал охраны · проходы', 'securityVisitor', 'securityPass'],
+              ['Камеры', 'camera'], ['Кампусы', 'campus'], ['Файлы', 'file'],
+            ];
             (async () => {
-              const [users, unis, faculties, groups] = await Promise.all([
-                p.user.count(), p.university.count(), p.faculty.count(), p.group.count(),
-              ]);
+              const nf = (n) => Number(n).toLocaleString('ru-RU');
+              const count = async (m) => (p[m] ? await p[m].count().catch(() => '—') : '—');
+              const lines = [
+                '### ' + (process.env.MODE === 'cleanup' ? 'Уборка выполнена' : 'Прогон выполнен'),
+                '', '| Раздел | Строк |', '|---|---|',
+                '| Метка | \`' + (process.env.SEED_TAG || '—') + '\` |',
+              ];
+              for (const [label, ...models] of sections) {
+                const values = [];
+                for (const m of models) { const v = await count(m); values.push(typeof v === 'number' ? nf(v) : v); }
+                lines.push('| ' + label + ' | ' + values.join(' · ') + ' |');
+              }
               const rows = await p.\$queryRawUnsafe(\"SELECT sum(n_live_tup)::bigint AS rows FROM pg_stat_user_tables WHERE schemaname='public'\");
               const size = await p.\$queryRawUnsafe('SELECT pg_size_pretty(pg_database_size(current_database())) AS size');
-              const nf = (n) => Number(n).toLocaleString('ru-RU');
               const before = Number(process.env.ROWS_BEFORE || 0);
               const after = Number(rows[0].rows ?? 0);
               const delta = after - before;
-              const lines = [
-                '### ' + (process.env.MODE === 'cleanup' ? 'Уборка выполнена' : 'Прогон выполнен'),
-                '',
-                '| | |',
-                '|---|---|',
-                '| Метка | \`' + (process.env.SEED_TAG || '—') + '\` |',
-                '| Вузы | ' + nf(unis) + ' |',
-                '| Факультеты · группы | ' + nf(faculties) + ' · ' + nf(groups) + ' |',
-                '| Пользователи | ' + nf(users) + ' |',
-                '| Строк в БД | ' + nf(after) + ' (было ' + nf(before) + ', ' + (delta >= 0 ? '+' : '') + nf(delta) + ') |',
-                '| Размер БД | ' + size[0].size + ' (было ' + (process.env.SIZE_BEFORE || '—') + ') |',
-                '',
-                'Дашборд платформы кэшируется в Redis на 5 минут — свежие цифры там появятся с задержкой.',
-              ];
+              lines.push('| Строк в БД | ' + nf(after) + ' (было ' + nf(before) + ', ' + (delta >= 0 ? '+' : '') + nf(delta) + ') |');
+              lines.push('| Размер БД | ' + size[0].size + ' (было ' + (process.env.SIZE_BEFORE || '—') + ') |');
+              lines.push('', 'Строки в pg_stat_user_tables — оценка Postgres, точные числа — по разделам выше.');
+              lines.push('Дашборд платформы кэшируется в Redis на 5 минут — свежие цифры там появятся с задержкой.');
               require('node:fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
               await p.\$disconnect();
             })().catch((e) => { console.error(e.message); process.exit(0); });
