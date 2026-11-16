@@ -4,7 +4,6 @@
 #   scripts/ci-results.sh                 # последний прогон iOS на текущей ветке
 #   scripts/ci-results.sh --wait          # дождаться окончания идущего прогона
 #   scripts/ci-results.sh --run 123456    # конкретный прогон
-#   scripts/ci-results.sh --nightly       # последний ночной прогон (ios-nightly.yml)
 #
 # Скачивает артефакты в apps/ios/build/ci/<id прогона>/ и печатает summary.md: сколько
 # тестов выполнено, что упало. Там же — снимки reference/actual/diff, видео прогона
@@ -23,7 +22,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --run) RUN_ID="$2"; shift ;;
     --wait) WAIT=1 ;;
-    --nightly) WORKFLOW=ios-nightly.yml; ARTIFACT=ios-nightly-results ;;
     -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Неизвестный аргумент: $1" >&2; exit 2 ;;
   esac
@@ -32,11 +30,7 @@ done
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ -z "$RUN_ID" ]]; then
-  if [[ "$WORKFLOW" == ios-nightly.yml ]]; then
-    RUN_ID="$(gh run list --workflow "$WORKFLOW" -L 1 --json databaseId --jq '.[0].databaseId')"
-  else
-    RUN_ID="$(gh run list --workflow "$WORKFLOW" --branch "$BRANCH" -L 1 --json databaseId --jq '.[0].databaseId')"
-  fi
+  RUN_ID="$(gh run list --workflow "$WORKFLOW" --branch "$BRANCH" -L 1 --json databaseId --jq '.[0].databaseId')"
 fi
 if [[ -z "$RUN_ID" || "$RUN_ID" == null ]]; then
   echo "Прогонов $WORKFLOW для ветки $BRANCH нет. Запушена ли ветка?" >&2

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 // Детерминированные идентификаторы.
 //
 // Правило: id строки полностью определяется её местом в структуре (вуз → факультет →
@@ -46,4 +48,25 @@ export function emailFor(index, local) {
 // поэтому в него входит префикс вуза.
 export function usernameFor(index, local) {
   return `${local}.${uniPrefix(index)}`.toLowerCase().replace(/[^a-z0-9._]/g, '')
+}
+
+// Пространство имён UUIDv5 сида: id детерминированы, но выглядят как uuid. Нужен там,
+// где схемы API принимают только uuid (кампус, привязка помещений на плане этажа).
+const UUID_NAMESPACE = Buffer.from('3b9c1f0e7a5d4e2b9c6f8a1d2e4b7c90', 'hex')
+
+/** Детерминированный uuid (v5, SHA-1) от читаемого id генератора. */
+export function seedUuid(name) {
+  const digest = createHash('sha1').update(UUID_NAMESPACE).update(name).digest()
+  digest[6] = (digest[6] & 0x0f) | 0x50
+  digest[8] = (digest[8] & 0x3f) | 0x80
+  const hex = digest.subarray(0, 16).toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+// Помещение вуза: uuid от читаемого id (roomId(42, 'room', 7) ← 'u042-room-7'). Не
+// читаемый id, как у остальных сущностей: план этажа кампуса привязывает пространство к
+// помещению только по uuid (FloorPlanSchema), и с id вида u042-room-7 «связать по
+// номерам» в редакторе пропускал бы все аудитории.
+export function roomId(index, ...parts) {
+  return seedUuid(id(index, ...parts))
 }

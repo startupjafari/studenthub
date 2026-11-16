@@ -32,7 +32,7 @@ android {
         applicationId = "kz.studenthub.app"
         minSdk = 26
         targetSdk = 36
-        // Номер сборки задаёт релизный прогон CI (`-Pstudenthub.versionCode=…`): Google Play
+        // Номер сборки задаётся при выпуске (`-Pstudenthub.versionCode=…`): Google Play
         // не примет вторую сборку с тем же номером.
         versionCode = providers.gradleProperty("studenthub.versionCode").orElse("1").get().toInt()
         versionName = "0.1.0"

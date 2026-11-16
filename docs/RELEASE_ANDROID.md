@@ -6,8 +6,8 @@
 ## Что уже готово в репозитории
 
 - Сборка `bundleRelease` с R8 и подписью ключом загрузки из окружения (`apps/android/README.md`).
-- Workflow `Android release` (`.github/workflows/android-release.yml`): по кнопке собирает
-  подписанный AAB и кладёт его артефактом. В Play он не публикует — см. «Первая загрузка».
+- Подписанный AAB CI сейчас не собирает: workflow `Android release` удалён 16.11.2026,
+  `bundleRelease` запускается вручную. В Play загрузка тоже руками — см. «Первая загрузка».
 - Workflow `Android` (`.github/workflows/android.yml`): сборка, тесты и lint на каждый push
   и PR в `develop`/`main`, задевающий `apps/android/**` или каталог строк iOS.
 - Резервные копии выключены целиком (`allowBackup=false`, `data_extraction_rules.xml`):
@@ -28,16 +28,11 @@
    keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 4096 -validity 10000
    ```
    Файл и пароли — в менеджер паролей, в репозиторий никогда.
-4. **Секреты и переменные GitHub** (Settings → Secrets and variables → Actions):
-
-   | Имя | Где | Что |
-   |---|---|---|
-   | `ANDROID_KEYSTORE_BASE64` | secret | `base64 -w0 upload.jks` |
-   | `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | secret | от ключа загрузки |
-   | `ANDROID_API_BASE_URL` | variable | `https://<домен API>/api/v1` |
-   | `ANDROID_SENTRY_DSN` | secret | DSN проекта Sentry; пусто — трекер выключен |
-   | `FIREBASE_PROJECT_ID`, `FIREBASE_ANDROID_APP_ID`, `FIREBASE_SENDER_ID` | variable | Firebase → Project settings → Android-приложение |
-   | `FIREBASE_ANDROID_API_KEY` | secret | там же |
+4. **Параметры подписанной сборки** — на машине, где собирается `bundleRelease`: ключ
+   загрузки через `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+   `ANDROID_KEY_PASSWORD`, адрес API, Firebase и Sentry — через `-P` или
+   `~/.gradle/gradle.properties` (`apps/android/README.md`). Секреты GitHub под них сейчас не
+   нужны: workflow `Android release` удалён 16.11.2026.
 
 5. **Сервер:** переменные `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` (JSON
    сервисного аккаунта Firebase), `ANDROID_MIN_SUPPORTED_VERSION`, `ANDROID_STORE_URL`;
@@ -45,9 +40,9 @@
 
 ## Первая загрузка
 
-Первый AAB Google принимает только руками: запустить `Android release` с номером сборки
-(начиная с `1`), скачать артефакт и загрузить его во внутреннее тестирование Play
-Console. Следующие сборки — тем же путём, номер каждый раз больше предыдущего.
+Первый AAB Google принимает только руками: собрать подписанный `bundleRelease` локально с
+номером сборки `-Pstudenthub.versionCode=…` (начиная с `1`) и загрузить его во внутреннее тестирование Play Console.
+Следующие сборки — тем же путём, номер каждый раз больше предыдущего.
 
 ## Data safety
 
