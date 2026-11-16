@@ -95,9 +95,8 @@ pnpm relay:up | relay:down            # ретранслятор видео ка
 # prisma.config.ts сам подхватывает DATABASE_URL из apps/api/.env, если он не задан окружением.
 pnpm db:validate | db:format | db:status
 pnpm db:deploy                        # prisma migrate deploy
-pnpm db:seed                          # демо-сид (SEED_SCALE=demo)
-pnpm db:seed:small | db:seed:full     # 5 / 100 вузов (full — ~22 млн строк)
-pnpm db:seed:test                     # тестовый стенд: 1 вуз (docs/PROJECT.md §14.1)
+pnpm db:seed                          # только демо-вуз (быстро, без MinIO)
+SEED_UNIVERSITIES=4 SEED_STUDENTS=500-1000 pnpm db:seed   # + 4 вуза; остальное — по ролям (docs/PROJECT.md §14)
 pnpm db:seed:kato                     # только справочник КАТО (обычно уже залит db:seed)
 pnpm db:seed:media                    # только медиа-пул сида в MinIO
 pnpm db:seed:library                  # библиотека для уже засеянного вуза

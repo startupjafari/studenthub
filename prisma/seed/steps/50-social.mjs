@@ -26,6 +26,7 @@ import {
   postPriority,
   postText,
 } from '../data/content.mjs'
+import { activityOf } from '../lib/activity.mjs'
 import { child, id } from '../lib/ids.mjs'
 import { postMediaKit } from './51-social-media.mjs'
 
@@ -273,11 +274,14 @@ export async function seedSocial(prisma, writer, ctx) {
     })
   }
 
-  // ── Личные посты: 20–100 на каждого пользователя вуза ───────────────────────
-  // Это самый объёмный домен сида: 60 постов × 1250 человек ≈ 75 тыс. постов на вуз.
-  // Тексты собираются генератором (см. postText), иначе у одного автора шестьдесят
-  // постов оказались бы шестью повторяющимися фразами.
-  const [postsMin, postsMax] = ctx.config.postsPerUser
+  // ── Личные посты: по роли и активности автора ───────────────────────────────
+  // Сколько постов у человека — норма его роли × уровень активности (lib/activity.mjs):
+  // деканат и админ вуза пишут больше всех, староста — больше однокурсников, треть людей
+  // почти ничего не публикует. Тексты собирает генератор (см. postText), иначе у одного
+  // автора двадцать постов оказались бы шестью повторяющимися фразами.
+  // Староста — первый в списке группы (studentIds[0], шаг 30): норма у него своя.
+  const normRole = (author) =>
+    author.role === 'STUDENT' && author.si === 0 ? 'STAROSTA' : author.role
   const authors = [
     ...people.faculties.flatMap((f) => [
       { id: f.deanId, role: 'DEAN', faculty: f },
@@ -345,16 +349,17 @@ export async function seedSocial(prisma, writer, ctx) {
     return people.faculties[pi % people.faculties.length].deanId
   }
 
-  // Посты с медиа: первые N у каждого автора (SEED_POST_IMAGES_PER_USER), раскладки по кругу.
-  // Без пула (MinIO недоступен) медиа нет вовсе: строка на несуществующий объект дала бы
-  // ссылку с 404.
-  const mediaPerUser = media.empty ? 0 : ctx.config.postImagesPerUser
+  // Посты с медиа: первые N у каждого автора — доля его постов по норме роли
+  // (postMedia), раскладки по кругу. Без пула (MinIO недоступен) медиа нет вовсе: строка
+  // на несуществующий объект дала бы ссылку с 404.
 
   // Сколько постов реально досталось автору: ниже по нему раздаются реакции, и
   // «первые два поста» при диапазоне 1-2 или 0-0 существуют не у всех.
   const created = new Map()
   for (const [ai, author] of authors.entries()) {
-    const count = random.randInt(postsMin, postsMax)
+    const activity = activityOf(author.id, normRole(author))
+    const count = activity.posts
+    const mediaPerUser = media.empty ? 0 : activity.postMedia
     const cycle = AUDIENCE_CYCLE[author.role]
     const rows = []
     for (let pi = 0; pi < count; pi += 1) {

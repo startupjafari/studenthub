@@ -1,4 +1,6 @@
 // Шаг «личная галерея»: каждому пользователю — свои фото и видео в альбомах профиля.
+// Сколько — по роли и активности человека (lib/activity.mjs): у активного студента
+// десятки фото, у охранника пара снимков.
 //
 // ССЫЛКИ НА ОБЩИЙ ПУЛ, А НЕ КОПИИ. Пара (bucket, key) у File больше не уникальна
 // (миграция 20260929121630_files_shared_object_pool), поэтому сто карточек галереи —
@@ -16,6 +18,7 @@
 // Идемпотентность: id строк детерминированы (`<userId>-gph-<i>`), File/Album пишутся
 // с skipDuplicates.
 
+import { activityOf } from '../lib/activity.mjs'
 import { child } from '../lib/ids.mjs'
 
 // Пользователей за раз в память. Строки File собираются пачкой и уходят одним
@@ -41,9 +44,8 @@ const EXT = {
 export async function seedUserMedia(prisma, writer, { config, pool }) {
   // Диапазоны, а не числа: «100-500 фото» означает своё случайное количество у каждого
   // пользователя. Верхняя граница нулевая у обоих — шага нет вовсе.
-  const [photosMin, photosMax] = config.photosPerUser
-  const [videosMin, videosMax] = config.videosPerUser
-  if (photosMax + videosMax === 0) return { users: 0, files: 0, albums: 0 }
+  // Без медиа (SEED_MEDIA=0) галереи нет: ссылаться не на что.
+  if (!config.media) return { users: 0, files: 0, albums: 0 }
 
   const photos = pool?.photos ?? []
   const videos = pool?.videos ?? []
@@ -56,7 +58,7 @@ export async function seedUserMedia(prisma, writer, { config, pool }) {
 
   for (;;) {
     const users = await prisma.user.findMany({
-      select: { id: true },
+      select: { id: true, role: true },
       orderBy: { id: 'asc' },
       take: USER_CHUNK,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -73,13 +75,14 @@ export async function seedUserMedia(prisma, writer, { config, pool }) {
       const albumPhotoId = child(user.id, 'galph')
       const albumVideoId = child(user.id, 'galvd')
 
-      // Смещение по пулу своё у каждого пользователя: иначе у всех первые сто фото
-      // совпали бы, и лента профилей выглядела бы одинаково. Из того же хэша берётся и
-      // количество: детерминированно по id, без общего потока случайных чисел (шаг
-      // обходит пользователей параллельно, и общий PRNG сделал бы результат невоспроизводимым).
+      // Смещение по пулу своё у каждого пользователя: иначе у всех первые фото совпали
+      // бы, и лента профилей выглядела бы одинаково. Количество — тоже по id (activityOf),
+      // без общего потока случайных чисел: шаг обходит пользователей параллельно, и общий
+      // PRNG сделал бы результат невоспроизводимым.
       const offset = hashOffset(user.id)
-      const photosPer = countIn(offset, photosMin, photosMax)
-      const videosPer = countIn(Math.imul(offset, 0x9e3779b1) >>> 0, videosMin, videosMax)
+      const activity = activityOf(user.id, user.role)
+      const photosPer = activity.photos
+      const videosPer = activity.videos
 
       for (let i = 0; i < photosPer && photos.length > 0; i += 1) {
         const src = photos[(offset + i) % photos.length]
@@ -168,11 +171,4 @@ function hashOffset(value) {
     hash = Math.imul(hash, 0x01000193) >>> 0
   }
   return hash
-}
-
-// Число в диапазоне [min, max] по готовому хэшу. Равномерность здесь важнее качества:
-// разброс нужен, чтобы галереи не выглядели одинаковыми.
-function countIn(hash, min, max) {
-  if (max <= min) return min
-  return min + (hash % (max - min + 1))
 }

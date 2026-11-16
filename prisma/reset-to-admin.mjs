@@ -24,7 +24,7 @@ import { assertCanPrintPassword } from './seed/lib/seed-password.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а простой `node` его не читает: .env подхватывает
-// только Prisma CLI через prisma.config.ts (та же причина, что в prisma/seed-test.mjs).
+// только Prisma CLI через prisma.config.ts (та же причина, что в prisma/seed.mjs).
 // Уже заданное окружение приоритетнее — на CI переменные приходят снаружи.
 const env = loadEnv()
 if (!process.env.DATABASE_URL && env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL

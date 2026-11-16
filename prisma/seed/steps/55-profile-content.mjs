@@ -11,6 +11,7 @@
 // альбома»). Обложка и файлы ссылаются друг на друга (Album.coverFileId → File,
 // File.albumId → Album), поэтому обложка ставится третьим проходом, после альбомов и файлов.
 
+import { activityOf, pollTurnout } from '../lib/activity.mjs'
 import {
   ALBUM_TITLES,
   COMMENTS,
@@ -38,10 +39,8 @@ const PORTFOLIO_KINDS = ['EXPERIENCE', 'PROJECT', 'CERTIFICATE', 'ACHIEVEMENT']
 const ARTICLE_GRADIENTS = Array.from({ length: 18 }, (_, i) => `g${i + 1}`)
 
 export async function seedProfileContent(prisma, writer, ctx) {
-  const { index, random, structure, people, pool, config } = ctx
+  const { index, random, structure, people, pool } = ctx
   const { uniId } = structure
-  const [articlesMin, articlesMax] = config.articlesPerUser
-  const [pollsMin, pollsMax] = config.pollsPerUser
   const media = albumMediaKit(pool)
   const covers = pool?.photos ?? []
   let coverCursor = index * 7
@@ -134,10 +133,11 @@ export async function seedProfileContent(prisma, writer, ctx) {
         })
         fillAlbum(albumId, studentId, 3 + (si % 4))
 
-        // ── Статьи: 20–50 на пользователя ───────────────────────────────────
-        // Заголовок и тело собирает генератор: пятьдесят статей у одного автора из
-        // списка в шесть штук выглядели бы как ошибка сида, а не как контент.
-        const articleCount = random.randInt(articlesMin, articlesMax)
+        // ── Статьи и опросы: по роли и активности (lib/activity.mjs) ─────────
+        // Староста — первый в группе (studentIds[0]): у него своя норма, он чаще
+        // устраивает опросы. Заголовок и тело статьи собирает генератор.
+        const activity = activityOf(studentId, si === 0 ? 'STAROSTA' : 'STUDENT')
+        const articleCount = activity.articles
         articleCounts.set(studentId, articleCount)
         const firstArticleId = child(studentId, 'art', 0)
         for (let ai = 0; ai < articleCount; ai += 1) {
@@ -163,17 +163,14 @@ export async function seedProfileContent(prisma, writer, ctx) {
           })
         }
 
-        // ── Опросы: 10–100 на пользователя ──────────────────────────────────
-        // Голоса — самый дорогой домен: 55 опросов на человека × 130 тыс. человек ×
-        // голоса даёт десятки миллионов строк, поэтому их число ограничено
-        // SEED_POLL_VOTES_MAX (по умолчанию до 3 на опрос).
-        const pollCount = random.randInt(pollsMin, pollsMax)
+        // Голосует доля группы автора (POLL_TURNOUT): опрос старосты «кто идёт на
+        // субботник» собирает голоса однокурсников, а не три случайных голоса.
+        const pollCount = activity.polls
         for (let qi = 0; qi < pollCount; qi += 1) {
           await addPoll(writer, random, {
             pollId: child(studentId, 'poll', qi),
             userId: studentId,
             voterPool: group.studentIds,
-            votesMax: config.pollVotesMax,
             // Черновик — изредка последний опрос: у черновика нет голосов, его видит автор.
             draft: qi === pollCount - 1 && (si + qi) % 9 === 0,
             visibility: random.pick(CONTENT_VISIBILITY),
@@ -205,6 +202,72 @@ export async function seedProfileContent(prisma, writer, ctx) {
           })
         }
       }
+    }
+  }
+
+  // ── Статьи и опросы персонала: по роли и активности ─────────────────────────
+  // Преподаватель пишет методические статьи и опрашивает свои группы, декан — факультет,
+  // админ и модераторы вуза — студентов вуза. Это личный контент профиля (без
+  // universityPageId), отдельно от публикаций страницы вуза ниже. Голосуют те, кому
+  // опрос адресован: студенты факультета или вуза.
+  const universityStudents = people.faculties.flatMap((f) => f.groups.flatMap((g) => g.studentIds))
+  const staff = [
+    ...people.faculties.flatMap((f) => {
+      const facultyStudents = f.groups.flatMap((g) => g.studentIds)
+      return [
+        { id: f.deanId, role: 'DEAN', voters: facultyStudents },
+        ...f.teacherIds.map((tid, ti) => ({
+          id: tid,
+          role: 'TEACHER',
+          voters: f.groups[ti % f.groups.length]?.studentIds ?? facultyStudents,
+        })),
+      ]
+    }),
+    { id: people.adminId, role: 'UNIVERSITY_ADMIN', voters: universityStudents },
+    ...people.moderatorIds.map((mid) => ({
+      id: mid,
+      role: 'UNIVERSITY_MODERATOR',
+      voters: universityStudents,
+    })),
+    ...(people.librarianIds ?? []).map((lid) => ({
+      id: lid,
+      role: 'LIBRARIAN',
+      voters: universityStudents,
+    })),
+  ]
+  for (const author of staff) {
+    const activity = activityOf(author.id, author.role)
+    for (let ai = 0; ai < activity.articles; ai += 1) {
+      const body = articleBody(random)
+      const publishedAt = random.randomDate(-700, -1)
+      await writer.add('profileArticle', {
+        id: child(author.id, 'art', ai),
+        userId: author.id,
+        title: articleTitle(random),
+        description: 'Методические заметки и опыт преподавания.',
+        content: body,
+        ...articleCover(articleN++),
+        category: random.pick(ARTICLE_CATEGORIES),
+        tags: random.sample(['учёба', 'методика', 'наука', 'советы', 'кафедра', 'события'], 2),
+        visibility: random.pick(CONTENT_VISIBILITY),
+        allowComments: true,
+        status: 'PUBLISHED',
+        readingMinutes: Math.max(1, Math.round(body.length / 900)),
+        views: random.randInt(20, 900),
+        publishedAt,
+        createdAt: publishedAt,
+      })
+    }
+    for (let qi = 0; qi < activity.polls; qi += 1) {
+      await addPoll(writer, random, {
+        pollId: child(author.id, 'poll', qi),
+        userId: author.id,
+        // Голосуют адресаты, но не больше двух сотен: опрос админа на весь вуз иначе
+        // давал бы сотни голосов на каждый опрос.
+        voterPool: author.voters.slice(0, 200),
+        draft: false,
+        visibility: random.pick(CONTENT_VISIBILITY),
+      })
     }
   }
 
@@ -240,8 +303,8 @@ export async function seedProfileContent(prisma, writer, ctx) {
     pollId: id(index, 'upage', 'poll', 0),
     userId: people.adminId,
     universityPageId: uniId,
+    // Опрос страницы вуза видят все студенты; голосует доля первых двухсот.
     voterPool: allStudents.slice(0, 200),
-    votesMax: 20,
     draft: false,
     visibility: 'ALL',
   })
@@ -278,7 +341,7 @@ export async function seedProfileContent(prisma, writer, ctx) {
 // Опрос с вариантами и голосами. Варианты и голоса — в той же «транзакции»: опрос без
 // вариантов был бы сломанным экраном.
 async function addPoll(writer, random, opts) {
-  const { pollId, userId, voterPool, votesMax, draft, visibility } = opts
+  const { pollId, userId, voterPool, draft, visibility } = opts
   const { question, options } = pollTopic(random)
   const createdAt = random.randomDate(-500, -1)
   const resultsVisibility = random.pick(['AFTER_VOTE', 'AFTER_END', 'HIDDEN'])
@@ -312,11 +375,11 @@ async function addPoll(writer, random, opts) {
     await writer.add('pollOption', { id: optionId, pollId, text, order: oi })
   }
   if (draft) return
-  // Голосуют однокурсники: голос уникален по (option, user), поэтому берём разных людей.
-  const voters = random.sample(
-    voterPool.filter((uid) => uid !== userId),
-    random.randInt(0, votesMax),
-  )
+  // Голосуют однокурсники — доля тех, кому опрос виден (pollTurnout). Голос уникален по
+  // (option, user), поэтому берём разных людей. votes — явное число голосов (опросы
+  // страниц и компаний задают его сами).
+  const audience = voterPool.filter((uid) => uid !== userId)
+  const voters = random.sample(audience, opts.votes ?? pollTurnout(pollId, audience.length))
   for (const voterId of voters) {
     const optionId = random.pick(optionIds)
     await writer.add('pollVote', {
