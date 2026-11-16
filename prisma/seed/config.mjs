@@ -1,85 +1,42 @@
-// Конфигурация мега-сида: профили масштаба, точечные переключатели и гарды.
+// Конфигурация сида: два параметра объёма, точечные переключатели и гарды.
 //
-// Зачем профили: `pnpm db:seed` гоняется в CI, в workflow «Seed (Railway)» и локально
-// при каждом ресете БД. Полный масштаб (100 вузов ≈ 16 млн строк, десятки минут) там
-// недопустим, поэтому по умолчанию сид остаётся демо-объёма, а 100 вузов включаются
-// осознанно: `SEED_SCALE=full pnpm db:seed`.
+// Объём задаётся ТОЛЬКО числом вузов и студентов на вуз:
+//
+//   SEED_UNIVERSITIES=4 SEED_STUDENTS=500-1000 pnpm db:seed
+//
+// Всё остальное выводится из них: факультеты, группы и преподаватели — от числа студентов
+// (20-structure.mjs), контент каждого человека — от его роли и уровня активности
+// (lib/activity.mjs). Без SEED_UNIVERSITIES заливается только демо-вуз «Алатау» — быстро,
+// без сети и MinIO: так `pnpm db:seed` остаётся безопасной командой для сброса стенда.
+//
+// Профилей масштаба (SEED_SCALE=demo|small|full|kz, отдельный стенд db:seed:test) больше
+// нет — решение пользователя от 16.11.2026: один сид, данные относительно вуза и людей.
 //
 // Все значения читаются один раз на старте и дальше передаются шагам как объект —
 // шаги не лезут в process.env сами (иначе конфиг сида не воспроизвести по логу).
 
-// Профили. students — диапазон студентов на вуз, из него PRNG берёт число для каждого
-// вуза (детерминированно по индексу вуза, см. lib/rng.mjs).
-import { KZ_UNIVERSITIES } from './data/universities-kz.mjs'
-
 // Этапы, которые можно выбрать через SEED_ONLY.
 const STAGE_LIST = ['kato', 'media', 'companies', 'universities', 'demo']
 
-const PROFILES = {
-  // demo: генератор вузов выключен — заливается только демо-вуз основного сида.
-  demo: { universities: 0, students: [340, 380], label: 'демо (текущий объём)' },
-  // small и full заполняют всё, включая личную галерею: карточки галереи — ссылки на объекты
-  // общего пула (см. 57-user-media.mjs), хранилище они не увеличивают, только строки File.
-  small: {
-    universities: 5,
-    students: [200, 400],
-    label: 'малый (мультивузовость)',
-    gallery: { photos: [20, 40], videos: [1, 3] },
-  },
-  full: {
-    universities: 100,
-    students: [700, 1700],
-    label: 'полный',
-    gallery: { photos: [20, 40], videos: [1, 3] },
-  },
-  // kz: по одному вузу на каждую реальную организацию из реестра (universities-kz.mjs) —
-  // 130 вузов с настоящими названиями, аббревиатурами и городами. Размер вуза зависит от
-  // типа организации (национальный крупнее частного института, см. planUniversity), поэтому
-  // students здесь — база для множителя, а не итоговый разброс.
-  //
-  // Медиа в этом профиле по умолчанию ВЫКЛЮЧЕНО (решение владельца 17.09.2026): стенд
-  // нужен для данных, а не для картинок. Включается как везде — SEED_MEDIA=1.
-  kz: {
-    universities: KZ_UNIVERSITIES.length,
-    students: [500, 1400],
-    label: 'все вузы Казахстана (реальные названия, без медиа)',
-  },
-  // test: стенд с ЗАДАННЫМ поимённо составом (ТЗ) — 1 вуз, 2 факультета, 2 декана,
-  // 24 преподавателя, 1450 учащихся (из них 58 старост — по одному на группу).
-  //
-  // Демо-вуз «Алатау» здесь выключен: требование «1 университет» означает ровно один,
-  // а не «один сгенерированный рядом с демонстрационным». Поэтому named-аккаунты вроде
-  // dean@studenthub.app в этом профиле не создаются — вход под ролями идёт под
-  // сгенерированными адресами, их печатает итог прогона.
-  //
-  // Состав задан жёстко (fixed), а не выведен из числа студентов: формулы планировщика
-  // дали бы 6 факультетов и 58 преподавателей на 1450 студентов.
-  test: {
-    universities: 1,
-    students: [1450, 1450],
-    label: 'тестовый стенд (1 вуз, 1450 учащихся)',
-    fixed: {
-      demoUniversity: false,
-      platformModerators: 2,
-      faculties: 2,
-      teachers: 24,
-      groupSize: 25,
-      // Пул медиа меньше полного (1000/150): стенду хватает, качается быстрее. Пул нужен
-      // и при пустой галерее — из него идут аватары, обложки профилей и картинки постов.
-      photos: 200,
-      videos: 50,
-      // Личная галерея (вкладки «Фото» и «Видео» в профиле) — ПУСТАЯ по решению
-      // пользователя от 2026-09-16. Причина в цене: File уникален по (bucket, key), то
-      // есть карточка галереи — отдельный объект в MinIO, а не ссылка на пул. Сто фото
-      // на каждого из 1509 пользователей — это 150 тыс. объектов и ~29 ГБ, то есть 29 из
-      // 30 ГБ всего стенда ради содержимого двух вкладок.
-      //
-      // Механизм не удалён, а выключен: включается на любом объёме без пересборки
-      // остального — SEED_PHOTOS_PER_USER=30 SEED_VIDEOS_PER_USER=1 (см. 57-user-media.mjs).
-      photosPerUser: 0,
-      videosPerUser: 0,
-    },
-  },
+// Студентов на вуз по умолчанию — средний вуз. Меньше 400 не бывает: 4 факультета ×
+// 4 курса × группа в 25 человек.
+const DEFAULT_STUDENTS = [500, 1000]
+
+// Переменные, которые сид больше не читает. Молча игнорировать их нельзя: человек,
+// запустивший `SEED_SCALE=full`, ждёт сто вузов и получил бы один демо-вуз.
+const REMOVED_ENV = {
+  SEED_SCALE: 'профилей нет: задайте SEED_UNIVERSITIES и SEED_STUDENTS',
+  SEED_POSTS: 'посты считаются по роли и активности (lib/activity.mjs)',
+  SEED_ARTICLES: 'статьи считаются по роли и активности (lib/activity.mjs)',
+  SEED_POLLS: 'опросы считаются по роли и активности (lib/activity.mjs)',
+  SEED_POLL_VOTES_MAX: 'голоса — доля группы автора (POLL_TURNOUT в lib/activity.mjs)',
+  SEED_POST_IMAGES_PER_USER: 'доля постов с медиа задана нормой роли (lib/activity.mjs)',
+  SEED_PHOTOS_PER_USER: 'галерея считается по роли и активности; выключить — SEED_MEDIA=0',
+  SEED_VIDEOS_PER_USER: 'галерея считается по роли и активности; выключить — SEED_MEDIA=0',
+  SEED_FACULTIES: 'факультеты выводятся из числа студентов',
+  SEED_TEACHERS: 'преподаватели выводятся из нагрузки групп',
+  SEED_GROUP_SIZE: 'размер группы фиксирован — 25 человек',
+  SEED_SIZE_BY_KIND: 'размер вуза задаёт SEED_STUDENTS',
 }
 
 function num(name, fallback) {
@@ -148,33 +105,23 @@ function isLocalDatabase(url) {
 }
 
 export function loadConfig() {
-  const scaleName = process.env.SEED_SCALE ?? 'demo'
-  const profile = PROFILES[scaleName]
-  if (!profile) {
+  const removed = Object.keys(REMOVED_ENV).filter((name) => process.env[name])
+  if (removed.length > 0) {
     throw new Error(
-      `SEED_SCALE="${scaleName}" неизвестен. Доступно: ${Object.keys(PROFILES).join(', ')}`,
+      'Эти переменные сид больше не читает:\n' +
+        removed.map((name) => `  ${name} — ${REMOVED_ENV[name]}`).join('\n'),
     )
   }
 
-  const universities = num('SEED_UNIVERSITIES', profile.universities)
-  // Поимённо заданный состав профиля. У demo/small/full его нет: там структура вуза
-  // выводится из числа студентов, и это осознанно — 100 разных вузов не должны быть
-  // одинаковыми. Пустой объект вместо undefined, чтобы ниже не городить проверки.
-  const fixed = profile.fixed ?? {}
-  const studentsRange = range('STUDENTS', profile.students)
+  const universities = num('SEED_UNIVERSITIES', 0)
+  const studentsRange = range('STUDENTS', DEFAULT_STUDENTS)
   const config = {
-    scale: scaleName,
-    scaleLabel: profile.label,
     universities,
     // Заливать ли демо-вуз «Алатау» с named-аккаунтами (dean@studenthub.app и прочими).
-    // Выключается только профилем test: там университет обязан быть ровно один.
-    demoUniversity: bool('SEED_DEMO_UNIVERSITY', fixed.demoUniversity ?? true),
+    // На общей базе его выключают: это сотни аккаунтов под одним известным паролем.
+    demoUniversity: bool('SEED_DEMO_UNIVERSITY', true),
     // Модераторов платформы. Их создаёт основной сид, а не генератор вузов.
-    platformModerators: num('SEED_PLATFORM_MODERATORS', fixed.platformModerators ?? 1),
-    // Жёсткий состав вуза. null — считать по формулам планировщика (20-structure.mjs).
-    faculties: num('SEED_FACULTIES', fixed.faculties ?? null),
-    teachers: num('SEED_TEACHERS', fixed.teachers ?? null),
-    groupSize: num('SEED_GROUP_SIZE', fixed.groupSize ?? 25),
+    platformModerators: num('SEED_PLATFORM_MODERATORS', 1),
     studentsMin: studentsRange[0],
     studentsMax: studentsRange[1],
     // Диапазон вузов для догенерации порциями: SEED_FROM=20 SEED_TO=40.
@@ -193,55 +140,18 @@ export function loadConfig() {
     only: list('SEED_ONLY'),
     // Пересоздать данные вузов, помеченных как готовые (см. lib/marker.mjs).
     force: bool('SEED_FORCE', false),
-    // Медиа по умолчанию только на больших профилях: `pnpm db:seed` в demo не должен
-    // неожиданно тянуть из сети полгигабайта фото и видео (и требовать поднятый MinIO).
-    // Включить для demo — SEED_MEDIA=1, выключить где угодно — SEED_MEDIA=0.
-    media: bool('SEED_MEDIA', !['demo', 'kz'].includes(scaleName)),
-    // Размер вуза зависит от типа организации (planUniversity). Только для профиля kz:
-    // у остальных состав либо случайный по диапазону (demo/small/full), либо задан по ТЗ
-    // (test — ровно 1450 учащихся, и множитель превратил бы их в 3190).
-    sizeByKind: bool('SEED_SIZE_BY_KIND', scaleName === 'kz'),
-    // Фото — 1000 уникальных (требование задачи). Видео — «сколько есть, но все
-    // разные»: без API-ключа тысячу уникальных роликов не собрать, поэтому здесь
-    // потолок, а фактическое число зависит от доступности источников.
-    photos: num('SEED_PHOTOS', fixed.photos ?? 1000),
-    videos: num('SEED_VIDEOS', fixed.videos ?? 150),
-    // ── Личная галерея пользователя ───────────────────────────────────────────
-    // Сколько фото и видео получает КАЖДЫЙ пользователь в свои альбомы. Ноль — шаг
-    // выключен. По умолчанию включена в small/full (profile.gallery), выключена в test
-    // (решение пользователя от 2026-09-16), kz и demo.
-    //
-    // Карточка галереи — строка File со ссылкой на объект общего пула: пара (bucket, key)
-    // больше не уникальна (миграция files_shared_object_pool), поэтому галерея стоит строк
-    // в БД, а не гигабайт в MinIO, как было до миграции.
-    // Диапазоны, а не числа: «сколько фото у пользователя» задаётся как «100-500», и
-    // каждый получает своё случайное число в этих границах. «0-0» — галереи нет вовсе.
-    photosPerUser: range(
-      'PHOTOS_PER_USER',
-      profile.gallery?.photos ?? [fixed.photosPerUser ?? 0, fixed.photosPerUser ?? 0],
-    ),
-    videosPerUser: range(
-      'VIDEOS_PER_USER',
-      profile.gallery?.videos ?? [fixed.videosPerUser ?? 0, fixed.videosPerUser ?? 0],
-    ),
+    // Медиа (пул фото и видео, образцы форматов, галерея, вложения) — когда есть вузы:
+    // `pnpm db:seed` без вузов не должен тянуть из сети полгигабайта и требовать MinIO.
+    // Включить для одного демо-вуза — SEED_MEDIA=1, выключить где угодно — SEED_MEDIA=0.
+    media: bool('SEED_MEDIA', universities > 0),
+    // Пул: 1000 уникальных фото. Видео — «сколько есть, но все разные»: без API-ключа
+    // тысячу уникальных роликов не собрать, поэтому здесь потолок, а фактическое число
+    // зависит от доступности источников.
+    photos: num('SEED_PHOTOS', 1000),
+    videos: num('SEED_VIDEOS', 150),
     // Параллельных копий в MinIO. Выше, чем SEED_CONCURRENCY у вузов: copyObject — это
     // ожидание ответа хранилища, а не нагрузка на пул соединений Prisma.
     mediaConcurrency: num('SEED_MEDIA_CONCURRENCY', 16),
-    // ── Контент на пользователя ───────────────────────────────────────────────
-    // Объём здесь определяет почти весь размер БД: 60 постов × 130 тыс.
-    // пользователей — это 7.8 млн постов, а опросы с вариантами и голосами дают
-    // ещё десятки миллионов строк. Значения по умолчанию — как заказано.
-    postsPerUser: range('POSTS', [20, 100]),
-    articlesPerUser: range('ARTICLES', [20, 50]),
-    pollsPerUser: range('POLLS', [10, 100]),
-    // Голосов на опрос: множитель к самому большому домену. 3 голоса на опрос при
-    // 7.2 млн опросов — это ещё ~11 млн строк.
-    pollVotesMax: num('SEED_POLL_VOTES_MAX', 3),
-    // Постов с изображением на пользователя. Картинка требует объекта в MinIO
-    // (File.postId эксклюзивен, объект уникален по bucket+key), поэтому «картинка у
-    // каждого поста» = 7.8 млн объектов и сотни гигабайт. Здесь — серверные копии
-    // уже скачанных фото: 2 на пользователя ≈ 260 тыс. объектов ≈ 9 ГБ. 0 — выключить.
-    postImagesPerUser: num('SEED_POST_IMAGES_PER_USER', 2),
     // Кэш скачанного (в .gitignore): повторный прогон не тянет файлы из сети заново.
     mediaDir: process.env.SEED_MEDIA_DIR ?? '.seed-media',
     // Заново обойти Викисклад в поисках видео (иначе берётся кэш индекса).
@@ -274,30 +184,8 @@ export function loadConfig() {
   if (config.studentsMin > config.studentsMax) {
     throw new Error('SEED_STUDENTS_MIN больше SEED_STUDENTS_MAX')
   }
-  if (config.groupSize < 1) throw new Error('SEED_GROUP_SIZE должен быть положительным')
-  if (config.faculties !== null && config.faculties < 1) {
-    throw new Error('SEED_FACULTIES должен быть положительным')
-  }
-  // При заданном составе число групп считается только от студентов (20-structure.mjs),
-  // поэтому факультетов не должно быть больше, чем групп: факультет без единой группы
-  // роняет шаг людей на инвайтах (`faculty.groups[0]`), и по сообщению Prisma причину
-  // не угадать. Проверяем здесь — до первой записи в БД.
-  if (config.faculties !== null) {
-    const groups = Math.ceil(config.studentsMin / config.groupSize)
-    if (groups < config.faculties) {
-      throw new Error(
-        `Студентов (${config.studentsMin}) хватает только на ${groups} групп(ы) по ` +
-          `${config.groupSize}, а факультетов ${config.faculties}. Факультет без групп ` +
-          'недопустим: увеличьте SEED_STUDENTS_MIN или уменьшите SEED_FACULTIES.',
-      )
-    }
-  }
-  // Преподавателей не меньше, чем факультетов: декан деканом, а курсы факультета
-  // должен вести хотя бы один преподаватель этого факультета.
-  if (config.teachers !== null && config.teachers < (config.faculties ?? 1)) {
-    throw new Error(
-      `SEED_TEACHERS=${config.teachers} меньше числа факультетов (${config.faculties ?? 1})`,
-    )
+  if (!Number.isInteger(config.universities) || config.universities < 0) {
+    throw new Error('SEED_UNIVERSITIES: ожидалось целое число от 0')
   }
   if (!['seed', 'cleanup'].includes(config.mode)) {
     throw new Error(`SEED_MODE="${config.mode}" неизвестен. Доступно: seed, cleanup`)
@@ -317,9 +205,9 @@ export function loadConfig() {
       `Диапазон SEED_FROM=${config.from}..SEED_TO=${config.to} вне 1..${config.universities}`,
     )
   }
-  if (scaleName !== 'demo' && !config.allowRemote && !isLocalDatabase(config.databaseUrl)) {
+  if (universities > 0 && !config.allowRemote && !isLocalDatabase(config.databaseUrl)) {
     throw new Error(
-      `Масштаб "${scaleName}" на нелокальной БД заблокирован: это миллионы строк и десятки минут.\n` +
+      `${universities} вуз(ов) на нелокальной БД заблокировано: это миллионы строк и десятки минут.\n` +
         'Если это действительно нужно — SEED_ALLOW_REMOTE=1.',
     )
   }
@@ -327,4 +215,4 @@ export function loadConfig() {
   return config
 }
 
-export { PROFILES, STAGE_LIST, isLocalDatabase }
+export { DEFAULT_STUDENTS, REMOVED_ENV, STAGE_LIST, isLocalDatabase }

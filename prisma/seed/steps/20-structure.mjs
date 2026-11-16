@@ -37,42 +37,18 @@ const BUILDINGS = ['Корпус А', 'Корпус Б', 'Корпус В']
 
 // План вуза по числу студентов. Отдельная функция, потому что её же использует
 // прогресс-бар (нужно знать объём заранее) и тесты плана масштаба.
-// Множитель размера по типу организации (см. planUniversity).
-const SIZE_BY_KIND = {
-  NATIONAL: 2.2,
-  STATE: 1.4,
-  INTERNATIONAL: 1.2,
-  JOINT_STOCK: 1,
-  PRIVATE: 0.6,
-  SECURITY: 0.45,
-  BRANCH: 0.3,
-}
-
 export function planUniversity(index, random, config) {
   const { studentsMin, studentsMax } = config
-  // Жёсткий состав (профиль test): факультеты, преподаватели и размер группы заданы
-  // поимённо. null — считать по формулам ниже, как у demo/small/full.
-  const fixedFaculties = config.faculties ?? null
-  const fixedTeachers = config.teachers ?? null
-  const groupSize = config.groupSize ?? GROUP_SIZE
-
-  // Размер зависит от типа организации: национальный университет крупнее частного
-  // института в разы, и ровный разброс по всем вузам сделал бы стенд неправдоподобным
-  // («Пограничная академия» размером с КазНУ). Множители намеренно скромнее реальных:
-  // у настоящего КазНУ больше 20 тысяч студентов, и честный масштаб превратил бы прогон
-  // в десятки миллионов строк на один вуз.
-  const kind = config.realUniversities?.[index - 1]?.kind
-  const sizeMultiplier = config.sizeByKind ? (SIZE_BY_KIND[kind] ?? 1) : 1
-  const students = Math.round(random.randInt(studentsMin, studentsMax) * sizeMultiplier)
+  const students = random.randInt(studentsMin, studentsMax)
   // Факультетов от 4 до 7: у маленького вуза их меньше, у большого больше.
-  const facultyCount = fixedFaculties ?? Math.min(7, Math.max(4, Math.round(students / 260)))
+  const facultyCount = Math.min(7, Math.max(4, Math.round(students / 260)))
   const faculties = facultiesFor(index, facultyCount)
-  // При заданном составе число групп считается ТОЛЬКО от студентов: нижняя граница
-  // «по группе на каждый год набора каждого факультета» здесь навязала бы лишние
-  // группы, а с ними и лишних учащихся сверх заказанных 1450.
-  const groupCount = fixedFaculties
-    ? Math.ceil(students / groupSize)
-    : Math.max(faculties.length * ENROLLMENT_YEARS.length, Math.ceil(students / groupSize))
+  // Хотя бы по группе на каждый год набора каждого факультета: иначе у факультета не
+  // было бы, например, четвёртого курса.
+  const groupCount = Math.max(
+    faculties.length * ENROLLMENT_YEARS.length,
+    Math.ceil(students / GROUP_SIZE),
+  )
 
   // Группы раскладываем по факультетам как можно ровнее, внутри факультета — по годам
   // набора: иначе на четвёртом курсе не оказалось бы ни одной группы.
@@ -82,28 +58,17 @@ export function planUniversity(index, random, config) {
     const withinFaculty = Math.floor(g / faculties.length)
     const year = ENROLLMENT_YEARS[withinFaculty % ENROLLMENT_YEARS.length]
     const number = Math.floor(withinFaculty / ENROLLMENT_YEARS.length) + 1
-    plan[facIndex].groups.push({ year, number, students: groupSize })
+    plan[facIndex].groups.push({ year, number, students: GROUP_SIZE })
   }
 
-  if (fixedTeachers === null) {
-    // Преподавателей — из нагрузки: 6 дисциплин на группу, до 6 курсов на преподавателя.
-    for (const faculty of plan) {
-      faculty.teacherCount = Math.max(5, Math.ceil((faculty.groups.length * 6) / 6))
-    }
-  } else {
-    // Заданное число раскладываем по факультетам ровно, остаток — первым факультетам
-    // (24 на 2 → 12 и 12; 25 на 2 → 13 и 12). Сумма обязана сойтись с заказанной:
-    // «24 преподавателя» — это про весь вуз, а не про каждый факультет.
-    const base = Math.floor(fixedTeachers / plan.length)
-    const extra = fixedTeachers % plan.length
-    for (const [i, faculty] of plan.entries()) {
-      faculty.teacherCount = base + (i < extra ? 1 : 0)
-    }
+  // Преподавателей — из нагрузки: 6 дисциплин на группу, до 6 курсов на преподавателя.
+  for (const faculty of plan) {
+    faculty.teacherCount = Math.max(5, Math.ceil((faculty.groups.length * 6) / 6))
   }
 
   return {
     index,
-    students: groupCount * groupSize,
+    students: groupCount * GROUP_SIZE,
     faculties: plan,
     groupCount,
     roomCount: Math.max(12, Math.ceil(groupCount / 2)),
