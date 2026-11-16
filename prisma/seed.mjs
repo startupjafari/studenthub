@@ -16,6 +16,8 @@ import { assertRowBudget, estimateBytes, humanBytes, seedUniversities } from './
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
+import { seedFormats } from './seed/steps/12-formats.mjs'
+import { formatPool } from './seed/lib/formats.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
@@ -119,6 +121,15 @@ async function loadMediaPool(prisma) {
     else if (file.bucket === storage.buckets.profileMedia) pool.photos.push(entry)
   }
   return pool
+}
+
+// Пул образцов форматов вычисляется без БД (раскладка детерминирована, lib/formats.mjs) и
+// кладётся рядом с медиа-пулом: шаги вузов берут его как `pool.formats`. Без хранилища
+// образцов нет — шаги обходятся без вложений этих форматов.
+function withFormats(pool, storage) {
+  const formats = formatPool(storage)
+  if (!pool && !formats) return null
+  return { faces: [], photos: [], videos: [], ...pool, formats }
 }
 
 // Компании платформы из БД — для прогона только этапа вузов (SEED_ONLY=universities).
@@ -271,6 +282,9 @@ async function main() {
   let mediaPool = null
   if (config.media && config.runs('media')) {
     mediaPool = await seedMedia(prisma, config)
+    // Образцы всех форматов (документы, аудио, архивы, GIF…) — рядом с пулом медиа:
+    // вложения чатов, материалов, заданий, документов и заявок ссылаются на них.
+    await seedFormats(prisma, createStorage())
   }
 
   // ── Стикеры: собственный набор StudentHub ───────────────────────────────────
@@ -309,7 +323,7 @@ async function main() {
       storage,
       config,
       passwordHash,
-      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
+      pool: withFormats(mediaPool ?? (config.media ? await loadMediaPool(prisma) : null), storage),
       companies: linkedCompanies,
     })
   }
