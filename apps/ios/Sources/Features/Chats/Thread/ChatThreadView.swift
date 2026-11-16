@@ -24,6 +24,11 @@ struct ChatThreadView: View {
     /// Строка-источник открытого меню: в ленте она скрыта, пока над ней стоит копия
     /// пузыря, — иначе меню, сдвинувшее копию, оставляет под размытием двойника.
     @State private var menuSourceID: String?
+    /// Слой меню ещё на экране: закрытие прошлого меню (`menu = nil`) снимает его не сразу.
+    @State private var menuCoverShown = false
+    /// Меню, запрошенное, пока прошлый слой уходил: показ поверх уходящего слоя SwiftUI
+    /// молча пропускает, а `menu` остался бы непустым и блокировал следующие нажатия.
+    @State private var queuedMenu: MessageMenuRequest?
     /// Действие из меню ждёт, пока меню закроется: лист поверх закрывающегося
     /// полноэкранного слоя не откроется.
     @State private var pendingMenuAction: (MessageMenuAction, MessageRecord)?
@@ -843,7 +848,11 @@ struct ChatThreadView: View {
             .presentationBackground(.clear)
             // Источник прячется, когда копия уже на экране, а не в момент нажатия: показ
             // полноэкранного слоя занимает кадр, и раньше на месте пузыря мелькнула бы дыра.
-            .onAppear { menuSourceID = request.item.id }
+            .onAppear {
+                UITestProbe.note("menu cover appeared")
+                menuCoverShown = true
+                menuSourceID = request.item.id
+            }
         }
         .alert(String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"), isPresented: $reported) {
             Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
@@ -929,6 +938,7 @@ struct ChatThreadView: View {
 
     /// Долгое нажатие: меню открывается без системной анимации — у него своя, от пузыря.
     private func openMenu(_ item: MessageTimeline.Item, model: ChatThreadModel) {
+        UITestProbe.note("openMenu menu=\(menu != nil) selecting=\(model.isSelecting) row=\(BubbleAnchors.shared.rect(for: item.id, part: .row) != nil) bubble=\(BubbleAnchors.shared.rect(for: item.id, part: .bubble) != nil)")
         guard menu == nil, !model.isSelecting,
             let row = BubbleAnchors.shared.rect(for: item.id, part: .row),
             let bubble = BubbleAnchors.shared.rect(for: item.id, part: .bubble)
@@ -959,6 +969,16 @@ struct ChatThreadView: View {
             ),
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
         )
+        guard !menuCoverShown else {
+            UITestProbe.note("openMenu queued")
+            queuedMenu = request
+            return
+        }
+        UITestProbe.note("openMenu present myReaction=\(capabilities.myReaction ?? "-")")
+        present(request)
+    }
+
+    private func present(_ request: MessageMenuRequest) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { menu = request }
@@ -980,8 +1000,15 @@ struct ChatThreadView: View {
     /// Слой снят. Если его убрало не наше закрытие, источник иначе так и остался бы
     /// скрытым; уже открытое новое меню свой источник держит.
     private func menuDidDismiss() {
+        UITestProbe.note("menuDidDismiss menu=\(menu != nil) queued=\(queuedMenu != nil) failure=\(model?.actionFailure ?? "-")")
+        menuCoverShown = false
         if menu == nil { menuSourceID = nil }
+        // Выбранный пункт (ответ, пересылка, лист) важнее нового меню: оба сразу не покажутся.
+        let actionPending = pendingMenuAction != nil
         runPendingMenuAction()
+        let queued = queuedMenu
+        queuedMenu = nil
+        if let queued, menu == nil, !actionPending { present(queued) }
     }
 
     /// Действия просмотра: «Показать в чате» и «Ответить» — когда он закроется, «Удалить»

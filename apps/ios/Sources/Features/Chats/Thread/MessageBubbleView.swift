@@ -378,6 +378,14 @@ struct MessageBubbleView: View {
             }
         }
         .accessibilityElement(children: .combine)
+        // Слитая подпись теряет подписи капсул-кнопок: реакции VoiceOver читает значением.
+        .accessibilityValue(Text(verbatim: reactionsSummary))
+    }
+
+    /// «👍 2, ❤️ 1» — реакции для VoiceOver; без реакций — пусто.
+    private var reactionsSummary: String {
+        guard showsReactions else { return "" }
+        return extras.reactions.map { "\($0.emoji) \($0.userIds.count.formatted())" }.joined(separator: ", ")
     }
 
     /// Стикер — без пузыря: над ним ответ, под ним реакции, время — в капсуле на углу.

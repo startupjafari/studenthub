@@ -1688,7 +1688,6 @@
     <string name="chats_thread_search_from">От кого</string>
     <string name="chats_thread_search_fromAll">Все участники</string>
     <string name="chats_thread_search_fromName">От: %1$s</string>
-    <string name="chats_thread_search_list">Списком</string>
     <string name="chats_thread_search_newer">Следующее совпадение</string>
     <string name="chats_thread_search_older">Предыдущее совпадение</string>
     <string name="chats_thread_search_open">Поиск в чате</string>
@@ -4604,7 +4603,6 @@
     <string name="stories_camera_timerOff">Таймер: выкл.</string>
     <string name="stories_camera_unavailable">Камера недоступна на этом устройстве</string>
     <string name="stories_cancel">Отмена</string>
-    <string name="stories_caption">Подпись (необязательно)</string>
     <string name="stories_close">Закрыть</string>
     <string name="stories_collage_cell">Пустая ячейка</string>
     <string name="stories_collage_dropMessage">Кадры, которые не поместятся в новую раскладку, пропадут.</string>
@@ -4680,16 +4678,12 @@
     <string name="stories_more">Действия с историей</string>
     <string name="stories_mute">Не показывать истории автора</string>
     <string name="stories_new">Новая история</string>
-    <string name="stories_next">Следующая история</string>
     <string name="stories_nextAuthor">Следующий автор</string>
-    <string name="stories_pickMedia">Фото или видео</string>
     <string name="stories_poll_votes">Голосов: %1$s</string>
     <string name="stories_position">История %1$s из %2$s</string>
-    <string name="stories_previous">Предыдущая история</string>
     <string name="stories_previousAuthor">Предыдущий автор</string>
     <string name="stories_publish">Опубликовать</string>
     <string name="stories_publish_back">Назад к редактору</string>
-    <string name="stories_replaceMedia">Заменить</string>
     <string name="stories_reply">Ответить автору</string>
     <string name="stories_report_title">Что не так с историей?</string>
     <string name="stories_shape_arrow">Стрелка</string>
@@ -4704,7 +4698,6 @@
     <string name="stories_stickers_photo">Фото</string>
     <string name="stories_stickers_pickPhoto">Выбрать фото</string>
     <string name="stories_stickers_shapes">Фигуры</string>
-    <string name="stories_text">Текст истории</string>
     <string name="stories_text_alignment">Выравнивание</string>
     <string name="stories_text_back">Назад</string>
     <string name="stories_text_emoji">Эмодзи</string>

@@ -56,6 +56,24 @@ struct UITestEnvironment: Sendable {
 
 /// Точки подключения тестового режима к сборке зависимостей. В Release — настоящие
 /// реализации без единой проверки окружения.
+/// Зонд для разбора UI-тестов: шаги, которые не видны в дереве элементов (жест начался,
+/// показ отменён), попадают в `accessibilityValue` и тест печатает их при падении.
+/// В Release и вне mock — ничего не делает.
+@MainActor
+enum UITestProbe {
+    private static var events: [String] = []
+
+    static func note(_ event: @autoclosure () -> String) {
+        #if DEBUG
+            guard UITestEnvironment.current.isMock else { return }
+            events.append(event())
+            if events.count > 30 { events.removeFirst(events.count - 30) }
+        #endif
+    }
+
+    static var summary: String { events.joined(separator: " | ") }
+}
+
 enum UITestHooks {
     /// Геопозиция в сценариях на mock API: `SH_UITEST_LOCATION=denied` — доступ запрещён,
     /// `=fixed` — разрешён, точка в Алматы. Без переменной (и в Release) — настоящая служба.

@@ -324,6 +324,9 @@ struct StoryCameraScreen: View {
                 if modes.indices.contains(next) { model.setCaptureMode(modes[next]) }
             }
         )
+        // Контейнер, а не элемент: без `.contain` его идентификатор перекрывает кнопки
+        // режимов, и XCUITest их не находит.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("story.camera.modes")
     }
 }

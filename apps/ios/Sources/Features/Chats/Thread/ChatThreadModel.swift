@@ -602,10 +602,13 @@ final class ChatThreadModel {
         // возвращает прежние капсулы (IOS_RULES 9.5.1).
         let optimistic = MessageExtras.ReactionGroup.toggled(message.extras?.reactions ?? [], emoji: emoji, viewerID: viewerID)
         let previous = try? await store.saveLocalReactions(messageID: message.id, optimistic)
+        UITestProbe.note("react \(emoji) had=\(myReaction(on: message) ?? "-")")
         do {
             let updated = try await actions.react(messageID: remoteID, emoji: emoji)
             try await store.save(message: updated)
+            UITestProbe.note("react ok \((updated.reactions ?? []).map(\.emoji).joined())")
         } catch {
+            UITestProbe.note("react failed \(error)")
             if let previous { _ = try? await store.saveLocalReactions(messageID: message.id, previous) }
             actionFailure = self.message(for: error)
         }

@@ -32,17 +32,67 @@ final class ChatInteractionsUITests: MockUITestCase {
     private func openMenu(_ id: String, file: StaticString = #filePath, line: UInt = #line) {
         let target = bubble(id)
         XCTAssertTrue(target.waitForExistence(timeout: timeout), "нет сообщения \(id)", file: file, line: line)
-        target.press(forDuration: 0.7)
-        XCTAssertTrue(any("message.menu.select").waitForExistence(timeout: timeout), "меню не открылось", file: file, line: line)
+        // `message.bubble.*` — вся строка во ширину ленты, а меню ловит только касание по
+        // самому пузырю (`menuItem(at:)`): у короткого сообщения центр строки — пустое
+        // место сбоку, а первый текст строки бывает служебной подписью вне пузыря.
+        // Входящий пузырь прижат влево, свой — вправо: жмём у левого края строки,
+        // не открылось — у правого.
+        let menu = any("message.menu.select")
+        // По высоте — верх строки, строка текста: внизу пузыря капсулы реакций, долгое
+        // нажатие по ним — нажатие капсулы, а не меню.
+        for side in [0.1, 0.9] {
+            target.coordinate(withNormalizedOffset: CGVector(dx: side, dy: 0.25)).press(forDuration: 0.7)
+            if menu.waitForExistence(timeout: 2) { break }
+        }
+        // Показания зонда ленты (`UITestProbe`): начался ли жест, отказал ли показ.
+        XCTAssertTrue(
+            menu.waitForExistence(timeout: timeout),
+            "меню не открылось; зонд: \(list.value as? String ?? "—")", file: file, line: line)
     }
 
     private func menuAction(_ id: String) -> XCUIElement { any("message.menu.\(id)") }
 
-    /// В пузыре есть текст с подстрокой — подпись контейнера в XCUITest бывает пустой.
-    private func bubble(_ id: String, contains text: String) -> Bool {
-        bubble(id).descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
-            .waitForExistence(timeout: timeout)
+    /// В пузыре есть текст с подстрокой.
+    private func bubble(_ id: String, contains text: String, timeout: TimeInterval? = nil) -> Bool {
+        poll(timeout: timeout ?? self.timeout) { self.bubbleHas(id, text) }
+    }
+
+    /// `message.bubble.*` — пустой вид-якорь во всю строку, а содержимое пузыря слито
+    /// для VoiceOver в элемент рядом с ним. Текст относится к строке, если элемент с ним
+    /// стоит в её рамке по вертикали.
+    private func bubbleHas(_ id: String, _ text: String) -> Bool {
+        let row = bubble(id)
+        guard row.exists else { return false }
+        let frame = row.frame
+        if row.label.contains(text) { return true }
+        return app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+            .allElementsBoundByIndex.contains { element in
+                let mid = element.frame.midY
+                return mid >= frame.minY - 2 && mid <= frame.maxY + 2
+            }
+    }
+
+    /// Реакция под пузырём. Пузырь слит для VoiceOver в один элемент (подпись — текст
+    /// сообщения), реакции у него в значении: «👍 1, ❤️ 2».
+    private func hasReaction(_ text: String, _ emoji: String) -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@ AND value CONTAINS %@", text, emoji)).firstMatch.exists
+    }
+
+    /// Подписи элементов окна с подстрокой — в текст падения.
+    private func labelsDump(containing text: String) -> String {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+            .allElementsBoundByIndex.prefix(6).map { "\($0.elementType.rawValue):\($0.identifier):\($0.label):\($0.value ?? "-")" }
+            .joined(separator: " | ")
+    }
+
+    private func poll(timeout: TimeInterval, _ condition: @escaping () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        return condition()
     }
 
     private func waitForLabel(_ element: XCUIElement, containing text: String, timeout: TimeInterval? = nil) -> Bool {
@@ -55,8 +105,9 @@ final class ChatInteractionsUITests: MockUITestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    /// Элемент любого типа с подстрокой в подписи: тост и слитые строки — не StaticText.
     private func staticText(containing text: String) -> XCUIElement {
-        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     /// Системный запрос (доступ к «Фото») — нажать «Разрешить», если он показан.
@@ -106,26 +157,24 @@ final class ChatInteractionsUITests: MockUITestCase {
     func testReactionAddsShowsAndRemoves() throws {
         openChat()
         openMenu("chat-1-m40")
+        let text = "Привет! Ты сегодня на паре"
         any("message.react.👍").tap()
-        let reaction = bubble("chat-1-m40").descendants(matching: .any)["message.reaction.👍"].firstMatch
-        XCTAssertTrue(reaction.waitForExistence(timeout: timeout), "реакция не появилась под сообщением")
-        XCTAssertEqual(reaction.value as? String, "1")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "👍") }, "реакция не появилась под сообщением: \(labelsDump(containing: text))")
 
         // Повторно: моя реакция отмечена, повторное нажатие снимает её.
         openMenu("chat-1-m40")
         XCTAssertTrue(any("message.react.👍").isSelected, "своя реакция не отмечена в меню")
         any("message.react.👍").tap()
-        XCTAssertTrue(waitForDisappearance(reaction), "реакция не снялась")
+        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction(text, "👍") }, "реакция не снялась")
 
         // Другая реакция — заменяет, а не добавляется второй.
         openMenu("chat-1-m40")
         any("message.react.❤️").tap()
-        let heart = bubble("chat-1-m40").descendants(matching: .any)["message.reaction.❤️"].firstMatch
-        XCTAssertTrue(heart.waitForExistence(timeout: timeout))
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "❤️") }, "❤️ не появилась")
         openMenu("chat-1-m40")
         any("message.react.👌").tap()
-        XCTAssertTrue(waitForDisappearance(heart), "прежняя реакция не заменилась")
-        XCTAssertTrue(bubble("chat-1-m40").descendants(matching: .any)["message.reaction.👌"].firstMatch.waitForExistence(timeout: timeout))
+        XCTAssertTrue(poll(timeout: timeout) { !self.hasReaction(text, "❤️") }, "прежняя реакция не заменилась")
+        XCTAssertTrue(poll(timeout: timeout) { self.hasReaction(text, "👌") }, "👌 не появилась")
     }
 
     // MARK: - 3. Множественный выбор
@@ -174,7 +223,7 @@ final class ChatInteractionsUITests: MockUITestCase {
 
         let sheet = any("chat.forward")
         XCTAssertTrue(sheet.waitForExistence(timeout: timeout), "экран пересылки не открылся")
-        XCTAssertTrue(waitForLabel(any("chat.forward.title"), containing: "Переслать"))
+        XCTAssertTrue(waitForLabel(any("chat.forward.title"), containing: "Переслать"), "нет заголовка «Переслать»")
         any("chat.forward.row.chat-2").tap()
         any("chat.forward.row.chat-3").tap()
         XCTAssertTrue(staticText(containing: "Переслать 10 сообщений").waitForExistence(timeout: timeout))
@@ -201,7 +250,9 @@ final class ChatInteractionsUITests: MockUITestCase {
 
         any("chat.forward.send").tap()
         XCTAssertTrue(waitForDisappearance(sheet), "лист пересылки не закрылся")
-        XCTAssertTrue(staticText(containing: "Переслано в 2").waitForExistence(timeout: timeout), "нет итога пересылки")
+        // Тост «Переслано в 2 чата» живёт 2 с и в это время закрыт уезжающим листом —
+        // признак полного успеха надёжнее: режим выбора закрывается только при нём.
+        XCTAssertTrue(waitForDisappearance(any("chat.selection.title")), "пересылка не завершилась целиком")
 
         // У получателя: комментарий, затем десять пересланных по времени, без «Переслано от».
         backButton.tap()
@@ -250,18 +301,20 @@ final class ChatInteractionsUITests: MockUITestCase {
         // Чужое сообщение: только «у меня».
         openMenu("chat-1-m38")
         menuAction("delete").tap()
-        XCTAssertTrue(app.buttons["Удалить у меня"].waitForExistence(timeout: timeout))
-        XCTAssertFalse(app.buttons["Удалить у всех"].exists, "«у всех» для чужого")
-        app.buttons["Удалить у меня"].tap()
+        XCTAssertTrue(app.buttons["Удалить у меня"].firstMatch.waitForExistence(timeout: timeout))
+        XCTAssertFalse(app.buttons["Удалить у всех"].firstMatch.exists, "«у всех» для чужого")
+        app.buttons["Удалить у меня"].firstMatch.tap()
         XCTAssertTrue(waitForDisappearance(bubble("chat-1-m38")), "сообщение не скрылось у меня")
         XCTAssertTrue(bubble("chat-1-m37").exists, "соседнее сообщение пропало")
 
         // Своё — можно у всех: остаётся «Сообщение удалено».
         openMenu("chat-1-m39")
         menuAction("delete").tap()
-        XCTAssertTrue(app.buttons["Удалить у всех"].waitForExistence(timeout: timeout), "нет «у всех» для своего")
-        app.buttons["Удалить у всех"].tap()
-        XCTAssertTrue(bubble("chat-1-m39", contains: "удален"), "своё не удалилось у всех")
+        XCTAssertTrue(app.buttons["Удалить у всех"].firstMatch.waitForExistence(timeout: timeout), "нет «у всех» для своего")
+        app.buttons["Удалить у всех"].firstMatch.tap()
+        // Пузырь слит в один элемент рядом с пустым якорем строки — ищем по окну.
+        XCTAssertTrue(staticText(containing: "Сообщение удалено").waitForExistence(timeout: timeout),
+                      "своё не удалилось у всех: \(labelsDump(containing: "удален"))")
     }
 
     // MARK: - 7. Сохранить фото
@@ -347,13 +400,14 @@ final class ChatInteractionsUITests: MockUITestCase {
             search.typeText("архив")
             XCTAssertTrue(waitForDisappearance(recent), "поиск не отфильтровал")
             XCTAssertTrue(any("chat.attach.recent.row.file-doc-3").waitForExistence(timeout: timeout))
-            search.buttons.firstMatch.tap()
+            search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 5))
         }
         XCTAssertTrue(any("chat.attach.recent.row.file-doc-2").waitForExistence(timeout: timeout))
         any("chat.attach.recent.row.file-doc-2").tap()
         let send = any("chat.attachSend.send")
         XCTAssertTrue(send.waitForExistence(timeout: timeout), "файл не попал в лист отправки")
-        XCTAssertTrue(staticText(containing: "Отчёт по практике").exists, "в листе отправки нет имени файла")
+        // Лист открывается сразу, а файл ещё «готовится» — имя появляется следом.
+        XCTAssertTrue(staticText(containing: "Отчёт по практике").waitForExistence(timeout: timeout), "в листе отправки нет имени файла")
         send.tap()
         XCTAssertTrue(bubble("chat-1-m41").waitForExistence(timeout: timeout), "файл не ушёл")
     }
@@ -364,15 +418,14 @@ final class ChatInteractionsUITests: MockUITestCase {
         relaunch(environment: ["SH_UITEST_LOCATION": "denied"])
         openChat()
         openAttachSheet(section: "location")
-        XCTAssertTrue(any("chat.location.denied").waitForExistence(timeout: timeout), "нет экрана отказа")
-        XCTAssertTrue(staticText(containing: "Доступ к геопозиции").exists)
+        XCTAssertTrue(staticText(containing: "Доступ к геопозиции").waitForExistence(timeout: timeout), "нет экрана отказа")
         XCTAssertTrue(any("chat.location.settings").exists, "нет «В настройки»")
         XCTAssertTrue(any("chat.location.sendDisabled").exists, "нет неактивной отправки")
 
         relaunch(environment: ["SH_UITEST_LOCATION": "fixed"])
         openChat()
         openAttachSheet(section: "location")
-        XCTAssertFalse(any("chat.location.denied").exists)
+        XCTAssertFalse(staticText(containing: "Доступ к геопозиции").exists)
         let send = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Отправить моё местоположение")).firstMatch
         XCTAssertTrue(send.waitForExistence(timeout: timeout), "нет отправки своей точки")
         XCTAssertTrue(send.isEnabled, "отправка неактивна при известной точке")

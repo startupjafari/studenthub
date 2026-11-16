@@ -120,6 +120,8 @@
         private let lock = NSLock()
         /// Отправленные в этом процессе сообщения: чат → свежие первыми.
         private var sentMessages: [String: [JSON]] = [:]
+        /// Тип файла по ключу прямой загрузки — из `presign`, для сообщения по ключам.
+        private var uploadMimes: [String: String] = [:]
         private var sentComments: [String: [JSON]] = [:]
         /// Правки сообщений: реакции, закрепление, удаление «у всех» (id → поля поверх).
         private var messagePatches: [String: JSON] = [:]
@@ -216,6 +218,30 @@
             var meta: JSON = ["hasNext": hasNext, "total": total]
             if hasNext { meta["cursor"] = String(end) }
             return ok(items, meta: meta)
+        }
+
+        /// Новое своё сообщение в чате: номер — следующий после фикстур и уже отправленного.
+        private func newMessage(in chatID: String, content: String?, replyToID: String?) -> JSON {
+            let index = MockFixtures.chatIndex(of: chatID) ?? 0
+            let sent = sentMessages[chatID] ?? []
+            let seq = MockFixtures.messageCount(chatIndex: index) + sent.count + 1
+            var message: JSON = [
+                "id": "\(chatID)-m\(seq)",
+                "chatId": chatID,
+                "seq": seq,
+                "senderId": MockFixtures.studentID,
+                "sender": MockFixtures.student.json,
+                "content": content ?? "",
+                // Свежее любого сообщения фикстур: точка отсчёта плюс номер отправки.
+                "createdAt": MockFixtures.iso(Date(timeIntervalSince1970: MockFixtures.epoch + TimeInterval(sent.count + 1))),
+            ]
+            if let replyToID { message["replyToId"] = replyToID }
+            return message
+        }
+
+        private func store(_ message: JSON, in chatID: String) -> JSON {
+            sentMessages[chatID] = [message] + (sentMessages[chatID] ?? [])
+            return message
         }
 
         private func makeID(_ prefix: String) -> String {
@@ -321,24 +347,12 @@
 
             route("POST", "chats/:id/messages") { [unowned self] request in
                 let id = request.params["id"] ?? ""
-                guard let index = MockFixtures.chatIndex(of: id) else {
+                guard MockFixtures.chatIndex(of: id) != nil else {
                     return Self.error(404, code: "NOT_FOUND", message: "Чат не найден")
                 }
                 let fields = Self.multipartFields(request)
                 let files = Self.multipartFiles(request)
-                let sent = self.sentMessages[id] ?? []
-                let seq = MockFixtures.messageCount(chatIndex: index) + sent.count + 1
-                var message: JSON = [
-                    "id": "\(id)-m\(seq)",
-                    "chatId": id,
-                    "seq": seq,
-                    "senderId": MockFixtures.studentID,
-                    "sender": MockFixtures.student.json,
-                    "content": fields["content"] ?? "",
-                    // Свежее любого сообщения фикстур: точка отсчёта плюс номер отправки.
-                    "createdAt": MockFixtures.iso(Date(timeIntervalSince1970: MockFixtures.epoch + TimeInterval(sent.count + 1))),
-                ]
-                if let reply = fields["replyToId"] { message["replyToId"] = reply }
+                var message = self.newMessage(in: id, content: fields["content"], replyToID: fields["replyToId"])
                 if !files.isEmpty {
                     let hidden = Set((fields["spoilerIndexes"] ?? "").split(separator: ",").compactMap { Int($0) })
                     let allHidden = fields["spoiler"] == "true"
@@ -354,8 +368,43 @@
                         ]
                     }
                 }
-                self.sentMessages[id] = [message] + sent
-                return Self.ok(message)
+                return Self.ok(self.store(message, in: id))
+            }
+
+            // Прямая загрузка, как в приложении: подпись → PUT в «хранилище» → сообщение
+            // по ключам. Хранилище — тот же mock (адрес API), тело файла не храним.
+            route("POST", "chats/:id/attachments/presign") { [unowned self] request in
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON
+                let key = self.makeID("upload")
+                self.uploadMimes[key] = body?["mime"] as? String ?? "application/octet-stream"
+                return Self.ok([
+                    "key": key,
+                    "url": AppConfiguration.apiBaseURL.appending(path: "mock-storage/\(key)").absoluteString,
+                    "expiresAt": MockFixtures.iso(Date().addingTimeInterval(3600)),
+                ])
+            }
+            route("PUT", "mock-storage/:key") { _ in Self.empty }
+            route("POST", "chats/:id/messages/uploaded") { [unowned self] request in
+                let id = request.params["id"] ?? ""
+                guard MockFixtures.chatIndex(of: id) != nil else {
+                    return Self.error(404, code: "NOT_FOUND", message: "Чат не найден")
+                }
+                let body = (try? JSONSerialization.jsonObject(with: request.body)) as? JSON ?? [:]
+                var message = self.newMessage(in: id, content: body["content"] as? String, replyToID: body["replyToId"] as? String)
+                let asFiles = body["asFiles"] as? Bool ?? false
+                let uploads = body["attachments"] as? [JSON] ?? []
+                message["media"] = uploads.map { upload -> JSON in
+                    let key = upload["key"] as? String ?? ""
+                    return [
+                        "id": self.makeID("file"),
+                        "mime": self.uploadMimes[key] ?? "application/octet-stream",
+                        "name": upload["name"] as? String ?? key,
+                        "size": 1024,
+                        "spoiler": upload["spoiler"] as? Bool ?? false,
+                        "asDocument": asFiles,
+                    ]
+                }
+                return Self.ok(self.store(message, in: id))
             }
 
             route("GET", "chats/:id/updates") { [unowned self] request in

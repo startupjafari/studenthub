@@ -19,6 +19,8 @@
 #   perf         StudentHubPerfTests — запуск, прокрутка, переходы; сверка с baseline
 #   scroll       только замер плавности ленты переписки (ScrollSmoothnessTests): строки
 #                SCROLL_REPORT в сводке, сравнение положений раскладки в одном прогоне
+#   only:<Класс> один класс StudentHubUITests (only:ChatInteractionsUITests) — быстрый
+#                прогон при разборе падения; можно несколько аргументов
 #   bench        тот же замер без XCUITest: приложение ставится и запускается `simctl`,
 #                чат открывается сам, лента листает себя сама (ScrollBenchmark); строки
 #                SCROLL_BENCH в сводке. Раннер UI-тестов включает доступность и опрашивает
@@ -52,7 +54,7 @@ for arg in "$@"; do
     build) BUILD_ONLY=1 ;;
     pr) SUITES+=(unit snapshot ui) ;;
     full) SUITES+=(unit snapshot ui-extended perf) ;;
-    unit | snapshot | ui | ui-extended | a11y | perf | scroll | bench) SUITES+=("$arg") ;;
+    unit | snapshot | ui | ui-extended | a11y | perf | scroll | bench | only:*) SUITES+=("$arg") ;;
     -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "Неизвестный набор: $arg" >&2; exit 2 ;;
   esac
@@ -318,6 +320,7 @@ for suite in "${SUITES[@]}"; do
     perf) run_suite perf -only-testing:StudentHubPerfTests ;;
     scroll) run_suite scroll -only-testing:StudentHubPerfTests/ScrollSmoothnessTests ;;
     bench) run_bench ;;
+    only:*) run_suite ui -only-testing:"StudentHubUITests/${suite#only:}" ;;
   esac
 done
 

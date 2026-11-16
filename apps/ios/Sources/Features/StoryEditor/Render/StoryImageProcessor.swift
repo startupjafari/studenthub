@@ -103,8 +103,8 @@ final class StoryImageProcessor: @unchecked Sendable {
             let filter = CIFilter.temperatureAndTint()
             filter.inputImage = image
             filter.neutral = CIVector(x: 6500, y: 0)
-            // Цель выше нейтрали — снимок теплее: так фильтр компенсирует «холодный» свет.
-            filter.targetNeutral = CIVector(x: 6500 + warmth * 2500, y: tint * 60)
+            // Цель ниже нейтрали — снимок теплее (закреплено тестом testWarmthShiftsTowardsRed).
+            filter.targetNeutral = CIVector(x: 6500 - warmth * 2500, y: tint * 60)
             image = filter.outputImage ?? image
         }
 

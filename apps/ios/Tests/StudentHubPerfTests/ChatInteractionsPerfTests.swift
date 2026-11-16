@@ -54,7 +54,7 @@ final class ChatInteractionsPerfTests: XCTestCase {
     func testContextMenuAppearance() {
         XCTAssertTrue(lastBubble.waitForExistence(timeout: 15))
         measure(metrics: [XCTClockMetric(), XCTCPUMetric(application: app)], options: options) {
-            lastBubble.press(forDuration: 0.5)
+            lastBubble.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.5)
             XCTAssertTrue(element("message.menu.select").waitForExistence(timeout: 5))
             stopMeasuring()
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
@@ -65,7 +65,7 @@ final class ChatInteractionsPerfTests: XCTestCase {
     /// Выбор десяти сообщений подряд: отметки и счётчик без пересборки ленты.
     func testSelectionToggling() {
         XCTAssertTrue(lastBubble.waitForExistence(timeout: 15))
-        lastBubble.press(forDuration: 0.5)
+        lastBubble.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.5)
         element("message.menu.select").tap()
         measure(metrics: [XCTClockMetric(), XCTCPUMetric(application: app), XCTMemoryMetric(application: app)], options: options) {
             for seq in stride(from: 1999, through: 1994, by: -1) {
@@ -112,7 +112,7 @@ final class ChatInteractionsPerfTests: XCTestCase {
         XCTAssertTrue(lastBubble.waitForExistence(timeout: 15))
         measure(metrics: [XCTMemoryMetric(application: app)], options: options) {
             for _ in 0..<3 {
-                lastBubble.press(forDuration: 0.5)
+                lastBubble.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.5)
                 _ = element("message.menu.select").waitForExistence(timeout: 5)
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
                 element("chat.attach").tap()
