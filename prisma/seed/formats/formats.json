@@ -1,0 +1,272 @@
+[
+  {
+    "file": "image.jpg",
+    "mime": "image/jpeg",
+    "category": "IMAGE",
+    "names": [
+      "Конспект.jpg",
+      "Доска после пары.jpg",
+      "Расписание.jpg"
+    ],
+    "size": 26014,
+    "width": 800,
+    "height": 450
+  },
+  {
+    "file": "image.png",
+    "mime": "image/png",
+    "category": "IMAGE",
+    "names": [
+      "Скриншот.png",
+      "Схема.png",
+      "График.png"
+    ],
+    "size": 16267,
+    "width": 800,
+    "height": 450
+  },
+  {
+    "file": "image.webp",
+    "mime": "image/webp",
+    "category": "IMAGE",
+    "names": [
+      "Фото доски.webp",
+      "Слайд.webp"
+    ],
+    "size": 13972,
+    "width": 800,
+    "height": 450
+  },
+  {
+    "file": "image.gif",
+    "mime": "image/gif",
+    "category": "IMAGE",
+    "role": "gif",
+    "names": [
+      "Анимация.gif",
+      "reaction.gif"
+    ],
+    "size": 66306,
+    "width": 240,
+    "height": 160
+  },
+  {
+    "file": "video.mp4",
+    "mime": "video/mp4",
+    "category": "VIDEO",
+    "names": [
+      "Запись лекции.mp4",
+      "Видео с практики.mp4"
+    ],
+    "size": 89635,
+    "width": 480,
+    "height": 270,
+    "durationMs": 4000
+  },
+  {
+    "file": "video.webm",
+    "mime": "video/webm",
+    "category": "VIDEO",
+    "names": [
+      "Запись экрана.webm",
+      "Демо проекта.webm"
+    ],
+    "size": 79642,
+    "width": 480,
+    "height": 270,
+    "durationMs": 4008
+  },
+  {
+    "file": "video.mov",
+    "mime": "video/quicktime",
+    "category": "VIDEO",
+    "names": [
+      "IMG_2048.mov",
+      "Видео с телефона.mov"
+    ],
+    "size": 89686,
+    "width": 480,
+    "height": 270,
+    "durationMs": 4000
+  },
+  {
+    "file": "document.pdf",
+    "mime": "application/pdf",
+    "category": "DOCUMENT",
+    "names": [
+      "Лекция 3. Производная.pdf",
+      "Методичка.pdf",
+      "Справка.pdf",
+      "Скан паспорта.pdf",
+      "Приказ.pdf"
+    ],
+    "size": 62711
+  },
+  {
+    "file": "document.docx",
+    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "category": "DOCUMENT",
+    "names": [
+      "План курсовой.docx",
+      "Реферат.docx",
+      "Заявление.docx",
+      "Отчёт по практике.docx"
+    ],
+    "size": 2347
+  },
+  {
+    "file": "spreadsheet.xlsx",
+    "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "category": "DOCUMENT",
+    "names": [
+      "Ведомость.xlsx",
+      "Расчёты.xlsx",
+      "Список группы.xlsx"
+    ],
+    "size": 9666
+  },
+  {
+    "file": "presentation.pptx",
+    "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "category": "DOCUMENT",
+    "names": [
+      "Презентация к защите.pptx",
+      "Слайды лекции.pptx"
+    ],
+    "size": 5898
+  },
+  {
+    "file": "voice.ogg",
+    "mime": "audio/ogg",
+    "category": "AUDIO",
+    "role": "voice",
+    "names": [
+      "voice-message.ogg"
+    ],
+    "size": 18994,
+    "durationMs": 6007
+  },
+  {
+    "file": "voice.webm",
+    "mime": "audio/webm",
+    "category": "AUDIO",
+    "role": "voice",
+    "names": [
+      "voice-message.webm"
+    ],
+    "size": 20742,
+    "durationMs": 6008
+  },
+  {
+    "file": "voice.m4a",
+    "mime": "audio/x-m4a",
+    "category": "AUDIO",
+    "role": "voice",
+    "names": [
+      "voice-message.m4a"
+    ],
+    "size": 26391,
+    "durationMs": 6000
+  },
+  {
+    "file": "music.mp3",
+    "mime": "audio/mpeg",
+    "category": "AUDIO",
+    "role": "music",
+    "names": [
+      "Гимн университета.mp3",
+      "Подкаст выпуск 4.mp3"
+    ],
+    "size": 64618,
+    "durationMs": 8046
+  },
+  {
+    "file": "audiobook.m4b",
+    "mime": "audio/mp4",
+    "category": "AUDIO",
+    "role": "music",
+    "names": [
+      "Аудиокнига, глава 1.m4b",
+      "Лекция (аудио).m4b"
+    ],
+    "size": 66280,
+    "durationMs": 8000
+  },
+  {
+    "file": "music.wav",
+    "mime": "audio/wav",
+    "category": "AUDIO",
+    "role": "music",
+    "names": [
+      "Запись диктофона.wav",
+      "Аудирование.wav"
+    ],
+    "size": 128078,
+    "durationMs": 8000
+  },
+  {
+    "file": "archive.zip",
+    "mime": "application/zip",
+    "category": "ARCHIVE",
+    "names": [
+      "Материалы к семинару.zip",
+      "Исходники проекта.zip"
+    ],
+    "size": 499
+  },
+  {
+    "file": "archive.rar",
+    "mime": "application/x-rar-compressed",
+    "category": "ARCHIVE",
+    "names": [
+      "Курсовая.rar",
+      "Фото с практики.rar"
+    ],
+    "size": 384
+  },
+  {
+    "file": "archive.7z",
+    "mime": "application/x-7z-compressed",
+    "category": "ARCHIVE",
+    "names": [
+      "Лабораторные.7z"
+    ],
+    "size": 409
+  },
+  {
+    "file": "archive.tar.gz",
+    "mime": "application/gzip",
+    "category": "ARCHIVE",
+    "names": [
+      "project.tar.gz"
+    ],
+    "size": 354
+  },
+  {
+    "file": "archive.tar",
+    "mime": "application/x-tar",
+    "category": "ARCHIVE",
+    "names": [
+      "backup.tar"
+    ],
+    "size": 10240
+  },
+  {
+    "file": "archive.tar.bz2",
+    "mime": "application/x-bzip2",
+    "category": "ARCHIVE",
+    "names": [
+      "dataset.tar.bz2"
+    ],
+    "size": 341
+  },
+  {
+    "file": "archive.tar.xz",
+    "mime": "application/x-xz",
+    "category": "ARCHIVE",
+    "names": [
+      "logs.tar.xz"
+    ],
+    "size": 404
+  }
+]

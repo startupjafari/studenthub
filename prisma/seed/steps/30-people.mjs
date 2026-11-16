@@ -15,7 +15,37 @@ import { createHash, randomUUID } from 'node:crypto'
 
 import { ACADEMIC_TITLES, POSITIONS_TEACHER, person, translit } from '../data/people.mjs'
 import { staffProfile, studentProfile } from '../data/profiles.mjs'
+import { academicCalendar, enrollmentYears } from '../lib/calendar.mjs'
 import { child, emailFor, id, uniPrefix, usernameFor } from '../lib/ids.mjs'
+
+// Учебные статусы — в написании справочника (AcademicStatus в
+// packages/shared-types/src/academic-status.ts): так их сохраняет PATCH /users/:id/academic.
+const ACADEMIC_STATUS = {
+  ACTIVE: 'Обучающийся',
+  ACADEMIC_LEAVE: 'Академический отпуск',
+  GRADUATED: 'Выпускник',
+  EXPELLED: 'Отчислен',
+  TRANSFERRED: 'Переведён',
+}
+// Ушедшие из вуза: им ставится leftUniversityAt (nextLeftUniversityAt в users.service.ts).
+const LEFT_STATUSES = new Set(['GRADUATED', 'EXPELLED', 'TRANSFERRED'])
+// Не-активные статусы раздаются каждой второй группе по кругу — по последнему студенту
+// группы (староста — первый, он остаётся учащимся). Около 2% студентов: экраны деканата,
+// библиотеки и поста охраны видят все статусы, а счётчики и списки не «пустеют».
+const INACTIVE_CYCLE = ['ACADEMIC_LEAVE', 'EXPELLED', 'TRANSFERRED']
+const DAY_MS = 86_400_000
+
+/**
+ * Не-активный статус студента или null. GRADUATED — только выпускному курсу (самый ранний
+ * год набора, первая его группа факультета): досрочный выпуск в конце прошлого семестра.
+ * Остальные — по кругу каждой второй группы. Детерминированно, без случайных чисел: смена
+ * статуса не должна сдвигать поток случайностей, из которого строятся профили.
+ */
+function inactiveStatusFor({ group, groupIndex, firstOldestOfFaculty }) {
+  if (group.year === enrollmentYears()[0] && firstOldestOfFaculty) return 'GRADUATED'
+  if (groupIndex % 2 !== 0) return null
+  return INACTIVE_CYCLE[(groupIndex / 2) % INACTIVE_CYCLE.length]
+}
 
 // 'u042-g-eco-3-st07' → 'g.eco.3.st07'
 function localFromId(entityId) {
@@ -165,7 +195,13 @@ export async function seedPeople(prisma, writer, ctx) {
     securityGuardIds: staffIds.SECURITY_GUARD,
     librarianIds: staffIds.LIBRARIAN,
     faculties: [],
+    // studentId → { code, since, leftAt }: студенты не в статусе «Обучающийся». Шаг академики
+    // по нему не ставит посещаемость и новые оценки после `since`, пост охраны — пропуск.
+    studentStatus: new Map(),
   }
+  const calendar = academicCalendar()
+  // Порядковый номер группы в вузе — для круга статусов (см. inactiveStatusFor).
+  let groupIndex = 0
 
   for (const faculty of faculties) {
     const template = faculty.template
@@ -212,13 +248,34 @@ export async function seedPeople(prisma, writer, ctx) {
     }
 
     const groups = []
+    let oldestSeen = false
     for (const group of faculty.groups) {
       const studentIds = []
+      const isOldest = group.year === enrollmentYears()[0]
+      const inactiveCode = inactiveStatusFor({
+        group,
+        groupIndex,
+        firstOldestOfFaculty: isOldest && !oldestSeen,
+      })
+      if (isOldest) oldestSeen = true
+      groupIndex += 1
       for (let s = 0; s < group.studentCount; s += 1) {
         const studentId = child(group.id, 'st', String(s).padStart(2, '0'))
         const studentPerson = person(counter++, random)
         const isStarosta = s === 0
         studentIds.push(studentId)
+        // Последний студент группы (не староста) — носитель не-активного статуса.
+        const status =
+          inactiveCode && !isStarosta && s === group.studentCount - 1
+            ? academicStatusFields(inactiveCode, { calendar, groupIndex })
+            : { academicStatus: ACADEMIC_STATUS.ACTIVE }
+        if (status.since) {
+          people.studentStatus.set(studentId, {
+            code: inactiveCode,
+            since: status.since,
+            leftAt: status.leftUniversityAt ?? null,
+          })
+        }
         await addUser({
           id: studentId,
           // Локальная часть — хвост id студента (g.eco.3.st07): уникальна внутри вуза
@@ -243,6 +300,11 @@ export async function seedPeople(prisma, writer, ctx) {
             cityName,
             profile,
           }),
+          // Поверх профиля: построитель кладёт код ACTIVE, а сервис хранит написание
+          // справочника. Служебное `since` в строку пользователя не попадает.
+          academicStatus: status.academicStatus,
+          ...(status.leftUniversityAt ? { leftUniversityAt: status.leftUniversityAt } : {}),
+          ...(status.graduationYear ? { graduationYear: status.graduationYear } : {}),
           ...(isStarosta
             ? {
                 starostaSince: new Date(Date.UTC(group.year, 8, 1)),
@@ -310,12 +372,73 @@ export async function seedPeople(prisma, writer, ctx) {
       groupId: inGroup ? group.id : null,
       status,
       expiresAt: status === 'EXPIRED' ? random.randomDate(-30, -2) : random.randomDate(2, 30),
-      createdById: adminId,
+      // Выдаёт тот, кому иерархия инвайтов разрешает (invites.service): студента — староста
+      // группы, старосту — декан, остальных — админ вуза.
+      createdById:
+        role === 'STUDENT' ? group.starostaId : role === 'STAROSTA' ? faculty.deanId : adminId,
       usedById: status === 'USED' ? usedBy : null,
       usedAt: status === 'USED' ? random.randomDate(-20, -1) : null,
+    })
+  }
+  // Отозванные и приглашения ролей с запретом по умолчанию (охрана, библиотекарь — их выдаёт
+  // админ вуза, scope — только вуз). Без случайных чисел: хвост потока шага не сдвигается.
+  // REVOKED токеном не воспользоваться, поэтому он предсказуемый, как у USED/EXPIRED.
+  const extraInvites = [
+    ['TEACHER', 'REVOKED'],
+    ['SECURITY_GUARD', 'PENDING'],
+    ['LIBRARIAN', 'REVOKED'],
+  ]
+  for (const [k, [role, status]] of extraInvites.entries()) {
+    const i = inviteRoles.length + k
+    const faculty = people.faculties[i % people.faculties.length]
+    await writer.add('invite', {
+      id: id(index, 'inv', i),
+      token:
+        status === 'PENDING'
+          ? createHash('sha256').update(randomUUID()).digest('hex')
+          : `${id(index, 'invite', i)}-${status.toLowerCase()}`,
+      role,
+      email: `invite.${i}@${uniId}.example.kz`,
+      universityId: uniId,
+      facultyId: role === 'TEACHER' ? faculty.id : null,
+      groupId: null,
+      status,
+      // Отзыв не трогает срок: отозванный инвайт остаётся со сроком, которого не дождался.
+      expiresAt: new Date(Date.now() + (7 + k * 5) * DAY_MS),
+      createdById: adminId,
+      usedById: null,
+      usedAt: null,
     })
   }
   await writer.flush()
 
   return people
+}
+
+/**
+ * Поля учебного статуса так, как их оставляет PATCH /users/:id/academic: значение
+ * справочника и дата ухода из вуза у ушедших (группа и роль не меняются — сервис их не
+ * трогает). `since` — с какого дня студент не учится: у академического отпуска даты в базе
+ * нет (leftUniversityAt — только у ушедших), но посещаемость после неё ставить нельзя.
+ */
+function academicStatusFields(code, { calendar, groupIndex }) {
+  const now = Date.now()
+  if (code === 'GRADUATED') {
+    // Конец прошлого семестра: выпуск — по итогам закрытой сессии.
+    const leftAt = new Date(`${calendar.prev.to}T12:00:00Z`)
+    return {
+      academicStatus: ACADEMIC_STATUS.GRADUATED,
+      leftUniversityAt: leftAt,
+      graduationYear: leftAt.getUTCFullYear(),
+      since: leftAt,
+    }
+  }
+  // 15–44 дня назад: внутри окна журнала поста охраны (120 дней) и истории посещаемости.
+  const since = new Date(now - (15 + ((groupIndex * 7) % 30)) * DAY_MS)
+  since.setUTCHours(12, 0, 0, 0)
+  return {
+    academicStatus: ACADEMIC_STATUS[code],
+    ...(LEFT_STATUSES.has(code) ? { leftUniversityAt: since } : {}),
+    since,
+  }
 }

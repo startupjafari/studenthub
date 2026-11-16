@@ -6,6 +6,7 @@
 // а сразу уходят в буферный writer, а даты считаются от текущей недели, чтобы окна
 // дашбордов («последние 12 недель») не оказались пустыми через месяц после сида.
 
+import { formatCycler, formatFileRow, formatSamples } from '../lib/formats.mjs'
 import { child } from '../lib/ids.mjs'
 
 // Сетка звонков: пять пар по 90 минут.
@@ -27,10 +28,23 @@ const GRADE_COLUMNS = [
   ['CONTROL', 'Контрольная', 30],
   ['EXAM', 'Итоговый', 40],
 ]
+// У каждой четвёртой дисциплины вместо лабораторных — работа на семинарах (вид OTHER из
+// GRADE_COLUMN_KINDS): дисциплины без лабораторных бывают, а колонка «прочее» иначе не
+// встречается нигде. Подмена, а не четвёртая колонка: оценок на студента не прибавляется.
+const OTHER_COLUMN = ['OTHER', 'Работа на семинарах', 30]
 
 // Виды заданий — из ASSIGNMENT_TYPES (packages/shared-schemas/assignments.ts).
 const ASSIGNMENT_TYPES = ['HOMEWORK', 'LAB', 'COURSEWORK', 'PROJECT', 'OTHER']
-const EXAM_FORMATS = ['WRITTEN', 'ORAL', 'TEST', 'PROJECT']
+// Способ сдачи (SUBMISSION_TYPES) — по кругу: TEXT дважды, FILE и MIXED — 40% заданий с
+// файлами. По кругу, а не случайно: на любом объёме встречаются все четыре способа.
+const SUBMISSION_KINDS = ['TEXT', 'FILE', 'LINK', 'MIXED', 'TEXT']
+// Форматы экзамена (EXAM_FORMATS в shared-schemas/exams.ts) — тоже по кругу.
+const EXAM_FORMATS = ['WRITTEN', 'ORAL', 'TEST', 'PROJECT', 'OTHER']
+// Статусы записи в деканат (APPOINTMENT_STATUSES) — по кругу по группам.
+const APPOINTMENT_STATUSES = ['REQUESTED', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED']
+const APPOINTMENT_TYPES = ['CONSULTATION', 'DOCUMENT', 'ACADEMIC', 'OTHER']
+const HOUR_MS = 3_600_000
+const DAY_MS = 86_400_000
 const APPOINTMENT_TOPICS = [
   'Вопрос по стипендии',
   'Академический отпуск',
@@ -39,6 +53,22 @@ const APPOINTMENT_TOPICS = [
   'Перевод на другую специальность',
   'Заселение в общежитие',
 ]
+
+/**
+ * Чётность ISO-недели даты — та же формула, что у API (isoWeekParity в schedules.service.ts),
+ * веба и мобильных клиентов: неделя с понедельника, первая — та, где первый четверг года.
+ */
+function isoWeekParity(date) {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7))
+  const week = 1 + Math.floor((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / (7 * DAY_MS))
+  return week % 2 === 1 ? 'ODD' : 'EVEN'
+}
+
+/** Пара идёт в неделю этой даты (heldInWeek в schedules.service.ts). */
+function heldOn(weekType, date) {
+  return weekType === 'BOTH' || weekType === isoWeekParity(date)
+}
 
 // Понедельник текущей недели (UTC) — опорная точка для дат посещаемости.
 function currentMonday() {
@@ -52,6 +82,15 @@ export async function seedAcademics(prisma, writer, ctx) {
   const { termIds, rooms } = structure
   const attWeeks = config.attendanceWeeks ?? ATT_WEEKS
   const monday = currentMonday()
+  const now = Date.now()
+  // Студент в академе или ушедший (30-people): с даты `since` он не ходит на пары, не сдаёт
+  // задания и не получает новых оценок.
+  const studentStatus = people.studentStatus ?? new Map()
+  const inactiveSince = (studentId) => studentStatus.get(studentId)?.since ?? null
+  const activeOn = (studentId, date) => {
+    const since = inactiveSince(studentId)
+    return since === null || date < since
+  }
 
   const allTeacherIds = people.faculties.flatMap((f) => f.teacherIds)
 
@@ -95,6 +134,13 @@ export async function seedAcademics(prisma, writer, ctx) {
         // Пара в расписании — только для текущего семестра.
         const day = (si % 5) + 1
         const [startTime, endTime] = TIMES[si % TIMES.length]
+        // Дисциплин больше, чем слотов сетки: шестая встаёт в слот первой. Раньше это был
+        // конфликт расписания группы, теперь — «мигалка», как в настоящих вузах: первая
+        // дисциплина по нечётным неделям, шестая по чётным (WeekType ODD/EVEN).
+        const sharesSlot =
+          faculty.subjects.length > TIMES.length &&
+          si % TIMES.length < faculty.subjects.length - TIMES.length
+        const weekType = sharesSlot ? (si < TIMES.length ? 'ODD' : 'EVEN') : 'BOTH'
         const pairId = child(group.id, 'p', si)
         await writer.add('pair', {
           id: pairId,
@@ -106,10 +152,10 @@ export async function seedAcademics(prisma, writer, ctx) {
           dayOfWeek: day,
           startTime,
           endTime,
-          weekType: 'BOTH',
+          weekType,
         })
         group.pairs ??= []
-        group.pairs.push({ id: pairId, day, teacherId })
+        group.pairs.push({ id: pairId, day, teacherId, weekType })
       }
     }
   }
@@ -137,8 +183,12 @@ export async function seedAcademics(prisma, writer, ctx) {
     const [newStart, newEnd] = random.pick(TIMES)
     // Разовое изменение — в день, когда эта пара стоит в расписании (её день недели), на
     // следующей или через неделю: изменение должно быть «актуальным», а сдвиг на
-    // произвольное число дней ставил его на день, когда пары нет вовсе.
-    const date = new Date(monday.getTime() + (pair.day - 1 + 7 * random.randInt(1, 2)) * 86_400_000) // prettier-ignore
+    // произвольное число дней ставил его на день, когда пары нет вовсе. Пара через неделю
+    // (ODD/EVEN) идёт только в одну из двух соседних недель — API принимает изменение лишь
+    // на неделю нужной чётности.
+    const weekAt = (k) => new Date(monday.getTime() + (pair.day - 1 + 7 * k) * DAY_MS)
+    const k0 = random.randInt(1, 2)
+    const date = heldOn(pair.weekType, weekAt(k0)) ? weekAt(k0) : weekAt(3 - k0)
     if (type === 'CANCELLED') cancelled.add(`${pair.id}|${date.toISOString().slice(0, 10)}`)
     await writer.add('scheduleChange', {
       id: child(pair.id, 'chg', type.toLowerCase()),
@@ -160,8 +210,12 @@ export async function seedAcademics(prisma, writer, ctx) {
   }
 
   // ── Журнал оценок ───────────────────────────────────────────────────────────
-  for (const course of courses) {
-    for (const [ki, [kind, title, maxScore]] of GRADE_COLUMNS.entries()) {
+  for (const [ci, course] of courses.entries()) {
+    // Курсы идут парами (текущий и прошлый семестр одной дисциплины) — подмена по дисциплине,
+    // чтобы колонка «прочее» была и в открытом журнале, и в закрытом.
+    const columns =
+      Math.floor(ci / 2) % 4 === 3 ? [OTHER_COLUMN, ...GRADE_COLUMNS.slice(1)] : GRADE_COLUMNS
+    for (const [ki, [kind, title, maxScore]] of columns.entries()) {
       const columnId = child(course.id, 'gc', ki)
       await writer.add('gradeColumn', {
         id: columnId,
@@ -177,7 +231,9 @@ export async function seedAcademics(prisma, writer, ctx) {
       })
       for (const studentId of course.group.studentIds) {
         // В закрытом семестре оценка есть почти всегда, в текущем — не у всех.
-        const hasScore = course.current ? random.chance(0.85) : random.chance(0.98)
+        const drawn = course.current ? random.chance(0.85) : random.chance(0.98)
+        // В текущем семестре ушедшему или ушедшему в академ новых оценок не ставят.
+        const hasScore = drawn && !(course.current && inactiveSince(studentId) !== null)
         await writer.add('grade', {
           id: child(columnId, 'g', studentId),
           columnId,
@@ -188,43 +244,154 @@ export async function seedAcademics(prisma, writer, ctx) {
     }
   }
 
+  // ── Учебные материалы ───────────────────────────────────────────────────────
+  // Строки материалов — раньше заданий: файлы (File.materialId) пишутся ниже, после сдач, и
+  // буфер writer'а должен знать модель material раньше модели file (порядок флаша по FK).
+  const formats = ctx.pool?.formats ?? null
+  const currentCourses = courses.filter((c) => c.current)
+  for (const [ci, course] of currentCourses.entries()) {
+    await writer.add('material', {
+      id: child(course.id, 'mat'),
+      teacherId: course.teacherId,
+      groupId: course.group.id,
+      subject: course.subject.name,
+      title: `Лекции: ${course.subject.name}`,
+      description: 'Конспекты, слайды и список литературы по курсу.',
+      // Ссылка — у каждого третьего: остальные материалы — только файлы. Без хранилища
+      // (образцов нет) ссылка у всех, иначе материал был бы пустым.
+      url: !formats || ci % 3 === 0 ? 'https://materials.example.edu/course' : null,
+    })
+  }
+
   // ── Задания и сдачи (только текущий семестр) ────────────────────────────────
-  for (const course of courses.filter((c) => c.current)) {
+  // Статус задания: каждое шестое второе задание — черновик (студенты его не видят, сдач
+  // нет), каждое четвёртое первое — закрыто (срок прошёл, приём работ окончен).
+  // Статус сдачи — по кругу по номеру студента в группе: черновик и «на доработку» есть в
+  // каждой дисциплине, а не «где повезёт».
+  const submissionSamples = formatSamples(formats, 'applications')
+  const nextSubmissionSample = formatCycler(submissionSamples)
+  const submissionFiles = []
+  for (const [ci, course] of currentCourses.entries()) {
     for (let a = 0; a < 2; a += 1) {
       const assignmentId = child(course.id, 'as', a)
+      const status =
+        a === 1 && ci % 6 === 5 ? 'DRAFT' : a === 0 && ci % 4 === 2 ? 'CLOSED' : 'PUBLISHED'
+      const submissionType = SUBMISSION_KINDS[(ci * 2 + a) % SUBMISSION_KINDS.length]
+      const publishAt = status === 'DRAFT' ? null : random.daysFromNow(-20 + a * 7)
+      const dueAt = random.daysFromNow(-5 + a * 10)
+      const allowLate = random.chance(0.5)
       await writer.add('assignment', {
         id: assignmentId,
         courseId: course.id,
         createdById: course.teacherId,
         title: `${course.subject.name}: задание ${a + 1}`,
-        description: 'Выполните задание и приложите решение или ссылку на репозиторий.',
+        description:
+          submissionType === 'LINK'
+            ? 'Выложите решение в репозиторий и пришлите ссылку.'
+            : submissionType === 'TEXT'
+              ? 'Ответьте на вопросы задания текстом.'
+              : 'Выполните задание и приложите решение файлом (отчёт, код архивом, презентация).',
         type: random.pick(ASSIGNMENT_TYPES),
-        submissionType: random.pick(['TEXT', 'TEXT', 'LINK', 'FILE']),
-        status: 'PUBLISHED',
+        submissionType,
+        status,
         maxScore: 100,
         maxAttempts: random.pick([1, 1, 2, 3]),
-        allowLate: random.chance(0.5),
-        publishAt: random.daysFromNow(-20 + a * 7),
-        dueAt: random.daysFromNow(-5 + a * 10),
+        allowLate,
+        publishAt,
+        dueAt,
       })
-      for (const studentId of course.group.studentIds) {
+      // Черновик задания студентам не виден — сдач по нему быть не может.
+      if (status === 'DRAFT') continue
+      for (const [si, studentId] of course.group.studentIds.entries()) {
         if (!random.chance(0.8)) continue
-        const graded = random.chance(0.7)
+        // Ушедшие и академ — не сдают (задания вышли после даты статуса).
+        if (inactiveSince(studentId) !== null) continue
+        const roll = (si + a + ci) % 20
+        const subStatus =
+          roll === 0 ? 'DRAFT' : roll === 1 ? 'RETURNED' : roll < 7 ? 'SUBMITTED' : 'GRADED'
+        const submissionId = child(assignmentId, 'sub', studentId)
+        // Отправлено до срока (и не в будущем): поздняя сдача без allowLate API не примет.
+        const upper = Math.min(dueAt.getTime(), now)
+        const submittedAt =
+          subStatus === 'DRAFT' ? null : new Date(upper - random.randInt(2, 72) * HOUR_MS)
+        const reviewed = subStatus === 'GRADED' || subStatus === 'RETURNED'
+        const gradedAt = reviewed
+          ? new Date(Math.min(now - HOUR_MS, submittedAt.getTime() + random.randInt(4, 48) * HOUR_MS)) // prettier-ignore
+          : null
+        const withText = submissionType === 'TEXT' || submissionType === 'MIXED'
+        const withLink =
+          submissionType === 'LINK' || (submissionType === 'MIXED' && random.chance(0.5))
+        const withFile = submissionType === 'FILE' || submissionType === 'MIXED'
         await writer.add('submission', {
-          id: child(assignmentId, 'sub', studentId),
+          id: submissionId,
           assignmentId,
           studentId,
-          status: graded ? 'GRADED' : 'SUBMITTED',
-          text: 'Решение прикреплено, комментарии в файле.',
-          linkUrl: random.chance(0.3) ? 'https://github.com/example/homework' : null,
+          status: subStatus,
+          text: withText
+            ? subStatus === 'DRAFT'
+              ? 'Черновик: начал разбирать задачу, допишу к сроку.'
+              : 'Решение прикреплено, комментарии в файле.'
+            : null,
+          linkUrl: withLink ? 'https://github.com/example/homework' : null,
           attemptNumber: 1,
-          score: graded ? random.randInt(50, 100) : null,
-          feedback: graded ? random.pick(['Хорошая работа', 'Есть замечания по оформлению', 'Зачтено']) : null, // prettier-ignore
-          gradedById: graded ? course.teacherId : null,
-          submittedAt: random.daysFromNow(-random.randInt(1, 6)),
-          gradedAt: graded ? random.daysFromNow(-random.randInt(0, 2)) : null,
+          score: subStatus === 'GRADED' ? random.randInt(50, 100) : null,
+          feedback:
+            subStatus === 'GRADED'
+              ? random.pick(['Хорошая работа', 'Есть замечания по оформлению', 'Зачтено'])
+              : subStatus === 'RETURNED'
+                ? 'Доработайте выводы и оформите отчёт по шаблону кафедры.'
+                : null,
+          // Возврат на доработку пишет проверяющего и время, как returnForFix.
+          gradedById: reviewed ? course.teacherId : null,
+          submittedAt,
+          gradedAt,
         })
+        if (withFile && submissionSamples.length > 0) {
+          submissionFiles.push({
+            submissionId,
+            studentId,
+            sample: nextSubmissionSample(),
+            createdAt: submittedAt ?? new Date(now - random.randInt(1, 48) * HOUR_MS),
+          })
+        }
       }
+    }
+  }
+
+  // ── Файлы сдач и материалов ─────────────────────────────────────────────────
+  // Ссылки на объекты образцов (lib/formats.mjs): строка File на вложение, объект в бакете
+  // один. Сдачи — бакет applications, все категории: архивы сдачам разрешены (allowArchives
+  // в assignments.service.ts). Материалы — бакет materials без архивов (materials.service.ts
+  // не включает allowArchives): документ к каждому материалу и медиа по кругу.
+  for (const [n, f] of submissionFiles.entries()) {
+    await writer.add(
+      'file',
+      formatFileRow(f.sample, n, {
+        id: child(f.submissionId, 'f', 0),
+        ownerId: f.studentId,
+        submissionId: f.submissionId,
+        createdAt: f.createdAt,
+      }),
+    )
+  }
+  const nextMaterialDoc = formatCycler(formatSamples(formats, 'materials', { categories: ['DOCUMENT'] })) // prettier-ignore
+  const nextMaterialMedia = formatCycler(
+    formatSamples(formats, 'materials', { categories: ['IMAGE', 'VIDEO', 'AUDIO'] }),
+  )
+  for (const [ci, course] of currentCourses.entries()) {
+    const materialId = child(course.id, 'mat')
+    for (const [k, sample] of [nextMaterialDoc(), nextMaterialMedia()].entries()) {
+      if (!sample) continue
+      await writer.add(
+        'file',
+        formatFileRow(sample, ci, {
+          id: child(materialId, 'f', k),
+          ownerId: course.teacherId,
+          materialId,
+          order: k,
+          createdAt: new Date(now - (30 - (ci % 20)) * DAY_MS),
+        }),
+      )
     }
   }
 
@@ -249,8 +416,11 @@ export async function seedAcademics(prisma, writer, ctx) {
         const date = new Date(monday)
         date.setUTCDate(date.getUTCDate() + (pair.day - 1) - 7 * (attWeeks - 1 - w))
         if (date >= today || date < termFrom || date > termTo) continue
+        // Пара через неделю в «чужую» неделю не проводится — и отметок на ней нет.
+        if (!heldOn(pair.weekType, date)) continue
         if (cancelled.has(`${pair.id}|${date.toISOString().slice(0, 10)}`)) continue
         for (const studentId of group.studentIds) {
+          if (!activeOn(studentId, date)) continue
           const status = random.pickWeighted([
             ['PRESENT', 80],
             ['LATE', 10],
@@ -272,7 +442,7 @@ export async function seedAcademics(prisma, writer, ctx) {
   }
 
   // ── Экзамены и результаты ───────────────────────────────────────────────────
-  for (const course of courses) {
+  for (const [ci, course] of courses.entries()) {
     const examId = child(course.id, 'ex')
     await writer.add('exam', {
       id: examId,
@@ -283,7 +453,7 @@ export async function seedAcademics(prisma, writer, ctx) {
       roomId: random.pick(rooms),
       // Прошлый семестр — экзамен уже прошёл, текущий — предстоит.
       date: course.current ? random.randomDate(10, 40) : random.randomDate(-160, -120),
-      format: random.pick(EXAM_FORMATS),
+      format: EXAM_FORMATS[ci % EXAM_FORMATS.length],
       maxScore: 100,
       note: random.chance(0.3) ? 'Разрешён один лист с формулами' : null,
     })
@@ -292,30 +462,58 @@ export async function seedAcademics(prisma, writer, ctx) {
       const status = course.current
         ? 'SCHEDULED'
         : random.pickWeighted([
-            ['PASSED', 85],
+            ['PASSED', 82],
             ['FAILED', 8],
-            ['RETAKE', 7],
+            ['RETAKE', 6],
+            // Неявка: балла нет, попытка не засчитана пересдачей.
+            ['ABSENT', 4],
           ])
+      const drawnAdmitted = random.chance(0.95)
+      // Ушедший или в академе к сессии текущего семестра не допускается.
+      const inactive = course.current && inactiveSince(studentId) !== null
       await writer.add('examResult', {
         id: child(examId, 'r', studentId),
         examId,
         studentId,
-        admitted: random.chance(0.95),
+        admitted: drawnAdmitted && !inactive,
         status,
         score: status === 'PASSED' ? random.randInt(60, 100) : status === 'FAILED' ? random.randInt(20, 49) : null, // prettier-ignore
         attempt: status === 'RETAKE' ? 2 : 1,
-        note: status === 'RETAKE' ? 'Пересдача по графику кафедры' : null,
+        note: inactive
+          ? 'Не допущен: не обучается (статус в учебных данных)'
+          : status === 'RETAKE'
+            ? 'Пересдача по графику кафедры'
+            : status === 'ABSENT'
+              ? 'Не явился на экзамен'
+              : null,
       })
     }
   }
 
   // ── Консультации преподавателей ─────────────────────────────────────────────
-  const allStudentIds = allGroups.flatMap((g) => g.studentIds)
-  for (const teacherId of allTeacherIds) {
+  // Записываются только учащиеся: ушедший из вуза на консультацию не придёт.
+  const allStudentIds = allGroups.flatMap((g) => g.studentIds).filter((sid) => !studentStatus.has(sid)) // prettier-ignore
+  for (const [ti, teacherId] of allTeacherIds.entries()) {
     for (let s = 0; s < 3; s += 1) {
       const startsAt = random.randomDate(1, 14)
       startsAt.setUTCHours(10 + s, 0, 0, 0)
       const booked = s === 0 && random.chance(0.6)
+      // Третий слот каждого четвёртого преподавателя отменён им самим после записи студента:
+      // сервис ставит CANCELLED и оставляет студента и тему (студент получает уведомление).
+      if (s === 2 && ti % 4 === 0) {
+        await writer.add('consultationSlot', {
+          id: child(teacherId, 'cons', s),
+          teacherId,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 45 * 60_000),
+          location: `каб. ${random.randInt(100, 300)}`,
+          isOnline: false,
+          status: 'CANCELLED',
+          studentId: random.pick(allStudentIds),
+          topic: 'Разбор контрольной',
+        })
+        continue
+      }
       await writer.add('consultationSlot', {
         id: child(teacherId, 'cons', s),
         teacherId,
@@ -331,40 +529,41 @@ export async function seedAcademics(prisma, writer, ctx) {
   }
 
   // ── Записи в деканат ────────────────────────────────────────────────────────
-  // По числу групп: очередь деканата должна быть непустой у каждого факультета.
+  // По числу групп: очередь деканата должна быть непустой у каждого факультета. Статус — по
+  // кругу (все пять из APPOINTMENT_STATUSES в каждом вузе). Время — как его оставляют
+  // переходы сервиса: подтверждённая и перенесённая — приём впереди, завершённая — уже
+  // прошёл, у перенесённой в заметке причина переноса.
+  const deanOffices = structure.deanOffices ?? {}
   for (const [ai, group] of allGroups.entries()) {
-    const status = random.pickWeighted([
-      ['REQUESTED', 35],
-      ['CONFIRMED', 25],
-      ['COMPLETED', 30],
-      ['CANCELLED', 10],
-    ])
-    const scheduled = status === 'CONFIRMED' || status === 'COMPLETED'
+    const status = APPOINTMENT_STATUSES[ai % APPOINTMENT_STATUSES.length]
+    const office = deanOffices[group.facultyId]
+    const cabinet = office ? `кабинет ${office.number}` : 'кабинет 210'
+    const requestedAt =
+      status === 'COMPLETED' ? random.randomDate(-21, -10) : random.randomDate(-14, -1)
+    const scheduledAt =
+      status === 'COMPLETED'
+        ? new Date(requestedAt.getTime() + random.randInt(2, 7) * DAY_MS)
+        : status === 'CONFIRMED' || status === 'RESCHEDULED'
+          ? random.randomDate(1, 7)
+          : null
+    if (scheduledAt) scheduledAt.setUTCHours(random.pick([4, 5, 6, 9, 10]), 0, 0, 0)
     await writer.add('deaneryAppointment', {
       id: child(group.id, 'appt', ai % 3),
       studentId: random.pick(group.studentIds),
       facultyId: group.facultyId,
-      assignedToId: group.deanId,
-      type: random.pick(['CONSULTATION', 'DOCUMENT', 'ACADEMIC', 'OTHER']),
+      // Ответственного ставит деканат подтверждением или переносом (appointments.service.ts).
+      assignedToId: scheduledAt ? group.deanId : null,
+      type: APPOINTMENT_TYPES[ai % APPOINTMENT_TYPES.length],
       status,
       topic: random.pick(APPOINTMENT_TOPICS),
-      requestedAt: random.randomDate(-14, -1),
-      scheduledAt: scheduled ? random.randomDate(1, 7) : null,
-      staffNote: scheduled ? 'Ожидаем вас в деканате, кабинет 210' : null,
-    })
-  }
-
-  // ── Учебные материалы ───────────────────────────────────────────────────────
-  // Файлы к материалам добавит шаг медиа: здесь только метаданные и ссылка.
-  for (const course of courses.filter((c) => c.current)) {
-    await writer.add('material', {
-      id: child(course.id, 'mat'),
-      teacherId: course.teacherId,
-      groupId: course.group.id,
-      subject: course.subject.name,
-      title: `Лекции: ${course.subject.name}`,
-      description: 'Конспекты, слайды и список литературы по курсу.',
-      url: 'https://materials.example.edu/course',
+      requestedAt,
+      scheduledAt,
+      staffNote:
+        status === 'RESCHEDULED'
+          ? `Декан на учёном совете — приём перенесён, ждём вас в деканате, ${cabinet}`
+          : scheduledAt
+            ? `Ожидаем вас в деканате, ${cabinet}`
+            : null,
     })
   }
 

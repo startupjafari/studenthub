@@ -124,8 +124,8 @@ describe('профиль test (стенд по ТЗ)', () => {
     // Пул нужен и при пустой галерее: из него идут аватары, обложки и картинки постов.
     assert.equal(c.photos, 200)
     assert.equal(c.videos, 50)
-    // Личная галерея пустая (решение пользователя): 100 фото на каждого стоили бы
-    // ~29 ГБ в MinIO — 29 из 30 ГБ всего стенда.
+    // Личная галерея пустая — решение пользователя от 2026-09-16 (тогда она стоила
+    // ~29 ГБ в MinIO; теперь это ссылки на пул, но решение по стенду не пересматривалось).
     assert.deepEqual(c.photosPerUser, [0, 0])
     assert.deepEqual(c.videosPerUser, [0, 0])
   })
@@ -146,8 +146,17 @@ describe('профиль test (стенд по ТЗ)', () => {
       assert.equal(c.faculties, null, `${scale}: факультеты должны считаться формулой`)
       assert.equal(c.teachers, null, `${scale}: преподаватели — по нагрузке`)
       assert.equal(c.demoUniversity, true, `${scale}: демо-вуз остаётся`)
-      assert.deepEqual(c.photosPerUser, [0, 0], `${scale}: личная галерея выключена`)
     }
+  })
+
+  it('личная галерея включена в small и full и выключена в demo', () => {
+    for (const scale of ['small', 'full']) {
+      const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: scale }, loadConfig)
+      assert.deepEqual(c.photosPerUser, [20, 40], `${scale}: фото галереи`)
+      assert.deepEqual(c.videosPerUser, [1, 3], `${scale}: видео галереи`)
+    }
+    const demo = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'demo' }, loadConfig)
+    assert.deepEqual(demo.photosPerUser, [0, 0])
   })
 
   it('факультет без единой группы отвергается до записи в БД', () => {

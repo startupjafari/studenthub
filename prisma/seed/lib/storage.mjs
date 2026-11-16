@@ -53,6 +53,12 @@ export function createStorage() {
     documents: env.MINIO_BUCKET_DOCUMENTS ?? 'documents',
     profileMedia: env.MINIO_BUCKET_PROFILE_MEDIA ?? 'profile-media',
     profileCovers: env.MINIO_BUCKET_PROFILE_COVERS ?? 'profile-covers',
+    // Вложения заявок и медиа сторис: в них идут образцы форматов (steps/12-formats.mjs).
+    // У stories-media API ставит TTL 24 ч — как и живые сторис, объект оттуда уходит через
+    // сутки; повторный прогон сида доложит его заново. «Актуальное» — в story-highlights.
+    applications: env.MINIO_BUCKET_APPLICATIONS ?? 'applications',
+    stories: env.MINIO_BUCKET_STORIES ?? 'stories-media',
+    storyHighlights: env.MINIO_BUCKET_STORY_HIGHLIGHTS ?? 'story-highlights',
   }
   // Публичные бакеты — те, из которых объект отдаётся по постоянному URL
   // (docs/BACKEND_RULES.md §8). Приватные читаются только по presigned-ссылке.

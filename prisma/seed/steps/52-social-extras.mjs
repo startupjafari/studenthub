@@ -1,39 +1,51 @@
-// Шаг «соцчасть, добор»: то, что шаги 50 и 55 оставляют пустым. Сторисы (живые,
-// с опросами, просмотрами и реакциями), «Актуальное», скрытие сторис, обсуждение событий
-// с реакциями, лайки статей, избранное ленты, комментарии к опросам, репосты и
-// предупреждения модерации.
+// Шаг «соцчасть, добор»: то, что шаги 50 и 55 оставляют пустым. Сторисы (живые, с медиа,
+// опросами, элементами редактора, просмотрами и реакциями), «Актуальное», скрытие сторис,
+// страницы компаний и платформы (54), сторис в чатах и жалобы на сторис (53), обсуждение
+// событий с вложениями и реакциями, лайки статей, избранное ленты, комментарии к опросам,
+// репосты и предупреждения модерации.
 //
-// БЕЗ МЕДИА. Ни одной строки File и ни одного объекта в MinIO: сторис — только текстовые
-// (текст на фоне из STORY_BACKGROUNDS, опрос, ссылка, эмодзи-элемент). Схема это
-// допускает: Story.fileId nullable, а CreateStorySchema требует медиа ИЛИ текст ИЛИ
-// элемент — текста достаточно. Элементы «Актуального» тоже без копии файла (fileId NULL).
+// МЕДИА СТОРИС — ССЫЛКИ НА ОБРАЗЦЫ ФОРМАТОВ (см. 51-social-media.mjs): своя строка File
+// у каждой сторис (сервис не даёт одной строке двух сторис), объект общий. Медиа сторис
+// лежит в бакете сторис, копия в «Актуальном» — в бакете подборок, как у сервиса. Без
+// хранилища (pool.formats = null) сторис только текстовые: Story.fileId nullable, а
+// CreateStorySchema требует медиа ИЛИ текст ИЛИ элемент.
 //
 // ИСТЁКШИХ СТОРИС НЕТ НАМЕРЕННО. Крон deleteExpiredStories каждые 30 минут физически
 // удаляет всё с expiresAt <= now, а лента их не показывает уже сейчас. Строка «истёкшей»
 // сторис — это мусор, который не увидит никто. Старые сторисы живут там же, где в продукте:
 // снимками в «Актуальном» (sourceStoryId = NULL — исходник уже снят кроном). Живые сторисы
 // созданы в пределах последних суток и истекут в течение суток после прогона — так ведёт
-// себя и настоящий продукт.
+// себя и настоящий продукт. (Бакет сторис к тому же чистится TTL-политикой — объект
+// образца живёт там столько же, сколько сторис, и перезаливается следующим прогоном.)
 //
-// Зависимости: посты, события, дружбы (шаг 50), статьи и опросы (шаг 55) уже в БД.
-// Их не пересчитываем по детерминированным id вслепую, а читаем из базы с take: при
-// диапазонах «0-0» постов или статей нет, и ссылка на них нарушила бы внешний ключ.
-// Счётчиков-денормализаций у затронутых родителей нет (лайки, закладки, просмотры сторис
-// считаются из таблиц), поэтому апдейтов родительских строк здесь нет.
+// Аудитории — как ALLOWED_AUDIENCES сервиса сторис: админ вуза — вуз и преподаватели,
+// модератор — вуз, декан — факультет и группа, преподаватель и учащиеся — группа, друзья,
+// выбранные. ALL (платформа) и PARTNER_UNIVERSITIES (работодатель) — в шаге 54.
+//
+// Зависимости: посты, события, дружбы (шаг 50), статьи и опросы (шаг 55), пары (шаг 40),
+// чаты (шаги 60, 62), допуски компаний (шаг 80) и жалобы (шаг 70) уже в БД. Их не
+// пересчитываем по детерминированным id вслепую, а читаем из базы с take: при диапазонах
+// «0-0» постов или статей нет, и ссылка на них нарушила бы внешний ключ.
 
 import { postPriority } from '../data/content.mjs'
+import { formatFileRow } from '../lib/formats.mjs'
 import { child, id } from '../lib/ids.mjs'
+import {
+  STORY_BACKGROUNDS,
+  STORY_REACTION_EMOJIS,
+  STORY_TTL_MS,
+  eventCommentMediaKit,
+  storyEmojiElement,
+  storyMediaKit,
+  storyPlacement,
+  storyTextElement,
+} from './51-social-media.mjs'
+import { seedStoryComplaints, seedStoryMessages } from './53-story-extras.mjs'
+import { seedOrgPages } from './54-org-pages.mjs'
 
-// Наборы — копии закрытых списков shared-schemas/shared-config: генератор работает на
-// чистом node и не тянет собранные пакеты. Менять только вместе с источником.
-// STORY_BACKGROUNDS и STORY_REACTION_EMOJIS — packages/shared-schemas/src/stories.ts.
-const STORY_BACKGROUNDS = ['sunset', 'ocean', 'forest', 'grape', 'graphite', 'rose']
-const STORY_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😮', '😢']
 // CHAT_REACTION_EMOJIS — packages/shared-config/src/constants.ts (реакции на комментарии
 // к событию идут по правилам чата).
 const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢', '🔥', '👀']
-
-const STORY_TTL_MS = 24 * 3_600_000
 
 // Тексты сторис — короткие (STORY_TEXT_MAX = 600): сторис читают за секунды.
 const STUDENT_STORY_TEXTS = [
@@ -58,6 +70,8 @@ const STAFF_STORY_TEXTS = [
   'Библиотека работает до 20:00 всю неделю сессии.',
   'Деканат принимает документы с 9:00 до 17:00, обед с 13:00 до 14:00.',
 ]
+// Надписи текстового элемента редактора — до STORY_ELEMENT_TEXT_MAX (200).
+const ELEMENT_TEXTS = ['Сегодня!', 'Все сюда 👇', 'Не пропустите', 'Наш кампус', 'Сессия ✍️', 'Ура!'] // prettier-ignore
 // Опрос сторис: 2–4 варианта, без повторов (StoryPollSchema).
 const STORY_POLLS = [
   ['Во сколько удобнее консультация?', ['14:00', '16:00', '18:00']],
@@ -67,6 +81,8 @@ const STORY_POLLS = [
   ['Кофе или чай перед парой?', ['Кофе', 'Чай']],
   ['Нужен ли разбор задач перед экзаменом?', ['Да, обязательно', 'Справлюсь сам(а)']],
 ]
+// Аудитории сторис учащегося — по кругу со сдвигом на автора: каждая встречается в вузе.
+const STUDENT_STORY_AUDIENCES = ['GROUP', 'FRIENDS', 'GROUP', 'SELECTED', 'GROUP']
 // Названия подборок «Актуального» — до 30 символов (STORY_HIGHLIGHT_TITLE_MAX).
 const HIGHLIGHT_TITLES = ['Учёба', 'Сессия', 'Спорт', 'Друзья', 'Хакатон', 'Кампус', 'Поездки', 'Олимпиады'] // prettier-ignore
 const STAFF_HIGHLIGHT_TITLES = ['Новости', 'Важное', 'Мероприятия']
@@ -88,6 +104,22 @@ const EVENT_REPLIES = [
   'Запись выложим в течение недели.',
   'Ничего не нужно, всё выдадим на месте.',
 ]
+// Вложения комментариев к событию — по кругу: без вложений, фото, альбом со спойлером,
+// видео, документ, голосовое (без текста, как в чате), музыка, снимок «без сжатия».
+// Документ — дважды за круг: форматов документов четыре, а комментариев в вузе несколько
+// десятков, и каждый формат должен успеть встретиться.
+const EVENT_ATTACHMENTS = [
+  [],
+  ['image'],
+  ['document'],
+  ['image', 'spoiler'],
+  ['video'],
+  [],
+  ['document'],
+  ['voice'],
+  ['music'],
+  ['asDocument'],
+]
 const POLL_COMMENTS = [
   'Проголосовал(а), интересно, что выберут остальные.',
   'Не хватает варианта «другое».',
@@ -104,28 +136,94 @@ const after = (random, base, maxDays) => {
   const span = Math.max(0, Date.now() - from)
   return new Date(from + Math.floor(random.rng() * span))
 }
+// Ближайшая дата пары с этим днём недели (1 — понедельник) в формате YYYY-MM-DD: карточка
+// расписания в сторис ссылается на пару на конкретную дату (StoryScheduleElementSchema).
+const nextPairDate = (dayOfWeek) => {
+  const date = new Date()
+  const today = ((date.getUTCDay() + 6) % 7) + 1
+  date.setUTCDate(date.getUTCDate() + ((dayOfWeek - today + 7) % 7 || 7))
+  return date.toISOString().slice(0, 10)
+}
 
 export async function seedSocialExtras(prisma, writer, ctx) {
-  const { index, random, structure, people } = ctx
+  const { index, random, structure, people, pool } = ctx
   const { uniId } = structure
-  const stats = { stories: 0, highlights: 0, eventComments: 0, warnings: 0 }
+  const stats = { stories: 0, mediaStories: 0, highlights: 0, eventComments: 0, warnings: 0 }
+  const storyMedia = storyMediaKit(pool)
+  let fileN = 0
 
   const allStudents = people.faculties.flatMap((f) => f.groups.flatMap((g) => g.studentIds))
+  const allTeachers = people.faculties.flatMap((f) => f.teacherIds)
   const facultyOf = new Map()
+  const groupOf = new Map()
   for (const faculty of people.faculties) {
     for (const group of faculty.groups) {
-      for (const studentId of group.studentIds) facultyOf.set(studentId, faculty.id)
+      for (const studentId of group.studentIds) {
+        facultyOf.set(studentId, faculty.id)
+        groupOf.set(studentId, group.id)
+      }
     }
   }
-  // Живые сторисы автора: часть из них попадает в его «Актуальное» (шаг ниже).
+  // Живые сторисы автора: часть из них попадает в его «Актуальное» (шаг ниже), а первая
+  // сторис старосты — в ответы и пересылки в личном чате (шаг 53).
   const liveStories = new Map()
 
-  // ── Сторис: строка, опрос, просмотры, реакции, голоса ──────────────────────
-  // viewers — кто реально может видеть сторис по её аудитории (audienceConditions в
-  // stories.service): автор в зрители не пишется, сервис свой просмотр не фиксирует.
-  const addStory = async (authorId, k, story, viewers, { withPoll = false } = {}) => {
+  // ── Сторис: план ───────────────────────────────────────────────────────────
+  // Сначала план, потом запись: строка File медиа обязана попасть в базу раньше сторис
+  // (Story.fileId), а буферы writer'а сбрасываются в порядке первого обращения к модели.
+  //
+  // `cards` — что автор вправе показать на кадре: кого отметить (только тех, кто увидит
+  // сторис, — assertMentionable), какое событие, пост и пару (assertCardsUsable).
+  const planned = []
+  let storyN = 0
+  // Свой счётчик у надписей: стиль надписи идёт по кругу от него (storyTextElement), и
+  // общий номер сторис, на котором надпись бывает лишь у части вариантов, давал бы два
+  // цвета и один шрифт на весь вуз.
+  let textN = 0
+  const planStory = (authorId, k, story, viewers, { withPoll = false, cards = {} } = {}) => {
+    const n = storyN++
     const storyId = child(authorId, 'story', k)
     const createdAt = minutesAgo(random.randInt(10, 23 * 60))
+
+    // Медиа: каждая пятая — фото, ещё каждая пятая — видео (если хранилище доступно).
+    const sample = n % 5 === 1 ? storyMedia.image() : n % 5 === 3 ? storyMedia.video() : null
+    const file = sample
+      ? formatFileRow(sample, fileN++, { id: child(storyId, 'f'), ownerId: authorId, createdAt })
+      : null
+
+    // Элементы редактора по кругу: без них, эмодзи, надпись, отметка, карточка, надпись+эмодзи.
+    const elements = []
+    const variant = n % 6
+    if (variant === 1 || variant === 5) elements.push(storyEmojiElement(n, 1))
+    if (variant === 2 || variant === 5) {
+      const t = textN++
+      elements.push(storyTextElement(t, ELEMENT_TEXTS[t % ELEMENT_TEXTS.length]))
+    }
+    if (variant === 3 && cards.mentionable?.length) {
+      const userId = cards.mentionable[n % cards.mentionable.length]
+      elements.push({ type: 'mention', ...storyPlacement(n, 2), userId })
+    }
+    if (variant === 4) {
+      // Карточки по очереди: событие, пост, пара расписания — что у автора есть.
+      const card = Math.floor(n / 6) % 3
+      if (card === 0 && cards.eventId) {
+        elements.push({ type: 'event', ...storyPlacement(n, 3), eventId: cards.eventId })
+      } else if (card === 1 && cards.postId) {
+        elements.push({ type: 'post', ...storyPlacement(n, 3), postId: cards.postId })
+      } else if (cards.pair) {
+        elements.push({
+          type: 'schedule',
+          ...storyPlacement(n, 3),
+          pairId: cards.pair.id,
+          date: nextPairDate(cards.pair.day),
+        })
+      }
+    }
+
+    // Текст: у текстовой сторис с надписью-элементом подписи может не быть вовсе (весь
+    // текст — на кадре), у медиа подпись через раз. Фон — только у текстовой (refine
+    // backgroundTextOnly).
+    const text = (variant === 2 && !file) || (file && n % 2 === 0) ? null : story.text
     const row = {
       id: storyId,
       authorId,
@@ -134,89 +232,34 @@ export async function seedSocialExtras(prisma, writer, ctx) {
       facultyId: story.facultyId ?? null,
       groupId: story.groupId ?? null,
       audienceUserIds: story.audienceUserIds ?? [],
-      text: story.text,
-      background: random.pick(STORY_BACKGROUNDS),
+      fileId: file?.id ?? null,
+      text,
+      background: file ? null : random.pick(STORY_BACKGROUNDS),
       linkUrl: story.linkUrl ?? null,
       linkLabel: story.linkLabel ?? null,
-      // Эмодзи-стикер поверх фона: позиции — доли кадра 0..1 (StoryEmojiElementSchema).
-      ...(random.chance(0.3)
-        ? {
-            elements: [
-              {
-                type: 'emoji',
-                x: 0.2 + random.rng() * 0.6,
-                y: 0.15 + random.rng() * 0.2,
-                scale: 1 + random.rng(),
-                rotation: random.randInt(-20, 20),
-                emoji: random.pick(STORY_REACTION_EMOJIS),
-              },
-            ],
-          }
-        : {}),
+      ...(elements.length > 0 ? { elements } : {}),
       expiresAt: new Date(createdAt.getTime() + STORY_TTL_MS),
       createdAt,
     }
-    await writer.add('story', row)
-    stats.stories += 1
-
-    // Опрос — в той же «транзакции» сторис: без вариантов он был бы сломанным экраном.
-    let optionIds = []
-    let pollId = null
-    if (withPoll) {
-      const [question, options] = random.pick(STORY_POLLS)
-      pollId = child(storyId, 'poll')
-      await writer.add('storyPoll', { id: pollId, storyId, question, createdAt })
-      optionIds = options.map((_, oi) => child(pollId, 'o', oi))
-      for (const [oi, text] of options.entries()) {
-        await writer.add('storyPollOption', { id: optionIds[oi], pollId, text, order: oi })
-      }
-    }
-
-    const elapsed = Date.now() - createdAt.getTime()
-    const seenAt = () => new Date(createdAt.getTime() + Math.floor(random.rng() * elapsed))
-    const seen = random.sample(viewers, random.randInt(Math.min(2, viewers.length), 15))
-    for (const viewerId of seen) {
-      const viewedAt = seenAt()
-      // Пара (сторис, зритель) уникальна — повторный показ строк не множит.
-      await writer.add('storyView', {
-        id: `${storyId}-sv-${viewerId}`,
-        storyId,
-        userId: viewerId,
-        createdAt: viewedAt,
-      })
-      // Реагирует и голосует только тот, кто открыл сторис.
-      if (random.chance(0.3)) {
-        await writer.add('storyReaction', {
-          id: `${storyId}-sr-${viewerId}`,
-          storyId,
-          userId: viewerId,
-          emoji: random.pick(STORY_REACTION_EMOJIS),
-          createdAt: viewedAt,
-        })
-      }
-      // Голос одиночный: один на (опрос, человек), вариант — из этого же опроса.
-      if (pollId && random.chance(0.6)) {
-        await writer.add('storyPollVote', {
-          id: `${pollId}-v-${viewerId}`,
-          pollId,
-          optionId: random.pick(optionIds),
-          userId: viewerId,
-          createdAt: viewedAt,
-        })
-      }
-    }
-
+    planned.push({ row, file, viewers, withPoll, sample, forced: story.forcedViewers ?? [] })
     const list = liveStories.get(authorId) ?? []
-    list.push(row)
+    list.push({ ...row, sample })
     liveStories.set(authorId, list)
   }
 
-  // Администрация: аудитория UNIVERSITY (ALLOWED_AUDIENCES для админа и модератора вуза).
+  // Карточки, доступные всем в вузе: событие на весь вуз (шаг 50, ev-0 — UNIVERSITY) и
+  // официальный пост вуза. Пара — у каждой группы своя (шаг 40).
+  const uniEventId = id(index, 'ev', 0)
+  const uniPostId = id(index, 'post', 'uni', 0)
+  const firstPair = people.faculties[0]?.groups[0]?.pairs?.[0] ?? null
+
+  // Администрация: админ — вуз и преподаватели (TEACHERS видят только преподаватели вуза),
+  // модератор — вуз (ALLOWED_AUDIENCES сервиса сторис).
   const staffAuthors = [people.adminId, ...people.moderatorIds]
   for (const [ai, authorId] of staffAuthors.entries()) {
     const count = ai === 0 ? 2 : random.randInt(0, 1)
     for (let k = 0; k < count; k += 1) {
-      await addStory(
+      planStory(
         authorId,
         k,
         {
@@ -227,27 +270,84 @@ export async function seedSocialExtras(prisma, writer, ctx) {
             ? { linkUrl: 'https://example.kz/news', linkLabel: 'Подробнее' }
             : {}),
         },
-        allStudents,
+        [...allStudents, ...allTeachers],
+        { cards: { mentionable: allTeachers, eventId: uniEventId, postId: uniPostId, pair: firstPair } }, // prettier-ignore
       )
     }
   }
+  planStory(
+    people.adminId,
+    2,
+    {
+      audience: 'TEACHERS',
+      universityId: uniId,
+      text: 'Коллеги, методический совет переносится на пятницу.',
+    },
+    allTeachers,
+    { cards: { mentionable: allTeachers, eventId: uniEventId } },
+  )
 
   for (const faculty of people.faculties) {
     const facultyStudents = faculty.groups.flatMap((g) => g.studentIds)
-    // Декан — своему факультету, иногда с опросом.
-    const deanStories = random.randInt(0, 2)
-    for (let k = 0; k < deanStories; k += 1) {
-      await addStory(
+    const firstGroup = faculty.groups[0]
+    // Декан — своему факультету (иногда с опросом) и объявлением одной группе.
+    planStory(
+      faculty.deanId,
+      0,
+      {
+        audience: 'FACULTY',
+        universityId: uniId,
+        facultyId: faculty.id,
+        text: random.pick(STAFF_STORY_TEXTS),
+      },
+      [...facultyStudents, ...faculty.teacherIds],
+      {
+        withPoll: random.chance(0.3),
+        cards: {
+          mentionable: faculty.teacherIds,
+          eventId: uniEventId,
+          postId: child(faculty.id, 'post', 0),
+          pair: firstGroup?.pairs?.[0],
+        },
+      },
+    )
+    if (firstGroup) {
+      planStory(
         faculty.deanId,
-        k,
+        1,
         {
-          audience: 'FACULTY',
+          audience: 'GROUP',
           universityId: uniId,
           facultyId: faculty.id,
-          text: random.pick(STAFF_STORY_TEXTS),
+          groupId: firstGroup.id,
+          text: 'Группа, жду старосту в деканате до конца недели.',
         },
-        facultyStudents,
-        { withPoll: random.chance(0.3) },
+        firstGroup.studentIds,
+        { cards: { mentionable: firstGroup.studentIds.slice(0, 1) } },
+      )
+    }
+    // Преподаватель — группе, где ведёт пары: teacherIds[0] ведёт предмет 0 во всех
+    // группах факультета (шаг 40). Карточка — своя пара в этой группе.
+    const teacherId = faculty.teacherIds[0]
+    if (teacherId && firstGroup) {
+      planStory(
+        teacherId,
+        0,
+        {
+          audience: 'GROUP',
+          universityId: uniId,
+          facultyId: faculty.id,
+          groupId: firstGroup.id,
+          text: 'Завтра на паре — контрольная по пройденной теме.',
+        },
+        firstGroup.studentIds,
+        {
+          withPoll: true,
+          cards: {
+            mentionable: firstGroup.studentIds,
+            pair: firstGroup.pairs?.find((p) => p.teacherId === teacherId),
+          },
+        },
       )
     }
 
@@ -277,42 +377,58 @@ export async function seedSocialExtras(prisma, writer, ctx) {
       // Зрителями друг друга их не делаем ни при каком исходе: заблокированный не видит
       // сторис блокирующего, и наоборот.
       const blockPair = new Set([members[0], members[members.length - 1]])
-      const viewersFor = (authorId, pool) =>
-        pool.filter((uid) => uid !== authorId && !(blockPair.has(authorId) && blockPair.has(uid) && members.length > 7)) // prettier-ignore
+      const viewersFor = (authorId, list) =>
+        list.filter((uid) => uid !== authorId && !(blockPair.has(authorId) && blockPair.has(uid) && members.length > 7)) // prettier-ignore
+      const groupCards = {
+        eventId: uniEventId,
+        postId: child(group.id, 'post', 0),
+        pair: group.pairs?.[0],
+      }
 
-      for (const studentId of members) {
-        // Сторис публикует примерно каждый третий: лента колец полная, но не у всех.
-        if (!random.chance(0.3)) continue
+      for (const [si, studentId] of members.entries()) {
+        // Сторис публикует примерно каждый третий; староста — всегда: его первая сторис
+        // группе нужна для ответа и пересылки в личном чате (шаг 53).
+        const starosta = studentId === group.starostaId
+        if (!starosta && !random.chance(0.3)) continue
         const count = random.randInt(1, 2)
         for (let k = 0; k < count; k += 1) {
-          const friends = friendsOf.get(studentId) ?? []
-          const audience = random.pickWeighted([
-            ['GROUP', 70],
-            ['FRIENDS', friends.length > 0 ? 22 : 0],
-            ['SELECTED', members.length > 3 ? 8 : 0],
-          ])
+          const friends = viewersFor(studentId, friendsOf.get(studentId) ?? [])
+          let audience = STUDENT_STORY_AUDIENCES[(si + k) % STUDENT_STORY_AUDIENCES.length]
+          if (starosta && k === 0) audience = 'GROUP'
+          if (audience === 'FRIENDS' && friends.length === 0) audience = 'GROUP'
+          if (audience === 'SELECTED' && members.length <= 3) audience = 'GROUP'
           const text = random.pick(STUDENT_STORY_TEXTS)
           if (audience === 'GROUP') {
-            await addStory(
+            const viewers = viewersFor(studentId, members)
+            planStory(
               studentId,
               k,
-              { audience, universityId: uniId, facultyId: faculty.id, groupId: group.id, text },
-              viewersFor(studentId, members),
-              { withPoll: random.chance(0.3) },
+              {
+                audience,
+                universityId: uniId,
+                facultyId: faculty.id,
+                groupId: group.id,
+                text,
+                // Ответ в личном чате (шаг 53) пишет второй в группе — он сторис открыл.
+                forcedViewers: starosta && k === 0 ? members.slice(1, 2) : [],
+              },
+              viewers,
+              { withPoll: random.chance(0.3), cards: { ...groupCards, mentionable: viewers } },
             )
           } else if (audience === 'FRIENDS') {
             // Личная аудитория: вуз и факультет — автора (authorScope), видимость по дружбе.
-            await addStory(
+            // Карточка поста группы друзьям из других групп не видна — отметки и событие.
+            planStory(
               studentId,
               k,
               { audience, universityId: uniId, facultyId: faculty.id, text },
-              viewersFor(studentId, friends),
-              { withPoll: random.chance(0.2) },
+              friends,
+              { withPoll: random.chance(0.2), cards: { mentionable: friends, eventId: uniEventId } }, // prettier-ignore
             )
           } else {
             // Поимённый список: однокурсники без автора и без пары блокировки.
             const recipients = random.sample(viewersFor(studentId, members), random.randInt(2, 5))
-            await addStory(
+            planStory(
               studentId,
               k,
               {
@@ -323,45 +439,78 @@ export async function seedSocialExtras(prisma, writer, ctx) {
                 text,
               },
               recipients,
+              { cards: { ...groupCards, mentionable: recipients } },
             )
           }
         }
       }
     }
   }
+
+  // ── Сторис: запись ─────────────────────────────────────────────────────────
+  for (const { file } of planned) if (file) await writer.add('file', file)
+  await writer.flush()
+  for (const { row, file, viewers, withPoll, forced } of planned) {
+    await writer.add('story', row)
+    stats.stories += 1
+    if (file) stats.mediaStories += 1
+    await writeStoryEngagement(writer, random, row, viewers, { withPoll, forced })
+  }
   await writer.flush()
 
   // ── «Актуальное» и скрытие сторис ──────────────────────────────────────────
-  // Подборка — снимок: текст, фон и аудитория переносятся, опрос — нет. Старые элементы
-  // ссылаются на исходник NULL (тот давно снят кроном), живые — на свою сторис.
-  // Обложка (coverItemId) не выбрана: NULL — обложкой служит первый элемент, а ссылка на
-  // элемент из строки подборки потребовала бы второго прохода с апдейтом.
-  const addHighlight = async (ownerId, hi, title, scope, texts) => {
+  // Подборка — снимок: текст, фон, элементы и аудитория переносятся, опрос — нет; медиа
+  // копируется в бакет подборок своей строкой File (fileId уникален у элемента). Старые
+  // элементы ссылаются на исходник NULL (тот давно снят кроном), живые — на свою сторис.
+  // Обложка (coverItemId) — у части подборок первый элемент, у остальных NULL: тогда
+  // обложкой служит первый видимый элемент. Ставится после элементов (ссылка на них).
+  const highlightFiles = []
+  const highlightRows = []
+  const itemRows = []
+  const covered = []
+  let itemN = 0
+  const addHighlight = (ownerId, hi, title, scope, texts) => {
     const highlightId = child(ownerId, 'hl', hi)
     const createdAt = random.randomDate(-300, -2)
-    await writer.add('storyHighlight', { id: highlightId, ownerId, title, position: hi, createdAt })
-    stats.highlights += 1
+    highlightRows.push({ id: highlightId, ownerId, title, position: hi, createdAt })
+    if ((itemN + hi) % 2 === 0) covered.push(highlightId)
     let position = 0
     const itemCount = random.randInt(2, 5)
     for (let ii = 0; ii < itemCount; ii += 1) {
-      await writer.add('storyHighlightItem', {
-        id: child(highlightId, 'it', ii),
+      const itemId = child(highlightId, 'it', ii)
+      const n = itemN++
+      // Каждый третий архивный элемент — фото: снимок медийной сторис.
+      const sample = n % 3 === 1 ? storyMedia.highlightImage() : null
+      const file = sample
+        ? formatFileRow(sample, fileN++, { id: child(itemId, 'f'), ownerId, createdAt })
+        : null
+      if (file) highlightFiles.push(file)
+      itemRows.push({
+        id: itemId,
         highlightId,
         sourceStoryId: null,
         ...scope,
-        text: random.pick(texts),
-        background: random.pick(STORY_BACKGROUNDS),
+        fileId: file?.id ?? null,
+        text: file && n % 2 === 0 ? null : random.pick(texts),
+        background: file ? null : random.pick(STORY_BACKGROUNDS),
+        ...(n % 4 === 2 ? { elements: [storyTextElement(textN, ELEMENT_TEXTS[textN++ % ELEMENT_TEXTS.length])] } : {}), // prettier-ignore
         storyCreatedAt: random.randomDate(-400, -2),
         position: position++,
         createdAt,
       })
     }
     // Живая сторис в подборке — снимок с sourceStoryId: по нему сервис не даёт добавить
-    // её в ту же подборку повторно. Опрос в снимок не переносится.
+    // её в ту же подборку повторно. Опрос в снимок не переносится, медиа — копией.
     const live = hi === 0 ? (liveStories.get(ownerId) ?? [])[0] : null
     if (live && random.chance(0.5)) {
-      await writer.add('storyHighlightItem', {
-        id: child(highlightId, 'it', 'live'),
+      const itemId = child(highlightId, 'it', 'live')
+      const copy = live.sample ? storyMedia.highlightOf(live.sample) : null
+      const file = copy
+        ? formatFileRow(copy, fileN++, { id: child(itemId, 'f'), ownerId, createdAt: live.createdAt }) // prettier-ignore
+        : null
+      if (file) highlightFiles.push(file)
+      itemRows.push({
+        id: itemId,
         highlightId,
         sourceStoryId: live.id,
         audience: live.audience,
@@ -369,6 +518,7 @@ export async function seedSocialExtras(prisma, writer, ctx) {
         facultyId: live.facultyId,
         groupId: live.groupId,
         audienceUserIds: live.audienceUserIds,
+        fileId: file?.id ?? null,
         text: live.text,
         background: live.background,
         linkUrl: live.linkUrl,
@@ -381,7 +531,7 @@ export async function seedSocialExtras(prisma, writer, ctx) {
     }
   }
 
-  await addHighlight(
+  addHighlight(
     people.adminId,
     0,
     random.pick(STAFF_HIGHLIGHT_TITLES),
@@ -389,13 +539,20 @@ export async function seedSocialExtras(prisma, writer, ctx) {
     STAFF_STORY_TEXTS,
   )
   for (const faculty of people.faculties) {
+    addHighlight(
+      faculty.deanId,
+      0,
+      random.pick(STAFF_HIGHLIGHT_TITLES),
+      { audience: 'FACULTY', universityId: uniId, facultyId: faculty.id },
+      STAFF_STORY_TEXTS,
+    )
     for (const group of faculty.groups) {
       const members = group.studentIds
       for (const studentId of members) {
         if (random.chance(0.15)) {
           const titles = random.sample(HIGHLIGHT_TITLES, random.randInt(1, 2))
           for (const [hi, title] of titles.entries()) {
-            await addHighlight(
+            addHighlight(
               studentId,
               hi,
               title,
@@ -418,14 +575,32 @@ export async function seedSocialExtras(prisma, writer, ctx) {
       }
     }
   }
+  for (const file of highlightFiles) await writer.add('file', file)
   await writer.flush()
+  for (const row of highlightRows) await writer.add('storyHighlight', row)
+  stats.highlights += highlightRows.length
+  await writer.flush()
+  for (const row of itemRows) await writer.add('storyHighlightItem', row)
+  await writer.flush()
+  // Обложка — первый элемент подборки (id выводится из id подборки). Один запрос на вуз;
+  // выбранную пользователем обложку повторный прогон не трогает.
+  if (covered.length > 0) {
+    await prisma.$executeRaw`
+      UPDATE story_highlights SET cover_item_id = story_highlights.id || '-it-0'
+      WHERE story_highlights.id = ANY(${covered}::text[])
+        AND story_highlights.cover_item_id IS NULL
+        AND EXISTS (SELECT 1 FROM story_highlight_items i WHERE i.id = story_highlights.id || '-it-0')`
+  }
+
+  // ── Страницы компаний и платформы: посты, сторис, статьи, альбомы ───────────
+  Object.assign(stats, await seedOrgPages(prisma, writer, ctx, { writeStoryEngagement }))
 
   // ── Лайки статей, избранное ленты, комментарии к опросам, репосты ──────────
-  // Всё — внутри группы: статьи, опросы и личные посты однокурсника видны при любой их
-  // видимости (ALL/UNIVERSITY/FACULTY/GROUP). Кандидаты — первые несколько записей
-  // каждого однокурсника; что из них реально есть и опубликовано, отвечает база.
-  // Посты вуза от администрации: официальные объявления и её личные посты на вуз. Без
-  // фильтра по автору take отдал бы личные посты студентов (их id сортируются раньше).
+  // Всё — внутри группы: статьи, опросы и посты однокурсника группе видны при любой их
+  // видимости (ALL/UNIVERSITY/FACULTY/GROUP). Личные (PERSONAL) видит только адресат —
+  // их в кандидатах нет. Что из кандидатов реально есть и опубликовано, отвечает база.
+  // Посты вуза от администрации: официальные объявления и посты страницы вуза. Без
+  // фильтра по автору take отдал бы посты студентов (их id сортируются раньше).
   const uniPosts = await prisma.post.findMany({
     where: {
       universityId: uniId,
@@ -458,7 +633,12 @@ export async function seedSocialExtras(prisma, writer, ctx) {
         take: articleCandidates.length,
       }),
       prisma.post.findMany({
-        where: { id: { in: postCandidates }, status: 'PUBLISHED', deletedAt: null },
+        where: {
+          id: { in: postCandidates },
+          status: 'PUBLISHED',
+          deletedAt: null,
+          audience: 'GROUP',
+        },
         select: { id: true, authorId: true, groupId: true, publishedAt: true },
         orderBy: { id: 'asc' },
         take: postCandidates.length,
@@ -474,8 +654,8 @@ export async function seedSocialExtras(prisma, writer, ctx) {
     for (const group of faculty.groups) {
       const inGroup = new Set(group.studentIds)
       const groupArticles = articles.filter((a) => inGroup.has(a.userId))
-      // Посты группы (автор — староста или студент) и личные посты однокурсников.
-      const groupPosts = posts.filter((p) => p.groupId === group.id || inGroup.has(p.authorId))
+      // Посты группы (автор — староста или студент) — только адресованные этой группе.
+      const groupPosts = posts.filter((p) => p.groupId === group.id)
       const groupPolls = polls.filter((p) => inGroup.has(p.userId))
 
       for (const studentId of group.studentIds) {
@@ -546,10 +726,11 @@ export async function seedSocialExtras(prisma, writer, ctx) {
   }
   await writer.flush()
 
-  // ── Обсуждение событий и реакции на комментарии ────────────────────────────
+  // ── Обсуждение событий: комментарии, вложения, реакции ─────────────────────
   // Комментировать может любой, кому видно событие (не только участник): участники с
-  // подходящим скоупом пишут вопросы, организатор отвечает. Участников шаг 50 набирает
-  // по всему вузу, поэтому у событий факультета чужих отфильтровываем.
+  // подходящим скоупом пишут вопросы, организатор отвечает. Карьерные события (шаг 80)
+  // набирают участников по-своему, поэтому скоуп сверяем для всех аудиторий.
+  const teacherSet = new Set(allTeachers)
   const events = await prisma.event.findMany({
     where: { universityId: uniId },
     select: {
@@ -557,27 +738,59 @@ export async function seedSocialExtras(prisma, writer, ctx) {
       organizerId: true,
       audience: true,
       facultyId: true,
+      groupId: true,
       participants: { select: { userId: true }, orderBy: { id: 'asc' }, take: 40 },
     },
     orderBy: { id: 'asc' },
     take: 200,
   })
+  const commentMedia = eventCommentMediaKit(pool)
+  const commentFiles = []
+  let commentN = 0
   for (const event of events) {
-    const audienceOk = (uid) =>
-      event.audience !== 'FACULTY' || !event.facultyId || facultyOf.get(uid) === event.facultyId
-    const pool = event.participants.map((p) => p.userId).filter(audienceOk)
-    if (pool.length === 0) continue
+    const audienceOk = (uid) => {
+      if (event.audience === 'TEACHERS') return teacherSet.has(uid)
+      if (event.audience === 'GROUP') return groupOf.get(uid) === event.groupId
+      if (event.audience === 'FACULTY' && event.facultyId) {
+        return facultyOf.get(uid) === event.facultyId || teacherSet.has(uid)
+      }
+      return true
+    }
+    const viewers = event.participants.map((p) => p.userId).filter(audienceOk)
+    if (viewers.length === 0) continue
     const count = random.randInt(0, 6)
     for (let ci = 0; ci < count; ci += 1) {
       const commentId = child(event.id, 'ec', ci)
       const createdAt = random.randomDate(-9, 0)
+      const authorId = random.pick(viewers)
+      // Вложения — файлы бакета постов, свои у автора комментария (addComment привязывает
+      // только свои и ещё ничьи). Текст пустой у голосового: оно и есть сообщение.
+      const attach = EVENT_ATTACHMENTS[commentN++ % EVENT_ATTACHMENTS.length]
+      const files = []
+      for (const [ai, kind] of attach.entries()) {
+        const source =
+          kind === 'spoiler' || kind === 'asDocument' ? commentMedia.image() : commentMedia[kind]()
+        if (!source) continue
+        files.push(
+          formatFileRow(source, fileN++, {
+            id: child(commentId, 'f', ai),
+            ownerId: authorId,
+            eventCommentId: commentId,
+            spoiler: kind === 'spoiler',
+            asDocument: kind === 'asDocument',
+            createdAt,
+          }),
+        )
+      }
+      commentFiles.push(...files)
+      const voiceOnly = attach[0] === 'voice' && files.length > 0
       await writer.add('eventComment', {
         id: commentId,
         eventId: event.id,
-        authorId: random.pick(pool),
-        content: random.pick(EVENT_COMMENTS),
+        authorId,
+        content: voiceOnly ? '' : random.pick(EVENT_COMMENTS),
         // Изредка удалённый комментарий: экран показывает «Комментарий удалён».
-        deletedAt: random.chance(0.05) ? after(random, createdAt, 9) : null,
+        deletedAt: files.length === 0 && random.chance(0.05) ? after(random, createdAt, 9) : null,
         createdAt,
       })
       stats.eventComments += 1
@@ -594,7 +807,7 @@ export async function seedSocialExtras(prisma, writer, ctx) {
         stats.eventComments += 1
       }
       // Реакция одна на человека (сервис заменяет прежнюю), эмодзи — из набора чата.
-      for (const userId of random.sample(pool, random.randInt(0, 4))) {
+      for (const userId of random.sample(viewers, random.randInt(0, 4))) {
         await writer.add('eventCommentReaction', {
           id: `${commentId}-rx-${userId}`,
           commentId,
@@ -606,6 +819,13 @@ export async function seedSocialExtras(prisma, writer, ctx) {
     }
   }
   await writer.flush()
+  // Вложения — после комментариев (File.eventCommentId).
+  for (const file of commentFiles) await writer.add('file', file)
+  await writer.flush()
+
+  // ── Сторис в личных чатах и жалобы на сторис и комментарии ─────────────────
+  Object.assign(stats, await seedStoryMessages(prisma, writer, ctx, { liveStories }))
+  Object.assign(stats, await seedStoryComplaints(prisma, writer, ctx, { liveStories }))
 
   // ── Предупреждения модерации ────────────────────────────────────────────────
   // По подтверждённым жалобам на пользователя — со ссылкой на жалобу (если жалобы к
@@ -644,4 +864,65 @@ export async function seedSocialExtras(prisma, writer, ctx) {
   await writer.flush()
 
   return stats
+}
+
+/**
+ * Опрос, просмотры, реакции и голоса сторис. `viewers` — кто реально может видеть сторис по
+ * её аудитории (audienceConditions в stories.service): автор в зрители не пишется, сервис
+ * свой просмотр не фиксирует. `forced` — зрители, которые обязаны быть (ответили на сторис).
+ *
+ * Общая для сторис вуза и сторис платформы и компаний (шаг 54). Случайные решения берутся
+ * из переданного `random`: у общих авторов это свой поток, чтобы опрос и его варианты
+ * совпадали, из какого бы вуза строка ни пришла первой.
+ */
+export async function writeStoryEngagement(writer, random, row, viewers, opts = {}) {
+  const { withPoll = false, forced = [], poll = null } = opts
+  const storyId = row.id
+  const createdAt = row.createdAt
+  let optionIds = []
+  let pollId = null
+  if (withPoll || poll) {
+    const [question, options] = poll ?? random.pick(STORY_POLLS)
+    pollId = child(storyId, 'poll')
+    await writer.add('storyPoll', { id: pollId, storyId, question, createdAt })
+    optionIds = options.map((_, oi) => child(pollId, 'o', oi))
+    for (const [oi, text] of options.entries()) {
+      await writer.add('storyPollOption', { id: optionIds[oi], pollId, text, order: oi })
+    }
+  }
+
+  const elapsed = Date.now() - createdAt.getTime()
+  const seenAt = () => new Date(createdAt.getTime() + Math.floor(random.rng() * elapsed))
+  const sampled = random.sample(viewers, random.randInt(Math.min(2, viewers.length), 15))
+  const seen = [...new Set([...forced, ...sampled])]
+  for (const viewerId of seen) {
+    const viewedAt = seenAt()
+    // Пара (сторис, зритель) уникальна — повторный показ строк не множит.
+    await writer.add('storyView', {
+      id: `${storyId}-sv-${viewerId}`,
+      storyId,
+      userId: viewerId,
+      createdAt: viewedAt,
+    })
+    // Реагирует и голосует только тот, кто открыл сторис.
+    if (random.chance(0.3)) {
+      await writer.add('storyReaction', {
+        id: `${storyId}-sr-${viewerId}`,
+        storyId,
+        userId: viewerId,
+        emoji: random.pick(STORY_REACTION_EMOJIS),
+        createdAt: viewedAt,
+      })
+    }
+    // Голос одиночный: один на (опрос, человек), вариант — из этого же опроса.
+    if (pollId && random.chance(0.6)) {
+      await writer.add('storyPollVote', {
+        id: `${pollId}-v-${viewerId}`,
+        pollId,
+        optionId: random.pick(optionIds),
+        userId: viewerId,
+        createdAt: viewedAt,
+      })
+    }
+  }
 }

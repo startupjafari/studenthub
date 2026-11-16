@@ -1,12 +1,17 @@
-// Шаг «соцчасть»: посты с комментариями и реакциями, события с участниками,
+// Шаг «соцчасть»: посты с медиа, комментариями и реакциями, события с участниками,
 // друзья и блокировки.
 //
-// Вложения постов — из общего медиа-пула, и здесь важное ограничение схемы:
-// File.postId — скаляр, а объект уникален по (bucket, key), поэтому один файл может
-// висеть ровно на одном посте. Пул делится между вузами БЕЗ ПЕРЕСЕЧЕНИЙ (иначе
-// следующий вуз «отобрал» бы файл у предыдущего), и медиа получают первые несколько
-// постов каждого вуза. Обложки (Album.coverFileId, ProfileArticle.coverUrl,
-// User.coverUrl) так не ограничены — их можно переиспользовать сколько угодно.
+// Аудитории — строго как у сервиса (posts.service / events.service, ALLOWED_AUDIENCES):
+// студент и староста пишут группе или лично, преподаватель — своей группе, по предмету или
+// лично, декан — факультету и группе, админ вуза — вузу, факультету, группе и
+// преподавателям, модератор вуза собственных постов не пишет вовсе и публикует только от
+// имени университета (universityPageId). Пост с аудиторией, которую роль выбрать не может,
+// в живой базе не возникает, а значит и экраны с ним никто не проверял.
+//
+// Медиа постов — ССЫЛКИ на объекты общего пула (см. 51-social-media.mjs): пара
+// (bucket, key) у File не уникальна, и у каждого поста своя строка File без копии объекта.
+// Прежнее «один файл — один пост, пул делится между вузами без пересечений» снято
+// миграцией 20260929121630_files_shared_object_pool.
 
 import {
   COMMENTS,
@@ -22,27 +27,25 @@ import {
   postText,
 } from '../data/content.mjs'
 import { child, id } from '../lib/ids.mjs'
+import { postMediaKit } from './51-social-media.mjs'
 
-// Аудитория личных постов. Пост виден другим только если аудитория совпала со скоупом
-// зрителя (visibilityWhere в posts.service): пост «в никуда» на вкладке профиля увидел
-// бы лишь сам автор. Поэтому смесь: чаще всего группа (её видят однокурсники), реже
-// факультет и вуз, изредка ALL. У сотрудников группы нет — им факультет и вуз.
-const STUDENT_AUDIENCE = [
-  ['GROUP', 45],
-  ['FACULTY', 25],
-  ['UNIVERSITY', 20],
-  ['ALL', 10],
-]
-const STAFF_AUDIENCE = [
-  ['FACULTY', 50],
-  ['UNIVERSITY', 35],
-  ['ALL', 15],
-]
-// Сколько файлов пула отдаётся одному вузу. 8 фото × 100 вузов = 800 контентных фото
-// пула ровно на всех; видео (их около сотни) достаётся не каждому вузу.
+// Аудитории личных постов по роли автора — по кругу со сдвигом на автора, а не случайно:
+// так каждое значение, доступное роли, встречается в каждом вузе (у сотни авторов круг
+// обязательно проходит целиком), а доли остаются правдоподобными — группе пишут чаще, чем
+// лично. Модератор вуза — только «от имени университета» (UNIVERSITY + universityPageId).
+const AUDIENCE_CYCLE = {
+  STUDENT: ['GROUP', 'GROUP', 'GROUP', 'PERSONAL', 'GROUP', 'GROUP', 'GROUP'],
+  TEACHER: ['SUBJECT', 'GROUP', 'SUBJECT', 'PERSONAL', 'GROUP', 'SUBJECT'],
+  DEAN: ['FACULTY', 'GROUP', 'FACULTY', 'PERSONAL', 'FACULTY'],
+  UNIVERSITY_ADMIN: ['UNIVERSITY', 'TEACHERS', 'FACULTY', 'GROUP', 'UNIVERSITY', 'PERSONAL'],
+  UNIVERSITY_MODERATOR: ['UNIVERSITY'],
+}
+// Роли не ниже преподавателя получают +2 к приоритету (posts.service, priorityFor).
+const STAFF = new Set(['TEACHER', 'DEAN', 'UNIVERSITY_ADMIN', 'UNIVERSITY_MODERATOR'])
+
+// Срез пула для вуза. Шаги 50 и 55 им больше не пользуются (их медиа — ссылки), но шаг
+// чатов по-прежнему берёт отсюда хвост среза для вложений сообщений.
 const PHOTOS_PER_UNIVERSITY = 8
-
-// Срез пула для вуза: строго свой диапазон, без пересечений с другими вузами.
 export function poolSlice(pool, index) {
   if (!pool) return { photos: [], videos: [] }
   const from = (index - 1) * PHOTOS_PER_UNIVERSITY
@@ -51,77 +54,184 @@ export function poolSlice(pool, index) {
   return { photos, videos: video }
 }
 
+// Онлайн-события: по одному на каждого провайдера встречи (MEETING_PROVIDERS в
+// packages/shared-schemas/src/events.ts). Провайдер сервер ставит по хосту ссылки
+// (meetingProviderOf) — здесь хосты подобраны так, чтобы он совпал с записанным.
+// Ключ — индекс в EVENTS: онлайн только то, что онлайн правдоподобно.
+const ONLINE_EVENTS = {
+  1: ['ZOOM', (n) => `https://zoom.us/j/${8_100_000_000 + n}`, '482913'],
+  4: ['GOOGLE_MEET', (n) => `https://meet.google.com/stu-${String(n).padStart(4, '0')}-hub`, null],
+  5: ['TEAMS', (n) => `https://teams.microsoft.com/l/meetup-join/seed-${n}`, null],
+  6: ['OTHER', (n) => `https://meet.jit.si/studenthub-hackathon-${n}`, null],
+}
+const OFFLINE_LOCATIONS = EVENT_LOCATIONS.filter((l) => l !== 'Онлайн')
+
 export async function seedSocial(prisma, writer, ctx) {
   const { index, random, structure, people, pool } = ctx
   const { uniId } = structure
-  const slice = poolSlice(pool, index)
-  // Файлы, которые прикрепим к постам: фото пополам с альбомами (шаг 55) + видео.
-  const attachable = [...slice.photos.slice(0, 4), ...slice.videos]
-  const attached = []
+  const media = await postMediaKit(prisma, pool)
+  let mediaPosts = 0
+  let mediaFiles = 0
 
   const allStudents = people.faculties.flatMap((f) => f.groups.flatMap((g) => g.studentIds))
   const allTeachers = people.faculties.flatMap((f) => f.teacherIds)
+  const facultyStudents = new Map(
+    people.faculties.map((f) => [f.id, f.groups.flatMap((g) => g.studentIds)]),
+  )
+  // Срез вуза для вовлечения в посты на весь вуз: по трое из каждой группы и часть
+  // преподавателей — разные факультеты, а не первые сорок человек одного.
+  const uniSample = [
+    ...people.faculties.flatMap((f) => f.groups.flatMap((g) => g.studentIds.slice(0, 3))),
+    ...allTeachers.slice(0, 20),
+  ]
+
+  // Кто видит пост этой аудитории (visibilityWhere): из них берутся комментаторы и те, кто
+  // ставит реакции. Комментарий к посту чужой группы означал бы, что его автор видит то,
+  // что ему не адресовано.
+  const groupMembers = new Map(
+    people.faculties.flatMap((f) => f.groups.map((g) => [g.id, g.studentIds])),
+  )
+  const facultyTeachers = new Map(people.faculties.map((f) => [f.id, f.teacherIds]))
+  const audiencePool = (row) => {
+    switch (row.audience) {
+      case 'GROUP':
+        return groupMembers.get(row.groupId) ?? []
+      case 'FACULTY':
+        return [
+          ...(facultyStudents.get(row.facultyId) ?? []).slice(0, 60),
+          ...(facultyTeachers.get(row.facultyId) ?? []),
+        ]
+      case 'TEACHERS':
+        return allTeachers
+      case 'PERSONAL':
+        return [row.targetUserId]
+      default:
+        return uniSample
+    }
+  }
+
+  // Медиа поста — новые строки File на объекты пула. Пишутся после постов (FK postId),
+  // поэтому копятся в списке.
+  const pendingMedia = []
+  const withMedia = (postId, ownerId, createdAt, sources) => {
+    if (sources.length === 0) return
+    mediaPosts += 1
+    for (const [k, make] of sources.entries()) {
+      pendingMedia.push(make(mediaFiles + k, { id: child(postId, 'm', k), ownerId, postId, createdAt })) // prettier-ignore
+    }
+    mediaFiles += sources.length
+  }
 
   // ── Посты: вуз → факультет → группа ─────────────────────────────────────────
+  // В `posts` — посты, которым дальше раздаются комментарии и реакции, вместе со своей
+  // строкой: по ней видно аудиторию.
   const posts = []
-  const addPost = async (postId, row) => {
-    posts.push(postId)
-    await writer.add('post', { id: postId, ...row })
+  const addPost = async (row, sources = []) => {
+    posts.push(row)
+    await writer.add('post', row)
+    withMedia(row.id, row.authorId, row.publishedAt ?? row.createdAt ?? new Date(), sources)
   }
 
   for (const [pi, content] of POSTS_UNIVERSITY.entries()) {
-    const postId = id(index, 'post', 'uni', pi)
-    await addPost(postId, {
-      authorId: pi % 3 === 0 ? people.adminId : random.pick(people.moderatorIds),
-      audience: 'UNIVERSITY',
-      title: random.pick(POST_TITLES),
-      content,
-      universityId: uniId,
-      status: 'PUBLISHED',
-      publishedAt: random.randomDate(-25, -1),
-      views: random.randInt(40, 900),
-      priority: postPriority('UNIVERSITY', true),
-      // Один закреплённый пост на вуз: лента должна показывать закрепление.
-      ...(pi === 0 ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId } : {}),
-    })
-  }
-
-  for (const faculty of people.faculties) {
-    for (const [pi, content] of POSTS_FACULTY.slice(0, 2).entries()) {
-      const postId = child(faculty.id, 'post', pi)
-      await addPost(postId, {
-        authorId: faculty.deanId,
-        audience: 'FACULTY',
+    // Каждый третий — от админа вуза в своей ленте; остальные публикует модератор от имени
+    // университета: собственных постов у модератора нет (ALLOWED_AUDIENCES), только страница.
+    const asPage = pi % 3 !== 0
+    const publishedAt = random.randomDate(-25, -1)
+    await addPost(
+      {
+        id: id(index, 'post', 'uni', pi),
+        authorId: asPage ? random.pick(people.moderatorIds) : people.adminId,
+        audience: 'UNIVERSITY',
+        title: random.pick(POST_TITLES),
         content,
         universityId: uniId,
-        facultyId: faculty.id,
+        universityPageId: asPage ? uniId : null,
         status: 'PUBLISHED',
-        publishedAt: random.randomDate(-18, -1),
-        views: random.randInt(20, 300),
-        priority: postPriority('FACULTY', true),
-      })
-    }
-    for (const group of faculty.groups) {
-      for (let pi = 0; pi < 2; pi += 1) {
-        const postId = child(group.id, 'post', pi)
-        await addPost(postId, {
-          authorId: pi === 0 ? group.starostaId : random.pick(group.studentIds),
-          audience: 'GROUP',
-          content: random.pick(POSTS_GROUP),
+        publishedAt,
+        createdAt: publishedAt,
+        views: random.randInt(40, 900),
+        priority: postPriority('UNIVERSITY', true),
+        // Один закреплённый пост на вуз — пост страницы вуза, закреплённый админом.
+        // Закрепляет только роль строго выше автора (setPinned), свой пост админ не закрепит.
+        ...(pi === 1 ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId } : {}),
+      },
+      // Закреплённый пост — с альбомом на десять вложений: потолок CreatePostSchema.
+      pi === 1 ? media.albumMax() : media.layout(pi),
+    )
+  }
+
+  // Объявление админа «только преподавателям»: аудитория TEACHERS, студентам не видна.
+  {
+    const publishedAt = random.randomDate(-20, -1)
+    await addPost(
+      {
+        id: id(index, 'post', 'teachers'),
+        authorId: people.adminId,
+        audience: 'TEACHERS',
+        title: 'Для преподавателей',
+        content: 'Методический совет в среду в 14:00. Повестка — в приложенных материалах.',
+        universityId: uniId,
+        status: 'PUBLISHED',
+        publishedAt,
+        createdAt: publishedAt,
+        views: random.randInt(10, 120),
+        priority: postPriority('TEACHERS', true),
+      },
+      media.layout(0),
+    )
+  }
+
+  for (const [fi, faculty] of people.faculties.entries()) {
+    for (const [pi, content] of POSTS_FACULTY.slice(0, 2).entries()) {
+      const publishedAt = random.randomDate(-18, -1)
+      await addPost(
+        {
+          id: child(faculty.id, 'post', pi),
+          authorId: faculty.deanId,
+          audience: 'FACULTY',
+          content,
           universityId: uniId,
           facultyId: faculty.id,
-          groupId: group.id,
           status: 'PUBLISHED',
-          publishedAt: random.randomDate(-12, 0),
-          views: random.randInt(5, 60),
-          priority: postPriority('GROUP', false),
-        })
+          publishedAt,
+          createdAt: publishedAt,
+          views: random.randInt(20, 300),
+          priority: postPriority('FACULTY', true),
+        },
+        media.layout(fi + pi),
+      )
+    }
+    for (const [gi, group] of faculty.groups.entries()) {
+      for (let pi = 0; pi < 2; pi += 1) {
+        const publishedAt = random.randomDate(-12, 0)
+        await addPost(
+          {
+            id: child(group.id, 'post', pi),
+            authorId: pi === 0 ? group.starostaId : random.pick(group.studentIds),
+            audience: 'GROUP',
+            content: random.pick(POSTS_GROUP),
+            universityId: uniId,
+            facultyId: faculty.id,
+            groupId: group.id,
+            status: 'PUBLISHED',
+            publishedAt,
+            createdAt: publishedAt,
+            views: random.randInt(5, 60),
+            priority: postPriority('GROUP', false),
+            // Закреп в ленте группы: декан закрепляет объявление старосты первой группы.
+            ...(gi === 0 && pi === 0
+              ? { pinnedAt: random.randomDate(-4, 0), pinnedById: faculty.deanId }
+              : {}),
+          },
+          pi === 0 ? media.layout(gi) : [],
+        )
       }
     }
   }
 
   // Черновик и отложенная публикация: без них не проверить статусы в редакторе поста.
-  await addPost(id(index, 'post', 'draft'), {
+  await writer.add('post', {
+    id: id(index, 'post', 'draft'),
     authorId: people.adminId,
     audience: 'UNIVERSITY',
     title: 'Черновик объявления',
@@ -130,7 +240,8 @@ export async function seedSocial(prisma, writer, ctx) {
     status: 'DRAFT',
     priority: postPriority('UNIVERSITY', true),
   })
-  await addPost(id(index, 'post', 'sched'), {
+  await writer.add('post', {
+    id: id(index, 'post', 'sched'),
     authorId: people.adminId,
     audience: 'UNIVERSITY',
     title: 'Отложенная публикация',
@@ -140,6 +251,27 @@ export async function seedSocial(prisma, writer, ctx) {
     scheduledAt: random.randomDate(1, 6),
     priority: postPriority('UNIVERSITY', true),
   })
+  // Пост, снятый модерацией (soft delete): в ленте его нет, а в журнале модерации и в
+  // жалобах ссылка на него должна вести на «удалено», а не в пустоту.
+  {
+    const faculty = people.faculties[0]
+    const group = faculty.groups[0]
+    const publishedAt = random.randomDate(-15, -3)
+    await writer.add('post', {
+      id: id(index, 'post', 'removed'),
+      authorId: group.studentIds[group.studentIds.length - 1],
+      audience: 'GROUP',
+      content: 'Продам готовые курсовые, пишите в личку.',
+      universityId: uniId,
+      facultyId: faculty.id,
+      groupId: group.id,
+      status: 'PUBLISHED',
+      publishedAt,
+      createdAt: publishedAt,
+      priority: postPriority('GROUP', false),
+      deletedAt: random.randomDate(-2, 0),
+    })
+  }
 
   // ── Личные посты: 20–100 на каждого пользователя вуза ───────────────────────
   // Это самый объёмный домен сида: 60 постов × 1250 человек ≈ 75 тыс. постов на вуз.
@@ -148,111 +280,145 @@ export async function seedSocial(prisma, writer, ctx) {
   const [postsMin, postsMax] = ctx.config.postsPerUser
   const authors = [
     ...people.faculties.flatMap((f) => [
-      { id: f.deanId, facultyId: f.id, groupId: null, staff: true },
-      ...f.teacherIds.map((tid) => ({ id: tid, facultyId: f.id, groupId: null, staff: true })),
+      { id: f.deanId, role: 'DEAN', faculty: f },
+      ...f.teacherIds.map((tid, ti) => ({ id: tid, role: 'TEACHER', faculty: f, ti })),
       ...f.groups.flatMap((g) =>
-        g.studentIds.map((sid) => ({ id: sid, facultyId: f.id, groupId: g.id, staff: false })),
+        g.studentIds.map((sid, si) => ({ id: sid, role: 'STUDENT', faculty: f, group: g, si })),
       ),
     ]),
-    { id: people.adminId, facultyId: null, groupId: null, staff: true },
-    ...people.moderatorIds.map((mid) => ({ id: mid, facultyId: null, groupId: null, staff: true })),
+    { id: people.adminId, role: 'UNIVERSITY_ADMIN' },
+    ...people.moderatorIds.map((mid) => ({ id: mid, role: 'UNIVERSITY_MODERATOR' })),
   ]
 
-  // Посты, которым достанется изображение: первые N у каждого автора.
-  const withImage = []
-  const sources = pool?.imageSources ?? []
-  // Без источников картинки просто не ставим: File-строка на несуществующий объект
-  // дала бы presigned-ссылку с 404. Само хранилище здесь больше не нужно — строки
-  // ссылаются на уже загруженные объекты пула, копировать нечего.
-  const imagesPerUser = sources.length > 0 ? ctx.config.postImagesPerUser : 0
+  // Скоуп поста по аудитории — ровно те поля, что ставит resolveTarget сервиса.
+  const targetOf = (author, audience, ai, pi) => {
+    const faculty = author.faculty ?? people.faculties[(ai + pi) % people.faculties.length]
+    switch (audience) {
+      case 'UNIVERSITY':
+        return author.role === 'UNIVERSITY_MODERATOR'
+          ? { universityId: uniId, universityPageId: uniId }
+          : { universityId: uniId }
+      case 'TEACHERS':
+        return { universityId: uniId }
+      case 'SUBJECT': {
+        const subject = faculty.subjects[(author.ti ?? 0) % faculty.subjects.length]
+        return { universityId: uniId, subject: subject.name }
+      }
+      case 'FACULTY':
+        return { universityId: uniId, facultyId: faculty.id }
+      case 'GROUP': {
+        // Студент — только своя группа; преподаватель — группа, где ведёт занятия (шаг 40:
+        // предмет si ведёт teacherIds[si % n], то есть преподаватель ti — во всех группах
+        // факультета, если у факультета есть предмет ti); остальные — любая группа скоупа.
+        if (author.group) return groupScope(author.group, faculty)
+        if (author.role === 'TEACHER' && author.ti >= faculty.subjects.length) return null
+        const group = faculty.groups[(ai + pi) % faculty.groups.length]
+        return group ? groupScope(group, faculty) : null
+      }
+      case 'PERSONAL': {
+        // Адресат — из того же вуза (assertTargetUser) и не из пары блокировки шага ниже:
+        // она всегда между первым и последним студентом группы.
+        const targetUserId = personalTarget(author, faculty, pi)
+        return targetUserId ? { targetUserId } : null
+      }
+      default:
+        return null
+    }
+  }
+  const groupScope = (group, faculty) => ({
+    universityId: uniId,
+    facultyId: faculty.id,
+    groupId: group.id,
+  })
+  const personalTarget = (author, faculty, pi) => {
+    if (author.role === 'STUDENT') {
+      const members = author.group.studentIds
+      if (members.length < 2) return null
+      return members[author.si === 0 ? 1 : author.si - 1]
+    }
+    if (author.role === 'TEACHER') {
+      const group = faculty.groups[pi % faculty.groups.length]
+      return group?.studentIds[1] ?? group?.studentIds[0] ?? null
+    }
+    if (author.role === 'DEAN') return faculty.teacherIds[pi % faculty.teacherIds.length] ?? null
+    // Админ вуза пишет лично деканам.
+    return people.faculties[pi % people.faculties.length].deanId
+  }
+
+  // Посты с медиа: первые N у каждого автора (SEED_POST_IMAGES_PER_USER), раскладки по кругу.
+  // Без пула (MinIO недоступен) медиа нет вовсе: строка на несуществующий объект дала бы
+  // ссылку с 404.
+  const mediaPerUser = media.empty ? 0 : ctx.config.postImagesPerUser
 
   // Сколько постов реально досталось автору: ниже по нему раздаются реакции, и
   // «первые два поста» при диапазоне 1-2 или 0-0 существуют не у всех.
-  const postCount = new Map()
+  const created = new Map()
   for (const [ai, author] of authors.entries()) {
     const count = random.randInt(postsMin, postsMax)
-    postCount.set(author.id, count)
+    const cycle = AUDIENCE_CYCLE[author.role]
+    const rows = []
     for (let pi = 0; pi < count; pi += 1) {
-      const postId = child(author.id, 'p', pi)
-      const audience = random.pickWeighted(
-        author.staff || !author.groupId ? STAFF_AUDIENCE : STUDENT_AUDIENCE,
-      )
+      let audience = cycle[(ai + pi) % cycle.length]
+      let target = targetOf(author, audience, ai, pi)
+      // Аудитория недоступна этому автору (преподаватель без своих групп, группа из одного
+      // человека) — берём первую из круга роли: она у каждой роли выполнима всегда.
+      if (!target) {
+        audience = author.role === 'TEACHER' ? 'SUBJECT' : cycle[0]
+        target = targetOf(author, audience, ai, pi)
+      }
       // Даты — за два последних года: лента и профиль должны прокручиваться в историю.
       const publishedAt = random.randomDate(-730, 0)
-      await writer.add('post', {
-        id: postId,
+      const row = {
+        id: child(author.id, 'p', pi),
         authorId: author.id,
         audience,
         content: postText(random),
-        universityId: uniId,
-        facultyId: audience === 'FACULTY' || audience === 'GROUP' ? author.facultyId : null,
-        groupId: audience === 'GROUP' ? author.groupId : null,
+        ...target,
         status: 'PUBLISHED',
         publishedAt,
         createdAt: publishedAt,
         views: random.randInt(0, 240),
-        priority: postPriority(audience, author.staff),
-      })
-      if (pi < imagesPerUser) {
-        withImage.push({ postId, ownerId: author.id, source: sources[(ai + pi) % sources.length] })
+        priority: postPriority(audience, STAFF.has(author.role)),
       }
+      await writer.add('post', row)
+      rows.push(row)
+      if (pi < mediaPerUser) withMedia(row.id, author.id, publishedAt, media.layout(ai + pi))
     }
+    created.set(author.id, rows)
   }
 
   // Посты должны быть в БД раньше комментариев, реакций и привязки файлов.
   await writer.flush()
 
-  // ── Изображения постов: ссылки на объекты пула ─────────────────────────────
-  // File.postId по-прежнему эксклюзивен — на каждый пост нужна своя строка File. Но
-  // пара (bucket, key) уникальной быть перестала, поэтому строки ссылаются на уже
-  // загруженные объекты пула, а копий в MinIO не делается вовсе: миллион постов с
-  // картинками стоит миллион строк и ноль дополнительных байт в хранилище.
-  if (withImage.length > 0) {
-    for (const item of withImage) {
-      await writer.add('file', {
-        id: `seed-pimg-${item.postId}`,
-        bucket: item.source.bucket,
-        key: item.source.key,
-        mime: item.source.mime ?? 'image/jpeg',
-        size: item.source.size,
-        name: 'photo.jpg',
-        ownerId: item.ownerId,
-        postId: item.postId,
-      })
-    }
-    await writer.flush()
-  }
-
-  // ── Вложения постов из пула ─────────────────────────────────────────────────
-  for (const [fi, file] of attachable.entries()) {
-    const postId = posts[fi]
-    if (!postId) break
-    // Файл переезжает в бакет поста? Нет: объект уже загружен в publicный бакет пула,
-    // и перекладывать его нет смысла — клиент получает ссылку из File-строки.
-    await prisma.file.update({ where: { id: file.fileId }, data: { postId } }).catch(() => {})
-    attached.push(file.fileId)
-  }
+  // ── Медиа постов ────────────────────────────────────────────────────────────
+  for (const row of pendingMedia) await writer.add('file', row)
+  await writer.flush()
 
   // ── Комментарии, ответы и реакции ───────────────────────────────────────────
-  const commenters = [...allStudents.slice(0, 40), ...allTeachers.slice(0, 10)]
-  for (const [pi, postId] of posts.entries()) {
+  for (const [pi, post] of posts.entries()) {
+    const viewers = audiencePool(post).filter((uid) => uid !== post.authorId)
+    if (viewers.length === 0) continue
     const commentCount = random.randInt(0, 4)
     for (let ci = 0; ci < commentCount; ci += 1) {
-      const commentId = child(postId, 'cm', ci)
+      const commentId = child(post.id, 'cm', ci)
+      const createdAt = random.randomDate(-10, 0)
       await writer.add('comment', {
         id: commentId,
-        postId,
-        authorId: random.pick(commenters),
+        postId: post.id,
+        authorId: random.pick(viewers),
         content: random.pick(COMMENTS),
-        createdAt: random.randomDate(-10, 0),
+        // Изредка комментарий снят (soft delete): ветка показывает «Комментарий удалён».
+        deletedAt: ci === 1 && pi % 7 === 3 ? random.randomDate(-1, 0) : null,
+        createdAt,
       })
-      // Ответ в ветке — у каждого третьего комментария (проверка вложенности).
+      // Ответ в ветке — у каждого третьего комментария (проверка вложенности). Админ вуза
+      // отвечает и в обсуждении группы: модерация открывает ему комментарии своего вуза.
       if (ci === 0 && random.chance(0.35)) {
         await writer.add('comment', {
           id: child(commentId, 'r'),
-          postId,
+          postId: post.id,
           parentId: commentId,
-          authorId: pi % 2 === 0 ? people.adminId : random.pick(commenters),
+          authorId: pi % 2 === 0 ? people.adminId : random.pick(viewers),
           content: random.pick(COMMENT_REPLIES),
           createdAt: random.randomDate(-9, 0),
         })
@@ -260,11 +426,10 @@ export async function seedSocial(prisma, writer, ctx) {
     }
 
     // Реакции: уникальны по (post, user, emoji), поэтому идём по разным людям.
-    const reactors = random.sample(commenters, random.randInt(0, 8))
-    for (const [ri, userId] of reactors.entries()) {
+    for (const [ri, userId] of random.sample(viewers, random.randInt(0, 8)).entries()) {
       await writer.add('reaction', {
-        id: child(postId, 'rx', ri),
-        postId,
+        id: child(post.id, 'rx', ri),
+        postId: post.id,
         userId,
         emoji: random.pick(REACTIONS),
         createdAt: random.randomDate(-8, 0),
@@ -279,13 +444,12 @@ export async function seedSocial(prisma, writer, ctx) {
   // постов у автора, брать нельзя: реакция на несуществующий пост — это нарушение
   // внешнего ключа, и при диапазоне «0-0» или «1-2» оно случается на каждом прогоне.
   for (const author of authors) {
-    const created = Math.min(2, postCount.get(author.id) ?? 0)
-    for (let pi = 0; pi < created; pi += 1) {
-      const postId = child(author.id, 'p', pi)
-      for (const [ri, userId] of random.sample(commenters, random.randInt(0, 3)).entries()) {
+    for (const post of (created.get(author.id) ?? []).slice(0, 2)) {
+      const viewers = audiencePool(post).filter((uid) => uid !== post.authorId)
+      for (const [ri, userId] of random.sample(viewers, random.randInt(0, 3)).entries()) {
         await writer.add('reaction', {
-          id: child(postId, 'rx', ri),
-          postId,
+          id: child(post.id, 'rx', ri),
+          postId: post.id,
           userId,
           emoji: random.pick(REACTIONS),
           createdAt: random.randomDate(-200, 0),
@@ -296,30 +460,97 @@ export async function seedSocial(prisma, writer, ctx) {
   await writer.flush()
 
   // ── События и участники ─────────────────────────────────────────────────────
+  // Аудитории — как в events.service: админ — вуз, факультет, группа, преподаватели; декан —
+  // факультет; преподаватель — по предмету (весь вуз); староста — своя группа. Участники
+  // набираются из тех, кому событие видно: регистрация на невидимое событие невозможна.
+  const events = []
   for (const [ei, [title, description]] of EVENTS.entries()) {
-    const eventId = id(index, 'ev', ei)
     const facultyLevel = ei % 3 !== 0
     const faculty = people.faculties[ei % people.faculties.length]
-    const isOnline = random.chance(0.25)
-    const startsAt = random.randomDate(-10, 30)
-    await writer.add('event', {
-      id: eventId,
+    events.push({
+      id: id(index, 'ev', ei),
       organizerId: facultyLevel ? faculty.deanId : people.adminId,
       audience: facultyLevel ? 'FACULTY' : 'UNIVERSITY',
       title,
       description,
-      universityId: uniId,
       facultyId: facultyLevel ? faculty.id : null,
-      location: isOnline ? 'Онлайн' : random.pick(EVENT_LOCATIONS),
-      isOnline,
+      online: ONLINE_EVENTS[ei] ?? null,
+      participants: facultyLevel ? facultyStudents.get(faculty.id) : allStudents,
+    })
+  }
+  events.push({
+    id: id(index, 'ev', 'teachers'),
+    organizerId: people.adminId,
+    audience: 'TEACHERS',
+    title: 'Методический семинар',
+    description: 'Обмен опытом: оценивание проектных работ и антиплагиат.',
+    facultyId: null,
+    online: null,
+    participants: allTeachers,
+  })
+  for (const faculty of people.faculties) {
+    const group = faculty.groups[0]
+    if (faculty.teacherIds[0]) {
+      events.push({
+        id: child(faculty.id, 'ev', 'subj'),
+        organizerId: faculty.teacherIds[0],
+        audience: 'SUBJECT',
+        title: `Открытая лекция: ${faculty.subjects[0].name}`,
+        description: 'Разбор сложных тем курса для всех желающих, вопросы — в обсуждении.',
+        facultyId: null,
+        online: null,
+        participants: facultyStudents.get(faculty.id),
+      })
+    }
+    if (group) {
+      events.push({
+        id: child(group.id, 'ev'),
+        organizerId: group.starostaId,
+        audience: 'GROUP',
+        title: 'Встреча группы',
+        description: 'Обсуждаем подготовку к сессии и распределяем темы докладов.',
+        facultyId: faculty.id,
+        groupId: group.id,
+        online: null,
+        // Без времени окончания: endsAt необязателен, карточка показывает только начало.
+        openEnded: true,
+        participants: group.studentIds,
+      })
+    }
+  }
+
+  for (const [n, event] of events.entries()) {
+    const startsAt = random.randomDate(-10, 30)
+    const [provider, url, passcode] = event.online ?? []
+    await writer.add('event', {
+      id: event.id,
+      organizerId: event.organizerId,
+      audience: event.audience,
+      title: event.title,
+      description: event.description,
+      universityId: uniId,
+      facultyId: event.facultyId,
+      groupId: event.groupId ?? null,
+      // У онлайн-события место пустое: ссылка живёт в meetingUrl (07-events.prisma).
+      location: event.online ? null : random.pick(OFFLINE_LOCATIONS),
+      isOnline: Boolean(event.online),
+      meetingProvider: provider ?? null,
+      meetingUrl: url ? url(index * 100 + n) : null,
+      meetingPasscode: passcode ?? null,
       startsAt,
-      endsAt: new Date(startsAt.getTime() + random.randInt(1, 6) * 3_600_000),
+      endsAt: event.openEnded
+        ? null
+        : new Date(startsAt.getTime() + random.randInt(1, 6) * 3_600_000),
     })
     // Участники: и прошедшие события, и будущие — счётчик участия виден на карточке.
-    for (const [ui, userId] of random.sample(allStudents, random.randInt(5, 40)).entries()) {
+    const pool = event.participants.filter((uid) => uid !== event.organizerId)
+    for (const [ui, userId] of random
+      .sample(pool, random.randInt(Math.min(3, pool.length), 40))
+      .entries()) {
+      // prettier-ignore
       await writer.add('eventParticipant', {
-        id: child(eventId, 'p', ui),
-        eventId,
+        id: child(event.id, 'p', ui),
+        eventId: event.id,
         userId,
         createdAt: random.randomDate(-9, 0),
       })
@@ -375,5 +606,5 @@ export async function seedSocial(prisma, writer, ctx) {
   }
 
   await writer.flush()
-  return { posts: posts.length, attachedFiles: attached.length }
+  return { posts: posts.length, mediaPosts, mediaFiles, events: events.length }
 }

@@ -16,6 +16,9 @@ import { assertRowBudget, estimateBytes, humanBytes, seedUniversities } from './
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
+import { seedFormats } from './seed/steps/12-formats.mjs'
+import { seedPlatformCoverage } from './seed/steps/92-platform-coverage.mjs'
+import { formatPool } from './seed/lib/formats.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
 import { seedDemoExtras } from './seed/steps/90-demo-extras.mjs'
@@ -119,6 +122,15 @@ async function loadMediaPool(prisma) {
     else if (file.bucket === storage.buckets.profileMedia) pool.photos.push(entry)
   }
   return pool
+}
+
+// Пул образцов форматов вычисляется без БД (раскладка детерминирована, lib/formats.mjs) и
+// кладётся рядом с медиа-пулом: шаги вузов берут его как `pool.formats`. Без хранилища
+// образцов нет — шаги обходятся без вложений этих форматов.
+function withFormats(pool, storage) {
+  const formats = formatPool(storage)
+  if (!pool && !formats) return null
+  return { faces: [], photos: [], videos: [], ...pool, formats }
 }
 
 // Компании платформы из БД — для прогона только этапа вузов (SEED_ONLY=universities).
@@ -271,6 +283,9 @@ async function main() {
   let mediaPool = null
   if (config.media && config.runs('media')) {
     mediaPool = await seedMedia(prisma, config)
+    // Образцы всех форматов (документы, аудио, архивы, GIF…) — рядом с пулом медиа:
+    // вложения чатов, материалов, заданий, документов и заявок ссылаются на них.
+    await seedFormats(prisma, createStorage())
   }
 
   // ── Стикеры: собственный набор StudentHub ───────────────────────────────────
@@ -293,7 +308,14 @@ async function main() {
   let companies = null
   if (config.universities > 0 && config.runs('companies')) {
     const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
+    // Логотипы и обложки — фото общего пула, медиа страницы — образцы форматов. Без
+    // хранилища (SEED_MEDIA=0) пул пуст, и компании остаются без картинок.
+    const companyStorage = config.media ? createStorage() : null
+    const companyPhotos = mediaPool ?? (config.media ? await loadMediaPool(prisma) : null)
+    companies = await seedCompanies(prisma, companyWriter, {
+      passwordHash,
+      pool: { photos: companyPhotos?.photos ?? [], formats: formatPool(companyStorage) },
+    })
   }
 
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
@@ -309,7 +331,7 @@ async function main() {
       storage,
       config,
       passwordHash,
-      pool: mediaPool ?? (config.media ? await loadMediaPool(prisma) : null),
+      pool: withFormats(mediaPool ?? (config.media ? await loadMediaPool(prisma) : null), storage),
       companies: linkedCompanies,
     })
   }
@@ -330,8 +352,25 @@ async function main() {
   // история для дашборда платформы (даты регистрации, журнал аудита).
   if (config.runs('demo')) {
     const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
+    await seedDemoExtras(prisma, demoWriter, {
+      random: makeRandom(20260902),
+      // Строку состояния платформы (техработы, баннер, дежурства) сид заводит только на
+      // локальном стенде с демо-вузом: на общей базе (SEED_ALLOW_REMOTE) её настраивает
+      // человек, и сид не должен появляться там с часами тишины и заглушённой сводкой.
+      platform: config.demoUniversity && !config.allowRemote,
+    })
     await demoWriter.flush()
+    // Вузы PENDING/BLOCKED, инвайты платформенного уровня, события для всех — только на
+    // локальном стенде, по тому же правилу, что строка состояния платформы выше.
+    if (config.demoUniversity && !config.allowRemote) {
+      const platform = await seedPlatformCoverage(prisma)
+      if (!platform.skipped) {
+        console.log(
+          `  платформа: ${platform.universities} вуза (ожидает, заблокирован), ` +
+            `${platform.invites} инвайтов, ${platform.events} события для всех`,
+        )
+      }
+    }
   }
 
   // ── Манифест прогона ────────────────────────────────────────────────────────

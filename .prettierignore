@@ -17,6 +17,8 @@ CLAUDE.md
 # съедает память. Путь именно до файла: рядом в prisma/seed/data/ лежат .mjs-пулы
 # данных, их форматировать надо.
 prisma/seed/data/kato.json
+# Пишет prisma/seed/formats/generate.mjs — перезаписывается целиком при перегенерации.
+prisma/seed/formats/formats.json
 
 # Сгенерированные next-pwa воркеры и манифест: их пишет сборка, форматировать нечего.
 apps/web/public/sw.js
