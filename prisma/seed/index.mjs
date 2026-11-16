@@ -61,7 +61,11 @@ function contentRowsPerUser(config) {
     articles +
     polls * (1 + OPTIONS_PER_POLL) +
     votes +
-    config.postImagesPerUser +
+    // Медиа постов: в среднем 2,2 вложения на пост с медиа (раскладки 51-social-media.mjs).
+    config.postImagesPerUser * 2.2 +
+    // Альбом профиля (3–6 файлов, шаг 55) и пять записей портфолио вместо трёх.
+    4.5 +
+    2 +
     gallery +
     (gallery > 0 ? 2 : 0)
   )
