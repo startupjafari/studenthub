@@ -28,7 +28,12 @@ const SERVICE_ROOMS = [
   ['CANTEEN', 'Столовая', 'Пн–Сб 08:00–18:00'],
   ['SPORT_HALL', 'Спортивный зал', 'Пн–Сб 08:00–22:00'],
   ['DORMITORY', 'Общежитие №1', 'круглосуточно'],
+  // OTHER — помещение без своего вида: без него ветка «прочее» в QR и на карте не проверяется.
+  ['OTHER', 'Центр обслуживания студентов', 'Пн–Пт 09:00–18:00'],
 ]
+
+// Корпуса учебных помещений: деканаты раскладываются по ним по кругу (см. ниже).
+const BUILDINGS = ['Корпус А', 'Корпус Б', 'Корпус В']
 
 // План вуза по числу студентов. Отдельная функция, потому что её же использует
 // прогресс-бар (нужно знать объём заранее) и тесты плана масштаба.
@@ -168,7 +173,7 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
       name: kind === 'LAB' ? `Лаборатория ${floor}0${r % 9}` : `${floor}0${r % 9}`,
       capacity: random.pick([24, 30, 40, 50, 60, 80]),
       kind,
-      building: random.pick(['Корпус А', 'Корпус Б', 'Корпус В']),
+      building: random.pick(BUILDINGS),
       floor,
       // qrCode уникален глобально, поэтому в нём префикс вуза (Ф16: печатная наклейка).
       qrCode: `${uniId}-R${String(r).padStart(3, '0')}`,
@@ -195,7 +200,9 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
 
   // ── Факультеты, специальности, дисциплины, группы ────────────────────────────
   const faculties = []
-  for (const faculty of plan.faculties) {
+  // Деканат факультета → id его помещения: запись в деканат называет кабинет приёма.
+  const deanOffices = {}
+  for (const [fi, faculty] of plan.faculties.entries()) {
     const template = faculty.template
     const facultyId = id(index, 'f', template.code)
 
@@ -203,6 +210,26 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
       where: { id: facultyId },
       update: { name: template.name },
       create: { id: facultyId, name: template.name, universityId: uniId },
+    })
+
+    // Деканат — неучебное помещение (DEAN_OFFICE): по QR студент видит часы приёма, а не
+    // пару. Один на факультет, второй этаж корпусов по кругу. Без случайных чисел: новое
+    // помещение не должно сдвигать поток случайностей, из которого строятся группы и люди.
+    const deanRoomId = roomIdOf(index, 'dean', template.code)
+    const deanRoomNumber = `2${String(10 + fi).padStart(2, '0')}`
+    deanOffices[facultyId] = { id: deanRoomId, number: deanRoomNumber }
+    await writer.add('room', {
+      id: deanRoomId,
+      universityId: uniId,
+      name: `Деканат: ${template.name}`.slice(0, 100),
+      kind: 'DEAN_OFFICE',
+      building: BUILDINGS[fi % BUILDINGS.length],
+      floor: 2,
+      openHours: 'Пн–Пт 09:00–17:00, приём студентов 14:00–16:00',
+      phone: `+7 (727) 3${String(index % 100).padStart(2, '0')}-2${fi}-${String(10 + fi * 7).slice(-2)}`, // prettier-ignore
+      info: `Кабинет ${deanRoomNumber}. Справки, академические вопросы, запись на приём к декану.`,
+      qrCode: `${uniId}-D-${template.code.toUpperCase()}`,
+      qrIssuedAt: new Date(Date.UTC(new Date().getUTCFullYear() - 1, 8, 1)),
     })
 
     for (const [si, specialty] of template.specialties.entries()) {
@@ -244,7 +271,7 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
   // буфер нужно дописать: иначе FK на группы и дисциплины ещё не выполнимы.
   await writer.flush()
 
-  return { uniId, profile, plan, faculties, rooms, termIds, calendar }
+  return { uniId, profile, plan, faculties, rooms, deanOffices, termIds, calendar }
 }
 
 export { GROUP_SIZE, ENROLLMENT_YEARS }
