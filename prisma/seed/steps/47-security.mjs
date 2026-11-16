@@ -24,7 +24,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { person, phone } from '../data/people.mjs'
-import { id } from '../lib/ids.mjs'
+import { id, roomId as roomUuid } from '../lib/ids.mjs'
 
 const DAY_MS = 86_400_000
 const MIN_MS = 60_000
@@ -319,7 +319,7 @@ export async function seedSecurity(prisma, writer, ctx) {
 
   // ── Камеры ──────────────────────────────────────────────────────────────────
   // [имя, помещение (id или null), последний отчёт агента, включена]
-  const srv = (kind) => id(index, 'srv', kind)
+  const srv = (kind) => roomUuid(index, 'srv', kind)
   // Лаборатория — каждое седьмое помещение (20-structure.mjs), шестое есть всегда.
   const labRoom = rooms[6] ?? null
   const mainCameras = [
