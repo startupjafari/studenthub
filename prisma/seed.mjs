@@ -234,6 +234,34 @@ async function main() {
     // заходит платформенный админ.
     console.log('  демо-вуз «Алатау» пропущен: SEED_DEMO_UNIVERSITY=0')
     console.log('  PLATFORM_ADMIN: admin@studenthub.app')
+    // Модераторов платформы иначе заводит только демо-вуз (platform-moderator@): без него
+    // роль осталась бы без единого аккаунта, а её экраны — непроверяемыми. Адреса — как в
+    // seed-test.mjs. Существующий аккаунт не трогаем: на общей базе это живой модератор.
+    for (let i = 0; i < config.platformModerators; i += 1) {
+      const email = `moderator${i + 1}@studenthub.app`
+      const p = person(i + 1)
+      await prisma.user.upsert({
+        where: { email },
+        update: {},
+        create: {
+          email,
+          passwordHash,
+          ...p,
+          role: 'PLATFORM_MODERATOR',
+          ...staffProfile(p, devRandom, {
+            template: null,
+            profile: { timezone: 'Asia/Almaty' },
+            cityName: 'Алматы',
+          }),
+          position: 'Модератор платформы',
+          jobTitle: 'Модератор платформы',
+          responsibilities: 'Разбор жалоб, модерация вузов и контента.',
+          moderationAreas: 'Жалобы, вузы, публичный контент',
+          ...TWO_FACTOR_RESET,
+        },
+      })
+      console.log(`  PLATFORM_MODERATOR: ${email}`)
+    }
     reportSeedPassword(seedPassword)
   }
 

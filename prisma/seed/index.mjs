@@ -13,11 +13,12 @@ import { universityId } from './lib/ids.mjs'
 import { clearMarkers, loadDoneUniversities, markUniversityDone, recordRun } from './lib/marker.mjs'
 import { runPool } from './lib/pool.mjs'
 import { createProgress } from './lib/progress.mjs'
-import { universityRandom } from './lib/rng.mjs'
+import { makeRandom, SEED_BASE, universityRandom } from './lib/rng.mjs'
 import { createWriter } from './lib/writer.mjs'
 import { planUniversity, seedStructure } from './steps/20-structure.mjs'
 import { seedPeople } from './steps/30-people.mjs'
 import { seedAcademics } from './steps/40-academics.mjs'
+import { seedLibrary } from './steps/45-library.mjs'
 import { seedSocial } from './steps/50-social.mjs'
 import { seedProfileContent } from './steps/55-profile-content.mjs'
 import { seedChats } from './steps/60-chats.mjs'
@@ -183,6 +184,14 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     const structure = await seedStructure(prisma, writer, ctx)
     const people = await seedPeople(prisma, writer, { ...ctx, structure })
     await seedAcademics(prisma, writer, { ...ctx, structure, people })
+    // Библиотека пишет напрямую через prisma и ищет читателей и библиотекаря в базе,
+    // поэтому буфер дописывается до неё. Свой поток случайностей: число вызовов внутри
+    // шага не должно сдвигать данные следующих шагов вуза.
+    await writer.flush()
+    await seedLibrary(prisma, {
+      universityId: uniId,
+      random: makeRandom(SEED_BASE + index * 7919 + 45),
+    })
     await seedSocial(prisma, writer, { ...ctx, structure, people })
     await seedProfileContent(prisma, writer, { ...ctx, structure, people })
     await seedChats(prisma, writer, { ...ctx, structure, people })

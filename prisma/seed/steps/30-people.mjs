@@ -111,8 +111,61 @@ export async function seedPeople(prisma, writer, ctx) {
     })
   }
 
+  // ── Охрана и библиотекарь ───────────────────────────────────────────────────
+  // Роли с запретом по умолчанию (RESTRICTED_ROLES): без них журналы охраны, камеры и
+  // библиотека вуза пустые, а войти и проверить эти экраны не под кем. Профиль закрыт —
+  // как у роли на проде (defaultVisibilityFor).
+  const staffRoles = [
+    {
+      role: 'SECURITY_GUARD',
+      count: 2,
+      local: 'security',
+      kind: 'guard',
+      position: 'Сотрудник охраны',
+      jobTitle: 'Охрана',
+      responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+    },
+    {
+      role: 'LIBRARIAN',
+      count: 1,
+      local: 'librarian',
+      kind: 'librarian',
+      position: 'Библиотекарь',
+      jobTitle: 'Библиотека',
+      responsibilities: 'Выдача и приём книг, учёт фонда, работа с должниками.',
+    },
+  ]
+  const staffIds = { SECURITY_GUARD: [], LIBRARIAN: [] }
+  for (const staff of staffRoles) {
+    for (let n = 0; n < staff.count; n += 1) {
+      const staffId = id(index, staff.kind, n)
+      const staffPerson = person(counter++, random)
+      staffIds[staff.role].push(staffId)
+      await addUser({
+        id: staffId,
+        email: emailFor(index, `${staff.local}.${n}`),
+        username: usernameFor(index, `${staff.local}.${n}`),
+        passwordHash,
+        ...staffPerson,
+        role: staff.role,
+        universityId: uniId,
+        ...staffProfile(staffPerson, random, { ...staffCtx, template: null }),
+        position: staff.position,
+        jobTitle: staff.jobTitle,
+        responsibilities: staff.responsibilities,
+        profileVisibility: 'PRIVATE',
+      })
+    }
+  }
+
   // ── Деканы, преподаватели, студенты, старосты ────────────────────────────────
-  const people = { adminId, moderatorIds, faculties: [] }
+  const people = {
+    adminId,
+    moderatorIds,
+    securityGuardIds: staffIds.SECURITY_GUARD,
+    librarianIds: staffIds.LIBRARIAN,
+    faculties: [],
+  }
 
   for (const faculty of faculties) {
     const template = faculty.template
