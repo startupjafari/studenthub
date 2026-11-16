@@ -43,15 +43,14 @@ xcodebuild -project StudentHub.xcodeproj -scheme StudentHub -destination 'platfo
 попадает в `Info.plist` как `SHAPIBaseURL` и читается на старте. Так же приходит
 `SENTRY_DSN` (`SHSentryDSN`): пусто — трекер не инициализируется.
 
-CI: `.github/workflows/ios.yml` — сборка и тесты на симуляторе (раздел «Тесты»);
-`ios-nightly.yml` — расширенный прогон (все UI-сценарии и замеры) после каждого
-вливания iOS в develop и ночью; `ios-release.yml` — архив и загрузка в
-TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
+CI: `.github/workflows/ios.yml` — сборка на каждый PR, тесты на симуляторе — ручным
+запуском (раздел «Тесты»). Архив и загрузку в TestFlight CI не делает (`ios-release.yml`
+удалён 16.11.2026). Выпуск — `docs/RELEASE_IOS.md`.
 
 ## Тесты
 
 Одна команда на любом Mac с Xcode 26 и `xcodegen` — та же, что гоняет CI. На PR CI только
-собирает проект; тесты идут в `ios-nightly.yml` после вливания iOS в develop и ночью:
+собирает проект; тесты — ручным запуском `ios.yml` с полем `suites` (`pr`, `full`, `perf`…):
 
 ```sh
 scripts/test.sh build      # как PR: только сборка приложения и тестов
@@ -79,7 +78,7 @@ scripts/test.sh snapshot --record   # переснять эталоны сним
 `student@test.local` / `Test1234!`. Прод-секретов в тестах нет.
 
 **Флаги производительности** второй волны (`PerformanceFlags.Switch`) включаются не «на
-глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` после каждого вливания в develop сравнивают
+глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` в наборах `snapshot` и `ui` сравнивают
 вид с флагом и без него (пузыри во всей матрице снимков, лента переписки внизу, наверху и
 после возврата, приход истории при медленной сети). Весь прогон можно пустить в нужном
 положении: `SH_PERF_FLAGS=all=0 scripts/test.sh` (или `chatHeightCache=1,…`; в CI — поле
@@ -89,12 +88,13 @@ scripts/test.sh snapshot --record   # переснять эталоны сним
 
 **Эталоны снимков** лежат в `Tests/**/__Snapshots__/<среда>/` (`ios26@3x`) и сравнимы
 только в той же среде: Xcode 26.6, iPhone 17 Pro, iOS 26.5 — как в CI. Переснимать —
-меткой `ios-record-snapshots` на PR (workflow `ios-snapshots.yml`, артефакт
-`ios-snapshot-references`), затем смотреть картинки и коммитить. Эталон не обновляют,
+ручным запуском `ios.yml` с `record_snapshots` (артефакт `ios-snapshot-references`; отдельный
+workflow `ios-snapshots.yml` удалён 16.11.2026) или локально `scripts/test.sh snapshot --record`,
+затем смотреть картинки и коммитить. Эталон не обновляют,
 чтобы «позеленить» тест, не посмотрев, что поменялось.
 
-**Без Mac (Linux/WSL).** Симулятор здесь не запускается. Ветка пушится, CI гоняет
-проверки, а результаты смотрятся так:
+**Без Mac (Linux/WSL).** Симулятор здесь не запускается. Ветка пушится, тесты запускаются
+вручную (`gh workflow run ios.yml --ref <ветка> -f suites=pr`), а результаты смотрятся так:
 
 ```sh
 GH_TOKEN=$(gh auth token --user startupjafari) scripts/ci-results.sh --wait

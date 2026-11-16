@@ -170,15 +170,15 @@ SDK (`~/.swiftpm/swift-sdks/darwin.artifactbundle`). `swiftc -typecheck` про�
 
 #### 1.2.4 Релизную сборку проверять отдельно
 **Правило.** Локально собирается только Debug (`xtool`), на PR — тоже Debug (`scripts/test.sh build`). Release
-собирает только `ios-release.yml` (ручной запуск). Правки, чувствительные к оптимизации (замыкания с `[weak]`,
-дженерики в горячих путях ленты, код за `#if DEBUG`), прогоняй релизной сборкой на CI до выпуска. В отчёте
+на CI сейчас не собирается (`ios-release.yml` удалён 16.11.2026) — только вручную в Xcode. Правки, чувствительные к оптимизации (замыкания с `[weak]`,
+дженерики в горячих путях ленты, код за `#if DEBUG`), прогоняй релизной сборкой до выпуска. В отчёте
 указывай, была ли релизная сборка. Зелёный PR о Release ничего не говорит.
 **Почему.** У Telegram отладочные сборки экспортируют всё, поэтому часть ошибок видна только при релизной
 линковке. В отчёте у них отдельно отмечено, после каких правок релиз не пересобирался.
 *Источник: `CLAUDE.md` («Subsystem guides»: release link fails); `Telegram/CLAUDE.md` («Framework export lists»); `docs/superpowers/specs/2026-10-15-navbar-split-right-buttons-design.md` («Testing»: debug and release builds; «Results»: release not re-run after follow-ups)*
 
 #### 1.2.5 Скорость и память на debug-сборке не мерить
-**Правило.** Абсолютные замеры скорости и памяти делай на сборках CI: perf-набор (`ios-nightly.yml`,
+**Правило.** Абсолютные замеры скорости и памяти делай на сборках CI: perf-набор (ручной запуск `ios.yml` с `suites: perf`,
 `scripts/test.sh perf`) против `Tests/perf-baseline.json`. На локальной debug-сборке (`xtool dev build`)
 допустимы только относительные сравнения «до/после» на той же сборке.
 **Почему.** У Telegram горячий C-код собирают с `-O2` даже в debug: без этого debug-сборка в разы отличается
@@ -215,8 +215,8 @@ SDK (`~/.swiftpm/swift-sdks/darwin.artifactbundle`). `swiftc -typecheck` про�
 **Правило.** swiftly прописывает себя только в `~/.profile`, поэтому в командах агента перед `swift`/`xtool`
 выполняй `. "$HOME/.local/share/swiftly/env.sh";`. Токен GitHub передавай в той же команде:
 `GH_TOKEN=$(gh auth token --user startupjafari) scripts/ci-results.sh`. На CI Xcode выбирается явно через
-`DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer` (`ios.yml`, `ios-nightly.yml`,
-`ios-snapshots.yml`). На «Xcode по умолчанию» раннера не полагайся.
+`DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer` (`ios.yml`; остальные
+iOS-workflow удалены 16.11.2026). На «Xcode по умолчанию» раннера не полагайся.
 **Почему.** У Telegram переменная для сборки лежит в `~/.zshrc`, а bash агента его не читает. Служба
 gitlab-runner запускается без Homebrew в PATH, поэтому инструменты там ищут по явным путям.
 *Источник: `CLAUDE.md` («Build»: `TELEGRAM_CODESIGNING_GIT_PASSWORD`, `source ~/.zshrc`); `build-system/Make/CLAUDE.md` (PATH службы без Homebrew)*
@@ -233,7 +233,7 @@ gitlab-runner запускается без Homebrew в PATH, поэтому и�
 **Правило.** Сборки и проверки запускай только по прямой просьбе владельца или при подготовке коммита или PR
 (корневой `AGENTS.md`). При подготовке PR: локально `xtool dev build` и `swiftc -typecheck` тестов, затем
 проверка «iOS — итог». На PR она только собирает, тесты там не идут. Если правка задела ленту, сессию или
-синхронизацию, попроси ручной запуск `ios.yml` с `suites: unit` (или `pr`) либо дождись `ios-nightly.yml`.
+синхронизацию, попроси ручной запуск `ios.yml` с `suites: unit` (или `pr`).
 **Почему.** У Telegram после каждой волны правок идёт полная сборка с `--continueOnError`, а если волна задела
 модуль с юнит-тестами — прогон этих тестов.
 *Источник: `CLAUDE.md` («Postbox → TelegramEngine», правило 6)*
@@ -295,8 +295,8 @@ gitlab-runner запускается без Homebrew в PATH, поэтому и�
 ## §2. Тесты
 
 Тесты iOS-клиента — `Tests/StudentHubTests` (юнит, в хосте приложения), `StudentHubSnapshotTests`, `StudentHubUITests`
-(mock API) и `StudentHubPerfTests`. Из Linux они не запускаются, на PR CI их тоже не гоняет — только `ios-nightly.yml`
-и ручной запуск `ios.yml`. Главная мысль раздела: зелёная сводка ничего не значит, пока не видно, что нужные тесты
+(mock API) и `StudentHubPerfTests`. Из Linux они не запускаются, на PR CI их тоже не гоняет — только
+ручной запуск `ios.yml`. Главная мысль раздела: зелёная сводка ничего не значит, пока не видно, что нужные тесты
 выполнились, что они умеют краснеть и что поведение проверено там, где оно живёт (часто — только на iPhone).
 
 ### 2.1 Запуск тестов и чтение результата
@@ -304,9 +304,9 @@ gitlab-runner запускается без Homebrew в PATH, поэтому и�
 #### 2.1.1 Тесты гоняет только CI; «проходит» — после прогона CI
 **Правило.** Из Linux тесты не собираются ни `xtool dev build`, ни `swift build`. Новые тесты проверяй
 `swiftc -typecheck` против собранного модуля, а прогон смотри на CI. На PR проверка «iOS — итог» только собирает
-(`scripts/test.sh build`). Тесты идут в `ios-nightly.yml` (`scripts/test.sh full` после вливания iOS в develop)
-или при ручном запуске `ios.yml` с полем `suites` (`unit`, `pr`, `snapshot`, `ui`, `perf`…). Результат —
-`scripts/ci-results.sh` (`--nightly`, `--run <id>`, `--wait`). Пока CI тест не прогнал, не пиши «тесты проходят».
+(`scripts/test.sh build`). Тесты идут только при ручном запуске `ios.yml` с полем `suites` (`unit`, `pr`, `snapshot`, `ui`, `perf`,
+`full`…). Результат —
+`scripts/ci-results.sh` (`--run <id>`, `--wait`). Пока CI тест не прогнал, не пиши «тесты проходят».
 Проверки запускай только по просьбе владельца (`AGENTS.md`).
 **Почему.** У Telegram демо и тесты вне основной цели Bazel проверяет только их собственный набор xcodebuild. Если
 XCTest не грузится на хосте, файлы тестов хотя бы компилируют `swiftc` вручную.
@@ -340,8 +340,8 @@ XCTest не грузится на хосте, файлы тестов хотя �
 *Источник: `submodules/TelegramUI/Components/RichTextEditor/Sources/RichTextEngineEditor/CLAUDE.md` («Verification traps»); `Tests/ComposerHarness/CLAUDE.md` («A red test that TRAPS prints no failure»)*
 
 #### 2.1.5 Сначала зелёная база, число тестов до и после
-**Правило.** Перед iOS-задачей узнай состояние тестов на базе: последний `ios-nightly.yml` на develop
-(`scripts/ci-results.sh --nightly`). Иначе свои падения не отличить от прежних. После задачи сверь, что выполнено
+**Правило.** Перед iOS-задачей узнай состояние тестов на базе: последний ручной прогон `ios.yml` на develop
+(`suites: full`, `scripts/ci-results.sh --run <id>`). Иначе свои падения не отличить от прежних. После задачи сверь, что выполнено
 ровно на столько тестов больше, сколько ты добавил: новый файл мог не попасть в таргет. Если правка задела общий
 механизм (`ImageMemoryCache`, `MessageListView`, `Motion`, `APIClient`), укажи в описании PR число тестов до и после.
 **Почему.** У Telegram до правок прогоняют наборы (139 и 76 тестов), и после каждого шага ожидаемое число растёт
@@ -397,7 +397,7 @@ XCTest не грузится на хосте, файлы тестов хотя �
 **Применимость.** частично — журнал симулятора у нас доступен только во вложениях CI.
 
 #### 2.1.12 Тесты на время — отдельным набором и перезапуск в одиночку
-**Правило.** Тесты линейности и времени держи в `perf` (`StudentHubPerfTests`, ночной `ios-nightly.yml`), а не в
+**Правило.** Тесты линейности и времени держи в `perf` (`StudentHubPerfTests`, ручной запуск `ios.yml` с `suites: perf`), а не в
 юнит-наборе. Если такой тест упал, перезапусти его в одиночку и только потом считай регрессией.
 **Почему.** У Telegram тесты, меряющие время, флакуют под нагрузкой, поэтому их перезапускают отдельно.
 *Источник: `docs/message-widgets-native-runtime.md` («Tests»: `GumboForkTests`, `testSelectorParsingIsLinear`)*
@@ -617,7 +617,7 @@ iPhone и записывай, что не проверено. Образцы у�
 #### 2.4.3 Тест — на самом низком уровне, который воспроизводит дефект; с шапкой
 **Правило.** По умолчанию пиши тест в `StudentHubTests`: размеры, состояния, разбор, снимки. В `StudentHubUITests` —
 только если дефект в доставке ввода: курсор, жесты пузыря (свайп, меню, двойной тап), клавиатура, автокоррекция,
-IME. Скриншоты прикладывай `XCTAttachment`, длинные наборы отправляй в nightly. Над тестом-регрессией — шапка: что
+IME. Скриншоты прикладывай `XCTAttachment`, длинные наборы — в ручной прогон `ios.yml` (`ui-extended`, `full`). Над тестом-регрессией — шапка: что
 сломалось, как увидели, уровень и почему.
 **Почему.** У Telegram юнит-уровень берут, если неверна модель после правки, а XCUITest — только для пути касания.
 *Источник: `Tests/ComposerHarness/CLAUDE.md` («Which tier a regression test belongs in»); `Tests/WidgetHarness/CLAUDE.md` («Which tier»)*
@@ -1088,8 +1088,8 @@ XCUITest или теми же методами контроллера, что и
 
 #### 2.8.1 Эталоны не перезаписывают, чтобы позеленить
 **Правило.** Снимки (`Tests/**/__Snapshots__/ios26@3x`), фикстуры `APIContractTests` и `Tests/perf-baseline.json`
-при рефакторинге не перезаписывай. Снимки переснимаются только меткой `ios-record-snapshots` на PR (или
-`record_snapshots` в `ios.yml`), после этого — посмотреть diff глазами (README). Намеренное изменение или улучшение
+при рефакторинге не перезаписывай. Снимки переснимаются только ручным запуском `ios.yml` с
+`record_snapshots` (или локально `scripts/test.sh snapshot --record`; `ios-snapshots.yml` удалён 16.11.2026), после этого — посмотреть diff глазами (README). Намеренное изменение или улучшение
 закрепляй отдельным коммитом с причиной и картинками или числами. Эталон работает как храповик: падает и на
 регресс, и на незаписанное улучшение. Записывать поверх регресса нельзя — регресс надо чинить.
 **Почему.** У Telegram эталон, снятый со старой реализации, служит доказательством эквивалентности новой. Golden-файлы
@@ -1921,15 +1921,15 @@ iPhone через xtool. CI пока на Xcode 26.6. Значит, этот б�
 no `[weak]`/`[unowned]` capture list»); `docs/state-sync.md` (инвариант 21); handoff §2*
 
 #### 4.1.2 Release-сборку прогонять заранее, до вливания и до выпуска
-**Правило.** Перед вливанием крупной правки `Core/` и перед выпуском собрать Release на CI: `ios-release.yml` вручную
-или отдельную Release-сборку в `ios.yml`. Не откладывать архив до дня отправки.
+**Правило.** Перед вливанием крупной правки `Core/` и перед выпуском собрать Release: на CI его сейчас нет (`ios-release.yml`
+удалён 16.11.2026) — вручную в Xcode. Не откладывать архив до дня отправки.
 **Почему.** У Telegram Swift 6.4 падает в `SimplifyCFG` на `-Osize`
 (`BorrowUtils.swift:551: Fatal error: cannot get borrow introducers…`), а debug-сборка того же кода компилируется.
 Падение впервые видно на CI с релизными флагами (WMO, `-Osize`). Триггер: вложенная функция из циклов плюс
 межмодульно встроенный метод с цепочкой `&&`/`||` по `self.size` у заимствованной структуры с массивом. Лечилось
 статической функцией с локальным `size`. Перед выдачей пользователям у Telegram — подписанная сборка на устройстве.
-**Сейчас у нас.** локально собирается только Debug (`xtool dev build`). Release собирается только в
-`ios-release.yml`. Когда CI перейдёт на Xcode 27 (Swift 6.4), такие падения появятся именно там.
+**Сейчас у нас.** локально собирается только Debug (`xtool dev build`). Release на CI не собирается
+(`ios-release.yml` удалён 16.11.2026). Когда перейдём на Xcode 27 (Swift 6.4), такие падения появятся в ручном архиве.
 *Источник: `CLAUDE.md` («Swift 6.4: SimplifyCFG crash in release builds only»); handoff §6d, §6g*
 
 #### 4.1.3 Падение компилятора только в Release — воспроизводить командой из лога
@@ -6775,7 +6775,7 @@ not in the binary»); `submodules/TelegramUI/Components/RichTextEditor/Sources/R
 **Правило.** Режим UI-тестов (`SH_UITEST_*`, mock API, фикстуры) — только под `#if DEBUG`: в Release окружение процесса
 не читается (`App/UITesting/UITestEnvironment.swift`), `MockFixtures.swift` целиком в `#if DEBUG`. Новые отладочные
 переключатели — так же; никакой загрузки кода или конфигурации извне в Release. Проверка (предложение): `strings` по
-бинарнику из архива `ios-release.yml` не находит `SH_UITEST_`.
+бинарнику из ручного архива Release (`ios-release.yml` удалён 16.11.2026) не находит `SH_UITEST_`.
 **Почему.** У Telegram загрузка внешнего ядра с диска скомпилирована только в тестовый инструмент, и этот флаг в
 приложение не добавляется никогда.
 **Сейчас у нас.** соблюдено.
@@ -7534,7 +7534,7 @@ M», переход к автору — действия.
 *Источник: `docs/superpowers/plans/2026-10-27-media-grid-thumbnail-store.md` (Task 5); `docs/superpowers/specs/2026-10-27-media-picker-grid-design.md` (Verification)*
 
 #### 13.5.5 Изменения загрузок и кеша — не хуже базовой линии
-**Правило.** Правка очередей загрузки картинок и видео, предзагрузки и кеша проходит perf-набор (`StudentHubPerfTests` против `Tests/perf-baseline.json` в `ios-nightly.yml`). Базовую линию обновляйте только осознанно, с объяснением в PR.
+**Правило.** Правка очередей загрузки картинок и видео, предзагрузки и кеша проходит perf-набор (`StudentHubPerfTests` против `Tests/perf-baseline.json`, ручной запуск `ios.yml` с `suites: perf`). Базовую линию обновляйте только осознанно, с объяснением в PR.
 **Почему.** У Telegram любой профиль лаборатории воспроизведения, ставший хуже `LabBaseline` (больше зависаний или позже старт), роняет тест.
 *Источник: `submodules/HLSPlayback/CLAUDE.md` (Changes to the scheduler go through the playback lab); `docs/native-hls-player.md` (The playback lab)*
 
@@ -7654,9 +7654,9 @@ M», переход к автору — действия.
 *Источник: `submodules/TelegramUI/Components/MessageWidget/CLAUDE.md` (Corpus check)*
 
 #### 13.7.10 Стресс-набор — долгий прогон в отдельном режиме
-**Правило.** `scripts/test.sh full` (с замерами) гоняйте в nightly (`ios-nightly.yml`), а не на PR. В результатах фиксируйте условия: флаги и устройство.
+**Правило.** `scripts/test.sh full` (с замерами) гоняйте ручным запуском `ios.yml` (`suites: full`), а не на PR. В результатах фиксируйте условия: флаги и устройство.
 **Почему.** Стресс-набор Telegram — 127 виджетов, около 35 минут на симуляторе, с отдельными режимами замера и продакшн-лимитов; применённые лимиты записываются.
-**Сейчас у нас.** Соблюдено (`.github/workflows/ios-nightly.yml:67`).
+**Сейчас у нас.** Соблюдено: на PR только сборка, `full` — по ручному запуску (`ios-nightly.yml` удалён 16.11.2026).
 *Источник: `Tests/WidgetHarness/CLAUDE.md` (The stress kit)*
 
 #### 13.7.11 Проверка на каждой сборке — быстрая, а ускорение подтверждено сравнением
@@ -7721,14 +7721,14 @@ in sync»)*
 SQLITE_VERSION`… rather than trusting the archive name»)*
 
 #### 14.1.5 Подъём версии инструмента — обновить всё, что к ней привязано
-**Правило.** Подъём Xcode на CI делать одной правкой `DEVELOPER_DIR` во всех iOS-workflow (`ios.yml`,
-`ios-nightly.yml`, `ios-snapshots.yml`, `ios-release.yml`). В той же задаче переснять эталоны снимков (метка
-`ios-record-snapshots`), обновить README («Xcode 26.6, iPhone 17 Pro, iOS 26.5») и при необходимости
+**Правило.** Подъём Xcode на CI делать одной правкой `DEVELOPER_DIR` во всех iOS-workflow (сейчас только `ios.yml`;
+`ios-nightly.yml`, `ios-snapshots.yml`, `ios-release.yml` удалены 16.11.2026). В той же задаче переснять эталоны снимков (`ios.yml`
+с `record_snapshots`), обновить README («Xcode 26.6, iPhone 17 Pro, iOS 26.5») и при необходимости
 `perf-baseline.json`. Подъём Swift на Linux (swiftly) сверять с версией Xcode на CI: известные баги Swift 6.4 — в
 §4.1.
 **Почему.** У Telegram подъём Rust означает обновить словарь сумм в `MODULE.bazel`: rules_rust знает суммы только до
 своей версии.
-**Сейчас у нас.** частично (#499): `ios-release.yml` собирает на `macos-26` с тем же `Xcode_26.6`, что тесты; локальный
+**Сейчас у нас.** частично (#499): `ios-release.yml` собирал на `macos-26` с тем же `Xcode_26.6`, что тесты (удалён 16.11.2026); локальный
 Swift 6.4.2 новее, чем в Xcode CI, — решение владельца (4.1.1).
 *Источник: `CLAUDE.md` («CI builds…», Rust 1.98.1)*
 
@@ -7744,7 +7744,7 @@ Swift 6.4.2 новее, чем в Xcode CI, — решение владельц�
 *Источник: `Telegram/CLAUDE.md` («Keep the version out of the compile action; that is the split's whole value»)*
 
 #### 14.2.2 Подписанное не кешировать между машинами
-**Правило.** Подписанное (сборка `xtool` с личным Apple ID, архив `ios-release.yml`) не класть в `actions/cache`.
+**Правило.** Подписанное (сборка `xtool` с личным Apple ID, архив Release) не класть в `actions/cache`.
 Кешировать только входы: пакеты и DerivedData без подписи. `CODE_SIGNING_ALLOWED=NO` в `scripts/test.sh:122` уже это
 обеспечивает.
 **Почему.** Шаг подписи зависит от машинного пути профиля, а содержимое профиля не входит во входы кеша. Общий кеш
@@ -7753,7 +7753,7 @@ Swift 6.4.2 новее, чем в Xcode CI, — решение владельц�
 *Источник: `Telegram/CLAUDE.md` («The patch+sign action does keep local + no-remote, deliberately…»)*
 
 #### 14.2.3 Длинный прогон не запускать параллельно с пушами в ту же ветку
-**Правило.** Ручной или ночной прогон с длинными наборами (`perf`, `ui-extended`) не запускать одновременно с пушами в
+**Правило.** Ручной прогон с длинными наборами (`perf`, `ui-extended`) не запускать одновременно с пушами в
 ту же ветку: его отменят. Учитывать это при `scripts/ci-results.sh --wait`.
 **Почему.** У Telegram вторая сборка на хосте встаёт в очередь (`flock`, `--waitForLock`), а не падает.
 **Сейчас у нас.** `ios.yml:37-39` — `concurrency: group: ios-${{ github.ref }}-${{ github.event_name }},
@@ -8626,7 +8626,7 @@ built»)*
 #### 15.8.11 Перед влитием — свежий взгляд на всю ветку и релизная сборка
 **Правило.** Эпик или пачку волн перед слиянием смотрит свежий ревьюер (отдельный агент без контекста автора,
 `/code-review`) по всему диффу ветки; критичное чинится с тестом, мелочи — списком с местом в отчёте или памяти. Релизная
-сборка у нас только на CI (`ios-release.yml`): PR с большим рефакторингом не вливать без зелёной релизной сборки.
+сборка на CI сейчас не делается (`ios-release.yml` удалён 16.11.2026): PR с большим рефакторингом не вливать без зелёной релизной сборки вручную.
 **Почему.** У Telegram свежий ревьюер нашёл критический дефект, пропущенный автором, а его главное замечание было, что
 release-сборка не запускалась.
 **Применимость.** согласовать с AGENTS.md: слияние и запуск CI/PR — по просьбе человека; без релизной сборки в отчёте
@@ -8705,7 +8705,7 @@ release-сборка не запускалась.
     `ChatThreadModel.swift:1247`. Правила 6.6.1 и 9.4.17. [исправлено, #499]
 14. **Release-сборка невоспроизводима и собирается другим Xcode, чем тесты.** `ios-release.yml` работает на
     `macos-15` без `DEVELOPER_DIR`. XcodeGen ставится без версии, `Package.resolved` в `.gitignore`. Правила
-    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решено: закреплён в git, волна 5]
+    14.1.1 и 14.1.2. [частично исправлено, #499: XcodeGen и Xcode релиза; `Package.resolved` — решено: закреплён в git, волна 5; `ios-release.yml` удалён 16.11.2026]
 
 ### А.2 Полный список по разделам
 
@@ -8715,7 +8715,7 @@ release-сборка не запускалась.
 - **`run_bench` берёт первое найденное приложение** — `apps/ios/scripts/test.sh:220` (`find … | head -1`) — правило 1.4.4. Если в DerivedData несколько конфигураций, замер плавности может пойти не на той сборке. [расходится] [исправлено, #499]
 #### §2. Тесты
 
-- **Нет `-collect-test-diagnostics never`** — `apps/ios/scripts/test.sh:173` (`run_suite`, `xcodebuild test-without-building`) — правило 2.1.6. Упавший ui/perf-набор может висеть до 10 минут в `simctl diagnose`, съедая лимит `timeout-minutes` (75 в `ios.yml`, 120 в `ios-nightly.yml`). [расходится] [исправлено, #499]
+- **Нет `-collect-test-diagnostics never`** — `apps/ios/scripts/test.sh:173` (`run_suite`, `xcodebuild test-without-building`) — правило 2.1.6. Упавший ui/perf-набор может висеть до 10 минут в `simctl diagnose`, съедая лимит `timeout-minutes` (75 в `ios.yml`, 120 в `ios-nightly.yml`, удалён 16.11.2026). [расходится] [исправлено, #499]
 - **Нет явного `-parallel-testing-enabled NO`** — `apps/ios/scripts/test.sh:173` — правило 2.1.7. Сейчас держится на умолчании схемы XcodeGen: смена умолчания или ручной `-parallel-testing-enabled YES` даст взаимные убийства прогонов на одном симуляторе. [расходится] [исправлено, #499]
 - **`SH_PERF_FLAGS` с опечаткой молча игнорируется** — `apps/ios/Sources/App/PerformanceFlags.swift:89`, `:92` — правило 2.7.9. Матрица «оба положения флага» (2.4.8) тихо прогоняет положение «как в коде». [расходится] [исправлено, #499]
 - **Неизвестный `SH_UITEST_SCENARIO` молча становится `.signedOut`** — `apps/ios/Sources/App/UITesting/UITestEnvironment.swift:35` — правило 2.7.8. Опечатка в сценарии даёт тест экрана входа вместо нужного, и падение выглядит как баг продукта. [расходится] [исправлено, #499]
@@ -8742,7 +8742,7 @@ release-сборка не запускалась.
 
 - **Предупреждения не считаются ошибками** — `apps/ios/project.yml:26` (`SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"`) — правила 4.2.1, 4.2.2. Предупреждения «приведение всегда неуспешно» и предупреждения конкурентности после ретипизации проходят молча. [решено: страж числа предупреждений в ios.yml, база scripts/warnings-baseline.txt только сужается, волна 5]
 - **Устройство владельца собирается более новым Swift, чем CI** — локальный Swift 6.4.2 против Xcode 26.6 на CI (`.github/workflows/ios.yml:85`) — правило 4.1.1. Известный баг Swift 6.4 с `[weak]` в локальном замыкании проявится только на iPhone, а CI будет зелёным. Сейчас таких мест нет. [решено: принято как есть до Xcode 27 на CI, волна 5]
-- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решено: ночной ios-nightly собирает Release без подписи, волна 5]
+- **Release собирается только при выпуске** — `.github/workflows/ios-release.yml` (ручной запуск) — правило 4.1.2. Падения компилятора, которые бывают только в Release (`SimplifyCFG`, `-Osize`), всплывут в день отправки. [решено: ночной ios-nightly собирал Release без подписи, волна 5; ios-nightly удалён 16.11.2026 — Release на CI снова не собирается]
 #### §5. UIKit и SwiftUI
 
 - **Превью чата регистрирует якоря пузырей под настоящими id** — `apps/ios/Sources/Features/Chats/ChatListView.swift:1084` — правило 5.7.7. `ChatPeekView` создаёт `MessageBubbleView` без `isMenuPreview: true`, поэтому его копия может перехватить якорь `BubbleAnchors` у пузыря в ленте, и меню вырастет не из того места. [расходится] [исправлено, #499]
@@ -8870,7 +8870,7 @@ release-сборка не запускалась.
 - **Графики дашбордов без описания для VoiceOver** — `apps/ios/Sources/Features/Admin/AdminDashboardViews.swift:387,414`, `UniversityAdmin/UAdminDashboardView.swift:332,508`, `Dean/DeanDashboardView.swift`, `Career/CareerStaffViews.swift` — правило 11.2.7. `accessibilityChartDescriptor` нигде не задан, и смысл графика может не читаться. [проверить на iPhone]
 - **Ошибки входа, возможно, не объявляются** — `apps/ios/Sources/Features/Auth/` (объявления есть только в `DesignSystem/ActionToast.swift:40` и `Chats/Thread/ChatThreadView.swift:243`) — правило 11.3.3. Ошибку, показанную текстом или тряской, VoiceOver может не произнести. [проверить на iPhone]
 - **Полоска папок чатов** — `apps/ios/Sources/Features/Chats/ChatListView.swift` / `ChatFoldersModel.swift` — правило 11.2.1. Бейдж непрочитанных может читаться отдельным числом, а не значением вкладки. [проверить на iPhone]
-- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4; аудит на mock в ios-nightly мягко (continue-on-error), волна 5]
+- **Нет подмены VoiceOver для UI-тестов и аудита дерева** — `apps/ios/Sources/Features/Chats/Thread/MessageListView.swift:1171`, `Tests/StudentHubUITests/MockUITestCase.swift` — правила 11.5.1, 11.5.2. Ветку «под VoiceOver» и механические ошибки разметки (элемент без метки, дубль) CI не проверяет. [расходится] [исправлено, волна 4; аудит на mock в ios-nightly мягко (continue-on-error), волна 5; ios-nightly удалён 16.11.2026 — аудит только ручным запуском `ios.yml` с `suites: a11y`]
 #### §12. Раскладка под устройства
 
 - **`UIScreen.main` в раскладке** — `apps/ios/Sources/Features/Chats/Thread/Menu/KeyboardFrame.swift:27`, `apps/ios/Sources/Features/Feed/StoriesViews.swift:321`, `apps/ios/Sources/Features/Chats/Thread/Attach/PhotoAssets.swift:187` — правило 12.1.1. API устарел с iOS 16; на внешнем экране или в другой сцене рамка клавиатуры и размер медиа посчитаются не для того экрана. [расходится] [исправлено, волна 4]
@@ -8887,10 +8887,10 @@ release-сборка не запускалась.
 - **Нет переключателя «принудительный overflow» догона** — `apps/ios/Sources/App/UITesting/MockAPIProtocol.swift:346` (mock всегда отдаёт `overflow: false`); ветка обработки — `apps/ios/Sources/Features/Chats/Thread/ChatThreadModel.swift:1479` — правило 13.7.3. Редкий путь переполнения догона нельзя воспроизвести в приложении по требованию. [расходится]
 #### §14. CI, зависимости, внешние загрузки
 
-- **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится] [исправлено, #499]
+- **XcodeGen ставится без версии и суммы** — `.github/workflows/ios.yml:98`, `ios-nightly.yml:52`, `ios-snapshots.yml:42`, `ios-release.yml:35` — правило 14.1.1. Новая версия XcodeGen может молча изменить сгенерированный проект. [расходится] [исправлено, #499; кроме `ios.yml` эти workflow удалены 16.11.2026]
 - **Версии SPM-пакетов не зафиксированы** — `apps/ios/.gitignore` (`Package.resolved`), `apps/ios/project.yml:31-43`, `apps/ios/Package.swift:21-22` (`from:`) — правила 14.1.1, 14.1.2. CI и локальная сборка берут свежие миноры GRDB, Socket.IO и Sentry, поэтому сборки невоспроизводимы. [решено: exact/exactVersion, Package.resolved в git, scripts/check_packages.py, Dependabot swift, волна 5]
-- **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится] [исправлено, #499]
-- **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится] [исправлено, #499]
+- **Release собирается другим Xcode, чем тесты** — `.github/workflows/ios-release.yml:24` (`macos-15`, без `DEVELOPER_DIR`) против `Xcode_26.6` в `ios.yml:85`, `ios-nightly.yml:37`, `ios-snapshots.yml:29` — правило 14.1.5. TestFlight-сборка не проходила тот компилятор и SDK, на которых прошли тесты, а для стекла iOS 26 нужен SDK Xcode 26. [расходится] [исправлено, #499; `ios-release.yml` удалён 16.11.2026]
+- **Ключ кеша SPM зависит от всего `project.yml`** — `.github/workflows/ios.yml:106`, `ios-nightly.yml:58`, `ios-snapshots.yml:48` — правило 14.2.1. Любая правка версии или номера сборки зря сбрасывает кеш пакетов. [расходится] [исправлено, #499; кроме `ios.yml` эти workflow удалены 16.11.2026]
 - **Нет стражей со списками исключений** — `apps/ios/scripts/` — правило 14.4.1. Переводы кода (GRDB вне `Core/`, `URLSession`, открытие ссылок) могут незаметно откатываться назад. [решено: check_layers.sh — URLSession и открытие ссылок по allowlist, только сужается, волна 5]
 - **Нет удалённого выключателя рискованных функций** — `apps/ios/Sources/App/PerformanceFlags.swift` — правило 14.5.1. Откатить сломанную функцию у пользователей можно только новым выпуском. [решено: `disabledFeatures` в `GET /client-version` из env, `RemoteFeatures` с кешем, видео/трансляция/GIF/стикеры, волна 5]
 #### §15. Документация, процесс, работа агентов

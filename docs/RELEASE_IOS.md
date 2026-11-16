@@ -13,9 +13,11 @@
 - `apps/ios/Config/ExportOptions.plist` — параметры экспорта архива в App Store Connect;
 - `apps/ios/Resources/PrivacyInfo.xcprivacy` — манифест приватности, сверен с
   `docs/PERSONAL_DATA.md`;
-- `.github/workflows/ios-release.yml` — ручной прогон: архив и загрузка в TestFlight.
-- `.github/workflows/ios.yml` — сборка и тесты на симуляторе на каждый push и PR в
-  `develop`/`main`, задевающий `apps/ios/**`.
+- `.github/workflows/ios.yml` — сборка на каждый push и PR в `develop`/`main`, задевающий
+  `apps/ios/**`; тесты на симуляторе — ручным запуском (поле `suites`).
+
+Архив и загрузку в TestFlight CI сейчас не делает: прогон `ios-release.yml` удалён
+16.11.2026, архив собирается вручную в Xcode.
 
 ## Что открыто до выпуска
 
@@ -32,8 +34,8 @@
 - **Иконка.** В каталоге одна картинка 1024×1024
   (`apps/ios/Resources/Assets.xcassets/AppIcon.appiconset`); сверить, что загрузка в App
   Store Connect её принимает.
-- **Подпись распространения и Release-сборка.** Проверяются только прогоном
-  `ios-release.yml`; собирать ли Release на каждый PR — решение владельца
+- **Подпись распространения и Release-сборка.** Не проверяются ничем: прогон
+  `ios-release.yml` удалён 16.11.2026, проверка — первым ручным архивом
   (`docs/IOS_RULES.md` 4.1.2).
 
 ## Что обязан сделать человек
@@ -45,10 +47,9 @@
 2. **App ID** `kz.studenthub.app` и запись приложения в App Store Connect.
 3. **Сертификат распространения и профиль** либо включённая автоматическая подпись с
    ключом App Store Connect API (рекомендуется для CI).
-4. **Секреты репозитория** для `ios-release.yml`:
-   - `APPSTORE_ISSUER_ID`, `APPSTORE_KEY_ID`, `APPSTORE_PRIVATE_KEY` — ключ App Store
-     Connect API (роль App Manager);
-   - `IOS_TEAM_ID` — идентификатор команды.
+4. **Ключ App Store Connect API** (роль App Manager) и идентификатор команды — для
+   загрузки архива. Секреты репозитория под них (`APPSTORE_*`, `IOS_TEAM_ID`) не нужны,
+   пока выгрузка в TestFlight не автоматизирована (прогон `ios-release.yml` удалён 16.11.2026).
 5. **Ключ APNs (p8)** и переменные `APNS_*` на бэкенде — без них пуши молчат
    (`docs/PROJECT.md` §8.3 «Пуши на устройства»).
    Там же — `IOS_MIN_SUPPORTED_VERSION` и `IOS_STORE_URL` (`docs/PROJECT.md` §8.3 «Версия
