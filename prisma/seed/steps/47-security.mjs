@@ -9,7 +9,8 @@
 //   цифры без типа не бывает (CreateVisitorSchema); выход — позже входа, без выхода только
 //   те, кто вошёл сегодня и ещё в здании;
 // - проход пишет проверка студенческого (StudentIdService.verify): отказ по истёкшему,
-//   битому коду и чужому вузу — без студента, по повтору кода и блокировке — со студентом;
+//   битому коду и чужому вузу — без студента, по повтору кода, блокировке и учебному статусу
+//   (отчислен, выпускник, переведён — с даты ухода из вуза) — со студентом;
 // - сессия просмотра: lastSeenAt — шагами подтверждения плеера (30 с), endedAt — у части
 //   нет (закрыли вкладку), смотрят только охрана и админ вуза и только включённые камеры.
 //
@@ -36,6 +37,8 @@ const TZ_OFFSET_H = 5
 // Доля студентов, которые проходят по QR студенческого (остальные — по карте турникета
 // или вовсе не попадают на пост с проверкой).
 const QR_USERS_SHARE = 0.15
+// Сколько дней ушедший из вуза ещё пробует пройти по QR, прежде чем перестаёт приходить.
+const LEFT_ATTEMPT_DAYS = 7
 // Шаг подтверждения просмотра плеером (VIEW_HEARTBEAT_S в camera-views.service.ts).
 const VIEW_HEARTBEAT_S = 30
 // Версия агента камер (apps/camera-agent/src/version.ts).
@@ -65,8 +68,9 @@ const DOCUMENT_TYPES = [
   [null, 7],
 ]
 
-// Исход проверки студенческого. STATUS не генерируется: у всех студентов сида учебный
-// статус ACTIVE, а отказ «отчислен» при активном статусе — состояние, которого нет.
+// Исход проверки студенческого. STATUS здесь нет: он не выпадает случайно, а следует из
+// учебного статуса — ушедший из вуза студент (30-people.mjs) после даты ухода получает
+// STATUS вместо пропуска.
 const PASS_OUTCOMES = [
   ['ALLOWED', 920],
   ['EXPIRED_QR', 30],
@@ -211,9 +215,20 @@ export async function seedSecurity(prisma, writer, ctx) {
     }
   }
   const qrIds = random.sample(allStudents, Math.max(20, Math.round(allStudents.length * QR_USERS_SHARE))) // prettier-ignore
+  // Ушедшие из вуза — в выборке всегда: без них отказ STATUS на посту не встретился бы.
+  for (const [studentId, status] of people.studentStatus ?? []) {
+    if (status.leftAt && !qrIds.includes(studentId)) qrIds.push(studentId)
+  }
   const qrUsers = await prisma.user.findMany({
     where: { id: { in: qrIds } },
-    select: { id: true, firstName: true, lastName: true, groupId: true, isBlocked: true },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      groupId: true,
+      isBlocked: true,
+      leftUniversityAt: true,
+    },
     take: qrIds.length,
   })
   // Заблокированные — из всего вуза: в выборку их почти не попадает, а отказ BLOCKED
@@ -230,6 +245,16 @@ export async function seedSecurity(prisma, writer, ctx) {
     studentGroup: groupName.get(u.groupId) ?? null,
   })
   const noStudent = { studentId: null, studentName: null, studentGroup: null }
+  const leftAtOf = (u) => u.leftUniversityAt?.getTime() ?? null
+  // Ушедший приходит на пост в первый же рабочий день после ухода: так STATUS есть в
+  // журнале каждого вуза, а не только там, где выборка дня на него попала.
+  const forcedOn = new Map()
+  for (const u of passable) {
+    const leftAt = leftAtOf(u)
+    if (leftAt === null) continue
+    const day = days.find((d) => d.start > leftAt && d.weekday !== 0)
+    if (day) forcedOn.set(day.key, [...(forcedOn.get(day.key) ?? []), u])
+  }
 
   for (const day of passable.length > 0 ? days : []) {
     if (day.weekday === 0) continue
@@ -241,6 +266,8 @@ export async function seedSecurity(prisma, writer, ctx) {
     const guardId = onDuty(day)
     // Один студент — один проход в день: без повторов внутри суток.
     const students = random.sample(passable, count)
+    const forced = new Set(forcedOn.get(day.key) ?? [])
+    for (const u of forced) if (!students.includes(u)) students.push(u)
     for (const [n, student] of students.entries()) {
       // Пик утром к первой паре, второй — после обеда, остальное — равномерно.
       const slot = random.pickWeighted([
@@ -256,13 +283,20 @@ export async function seedSecurity(prisma, writer, ctx) {
             : random.randInt(9 * 60, 17 * 60)
       const createdAt = new Date(day.start + minute * MIN_MS + random.randInt(0, 59) * 1000)
       if (createdAt.getTime() > now) continue
+      // Ушёл из вуза: неделю ещё пробует пройти (и получает отказ), потом не приходит.
+      const leftAt = leftAtOf(student)
+      const gone = leftAt !== null && createdAt.getTime() >= leftAt
+      if (gone && createdAt.getTime() - leftAt > LEFT_ATTEMPT_DAYS * DAY_MS) continue
 
       let outcome = random.pickWeighted(PASS_OUTCOMES)
       if (outcome === 'BLOCKED' && blocked.length === 0) outcome = 'INVALID_QR'
-      // Студент в записи — как у сервиса: при пропуске и повторе кода — владелец карты,
-      // при блокировке — заблокированный своего вуза, в остальных отказах — никого.
+      // Карта настоящая, но студент уже не учится — verify решает STATUS после всех проверок
+      // кода. Приход «по расписанию» (forced) — всегда с действующим кодом.
+      if (gone && (outcome === 'ALLOWED' || forced.has(student))) outcome = 'STATUS'
+      // Студент в записи — как у сервиса: при пропуске, повторе кода и отказе по статусу —
+      // владелец карты, при блокировке — заблокированный своего вуза, в остальных — никого.
       const subject =
-        outcome === 'ALLOWED' || outcome === 'REUSED_QR'
+        outcome === 'ALLOWED' || outcome === 'REUSED_QR' || outcome === 'STATUS'
           ? asStudent(student)
           : outcome === 'BLOCKED'
             ? asStudent(random.pick(blocked))

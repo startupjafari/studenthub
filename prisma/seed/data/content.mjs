@@ -33,7 +33,7 @@ export const POSTS_GROUP = [
 // priorityFor; PROJECT.md §3.3): база по аудитории, +2 сотрудникам от преподавателя и
 // выше. Лента сортирует по priority раньше даты, и с нулём сидовые посты навсегда
 // оказывались ниже любого нового.
-const AUDIENCE_PRIORITY = { ALL: 50, UNIVERSITY: 40, FACULTY: 35, TEACHERS: 32, GROUP: 30, SUBJECT: 25, PERSONAL: 20 } // prettier-ignore
+const AUDIENCE_PRIORITY = { ALL: 50, UNIVERSITY: 40, FACULTY: 35, TEACHERS: 32, GROUP: 30, SUBJECT: 29, PERSONAL: 20, COMPANY: 0 } // prettier-ignore
 
 export function postPriority(audience, staff) {
   return AUDIENCE_PRIORITY[audience] + (staff ? 2 : 0)

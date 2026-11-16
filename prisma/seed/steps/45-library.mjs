@@ -21,6 +21,17 @@ const READERS = 60
 /** Предел книг на руках — как правило вуза по умолчанию. */
 const MAX_OPEN = 5
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
+// Учебные статусы ушедших из вуза — оба написания: справочника (как сохраняет API) и кода
+// (старые записи). Таким книги не выдаются (isTerminalAcademicStatus в library-loans).
+const LEFT_STATUSES = ['Выпускник', 'Отчислен', 'Переведён', 'Переведен', 'GRADUATED', 'EXPELLED', 'TRANSFERRED'] // prettier-ignore
+const EXPELLED_STATUSES = ['Отчислен', 'EXPELLED']
+const READER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  studentCardNumber: true,
+  group: { select: { name: true } },
+}
 
 // Каталог: название, авторы, раздел, год, издательство, экземпляров.
 const CATALOG = [
@@ -155,6 +166,15 @@ function copyCode(universityId, copyId) {
   return code
 }
 
+/** ISBN-13 с верной контрольной цифрой: детерминирован от вуза и номера книги. */
+function isbn13(universityId, n) {
+  const digest = createHash('sha256').update(`${universityId}:isbn:${n}`).digest()
+  let body = '9785'
+  for (let i = 0; body.length < 12; i += 1) body += String(digest[i] % 10)
+  const sum = [...body].reduce((acc, d, i) => acc + Number(d) * (i % 2 === 0 ? 1 : 3), 0)
+  return body + String((10 - (sum % 10)) % 10)
+}
+
 /** Последний момент местных суток (UTC+offset) того дня, в который попадает `at`. */
 function endOfLocalDay(at, offsetHours) {
   const local = new Date(at.getTime() + offsetHours * 3_600_000)
@@ -181,6 +201,8 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
   // Смещение пояса для сроков «до конца дня»: вузы платформы — в Казахстане (UTC+5).
   const offset = 5
 
+  // Ушедшие из вуза (выпускник, отчислен, переведён) читателями не бывают: выдача и бронь
+  // им закрыты. Академический отпуск выдачу не закрывает.
   const readers = await prisma.user.findMany({
     where: {
       universityId,
@@ -188,16 +210,11 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
       deletedAt: null,
       isBlocked: false,
       groupId: { not: null },
+      OR: [{ academicStatus: null }, { academicStatus: { notIn: LEFT_STATUSES } }],
     },
     orderBy: { email: 'asc' },
     take: READERS,
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      studentCardNumber: true,
-      group: { select: { name: true } },
-    },
+    select: READER_SELECT,
   })
   if (readers.length === 0) return { skipped: true, reason: 'нет студентов с группой' }
   const librarian = await prisma.user.findFirst({
@@ -239,6 +256,9 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
       section,
       year,
       publisher,
+      // ISBN — у семи книг из десяти: поиск по ISBN и импорт с сопоставлением по нему
+      // проверяются на тех, у кого он есть; старые издания каталогизированы без него.
+      isbn: i % 10 < 7 ? isbn13(universityId, i + 1) : null,
       createdById: librarian?.id ?? null,
       createdAt: new Date(now.getTime() - (HISTORY_DAYS + 30) * DAY),
       weight,
@@ -254,10 +274,27 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
         code: copyCode(universityId, copyId),
         status: 'AVAILABLE',
         condition: random.chance(0.15) ? 'WORN' : 'GOOD',
+        note: null,
         weight,
       })
     }
   }
+
+  // Экземпляры под сценарии ниже (утеря, погашенная утеря, долг отчисленного) из симуляции
+  // исключены: симуляция занимает каждый экземпляр выдачами до сегодняшнего дня, и выдача
+  // задним числом легла бы поверх чужой — один экземпляр у двух читателей сразу. Берётся
+  // последний экземпляр книги, у которой их несколько: на полке остаются остальные.
+  const spareCopies = books
+    .filter((b) => copies.filter((c) => c.bookId === b.id).length >= 2)
+    .map((b) => copies.filter((c) => c.bookId === b.id).at(-1))
+  const scripted = {
+    lost: spareCopies.find((c) => c.weight > 3) ?? null,
+    lostSettled: null,
+    debt: null,
+  }
+  scripted.lostSettled = spareCopies.find((c) => c !== scripted.lost) ?? null
+  scripted.debt = spareCopies.find((c) => c !== scripted.lost && c !== scripted.lostSettled) ?? null
+  const scriptedCopies = new Set(Object.values(scripted).filter(Boolean))
 
   // ── Симуляция выдач по экземплярам ────────────────────────────────────────────
   const openByReader = new Map()
@@ -265,6 +302,7 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
   const loans = []
   const historyStart = now.getTime() - HISTORY_DAYS * DAY
   for (const copy of copies) {
+    if (scriptedCopies.has(copy)) continue
     // Чем популярнее книга, тем короче перерывы между выдачами.
     const gap = () => Math.round((random.randInt(3, 30) / Math.min(copy.weight, 6)) * 2) * DAY
     let t = historyStart + random.randInt(0, 20) * DAY
@@ -294,23 +332,63 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
     }
   }
 
-  // Утерянный и списанный экземпляры — чтобы в отчёте был выбывший фонд.
-  const lostCopy = copies.find((c) => c.status === 'AVAILABLE' && c.weight > 3)
-  if (lostCopy) {
-    const reader = random.pick(readers)
-    const issuedAt = new Date(now.getTime() - 60 * DAY)
+  // Утерянные и списанный экземпляры — чтобы в отчёте был выбывший фонд. Две утери: долг
+  // читателя (держит справку и выдачу) и погашенный долг (книгу возместили).
+  const lostCases = [
+    { copy: scripted.lost, issuedDaysAgo: 60, lostDaysAgo: 30, settledDaysAgo: null },
+    { copy: scripted.lostSettled, issuedDaysAgo: 150, lostDaysAgo: 120, settledDaysAgo: 100 },
+  ]
+  for (const lost of lostCases) {
+    const issuedAt = new Date(now.getTime() - lost.issuedDaysAgo * DAY)
+    const copy = lost.copy
+    if (!copy) continue
     loans.push({
-      copy: lostCopy,
-      reader,
+      copy,
+      reader: random.pick(readers),
       issuedAt,
       dueAt: endOfLocalDay(new Date(issuedAt.getTime() + 14 * DAY), offset),
       status: 'LOST',
-      returnedAt: new Date(now.getTime() - 30 * DAY),
+      returnedAt: new Date(now.getTime() - lost.lostDaysAgo * DAY),
+      lostSettledAt: lost.settledDaysAgo
+        ? new Date(now.getTime() - lost.settledDaysAgo * DAY)
+        : null,
     })
-    lostCopy.status = 'LOST'
+    copy.status = 'LOST'
   }
   const writtenOff = copies.find((c) => c.status === 'AVAILABLE' && c.condition === 'WORN')
-  if (writtenOff) writtenOff.status = 'WRITTEN_OFF'
+  if (writtenOff) {
+    writtenOff.status = 'WRITTEN_OFF'
+    writtenOff.note = 'Списан по ветхости: вырваны страницы'
+  }
+
+  // Должник, которого отчислили (Фаза 21.C3): книга взята до ухода из вуза и не сдана. Новых
+  // выдач ему уже нет — читатели выше ушедших не включают, — а этот долг остаётся на руках.
+  const expelled = await prisma.user.findFirst({
+    where: {
+      universityId,
+      role: { in: ['STUDENT', 'STAROSTA'] },
+      deletedAt: null,
+      academicStatus: { in: EXPELLED_STATUSES },
+      leftUniversityAt: { not: null },
+    },
+    orderBy: { email: 'asc' },
+    select: { ...READER_SELECT, leftUniversityAt: true },
+  })
+  if (expelled) {
+    const issuedAt = new Date(expelled.leftUniversityAt.getTime() - 30 * DAY)
+    const copy = scripted.debt
+    if (copy) {
+      loans.push({
+        copy,
+        reader: expelled,
+        issuedAt,
+        dueAt: endOfLocalDay(new Date(issuedAt.getTime() + 14 * DAY), offset),
+        status: 'OPEN',
+        returnedAt: null,
+      })
+      copy.status = 'ON_LOAN'
+    }
+  }
 
   // Две отменённые выдачи: «выдали не тому читателю» — история не правится, а отменяется.
   for (const reason of ['Выдали не тому читателю', 'Ошиблись экземпляром']) {
@@ -345,6 +423,8 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
       cancelledAt: l.cancelledAt ?? null,
       cancelledById: l.cancelledAt ? (librarian?.id ?? null) : null,
       cancelReason: l.cancelReason ?? null,
+      lostSettledAt: l.lostSettledAt ?? null,
+      lostSettledById: l.lostSettledAt ? (librarian?.id ?? null) : null,
       readerName: readerName(l.reader),
       readerGroup: l.reader.group?.name ?? null,
       readerCard: l.reader.studentCardNumber,
@@ -358,6 +438,45 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
   // Одна открытая выдача оспорена читателем — «это не я».
   const disputed = loanRows.find((l) => l.status === 'OPEN' && l.dueAt.getTime() > now.getTime())
   if (disputed) disputed.disputedAt = new Date(now.getTime() - 2 * DAY)
+
+  // Возврат с повреждением: последний возврат свободного экземпляра — «залит водой». Возврат
+  // ставит состояние экземпляра (returnCopy), поэтому экземпляр после него — DAMAGED.
+  const copyById = new Map(copies.map((c) => [c.id, c]))
+  const damagedLoan = [...loanRows]
+    .reverse()
+    .find((l) => l.status === 'RETURNED' && copyById.get(l.copyId).status === 'AVAILABLE')
+  if (damagedLoan) {
+    const copy = copyById.get(damagedLoan.copyId)
+    const lastReturn = loanRows
+      .filter((l) => l.copyId === copy.id && l.status === 'RETURNED')
+      .reduce((a, b) => (a.returnedAt > b.returnedAt ? a : b))
+    lastReturn.returnCondition = 'DAMAGED'
+    copy.condition = 'DAMAGED'
+    copy.note = 'Вернули с залитыми страницами, читать можно'
+  }
+
+  // Продлённые выдачи (renewals): срок ещё не вышел, на книгу нет очереди — первые три
+  // открытые не оспоренные. Выдачи без скана QR (21.C5): ещё две, с отметкой в журнале
+  // удостоверений ниже.
+  const openFresh = loanRows.filter(
+    (l) => l.status === 'OPEN' && l.dueAt.getTime() > now.getTime() && l !== disputed,
+  )
+  for (const l of openFresh.slice(0, 3)) {
+    // Продление сдвигает срок на срок по умолчанию (defaultLoanDays = 14).
+    l.renewals = 1
+    l.dueAt = endOfLocalDay(new Date(l.dueAt.getTime() + 14 * DAY), offset)
+  }
+  const withoutPhone = openFresh.slice(3, 5)
+  for (const l of withoutPhone) l.withoutPhone = true
+
+  // Напоминания о скором и сегодняшнем сроке по прошедшим событиям уже «ушли» — как
+  // overdueSentAt выше: иначе первый тик крона (remindLibraryLoans) разошлёт пачку.
+  for (const l of loanRows) {
+    if (l.status !== 'OPEN' || l.issuedAt.getTime() > now.getTime() - DAY) continue
+    const left = l.dueAt.getTime() - now.getTime()
+    if (left > 0 && left <= 3 * DAY) l.dueSoonSentAt = new Date(now.getTime() - 6 * 3_600_000)
+    if (left > 0 && left <= DAY) l.dueTodaySentAt = new Date(now.getTime() - 2 * 3_600_000)
+  }
 
   // ── Брони ─────────────────────────────────────────────────────────────────────
   const reservations = []
@@ -407,23 +526,75 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
       copyId: copy.id,
       createdAt: new Date(now.getTime() - 2 * DAY),
       readyAt: new Date(now.getTime() - DAY),
+      // Уведомление «бронь готова» принято очередью: без отметки его догонит крон.
+      readyNotifiedAt: new Date(now.getTime() - DAY + 60_000),
       holdUntil: endOfLocalDay(new Date(now.getTime() + random.randInt(1, 3) * DAY), offset),
     })
     ready += 1
   }
-  // История: забранные, истёкшие и отменённые брони.
-  for (const status of ['FULFILLED', 'FULFILLED', 'FULFILLED', 'EXPIRED', 'EXPIRED', 'CANCELLED']) {
+  // История: забранные, истёкшие и отменённые брони. Забранная — это выдача по брони: она
+  // связана с выдачей (loanId), экземпляр — тот, что выдали, закрыта в момент выдачи.
+  const fulfilledLoans = loanRows.filter(
+    (l) =>
+      l.status === 'RETURNED' &&
+      l.issuedAt.getTime() < now.getTime() - 15 * DAY &&
+      l.issuedAt.getTime() > now.getTime() - 120 * DAY,
+  )
+  for (const loan of random.sample(fulfilledLoans, 3)) {
+    const readyAt = new Date(loan.issuedAt.getTime() - DAY)
+    reservation({
+      bookId: copyById.get(loan.copyId).bookId,
+      readerId: loan.readerId,
+      status: 'FULFILLED',
+      copyId: loan.copyId,
+      loanId: loan.id,
+      createdAt: new Date(loan.issuedAt.getTime() - 4 * DAY),
+      readyAt,
+      readyNotifiedAt: new Date(readyAt.getTime() + 60_000),
+      holdUntil: endOfLocalDay(new Date(readyAt.getTime() + 3 * DAY), offset),
+      closedAt: loan.issuedAt,
+    })
+  }
+  for (const status of ['EXPIRED', 'EXPIRED', 'CANCELLED']) {
     const book = random.pick(books)
     const createdAt = new Date(now.getTime() - random.randInt(15, 120) * DAY)
+    const readyAt = status === 'CANCELLED' ? null : new Date(createdAt.getTime() + 3 * DAY)
+    const holdUntil = readyAt ? endOfLocalDay(new Date(readyAt.getTime() + 3 * DAY), offset) : null
     reservation({
       bookId: book.id,
       readerId: random.pick(readers).id,
       status,
       createdAt,
-      readyAt: status === 'CANCELLED' ? null : new Date(createdAt.getTime() + 3 * DAY),
-      holdUntil: status === 'CANCELLED' ? null : new Date(createdAt.getTime() + 6 * DAY),
-      closedAt: new Date(createdAt.getTime() + random.randInt(4, 7) * DAY),
+      readyAt,
+      readyNotifiedAt: readyAt ? new Date(readyAt.getTime() + 60_000) : null,
+      holdUntil,
+      // Истёкшая закрывается кроном после конца срока хранения, отменённая — читателем.
+      closedAt: holdUntil
+        ? new Date(holdUntil.getTime() + random.randInt(1, 6) * 3_600_000)
+        : new Date(createdAt.getTime() + random.randInt(1, 3) * DAY),
     })
+  }
+
+  // Архивная книга (убрана из каталога): самая непопулярная, у которой ни один экземпляр
+  // не выдан, не отложен и не утерян, и нет живых броней — иначе архивировать её API не даст.
+  // Её экземпляры списаны: книга ушла из фонда целиком.
+  const activeReserved = new Set(
+    reservations.filter((r) => r.status === 'QUEUED' || r.status === 'READY').map((r) => r.bookId),
+  )
+  const archived = [...books]
+    .sort((a, b) => a.weight - b.weight)
+    .find(
+      (b) =>
+        !activeReserved.has(b.id) &&
+        (byBook.get(b.id) ?? []).every((c) => c.status === 'AVAILABLE'),
+    )
+  if (archived) {
+    archived.archivedAt = new Date(now.getTime() - 20 * DAY)
+    archived.description = 'Устаревшее издание: заменено новым, в каталоге не показывается.'
+    for (const c of byBook.get(archived.id) ?? []) {
+      c.status = 'WRITTEN_OFF'
+      c.note = 'Списан вместе с изданием'
+    }
   }
 
   // ── Журнал просмотров удостоверений и инвентаризация ──────────────────────────
@@ -440,6 +611,22 @@ export async function seedLibrary(prisma, { universityId, random, now = new Date
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130',
     createdAt: new Date(now.getTime() - random.randInt(1, 14 * 24) * 3_600_000),
   }))
+  // Выдачи без скана — в журнале удостоверений с отметкой, как пишет их выдача (21.C5).
+  for (const l of withoutPhone) {
+    views.push({
+      id: `${prefix}-v-${String(views.length + 1).padStart(3, '0')}`,
+      universityId,
+      loanId: l.id,
+      librarianId: librarian?.id ?? null,
+      librarianName,
+      readerId: l.readerId,
+      readerName: l.readerName,
+      withoutPhone: true,
+      ip: `10.0.0.${random.randInt(10, 60)}`,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130',
+      createdAt: l.issuedAt,
+    })
+  }
 
   // Инвентаризация идёт с утра: большая часть полки уже отмечена, часть — нет.
   const startOfToday = new Date(endOfLocalDay(now, offset).getTime() - DAY + 1)

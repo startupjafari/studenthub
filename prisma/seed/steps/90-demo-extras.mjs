@@ -15,7 +15,10 @@
 //     создаёт всех «сегодня».
 //  4. Жалобы демо-вуза для очереди модерации.
 //  5. Заявки вузов на тестирование — чтобы очередь платформенного админа была непустой.
+//  6. Состояние платформы, прочитанные «Что нового» и настройки уведомлений демо-вуза —
+//     рычаги мини-аппа и экраны настроек не должны впервые открываться пустыми.
 
+import { readFileSync } from 'node:fs'
 import { child } from '../lib/ids.mjs'
 
 const DEMO_UNIVERSITY_ID = 'seed-university-001'
@@ -109,6 +112,53 @@ const DEMO_REQUESTS = [
     email: 'e.tuleuov@ipm.example.kz',
     daysAgo: 1,
   },
+  // Остальные причины отказа (DemoRejectionReason): у каждой свой ответ заявителю —
+  // «можно ли прийти снова и когда», и в фильтре очереди нужны все. В конце списка: id
+  // заявки — её номер в нём, и вставка в середину сдвинула бы id уже залитых строк.
+  {
+    status: 'REJECTED',
+    universityName: 'Прикаспийский технический институт',
+    city: 'Актау',
+    contactName: 'Нурлан Ахметов',
+    contactRole: 'Методист',
+    email: 'n.akhmetov@pti.example.kz',
+    studentsEstimate: 3800,
+    rejectionReason: 'DUPLICATE',
+    reviewNote: 'Заявка этого вуза уже в работе — от проректора',
+    daysAgo: 4,
+  },
+  {
+    status: 'REJECTED',
+    universityName: 'Университет',
+    contactName: 'Алия',
+    email: 'aliya.k@mail.example.kz',
+    rejectionReason: 'INSUFFICIENT_INFO',
+    reviewNote: 'Не указаны город и название вуза',
+    daysAgo: 9,
+  },
+  {
+    status: 'REJECTED',
+    universityName: 'Восточный гуманитарный колледж',
+    city: 'Усть-Каменогорск',
+    contactName: 'Ольга Савченко',
+    contactRole: 'Заместитель директора',
+    email: 'o.savchenko@vgk.example.kz',
+    studentsEstimate: 900,
+    rejectionReason: 'NO_CAPACITY',
+    reviewNote: 'Пилотные места на семестр заняты — вернуться в январе',
+    daysAgo: 30,
+  },
+  {
+    status: 'REJECTED',
+    universityName: 'Академия дизайна «Форма»',
+    city: 'Алматы',
+    contactName: 'Тимур Есенов',
+    email: 't.esenov@forma.example.kz',
+    studentsEstimate: 450,
+    rejectionReason: 'OTHER',
+    reviewNote: 'Просили интеграцию с их LMS, которой нет в планах',
+    daysAgo: 45,
+  },
 ]
 
 /**
@@ -127,17 +177,32 @@ const CORRECTIONS = [
   'Уточните период, за который нужна справка',
   'Загрузите документ в PDF, а не фотографией',
 ]
+// Действия и сущности — те, что пишет API (AuditService.record): фильтр журнала по действию
+// и счётчики дашбордов (например, `complaint_resolved` у модератора) ищут именно их. Вход
+// и выход — чаще остальных, как в жизни. Прежние USER_LOGIN/INVITE_CREATED API не пишет.
 const AUDIT_ACTIONS = [
-  'USER_LOGIN',
-  'USER_LOGOUT',
-  'INVITE_CREATED',
-  'INVITE_REVOKED',
-  'POST_CREATED',
-  'POST_DELETED',
-  'COMPLAINT_RESOLVED',
-  'USER_BLOCKED',
-  'APPLICATION_STATUS_CHANGED',
+  ['login', null],
+  ['login', null],
+  ['login', null],
+  ['logout', null],
+  ['invite_created', 'Invite'],
+  ['invite_revoked', 'Invite'],
+  ['post_created', 'Post'],
+  ['post_deleted', 'Post'],
+  ['complaint_taken', 'Complaint'],
+  ['complaint_resolved', 'Complaint'],
+  ['user_warned', 'User'],
+  ['attendance_marked', 'Attendance'],
+  ['grades_saved', 'GradeColumn'],
+  ['material_created', 'Material'],
+  ['event_created', 'Event'],
+  ['password_changed', 'User'],
 ]
+// Приоритет жалобы — по категории цели (complaintPriorityFor в shared-schemas).
+const PRIORITY_BY_TARGET = { USER: 'HIGH', MESSAGE: 'HIGH', POST: 'MEDIUM', STORY: 'MEDIUM', COMMENT: 'LOW' } // prettier-ignore
+// Версии «Что нового» — из бандла веба (notes.json рядом с нотами, его же читает CI).
+const RELEASE_NOTES_URL = new URL('../../../apps/web/src/entities/release/model/notes.json', import.meta.url) // prettier-ignore
+
 const COMPLAINT_REASONS = [
   'Спам в комментариях',
   'Оскорбление в личных сообщениях',
@@ -145,7 +210,7 @@ const COMPLAINT_REASONS = [
   'Реклама сторонних услуг',
 ]
 
-export async function seedDemoExtras(prisma, writer, { random }) {
+export async function seedDemoExtras(prisma, writer, { random, platform = false }) {
   const uniId = DEMO_UNIVERSITY_ID
 
   // ── 0. Заявки вузов на тестирование ────────────────────────────────────────
@@ -197,6 +262,9 @@ export async function seedDemoExtras(prisma, writer, { random }) {
     })
   }
   await writer.flush()
+
+  // ── 0б. Состояние платформы (мини-апп, «Управление платформой») ─────────────
+  if (platform) await seedPlatformState(prisma, random)
 
   const dev = await prisma.user.findMany({
     where: { email: { in: DEV_EMAILS } },
@@ -349,6 +417,13 @@ export async function seedDemoExtras(prisma, writer, { random }) {
     take: 10,
   })
   const moderatorId = devByEmail.get('university-moderator@studenthub.app')
+  // Жалоба на комментарий — приоритет LOW: без неё нижняя ступень очереди пуста.
+  const comments = await prisma.comment.findMany({
+    where: { postId: { in: posts.map((p) => p.id) }, deletedAt: null },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+    take: 3,
+  })
   for (let ci = 0; ci < 10 && posts.length > 0; ci += 1) {
     const status = random.pickWeighted([
       ['PENDING', 40],
@@ -358,14 +433,20 @@ export async function seedDemoExtras(prisma, writer, { random }) {
     ])
     const closed = status === 'RESOLVED' || status === 'DISMISSED'
     const onUser = ci % 3 === 0
+    const onComment = !onUser && ci % 4 === 1 && comments.length > 0
+    const targetType = onUser ? 'USER' : onComment ? 'COMMENT' : 'POST'
     await writer.add('complaint', {
       id: `seed-demo-cmp-${ci}`,
       reporterId: pool[ci % pool.length],
-      targetType: onUser ? 'USER' : 'POST',
-      targetId: onUser ? pool[(ci + 5) % pool.length] : posts[ci % posts.length].id,
+      targetType,
+      targetId: onUser
+        ? pool[(ci + 5) % pool.length]
+        : onComment
+          ? comments[ci % comments.length].id
+          : posts[ci % posts.length].id,
       reason: random.pick(COMPLAINT_REASONS),
       status,
-      priority: onUser ? 'HIGH' : 'MEDIUM',
+      priority: PRIORITY_BY_TARGET[targetType],
       universityId: uniId,
       resolvedById: closed ? (moderatorId ?? null) : null,
       resolution: closed
@@ -424,9 +505,10 @@ export async function seedDemoExtras(prisma, writer, { random }) {
     await writer.add('auditLog', {
       id: `seed-demo-audit-${String(ai).padStart(4, '0')}`,
       userId: actorId,
-      action: random.pick(AUDIT_ACTIONS),
-      entity: random.pick(['User', 'Post', 'Invite', 'Application', 'Complaint']),
-      entityId: uniId,
+      action: AUDIT_ACTIONS[ai % AUDIT_ACTIONS.length][0],
+      entity: AUDIT_ACTIONS[ai % AUDIT_ACTIONS.length][1],
+      // id сущности у входа/выхода нет; у остальных — вуз как ближайшая известная сущность.
+      entityId: AUDIT_ACTIONS[ai % AUDIT_ACTIONS.length][1] ? uniId : null,
       ip: `10.10.${ai % 255}.${(ai * 7) % 255}`,
       userAgent: random.pick([
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -453,4 +535,138 @@ export async function seedDemoExtras(prisma, writer, { random }) {
       AND "created_at" > now() - interval '1 day'
   `
   console.log(`Демо-дополнения: даты регистрации разнесены у ${spread} пользователей`)
+
+  // ── 7. «Что нового» и настройки уведомлений демо-вуза ──────────────────────
+  const demoUsers = await prisma.user.findMany({
+    where: { universityId: uniId },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+    take: 1000,
+  })
+  await seedReleaseViews(
+    writer,
+    [...devIds],
+    demoUsers.map((u) => u.id),
+    random,
+  )
+  await seedNotificationSettings(
+    writer,
+    demoUsers.map((u) => u.id),
+  )
+  await writer.flush()
+}
+
+/**
+ * Состояние платформы — одна строка `singleton`, рычаги мини-аппа. Создаётся, только если её
+ * нет (upsert без update): на общей базе её уже настроил человек, и сид не вправе молча
+ * включить техработы или заглушить уведомления команде.
+ *
+ * Значения безвредны для работы стенда, но заполняют каждый блок экрана: техработы и
+ * баннер — уже прошедшие (окно в прошлом = выключено, но текст и тон видны в форме),
+ * разделы все включены, оформление — по календарю, часы тишины 22→8, дайджест в 9 утра,
+ * дежурства — по очереди из команды платформы. Погасить раздел или включить сезон сид не
+ * может: это рычаг одного значения, и любое из них меняет стенд для всех.
+ */
+async function seedPlatformState(prisma, random) {
+  const team = await prisma.user.findMany({
+    where: { role: { in: ['PLATFORM_ADMIN', 'PLATFORM_MODERATOR'] }, deletedAt: null },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+    take: 10,
+  })
+  // Очередь дежурств принимает только uuid (SetDutySchema) — а сидовые id бывают читаемыми.
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const rotation = team.map((u) => u.id).filter((uid) => UUID.test(uid))
+  const maintenanceFrom = random.daysFromNow(-3)
+  const latest = readReleaseVersions()[0] ?? null
+  await prisma.platformState.upsert({
+    where: { id: 'singleton' },
+    update: {},
+    create: {
+      id: 'singleton',
+      maintenanceFrom,
+      maintenanceUntil: new Date(maintenanceFrom.getTime() + 40 * 60_000),
+      maintenanceMessageRu: 'Обновляем платформу. Вернёмся через полчаса.',
+      maintenanceMessageKk: 'Платформаны жаңартып жатырмыз. Жарты сағаттан кейін ораламыз.',
+      maintenanceMessageEn: 'We are updating the platform. Back in half an hour.',
+      bannerUntil: random.daysFromNow(-1),
+      bannerTextRu: 'Вышла новая версия расписания — проверьте изменения.',
+      bannerTextKk: 'Кестенің жаңа нұсқасы шықты — өзгерістерді тексеріңіз.',
+      bannerTextEn: 'A new schedule version is out — check the changes.',
+      bannerLevel: 'INFO',
+      bannerRoles: ['STUDENT', 'STAROSTA'],
+      bannerUniversityIds: [],
+      disabledSections: [],
+      announcedVersion: latest,
+      seasonOff: false,
+      seasonOverride: null,
+      quietFrom: 22,
+      quietTo: 8,
+      mutedNotifications: ['digest'],
+      dutyUserId: rotation[0] ?? null,
+      dutyRotation: rotation,
+      digestHour: 9,
+      updatedById: team[0]?.id ?? null,
+    },
+  })
+}
+
+/** Версии нот «Что нового», новые сверху. Нет файла (сид вне монорепо) — пусто. */
+function readReleaseVersions() {
+  try {
+    return JSON.parse(readFileSync(RELEASE_NOTES_URL, 'utf8')).map((n) => n.version)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Прочитанные «Что нового». Dev-аккаунты дочитали последнюю версию: окно не всплывает поверх
+ * экранов, по которым ходят человек и e2e. Остальные — по кругу: последняя, одна из
+ * прежних (окно покажет новую) или строки нет вовсе (ещё ничего не открывал).
+ */
+async function seedReleaseViews(writer, devIds, userIds, random) {
+  const versions = readReleaseVersions()
+  if (versions.length === 0) return
+  const dev = new Set(devIds)
+  for (const [ui, userId] of [...devIds, ...userIds.filter((u) => !dev.has(u))].entries()) {
+    const kind = dev.has(userId) ? 0 : ui % 3
+    if (kind === 2) continue
+    await writer.add('releaseView', {
+      userId,
+      version: kind === 0 ? versions[0] : versions[1 + (ui % Math.max(1, versions.length - 1))] ?? versions[0], // prettier-ignore
+      seenAt: random.randomDate(-30, -1),
+    })
+  }
+}
+
+/**
+ * Настройки уведомлений демо-вуза — у генератора их заводит шаг 30, а демо-вуз жил на
+ * умолчаниях. Каналы по кругу (email/push: оба, только один, ни одного — колокол IN_APP
+ * работает всегда), и каждый тип хотя бы у кого-то выключен. SYSTEM выключить можно, но
+ * сервис доставляет его принудительно — поэтому он выключен реже всех. Уже сохранённые
+ * человеком настройки не трогаются: userId уникален, строка пропускается.
+ */
+async function seedNotificationSettings(writer, userIds) {
+  const CHANNELS = [
+    [true, false],
+    [true, true],
+    [false, true],
+    [false, false],
+  ]
+  for (const [ui, userId] of userIds.entries()) {
+    const [emailEnabled, pushEnabled] = CHANNELS[ui % CHANNELS.length]
+    await writer.add('notificationSettings', {
+      id: `seed-demo-ns-${userId}`,
+      userId,
+      emailEnabled,
+      pushEnabled,
+      scheduleChangeEnabled: ui % 7 !== 1,
+      appUpdateEnabled: ui % 7 !== 2,
+      messageEnabled: ui % 7 !== 3,
+      postEnabled: ui % 7 !== 4,
+      eventEnabled: ui % 7 !== 5,
+      systemEnabled: ui % 23 !== 6,
+    })
+  }
 }

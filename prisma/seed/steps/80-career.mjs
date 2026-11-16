@@ -25,6 +25,9 @@ const FUNNEL = [
   ['WITHDRAWN', 3],
 ]
 const FUNNEL_ORDER = ['SUBMITTED', 'VIEWED', 'SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED']
+// Большинство ждёт зарплату в тенге; остальные валюты — по одному на десяток студентов.
+const SALARY_CURRENCIES = ['KZT', 'KZT', 'KZT', 'USD', 'KZT', 'KZT', 'EUR', 'KZT', 'RUB', 'KZT']
+const KZT_PER_UNIT = { KZT: 1, USD: 500, EUR: 550, RUB: 5.5 }
 
 // Путь по воронке до статуса — для истории переходов.
 function pathTo(status, random) {
@@ -102,7 +105,13 @@ export async function seedCareer(prisma, writer, ctx) {
       ['NOT_LOOKING', 25],
     ])
     const hidden = employmentStatus === 'NOT_LOOKING' && random.chance(0.6)
-    const salaryMin = random.randInt(1, 6) * 50_000
+    // Валюта ожиданий — по кругу (salaryCurrency: KZT|USD|EUR|RUB), суммы пересчитаны из
+    // тенге по грубому курсу: «300 000 долларов» у студента выглядело бы ошибкой.
+    const currency = SALARY_CURRENCIES[si % SALARY_CURRENCIES.length]
+    const rate = KZT_PER_UNIT[currency]
+    const kztMin = random.randInt(1, 6) * 50_000
+    const kztMax = kztMin + random.randInt(1, 4) * 50_000
+    const toCurrency = (kzt) => (rate === 1 ? kzt : Math.round(kzt / rate / 50) * 50)
     await writer.add('careerProfile', {
       id: child(studentId, 'cp'),
       userId: studentId,
@@ -114,9 +123,9 @@ export async function seedCareer(prisma, writer, ctx) {
       employmentTypes: random.sample(['INTERNSHIP', 'PART_TIME', 'FULL_TIME', 'CONTRACT', 'FREELANCE'], random.randInt(1, 3)), // prettier-ignore
       workFormats: random.sample(['ONSITE', 'HYBRID', 'REMOTE'], random.randInt(1, 3)),
       relocationReady: random.chance(0.35),
-      desiredSalaryMin: salaryMin,
-      desiredSalaryMax: salaryMin + random.randInt(1, 4) * 50_000,
-      salaryCurrency: 'KZT',
+      desiredSalaryMin: toCurrency(kztMin),
+      desiredSalaryMax: toCurrency(kztMax),
+      salaryCurrency: currency,
       about: 'Готов совмещать работу с учёбой, интересны задачи по специальности.',
       // Готовность профиля — то же, что считает сервис: заполненность + портфолио.
       readinessScore: random.randInt(40, 100),
@@ -190,22 +199,49 @@ export async function seedCareer(prisma, writer, ctx) {
     }
   }
 
-  // ── Карьерное событие вуза ──────────────────────────────────────────────────
-  // Event.careerKind отличает карьерные события от обычных в календаре.
-  const careerEvent = id(index, 'ev', 'career')
-  await writer.add('event', {
-    id: careerEvent,
-    organizerId: people.adminId,
-    audience: 'UNIVERSITY',
-    title: 'День карьеры',
-    description: 'Встречи с работодателями, экспресс-интервью и разбор резюме.',
-    // Вид — из CAREER_EVENT_KINDS (CAREER_FAIR|WORKSHOP|INTERVIEW_DAY|…).
-    careerKind: 'CAREER_FAIR',
-    universityId: uniId,
-    location: 'Актовый зал',
-    isOnline: false,
-    startsAt: random.randomDate(5, 40),
-  })
+  // ── Карьерные мероприятия вуза ──────────────────────────────────────────────
+  // Event.careerKind отличает карьерные события от обычных в календаре. По одному каждого
+  // вида CAREER_EVENT_KINDS: фильтр «вид» в карьерном разделе иначе пуст на четырёх из пяти.
+  // Одно — онлайн (ссылка и провайдер, как ставит сервер по хосту), одно — уже прошло
+  // (фильтр «прошедшие»). Первое сохраняет прежний id `…-ev-career`: на него ссылаются
+  // другие шаги.
+  const host = linked[0]?.name ?? 'партнёров вуза'
+  const careerEvents = [
+    ['career', 'CAREER_FAIR', 'День карьеры', 'Встречи с работодателями, экспресс-интервью и разбор резюме.', { days: [5, 40] }], // prettier-ignore
+    ['career-workshop', 'WORKSHOP', 'Мастер-класс: резюме и сопроводительное письмо', 'Разбираем резюме участников и типичные ошибки откликов.', { days: [3, 20], online: true }], // prettier-ignore
+    ['career-interviews', 'INTERVIEW_DAY', 'День собеседований', 'Компании проводят первичные интервью со студентами из шорт-листа.', { days: [10, 30] }], // prettier-ignore
+    ['career-presentation', 'COMPANY_PRESENTATION', `Презентация компании: ${host}`, 'Рассказ о стажировках, командах и пути от стажёра до разработчика.', { days: [7, 25] }], // prettier-ignore
+    ['career-hackathon', 'HACKATHON', 'Студенческий хакатон', 'Сорок восемь часов, команды до пяти человек, задачи от партнёров.', { days: [-40, -10], hours: 48 }], // prettier-ignore
+  ]
+  for (const [ei, [suffix, careerKind, title, description, opts]] of careerEvents.entries()) {
+    const eventId = id(index, 'ev', suffix)
+    const startsAt = random.randomDate(opts.days[0], opts.days[1])
+    await writer.add('event', {
+      id: eventId,
+      organizerId: people.adminId,
+      audience: 'UNIVERSITY',
+      title,
+      description,
+      careerKind,
+      universityId: uniId,
+      location: opts.online ? null : ['Актовый зал', 'Коворкинг библиотеки', 'Аудитория 101'][ei % 3], // prettier-ignore
+      isOnline: Boolean(opts.online),
+      // Провайдер ставит сервер по хосту ссылки (meetingProviderOf): zoom.us → ZOOM.
+      meetingProvider: opts.online ? 'ZOOM' : null,
+      meetingUrl: opts.online ? `https://zoom.us/j/${8_100_000_000 + index * 10 + ei}` : null,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + (opts.hours ?? 3) * 3_600_000),
+    })
+    // Записавшиеся — часть студентов вуза: счётчик участников на карточке не нулевой.
+    for (const [pi, userId] of allStudents.slice(ei * 7, ei * 7 + 12).entries()) {
+      await writer.add('eventParticipant', {
+        id: child(eventId, 'p', pi),
+        eventId,
+        userId,
+        createdAt: new Date(Math.min(Date.now(), startsAt.getTime()) - random.randInt(1, 10) * 86_400_000), // prettier-ignore
+      })
+    }
+  }
 
   await writer.flush()
 }
