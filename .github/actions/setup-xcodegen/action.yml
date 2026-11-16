@@ -17,7 +17,9 @@ runs:
       env:
         XCODEGEN_VERSION: 2.46.0
         XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
-      run: |
+      # zizmor (github-env) опасается записи в GITHUB_PATH из-за подстановки чужих данных.
+      # Здесь путь постоянный — каталог раннера, а архив сверен по sha256 до распаковки.
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         archive="$RUNNER_TEMP/xcodegen-$XCODEGEN_VERSION.zip"
         curl -fsSL --retry 3 -o "$archive" \
