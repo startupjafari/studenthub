@@ -372,7 +372,10 @@ export async function seedPeople(prisma, writer, ctx) {
       groupId: inGroup ? group.id : null,
       status,
       expiresAt: status === 'EXPIRED' ? random.randomDate(-30, -2) : random.randomDate(2, 30),
-      createdById: adminId,
+      // Выдаёт тот, кому иерархия инвайтов разрешает (invites.service): студента — староста
+      // группы, старосту — декан, остальных — админ вуза.
+      createdById:
+        role === 'STUDENT' ? group.starostaId : role === 'STAROSTA' ? faculty.deanId : adminId,
       usedById: status === 'USED' ? usedBy : null,
       usedAt: status === 'USED' ? random.randomDate(-20, -1) : null,
     })

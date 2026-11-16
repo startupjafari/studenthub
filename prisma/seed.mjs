@@ -307,7 +307,14 @@ async function main() {
   let companies = null
   if (config.universities > 0 && config.runs('companies')) {
     const companyWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    companies = await seedCompanies(prisma, companyWriter, { passwordHash })
+    // Логотипы и обложки — фото общего пула, медиа страницы — образцы форматов. Без
+    // хранилища (SEED_MEDIA=0) пул пуст, и компании остаются без картинок.
+    const companyStorage = config.media ? createStorage() : null
+    const companyPhotos = mediaPool ?? (config.media ? await loadMediaPool(prisma) : null)
+    companies = await seedCompanies(prisma, companyWriter, {
+      passwordHash,
+      pool: { photos: companyPhotos?.photos ?? [], formats: formatPool(companyStorage) },
+    })
   }
 
   // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
@@ -344,7 +351,13 @@ async function main() {
   // история для дашборда платформы (даты регистрации, журнал аудита).
   if (config.runs('demo')) {
     const demoWriter = createWriter(prisma, { chunkSize: config.chunkSize })
-    await seedDemoExtras(prisma, demoWriter, { random: makeRandom(20260902) })
+    await seedDemoExtras(prisma, demoWriter, {
+      random: makeRandom(20260902),
+      // Строку состояния платформы (техработы, баннер, дежурства) сид заводит только на
+      // локальном стенде с демо-вузом: на общей базе (SEED_ALLOW_REMOTE) её настраивает
+      // человек, и сид не должен появляться там с часами тишины и заглушённой сводкой.
+      platform: config.demoUniversity && !config.allowRemote,
+    })
     await demoWriter.flush()
   }
 
