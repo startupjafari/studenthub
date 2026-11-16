@@ -70,7 +70,14 @@ async function deleteUniversity(prisma, universityId, log) {
     if (count > 0) counts[name] = (counts[name] ?? 0) + count
   }
 
+  // Шаблоны документов — до пользователей: версия держит File (Restrict), а File уходит
+  // каскадом с владельцем. Журнал генераций держит шаблон и версию. Версии — каскадом.
+  await run('documentTemplateGeneration', prisma.documentTemplateGeneration.deleteMany({ where: { universityId } })) // prettier-ignore
+  await run('documentTemplate', prisma.documentTemplate.deleteMany({ where: { universityId } }))
+
   counts.user = await deleteUsers(prisma, universityId, log)
+  // Выгрузки документов без внешних ключей: находим по префиксу id вуза генератора.
+  await run('documentExport', prisma.documentExport.deleteMany({ where: { id: { startsWith: `${universityId}-exp-` } } })) // prettier-ignore
 
   const faculties = await prisma.faculty.findMany({ where: { universityId }, select: { id: true } })
   const facultyIds = faculties.map((f) => f.id)

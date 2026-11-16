@@ -24,7 +24,9 @@ import { seedSocial } from './steps/50-social.mjs'
 import { seedSocialExtras } from './steps/52-social-extras.mjs'
 import { seedProfileContent } from './steps/55-profile-content.mjs'
 import { seedChats } from './steps/60-chats.mjs'
+import { seedChatExtras } from './steps/62-chat-extras.mjs'
 import { seedServices } from './steps/70-services.mjs'
+import { seedServiceExtras } from './steps/75-extras.mjs'
 import { seedCareer } from './steps/80-career.mjs'
 
 const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
@@ -198,8 +200,16 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
     await seedSocial(prisma, writer, { ...ctx, structure, people })
     await seedProfileContent(prisma, writer, { ...ctx, structure, people })
     await seedChats(prisma, writer, { ...ctx, structure, people })
+    // Чек-листы, геопозиции, контакты, отложенные и скрытые сообщения: шаг читает
+    // lastSeq чатов из базы.
+    await writer.flush()
+    await seedChatExtras(prisma, writer, { ...ctx, structure, people })
     await seedServices(prisma, writer, { ...ctx, structure, people })
     await seedCareer(prisma, writer, { ...ctx, structure, people })
+    // Онбординг, выгрузки документов, шаблоны, доступы к профилям и приглашения в
+    // компании — после карьеры: доступы к профилю выдаются только по откликам.
+    await writer.flush()
+    await seedServiceExtras(prisma, writer, { ...ctx, structure, people })
     // Истории, лайки, закладки, комментарии к событиям, предупреждения — в самом конце:
     // шаг читает из базы посты, статьи, события и жалобы всех предыдущих шагов.
     await writer.flush()
