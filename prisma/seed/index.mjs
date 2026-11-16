@@ -9,13 +9,14 @@
 
 import { fileURLToPath } from 'node:url'
 import { loadCities, resolveKzUniversities } from './data/universities.mjs'
+import { averageOf, ROLE_NORMS } from './lib/activity.mjs'
 import { universityId } from './lib/ids.mjs'
 import { clearMarkers, loadDoneUniversities, markUniversityDone, recordRun } from './lib/marker.mjs'
 import { runPool } from './lib/pool.mjs'
 import { createProgress } from './lib/progress.mjs'
 import { makeRandom, SEED_BASE, universityRandom } from './lib/rng.mjs'
 import { createWriter } from './lib/writer.mjs'
-import { planUniversity, seedStructure } from './steps/20-structure.mjs'
+import { GROUP_SIZE, planUniversity, seedStructure } from './steps/20-structure.mjs'
 import { seedPeople } from './steps/30-people.mjs'
 import { seedAcademics } from './steps/40-academics.mjs'
 import { seedLibrary } from './steps/45-library.mjs'
@@ -38,9 +39,9 @@ const KATO_PATH = fileURLToPath(new URL('./data/kato.json', import.meta.url))
 // Базовая часть (структура, академика, документы, заявки, чаты, карьера) калибрована
 // замером: 165 строк на студента, +16 с 16.11.2026 (сканы, журнал документов, заявки).
 // Расписывать вклад каждой из сорока моделей смысла нет — точности у оценки всё равно
-// нет, слишком много случайных величин. А вот
-// контент на пользователя считаем из конфига: он задаётся ручками и меняет итог в
-// разы (60 постов и 55 опросов на человека — это больше половины всех строк).
+// нет, слишком много случайных величин. Контент на человека считаем по нормам ролей
+// (lib/activity.mjs) — по норме студента: студенты — 90 % людей вуза, а персонал пишет
+// больше, но его мало, и на порядок величины это не влияет.
 const BASE_ROWS_PER_STUDENT = 181
 const OPTIONS_PER_POLL = 3.5
 // Байт на строку в среднем по всем таблицам, включая индексы. Замер: полный прогон —
@@ -49,26 +50,26 @@ const OPTIONS_PER_POLL = 3.5
 // размером диска не сравнить, а гигабайты — можно.
 const BYTES_PER_ROW = 1600
 
+// Голосов на опрос: средняя явка POLL_TURNOUT (40 %) от группы без автора.
+const VOTES_PER_POLL = 0.4 * (GROUP_SIZE - 1)
+// Вложений на пост с медиа: в среднем 2,2 (раскладки 51-social-media.mjs).
+const FILES_PER_MEDIA_POST = 2.2
+
 function contentRowsPerUser(config) {
-  const avg = ([min, max]) => (min + max) / 2
-  const posts = avg(config.postsPerUser)
-  const articles = avg(config.articlesPerUser)
-  const polls = avg(config.pollsPerUser)
-  const votes = polls * (config.pollVotesMax / 2)
+  const avg = (field) => averageOf('STUDENT', field)
+  const posts = avg('posts')
+  const polls = avg('polls')
   // Личная галерея: строка File на каждое фото и видео плюс два альбома на человека.
-  const gallery = avg(config.photosPerUser) + avg(config.videosPerUser)
+  const gallery = config.media ? avg('photos') + avg('videos') + 2 : 0
   return (
     posts +
-    articles +
-    polls * (1 + OPTIONS_PER_POLL) +
-    votes +
-    // Медиа постов: в среднем 2,2 вложения на пост с медиа (раскладки 51-social-media.mjs).
-    config.postImagesPerUser * 2.2 +
-    // Альбом профиля (3–6 файлов, шаг 55) и пять записей портфолио вместо трёх.
+    posts * ROLE_NORMS.STUDENT.postMedia * FILES_PER_MEDIA_POST +
+    avg('articles') +
+    polls * (1 + OPTIONS_PER_POLL + VOTES_PER_POLL) +
+    // Альбом профиля (3–6 файлов, шаг 55) и пять записей портфолио.
     4.5 +
-    2 +
-    gallery +
-    (gallery > 0 ? 2 : 0)
+    5 +
+    gallery
   )
 }
 

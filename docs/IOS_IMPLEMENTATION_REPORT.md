@@ -138,8 +138,8 @@ xcodebuild -project StudentHub.xcodeproj -scheme StudentHub \
   -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 
-Затем пройти по ролям на тестовом стенде (`pnpm db:seed:test`, состав — `docs/PROJECT.md
-§14.1`): у каждой роли открыть «Обзор» и каждый пункт «Разделов».
+Затем пройти по ролям на стенде (`SEED_UNIVERSITIES=1 pnpm db:seed`, состав — `docs/PROJECT.md
+§14`): у каждой роли открыть «Обзор» и каждый пункт «Разделов».
 
 ## 5. Заблокировано со стороны API
 

@@ -58,8 +58,7 @@ pnpm db:status
 pnpm db:migrate --name <имя>                # prisma migrate dev
 pnpm db:deploy                              # prisma migrate deploy
 pnpm db:seed                                # демо-вуз, PLATFORM_ADMIN, dev-инвайт
-pnpm db:seed:full                           # 100 вузов, ~22 млн строк (PROJECT.md §14)
-pnpm db:seed:test                           # стенд: 1 вуз, состав по ТЗ (PROJECT.md §14.1)
+SEED_UNIVERSITIES=4 SEED_STUDENTS=500-1000 pnpm db:seed  # + вузы генератора (PROJECT.md §14)
 pnpm db:seed:media                          # только медиа-пул сида в MinIO
 pnpm db:seed:kato                           # только справочник КАТО
 pnpm db:seed:library                        # библиотека для уже засеянного вуза

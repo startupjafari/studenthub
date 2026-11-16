@@ -373,7 +373,7 @@ export async function seedMedia(prisma, config) {
   // них серверные копии — по одной на пост, потому что File.postId эксклюзивен, а
   // объект уникален по (bucket, key). Копия делается внутри MinIO: байты по сети не идут.
   const imageSources = []
-  if (config.postImagesPerUser > 0 && photos.done.length > 0) {
+  if (photos.done.length > 0) {
     const sharp = requireFromApi('sharp')
     const smallDir = join(cache.dir, 'small')
     mkdirSync(smallDir, { recursive: true })

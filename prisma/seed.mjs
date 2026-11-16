@@ -1,10 +1,11 @@
 // Идемпотентный seed (docs/PROJECT.md §14): PLATFORM_ADMIN, демо-вуз/факультет/группа/
 // аудитории (Фаза 5) и dev-инвайт для UNIVERSITY_ADMIN на этот вуз.
 //
-// Масштаб задаётся профилем SEED_SCALE (prisma/seed/config.mjs):
-//   demo (по умолчанию) — этот демо-вуз, как раньше;
-//   small / full        — 5 / 100 вузов (генератор подключается следующими шагами).
-// Полный масштаб на нелокальной БД заблокирован без SEED_ALLOW_REMOTE=1.
+// Объём — два параметра (prisma/seed/config.mjs):
+//   pnpm db:seed                                           — только этот демо-вуз;
+//   SEED_UNIVERSITIES=4 SEED_STUDENTS=500-1000 pnpm db:seed — плюс 4 вуза генератора.
+// Остальное выводится из числа студентов и ролей людей (lib/activity.mjs).
+// Вузы генератора на нелокальной БД заблокированы без SEED_ALLOW_REMOTE=1.
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
@@ -33,9 +34,9 @@ import { createStorage } from './seed/lib/storage.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
 // подхватывает только Prisma CLI через prisma.config.ts (те же строки есть в
-// prisma/seed-test.mjs и prisma/reset-to-admin.mjs). Без них `pnpm db:seed` на не-demo
-// масштабе падал на гарде «нелокальная БД» — пустой URL локальным не считается, — а на
-// demo доходил до первого запроса и падал уже в Prisma.
+// prisma/reset-to-admin.mjs). Без них `pnpm db:seed` с вузами генератора падал на гарде
+// «нелокальная БД» — пустой URL локальным не считается, — а с одним демо-вузом доходил
+// до первого запроса и падал уже в Prisma.
 // Уже заданное окружение приоритетнее: на CI переменные приходят снаружи.
 const env = loadEnv()
 if (!process.env.DATABASE_URL && env.DATABASE_URL) process.env.DATABASE_URL = env.DATABASE_URL
@@ -163,7 +164,12 @@ async function main() {
     return
   }
 
-  console.log(`Seed: профиль "${config.scale}" — ${config.scaleLabel}`)
+  console.log(
+    config.universities > 0
+      ? `Seed: демо-вуз + ${config.universities} вуз(ов) по ` +
+          `${config.studentsMin}–${config.studentsMax} студентов`
+      : 'Seed: только демо-вуз (вузы генератора — SEED_UNIVERSITIES=N)',
+  )
 
   // Потолок объёма — ДО первой записи. Сид наливает в ту же базу, где живут настоящие
   // пользователи: узнать «получился миллиард строк» надо сейчас, а не через пять часов
@@ -247,8 +253,8 @@ async function main() {
     console.log('  демо-вуз «Алатау» пропущен: SEED_DEMO_UNIVERSITY=0')
     console.log('  PLATFORM_ADMIN: admin@studenthub.app')
     // Модераторов платформы иначе заводит только демо-вуз (platform-moderator@): без него
-    // роль осталась бы без единого аккаунта, а её экраны — непроверяемыми. Адреса — как в
-    // seed-test.mjs. Существующий аккаунт не трогаем: на общей базе это живой модератор.
+    // роль осталась бы без единого аккаунта, а её экраны — непроверяемыми. Существующий
+    // аккаунт не трогаем: на общей базе это живой модератор.
     for (let i = 0; i < config.platformModerators; i += 1) {
       const email = `moderator${i + 1}@studenthub.app`
       const p = person(i + 1)
@@ -318,7 +324,7 @@ async function main() {
     })
   }
 
-  // ── Генератор вузов (SEED_SCALE=small|full) ─────────────────────────────────
+  // ── Генератор вузов (SEED_UNIVERSITIES=N) ───────────────────────────────────
   // Демо-вуз выше остаётся как есть; генератор создаёт свои вузы u001…uN рядом.
   if (config.universities > 0 && config.runs('universities')) {
     // Без этапа companies (SEED_ONLY=universities) карьерные компании берём из БД:
@@ -339,7 +345,8 @@ async function main() {
   // Шаг глобальный: обходит ВСЕХ пользователей, включая платформенных, которых
   // генератор вузов не видит. Строки File ссылаются на объекты общего пула, копий в
   // хранилище не делается — поэтому «сто фото каждому» больше не стоит сотен гигабайт.
-  if (config.photosPerUser[1] + config.videosPerUser[1] > 0) {
+  // Сколько фото и видео у человека — по роли и активности (lib/activity.mjs).
+  if (config.media) {
     const galleryPool = mediaPool ?? (await loadMediaPool(prisma))
     const galleryWriter = createWriter(prisma, { chunkSize: config.chunkSize })
     const counts = await seedUserMedia(prisma, galleryWriter, { config, pool: galleryPool })
@@ -378,16 +385,11 @@ async function main() {
   // потом не отличить от настоящих данных и прицельно не убрать.
   if (config.tag) {
     await recordRun(prisma, config.tag, {
-      scale: config.scale,
       universities: config.universities,
       from: config.from,
       to: config.to,
       students: [config.studentsMin, config.studentsMax],
-      posts: config.postsPerUser,
-      articles: config.articlesPerUser,
-      polls: config.pollsPerUser,
-      photosPerUser: config.photosPerUser,
-      videosPerUser: config.videosPerUser,
+      media: config.media,
       estimatedRows: budget,
       finishedAt: new Date().toISOString(),
     })
