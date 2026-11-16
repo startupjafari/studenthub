@@ -3,7 +3,7 @@
 # entrypoint.sh, чтобы разложить сертификат из переменных Railway.
 FROM bluenviron/mediamtx:1.21.3 AS mediamtx
 
-FROM alpine:3.22
+FROM alpine:3.24
 COPY --from=mediamtx /mediamtx /usr/local/bin/mediamtx
 COPY mediamtx.yml /etc/mediamtx.yml
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
