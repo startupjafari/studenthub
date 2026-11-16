@@ -33,11 +33,40 @@ struct ChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     /// Превью списка. Без внешнего ключа намеренно: превью приходит со списком чатов,
     /// а само сообщение попадает в базу только когда человек откроет чат.
     var lastMessageId: String?
-    /// Номер последнего известного сообщения. С него идёт догон после обрыва связи
-    /// (`GET /chats/:id/updates`, PROJECT.md §9.2c).
+    /// Номер последнего известного сообщения чата — для превью и границ окна ленты.
+    /// Догон идёт не с него, а с `syncSeq`: страница списка поднимает этот номер, не
+    /// скачав ничего между (IOS_RULES 9.3.4).
     var lastSeq: Int
     /// Порядок списка задаёт сервер — по нему же страницы и приходят.
     var updatedAt: Date
+    /// Собеседник в сети (личный чат). Живое значение — `RealtimeCoordinator.onlineUsers`.
+    var online: Bool = false
+    var isOwner: Bool = false
+    var isAdmin: Bool = false
+    var blocked: Bool = false
+    var blockedBy: Bool = false
+    /// «Пометить как новое»: чат считается непрочитанным без единого нового сообщения.
+    /// Снимается любым прочтением — здесь и на сервере.
+    var markedUnread: Bool = false
+    /// Место среди закреплённых, 0 — самый верх. `nil` у незакреплённых и у закреплённых
+    /// до первой ручной перестановки (старый сервер порядка не знает вовсе).
+    var pinnedOrder: Int? = nil
+    /// Собеседник личного чата в друзьях — «Контакты» в правилах папок.
+    var isFriend: Bool = false
+    /// Позиция догона: до какого номера переписка в базе непрерывна (`?since=` у
+    /// `GET /chats/:id/updates`, PROJECT.md §9.2c). Двигают её только догон, непрерывная
+    /// страница истории и сообщение строго по порядку (`SyncPosition`). 0 — чат ещё не
+    /// сверялся: открытие скачает последнюю страницу.
+    var syncSeq: Int = 0
+    /// Момент прошлой сверки по часам сервера (`syncedAt` ответа догона) — `sinceTs`
+    /// следующего: часы телефона расходятся с серверными, и правки за расхождение
+    /// пропадали бы (IOS_RULES 9.3.5).
+    var syncedAt: Date? = nil
+    /// Граница несверенного после `overflow` догона (IOS_RULES 9.3.13): подтверждённые
+    /// строки с `seq` ниже неё лежали в базе до разрыва, и сервер мог их удалить. Их не
+    /// стираем — сверяем страницами при прокрутке вверх (`MessageStore.revalidate`), и
+    /// граница опускается вслед. `nil` — несверенного нет.
+    var unsyncedBelow: Int? = nil
 
     var kind: ChatKind { ChatKind.from(type) }
 
@@ -86,6 +115,16 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var pinnedAt: Date?
     var createdAt: Date
     var sendState: MessageSendState
+    /// Автор — для подписи и аватара в групповых чатах.
+    var senderName: String? = nil
+    var senderAvatar: String? = nil
+    /// Реакции, пересылка, превью ссылки, карточки, опрос. `nil` у своего
+    /// неотправленного: подробностей у него ещё нет.
+    var extras: MessageExtras? = nil
+    /// Сервер отказал по существу (403, 422): строка остаётся «не отправлено», но сама
+    /// больше не повторяется и не держит очередь чата — только по кнопке человека
+    /// (IOS_RULES 9.3.1).
+    var sendRejected: Bool = false
 
     enum Columns {
         static let id = Column(CodingKeys.id)
@@ -96,6 +135,7 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let content = Column(CodingKeys.content)
         static let createdAt = Column(CodingKeys.createdAt)
         static let sendState = Column(CodingKeys.sendState)
+        static let sendRejected = Column(CodingKeys.sendRejected)
     }
 }
 
@@ -124,10 +164,28 @@ struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
     var id: String
     var name: String
     var position: Int
+    /// Значок папки — один emoji.
+    var emoji: String? = nil
+    /// Индекс цвета тега (`ChatFolderPalette`), `nil` — без цвета и без тегов в списке.
+    var color: Int? = nil
+    /// Типы чатов, которые входят в папку без явного выбора (правило §C контракта).
+    var includeContacts: Bool = false
+    var includeNonContacts: Bool = false
+    var includeGroups: Bool = false
 
     enum Columns {
+        static let name = Column(CodingKeys.name)
         static let position = Column(CodingKeys.position)
     }
+}
+
+/// Исключённые из папки чаты: перекрывают и явный выбор, и типы. Отдельная таблица по
+/// той же причине, что и состав, — по ней идёт фильтр списка.
+struct FolderExcludedChatRecord: Codable, FetchableRecord, PersistableRecord, Equatable {
+    static let databaseTableName = "folderExcludedChat"
+
+    var folderId: String
+    var chatId: String
 }
 
 /// Состав папки. Хранится отдельной таблицей, а не массивом в папке: по нему идёт
@@ -159,12 +217,20 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Путь к файлу на устройстве: он есть у своих вложений до отправки и у
     /// скачанных. Ключ кэша — id файла, а не ссылка: presigned-ссылка протухает.
     var localPath: String?
+    var placeholder: String? = nil
+    var durationMs: Int? = nil
+    /// Снимок отправлен «под спойлером»: в пузыре размыт, пока его не коснутся.
+    var spoiler: Bool = false
+    /// Отправлено «как файл»: картинка в пузыре — строкой файла, а не превью (§9).
+    var asDocument: Bool = false
 
     enum Columns {
         static let messageId = Column(CodingKeys.messageId)
     }
 
     var isImage: Bool { mime.hasPrefix("image/") }
+    /// Показывается снимком: картинка, отправленная не «как файл».
+    var showsAsPhoto: Bool { isImage && !asDocument }
     /// Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет.
     var isVoice: Bool { mime.hasPrefix("audio/") && (name?.hasPrefix("voice-") ?? false) }
 }
@@ -189,6 +255,9 @@ struct PairRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var teacherName: String?
     var roomName: String?
     var groupId: String?
+    /// Аудитория и преподаватель по id — для перехода на карту и в профиль.
+    var roomId: String? = nil
+    var teacherId: String? = nil
 
     enum Columns {
         static let dayOfWeek = Column(CodingKeys.dayOfWeek)
@@ -214,3 +283,6 @@ struct PairChangeRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let pairId = Column(CodingKeys.pairId)
     }
 }
+
+// Сообщение открывается листом (пересылка) — листу нужен идентификатор строки.
+extension MessageRecord: Identifiable {}

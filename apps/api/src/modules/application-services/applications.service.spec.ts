@@ -10,6 +10,7 @@ import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { ApplicationNotifier } from './application-notifier'
+import type { ApplicationQueueEvents } from './application-queue-events'
 
 const student: JwtPayload = {
   sub: 'stud',
@@ -68,10 +69,13 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
   }
   // Сигналы обработчикам — отдельный сервис (application-notifier.spec.ts); здесь — что их зовут.
   const notifier = { notifyHandlers: jest.fn().mockResolvedValue(undefined) }
+  // Живые очереди — тоже отдельно (application-queue-events.spec.ts); здесь — когда их зовут.
+  const queueEvents = { changed: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationsService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     notifier as unknown as ApplicationNotifier,
+    queueEvents as unknown as ApplicationQueueEvents,
   )
   return {
     service,
@@ -82,6 +86,7 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     serviceRequirement,
     applicationDocument,
     notifier,
+    queueEvents,
   }
 }
 
@@ -250,6 +255,25 @@ describe('ApplicationsService.submit — услуга, анкета, номер,
     )
   })
 
+  it('поданная заявка появляется в очередях обработчиков вживую (21.B3)', async () => {
+    const { service, application, applicationService, queueEvents } = setup()
+    application.findFirst.mockResolvedValue(ready)
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    const submitted = { id: 'a1', status: 'SUBMITTED', universityId: 'uni', facultyId: 'fac' }
+    application.update.mockResolvedValue(submitted)
+    await service.submit(student, 'a1')
+    expect(queueEvents.changed).toHaveBeenCalledWith(submitted)
+  })
+
+  it('отправка, проигравшая гонку, очереди не трогает', async () => {
+    const { service, application, applicationService, queueEvents } = setup()
+    application.findFirst.mockResolvedValue(ready)
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    application.update.mockRejectedValue(staleStatus())
+    await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(queueEvents.changed).not.toHaveBeenCalled()
+  })
+
   it('исправленная заявка — сигнал «отправлена повторно»', async () => {
     const { service, application, notifier } = setup()
     application.findFirst.mockResolvedValue({
@@ -265,6 +289,19 @@ describe('ApplicationsService.submit — услуга, анкета, номер,
       'resubmitted',
       'ev-1',
     )
+  })
+
+  it('исправленная заявка обновляет очереди обработчиков', async () => {
+    const { service, application, queueEvents } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    application.update.mockResolvedValue({ id: 'a1', status: 'RESUBMITTED' })
+    await service.resubmit(student, 'a1')
+    expect(queueEvents.changed).toHaveBeenCalledWith({ id: 'a1', status: 'RESUBMITTED' })
   })
 })
 
@@ -365,12 +402,22 @@ describe('ApplicationsService.cancel / resubmit', () => {
   })
 
   it('cancel из DRAFT → CANCELLED', async () => {
-    const { service, application } = setup()
+    const { service, application, queueEvents } = setup()
     application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status: 'DRAFT' })
     await service.cancel(student, 'a1')
     expect(application.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
     )
+    // Черновик очередь не показывала — сообщать обработчикам нечего.
+    expect(queueEvents.changed).not.toHaveBeenCalled()
+  })
+
+  it('отзыв поданной заявки убирает её из очередей вживую', async () => {
+    const { service, application, queueEvents } = setup()
+    application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status: 'SUBMITTED' })
+    application.update.mockResolvedValue({ id: 'a1', status: 'CANCELLED' })
+    await service.cancel(student, 'a1')
+    expect(queueEvents.changed).toHaveBeenCalledWith({ id: 'a1', status: 'CANCELLED' })
   })
 
   // «До начала подготовки» (§9): декан уже взял заявку или студент только что отправил

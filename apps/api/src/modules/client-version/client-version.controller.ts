@@ -10,7 +10,7 @@ import { ClientVersionQueryDto } from './dto/client-version-query.dto'
 // Публичный маршрут намеренно (BACKEND_RULES §6.1): приложение спрашивает это до
 // входа — иначе человек со старой сборкой упирался бы в форму входа, которая у него
 // не работает, и не узнал бы, что дело в версии. Данных в ответе нет никаких, кроме
-// номера версии и ссылки на магазин.
+// номера версии, ссылки на магазин и списка выключенных функций клиента.
 //
 // Режим техработ ответ не закрывает: во время остановки платформы узнать про
 // обновление нужно тем более.
@@ -22,8 +22,12 @@ export class ClientVersionController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Минимальная поддерживаемая версия мобильного клиента' })
-  @ApiResponse({ status: 200, description: 'Версия и ссылка на магазин' })
+  @ApiOperation({
+    summary: 'Минимальная поддерживаемая версия мобильного клиента',
+    description:
+      'Плюс `disabledFeatures` — удалённо выключенные функции клиента (имена — docs/PROJECT.md). Пустой список — всё включено.',
+  })
+  @ApiResponse({ status: 200, description: 'Версия, ссылка на магазин и выключенные функции' })
   info(@Query() query: ClientVersionQueryDto) {
     return this.clientVersion.info(query.platform)
   }

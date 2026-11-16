@@ -33,6 +33,7 @@ import type { ExportContext, ExportLocale } from '../../common/export/export-bra
 import { ChatsService } from './chats.service'
 import { CreateChatDto } from './dto/create-chat.dto'
 import {
+  ChatAttachmentMultipartAbortDto,
   ChatAttachmentMultipartStartDto,
   ChatAttachmentMultipartUrlsDto,
   ChatAttachmentPresignDto,
@@ -45,6 +46,11 @@ import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
 import { ChatMediaCalendarQueryDto } from './dto/chat-media-calendar-query.dto'
+import { ChatMediaPositionQueryDto } from './dto/chat-media-position-query.dto'
+import { MarkChatsReadDto } from './dto/mark-chats-read.dto'
+import { PinnedChatsOrderDto } from './dto/pinned-chats-order.dto'
+import { ScheduleMessageDto } from './dto/schedule-message.dto'
+import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
 import { ChatExportFileQueryDto } from './dto/chat-export-file-query.dto'
 import { ClearChatDto } from './dto/clear-chat.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
@@ -52,6 +58,7 @@ import { CreateChatPollDto } from './dto/create-chat-poll.dto'
 import { PollVoteDto } from './dto/poll-vote.dto'
 import { MuteDto } from './dto/mute.dto'
 import { MessageSearchQueryDto } from './dto/message-search-query.dto'
+import { RecentChatFilesQueryDto } from './dto/recent-chat-files-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
@@ -59,6 +66,21 @@ import { ShareStoryDto } from './dto/share-story.dto'
 import { StoryReplyDto } from './dto/story-reply.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
 import { JoinChatByInviteDto } from './dto/join-chat-by-invite.dto'
+import { MessageForwardBatchDto } from './dto/message-forward-batch.dto'
+import { MessageIdsDto } from './dto/message-ids.dto'
+import {
+  ChatChecklistCreateDto,
+  ChatContactDto,
+  ChatGifExternalSendDto,
+  ChatGifRecentQueryDto,
+  ChatGifSendDto,
+  ChatLocationDto,
+  ChatPollsQueryDto,
+  ChatStickerSendDto,
+  LiveLocationUpdateDto,
+} from './dto/chat-rich-message.dto'
+import { ChatStickersService } from './chat-stickers.service'
+import { ChatGifsService } from './chat-gifs.service'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -69,6 +91,8 @@ export class ChatsController {
   constructor(
     private readonly chats: ChatsService,
     private readonly branding: ExportBrandingService,
+    private readonly stickers: ChatStickersService,
+    private readonly gifs: ChatGifsService,
   ) {}
 
   @Get()
@@ -94,11 +118,82 @@ export class ChatsController {
     return this.chats.searchMessages(user, query)
   }
 
+  @Get('files/recent')
+  @ApiOperation({
+    summary:
+      'Недавние файлы для листа вложений: document — свои отправленные документы, ' +
+      'audio — музыка из всех моих чатов (без голосовых); q — подстрока имени, cursor',
+  })
+  @ApiResponse({ status: 200, description: 'Страница файлов (свежие первыми), у каждого chatId' })
+  recentFiles(@CurrentUser() user: CurrentUserData, @Query() query: RecentChatFilesQueryDto) {
+    return this.chats.listRecentFiles(user, query)
+  }
+
   @Get('unread')
   @ApiOperation({ summary: 'Сводка непрочитанного для бейджа навигации: { chats, messages }' })
   @ApiResponse({ status: 200, description: 'Число чатов с непрочитанным и всего сообщений' })
   unread(@CurrentUser() user: CurrentUserData) {
     return this.chats.getUnreadSummary(user)
+  }
+
+  @Post('read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Прочитать чаты целиком (≤ 200): снять «как новое», message:read участникам, chat:read себе',
+  })
+  @ApiResponse({ status: 200, description: '{ updated } — чаты, где я участник; чужие пропущены' })
+  markChatsRead(@CurrentUser() user: CurrentUserData, @Body() dto: MarkChatsReadDto) {
+    return this.chats.markChatsRead(user.sub, dto.chatIds)
+  }
+
+  @Put('pinned/order')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Порядок закреплённых чатов сверху вниз (остальные закреплённые — ниже, как были)',
+  })
+  @ApiResponse({ status: 204, description: 'Порядок сохранён' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — чат не закреплён или дубли' })
+  async setPinnedOrder(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: PinnedChatsOrderDto,
+  ): Promise<void> {
+    await this.chats.setPinnedOrder(user.sub, dto.chatIds)
+  }
+
+  @Patch('scheduled/:scheduledId')
+  @ApiOperation({ summary: 'Изменить текст или время своего отложенного сообщения' })
+  @ApiResponse({ status: 200, description: 'Отложенное обновлено' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого или чужое' })
+  updateScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+    @Body() dto: UpdateScheduledMessageDto,
+  ) {
+    return this.chats.updateScheduled(user.sub, scheduledId, dto)
+  }
+
+  @Delete('scheduled/:scheduledId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить своё отложенное сообщение' })
+  @ApiResponse({ status: 204, description: 'Отложенное отменено' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого или чужое' })
+  async cancelScheduled(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+  ): Promise<void> {
+    await this.chats.cancelScheduled(user.sub, scheduledId)
+  }
+
+  @Post('scheduled/:scheduledId/send-now')
+  @ApiOperation({ summary: 'Отправить отложенное сейчас (тот же путь, что у доставки по времени)' })
+  @ApiResponse({ status: 201, description: 'Сообщение отправлено (message:new в чат)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет такого, чужое или уже отправлено' })
+  sendScheduledNow(
+    @CurrentUser() user: CurrentUserData,
+    @Param('scheduledId') scheduledId: string,
+  ) {
+    return this.chats.sendScheduledNow(user.sub, scheduledId)
   }
 
   @Get('saved')
@@ -136,7 +231,7 @@ export class ChatsController {
     status: 200,
     description:
       'Новые сообщения (created), изменённые (mutated), удалённые (deletedIds), актуальный latestSeq. ' +
-      'overflow=true — разрыв больше лимита, историю нужно перезапросить целиком',
+      'overflow=true — новых, правок или удалений больше лимита, историю нужно перезапросить целиком',
   })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
   updates(
@@ -148,7 +243,11 @@ export class ChatsController {
   }
 
   @Get(':id/media')
-  @ApiOperation({ summary: 'Общие материалы: media|file|voice (cursor, только участник)' })
+  @ApiOperation({
+    summary:
+      'Общие материалы: media|file|voice|voice_note|music|gif (cursor, только участник). ' +
+      'voice — всё аудио, voice_note — голосовые, music — аудио кроме голосовых',
+  })
   @ApiResponse({ status: 200, description: 'Страница вложений по типу' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
   media(
@@ -157,6 +256,21 @@ export class ChatsController {
     @Query() query: ChatMediaQueryDto,
   ) {
     return this.chats.listChatMedia(user, id, query)
+  }
+
+  @Get(':id/media/:fileId/position')
+  @ApiOperation({
+    summary: 'Место файла среди материалов вкладки: index (1 — самый старый) и total',
+  })
+  @ApiResponse({ status: 200, description: '{ index, total }' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — файла нет в этой вкладке чата' })
+  mediaPosition(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Query() query: ChatMediaPositionQueryDto,
+  ) {
+    return this.chats.getChatMediaPosition(user, id, fileId, query.type)
   }
 
   @Get(':id/media/calendar')
@@ -194,6 +308,27 @@ export class ChatsController {
     return this.chats.createPoll(user.sub, id, dto)
   }
 
+  @Get(':id/polls')
+  @ApiOperation({ summary: 'Опросы чата — сообщения с опросом, свежие первыми (cursor)' })
+  @ApiResponse({ status: 200, description: 'Страница сообщений (полный DTO сообщения)' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  polls(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ChatPollsQueryDto,
+  ) {
+    return this.chats.listPolls(user, id, query)
+  }
+
+  @Post('polls/:pollId/close')
+  @ApiOperation({ summary: 'Завершить опрос (автор опроса или админ/владелец группы)' })
+  @ApiResponse({ status: 201, description: 'Результаты завершённого опроса' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — не автор и не админ группы' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — опроса нет или сообщение удалено' })
+  closePoll(@CurrentUser() user: CurrentUserData, @Param('pollId') pollId: string) {
+    return this.chats.closePoll(user, pollId)
+  }
+
   @Get('polls/:pollId')
   @ApiOperation({ summary: 'Результаты опроса (счётчики + свой голос, только участник)' })
   @ApiResponse({ status: 200, description: 'Результаты опроса' })
@@ -204,6 +339,7 @@ export class ChatsController {
   @Post('polls/:pollId/vote')
   @ApiOperation({ summary: 'Проголосовать/переголосовать/снять голос (§39, только участник)' })
   @ApiResponse({ status: 201, description: 'Обновлённые результаты опроса' })
+  @ApiResponse({ status: 409, description: 'POLL_CLOSED — опрос завершён' })
   votePoll(
     @CurrentUser() user: CurrentUserData,
     @Param('pollId') pollId: string,
@@ -220,6 +356,7 @@ export class ChatsController {
       properties: {
         content: { type: 'string' },
         replyToId: { type: 'string' },
+        nonce: { type: 'string', description: 'Ключ повтора отправки (≤ 64), 10 минут' },
         file: { type: 'string', format: 'binary' },
       },
     },
@@ -241,6 +378,7 @@ export class ChatsController {
       spoilerIndexes: fields.spoilerIndexes,
       asFiles: fields.asFiles,
       silent: fields.silent,
+      nonce: fields.nonce,
     })
     if (!parsed.success) {
       throw new AppException('BAD_REQUEST', 'Некорректные поля сообщения')
@@ -296,6 +434,19 @@ export class ChatsController {
     })
   }
 
+  @Post(':id/attachments/multipart/abort')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Отменить многочастную загрузку вложения — части удаляются' })
+  @ApiResponse({ status: 204, description: 'Залитые части удалены (или отменять уже нечего)' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
+  async abortAttachmentMultipart(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ChatAttachmentMultipartAbortDto,
+  ): Promise<void> {
+    await this.chats.abortAttachmentMultipart(user.sub, { key: dto.key, uploadId: dto.uploadId })
+  }
+
   @Post(':id/messages/uploaded')
   @ApiOperation({ summary: 'Сообщение по уже загруженным вложениям (только участник)' })
   @ApiResponse({ status: 201, description: 'Сообщение создано и разослано' })
@@ -309,11 +460,202 @@ export class ChatsController {
     return this.chats.sendMessageFromUploads(user.sub, id, dto)
   }
 
+  @Post(':id/messages/hide')
+  @ApiOperation({ summary: '«Удалить у себя»: скрыть сообщения только для себя (≤ 100)' })
+  @ApiResponse({ status: 201, description: '{ hiddenIds } — скрытые; чужие чату id пропущены' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  hideMessages(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MessageIdsDto,
+  ) {
+    return this.chats.hideMessages(user.sub, id, dto.messageIds)
+  }
+
+  @Post(':id/messages/delete')
+  @ApiOperation({ summary: '«Удалить у всех» пачкой — только свои сообщения (≤ 100)' })
+  @ApiResponse({ status: 201, description: '{ deletedIds, skippedIds }' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  deleteMessages(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MessageIdsDto,
+  ) {
+    return this.chats.deleteMessages(user.sub, id, dto.messageIds)
+  }
+
+  @Delete('messages/:messageId')
+  @ApiOperation({ summary: 'Удалить своё сообщение у всех (как WS message:delete)' })
+  @ApiResponse({ status: 200, description: '{ chatId, messageId }' })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — чужое сообщение или не участник' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — сообщения нет или уже удалено' })
+  deleteMessage(@CurrentUser() user: CurrentUserData, @Param('messageId') messageId: string) {
+    return this.chats.deleteMessageRest(user.sub, messageId)
+  }
+
+  // ── Особые сообщения: геопозиция, контакт, чек-лист, стикер, GIF ───────────
+
+  @Post(':id/location')
+  @ApiOperation({
+    summary: 'Отправить геопозицию (только участник); с livePeriod — трансляцию на 15 мин/1 ч/8 ч',
+  })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  sendLocation(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatLocationDto,
+  ) {
+    return this.chats.sendLocation(user.sub, id, dto)
+  }
+
+  @Post('messages/:messageId/live-location')
+  @HttpCode(HttpStatus.OK)
+  // Клиент шлёт точку не чаще раза в 3 с; 40/мин — запас на несколько трансляций сразу.
+  @Throttle({ default: { limit: 40, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Новая точка трансляции геопозиции (только отправитель, пока трансляция идёт; чаще раза в 3 с — без изменений)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ lat, lng, title, address, liveUntil, liveUpdatedAt, heading, accuracy } — location:updated в чат',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN — трансляция не моя; WRONG_SCOPE — не участник',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — нет сообщения-трансляции или я не участник',
+  })
+  @ApiResponse({ status: 409, description: 'LIVE_LOCATION_ENDED — трансляция закончилась' })
+  updateLiveLocation(
+    @CurrentUser() user: CurrentUserData,
+    @Param('messageId') messageId: string,
+    @Body() dto: LiveLocationUpdateDto,
+  ) {
+    return this.chats.updateLiveLocation(user.sub, messageId, dto)
+  }
+
+  @Post('messages/:messageId/live-location/stop')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Остановить трансляцию геопозиции (только отправитель)' })
+  @ApiResponse({ status: 200, description: 'Геопозиция с liveUntil = сейчас — location:updated' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — трансляция не моя' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — нет сообщения-трансляции или я не участник',
+  })
+  stopLiveLocation(@CurrentUser() user: CurrentUserData, @Param('messageId') messageId: string) {
+    return this.chats.stopLiveLocation(user.sub, messageId)
+  }
+
+  @Post(':id/contact')
+  @ApiOperation({ summary: 'Отправить карточку контакта (хотя бы телефон или почта)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  sendContact(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatContactDto,
+  ) {
+    return this.chats.sendContact(user.sub, id, dto)
+  }
+
+  @Post(':id/checklist')
+  @ApiOperation({ summary: 'Отправить чек-лист (до 50 пунктов)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  sendChecklist(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatChecklistCreateDto,
+  ) {
+    return this.chats.sendChecklist(user.sub, id, dto)
+  }
+
+  @Post(':id/sticker')
+  @ApiOperation({ summary: 'Отправить стикер из опубликованного набора' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — стикера нет или набор не опубликован' })
+  sendSticker(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatStickerSendDto,
+  ) {
+    return this.stickers.send(user.sub, id, dto)
+  }
+
+  @Get('gifs/recent')
+  @ApiOperation({ summary: 'Недавние GIF, которые я отправлял (свежие первыми, ≤ 50)' })
+  @ApiResponse({ status: 200, description: '[{ fileId, width, height, url, expiresAt }]' })
+  recentGifs(@CurrentUser() user: CurrentUserData, @Query() query: ChatGifRecentQueryDto) {
+    return this.chats.recentGifs(user.sub, query)
+  }
+
+  @Post(':id/gif')
+  @ApiOperation({ summary: 'Отправить GIF повторно (файл из чата, где я участник)' })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — файла нет, это не GIF или нет доступа' })
+  sendGif(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatGifSendDto,
+  ) {
+    return this.chats.sendGif(user.sub, id, dto)
+  }
+
+  @Post(':id/gif/external')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Отправить GIF из каталога (GIPHY) по id — сервер сам скачивает и хранит копию',
+  })
+  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — GIF нет в каталоге или нет доступа к чату',
+  })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — GIF больше 10 МБ' })
+  @ApiResponse({ status: 503, description: 'FEATURE_DISABLED — GIPHY_API_KEY не задан' })
+  sendExternalGif(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ChatGifExternalSendDto,
+  ) {
+    return this.gifs.sendExternal(user.sub, id, dto)
+  }
+
   @Get(':id/pinned')
   @ApiOperation({ summary: 'Закреплённые сообщения чата (только участник)' })
   @ApiResponse({ status: 200, description: 'Список закреплённых сообщений' })
   pinned(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.listPinned(user.sub, id)
+  }
+
+  @Delete(':id/pinned')
+  @ApiOperation({ summary: 'Открепить все сообщения чата (права — как у открепления одного)' })
+  @ApiResponse({ status: 200, description: '{ count } — message:unpinned по каждому' })
+  unpinAll(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.unpinAllMessages(user.sub, id)
+  }
+
+  @Get(':id/scheduled')
+  @ApiOperation({ summary: 'Мои отложенные сообщения в чате (чужие не видны), ближайшие первыми' })
+  @ApiResponse({ status: 200, description: 'Отложенные (≤ 100)' })
+  scheduled(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.listScheduled(user.sub, id)
+  }
+
+  @Post(':id/scheduled')
+  @ApiOperation({ summary: 'Отложить сообщение на будущее (только текст, без вложений)' })
+  @ApiResponse({ status: 201, description: 'Сообщение поставлено в очередь' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — превышен лимит отложенных в чате' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — время в прошлом или дальше года' })
+  schedule(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ScheduleMessageDto,
+  ) {
+    return this.chats.scheduleMessage(user.sub, id, dto)
   }
 
   @Post('messages/:messageId/pin')
@@ -339,6 +681,25 @@ export class ChatsController {
     @Body() dto: MessageReactionDto,
   ) {
     return this.chats.toggleReaction(user.sub, messageId, dto.emoji)
+  }
+
+  @Post('forward')
+  // Пачка — до 100 сообщений в 20 чатов за запрос: частоту самих пачек держим отдельно.
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Переслать пачку сообщений в несколько чатов (комментарий — перед ними; ' +
+      'requestId — ключ идемпотентности на сутки)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '{ results: [{ chatId, ok, messageIds, code? }] } — отказ чата не роняет другие',
+  })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — исходное сообщение не найдено' })
+  @ApiResponse({ status: 409, description: 'REQUEST_IN_PROGRESS — тот же requestId ещё идёт' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — антифлуд' })
+  forwardBatch(@CurrentUser() user: CurrentUserData, @Body() dto: MessageForwardBatchDto) {
+    return this.chats.forwardBatch(user, dto)
   }
 
   @Post(':id/forward')
@@ -509,6 +870,22 @@ export class ChatsController {
     return this.chats.setChatPinned(user.sub, id, false)
   }
 
+  @Post(':id/unread')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '«Пометить как новое» (у себя; снимается любым прочтением)' })
+  @ApiResponse({ status: 204, description: 'Чат помечен' })
+  async markUnread(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    await this.chats.setChatMarkedUnread(user.sub, id, true)
+  }
+
+  @Delete(':id/unread')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Снять пометку «как новое»' })
+  @ApiResponse({ status: 204, description: 'Пометка снята' })
+  async unmarkUnread(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    await this.chats.setChatMarkedUnread(user.sub, id, false)
+  }
+
   @Get(':id/presence')
   @ApiOperation({ summary: 'Онлайн-статусы участников чата' })
   @ApiResponse({ status: 200, description: 'Список { userId, online }' })
@@ -660,6 +1037,19 @@ export class ChatsController {
   @ApiOperation({ summary: 'Список заблокированных мной пользователей' })
   listBlocked(@CurrentUser() user: CurrentUserData) {
     return this.chats.listBlocked(user.sub)
+  }
+
+  // Голый `:id` — после всех статических GET (`search`, `unread`, `saved`, `blocks`…): Fastify
+  // и так ставит статический сегмент выше параметра, но порядок в файле не даёт в этом усомниться.
+  @Get(':id')
+  @ApiOperation({ summary: 'Один чат — тот же элемент, что в GET /chats (только участник)' })
+  @ApiResponse({ status: 200, description: '{ data: элемент списка чатов }' })
+  @ApiResponse({
+    status: 404,
+    description: 'NOT_FOUND — не участник, забанен, скрыл чат или пустой чужой запрос',
+  })
+  getChat(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getChat(user, id)
   }
 
   @Patch(':id')

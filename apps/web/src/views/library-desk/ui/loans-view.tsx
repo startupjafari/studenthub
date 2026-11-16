@@ -5,8 +5,10 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { BookOpen, Search } from 'lucide-react'
 import type { LoanItem } from '@studenthub/shared-schemas'
+import type { LeftAcademicStatusCode } from '@studenthub/shared-types'
 import {
   Badge,
+  Checkbox,
   Button,
   Card,
   EmptyState,
@@ -41,6 +43,14 @@ const COLS_NARROW = ['55%', '0', '0', 'calc(45% - 3.5rem)', '3.5rem'] as const
 const HIDE = { reader: 'hidden md:table-cell', issued: 'hidden md:table-cell' } as const
 const SKELETON_COLS = [undefined, HIDE.reader, HIDE.issued, undefined, undefined]
 
+// Читатель ушёл из вуза (Фаза 21.C3): в отчёте о просрочках библиотекарь сразу видит, что
+// книгу забирать уже через деканат. Ключ из значения не собираем (FRONTEND_RULES §10).
+const LEFT_KEYS = {
+  EXPELLED: 'readerExpelled',
+  GRADUATED: 'readerGraduated',
+  TRANSFERRED: 'readerTransferred',
+} as const satisfies Record<LeftAcademicStatusCode, string>
+
 export interface LoansViewProps {
   title: string
   subtitle?: string
@@ -62,6 +72,8 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
   const [debounced, setDebounced] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Выдачи без скана QR (по номеру билета, Фаза 21.C5) — отдельно.
+  const [noPhoneOnly, setNoPhoneOnly] = useState(false)
 
   useEffect(() => {
     const next = search.trim().slice(0, 100)
@@ -73,7 +85,13 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
     return () => clearTimeout(timer)
   }, [search, debounced])
 
-  const params = { filter, page, limit, ...(debounced ? { q: debounced } : {}) }
+  const params = {
+    filter,
+    page,
+    limit,
+    ...(debounced ? { q: debounced } : {}),
+    ...(noPhoneOnly ? { withoutPhone: true } : {}),
+  }
   const loans = useQuery({
     queryKey: libraryKeys.loans(params),
     queryFn: () => fetchLoans(params),
@@ -124,6 +142,17 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                 className="pl-9"
               />
             </div>
+            <label className="flex shrink-0 items-center gap-2 text-sm">
+              <Checkbox
+                checked={noPhoneOnly}
+                onCheckedChange={(v) => {
+                  setNoPhoneOnly(v === true)
+                  setPage(1)
+                }}
+                aria-label={t('filterNoPhone')}
+              />
+              {t('filterNoPhone')}
+            </label>
             {headerActions}
           </>
         }
@@ -197,6 +226,10 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                       <LoanDueBadge loan={loan} />
                       {loan.disputedAt && loan.status === 'OPEN' && (
                         <Badge variant="warning">{t('disputed')}</Badge>
+                      )}
+                      {loan.withoutPhone && <Badge variant="outline">{t('noPhoneBadge')}</Badge>}
+                      {loan.reader.leftStatus && (
+                        <Badge variant="destructive">{t(LEFT_KEYS[loan.reader.leftStatus])}</Badge>
                       )}
                     </div>
                   </TableCell>

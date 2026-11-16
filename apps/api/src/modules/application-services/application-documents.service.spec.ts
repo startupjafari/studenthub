@@ -55,12 +55,14 @@ function setup() {
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://url') }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const realtime = { emitEventToUser: jest.fn() }
+  const queueEvents = { changed: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationDocumentsService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
     files as unknown as FileService,
     queue as unknown as QueueService,
     realtime as never,
+    queueEvents as never,
   )
   return {
     service,
@@ -71,6 +73,7 @@ function setup() {
     applicationEvent,
     queue,
     realtime,
+    queueEvents,
     file,
     files,
     documentEvent,
@@ -229,6 +232,19 @@ describe('ApplicationDocumentsService.review', () => {
       'a1',
       { status: 'NEEDS_CORRECTION' },
     )
+  })
+
+  it('request-replacement обновляет очереди обработчиков вуза и факультета заявки', async () => {
+    const { service, application, applicationDocument, queueEvents } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    await service.review(dean, 'a1', 'ad1', 'request-replacement', 'нужен новый скан')
+    expect(queueEvents.changed).toHaveBeenCalledWith({
+      id: 'a1',
+      status: 'NEEDS_CORRECTION',
+      universityId: 'uni',
+      facultyId: 'fac',
+    })
   })
 
   // Регрессия: замену документа нельзя запрашивать из статуса, из которого NEEDS_CORRECTION

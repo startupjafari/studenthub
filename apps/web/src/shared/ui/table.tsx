@@ -124,12 +124,26 @@ export function Table({
     if (!scrollBody) return
     const body = ref.current?.querySelector('tbody')
     if (!body) return
-    const measure = (): void => setGutter(body.offsetWidth - body.clientWidth)
+    const measure = (): void => {
+      setGutter(body.offsetWidth - body.clientWidth)
+      // Прокручиваемое тело без ссылок и кнопок в строках (журнал аудита) иначе не
+      // прокрутить с клавиатуры (WCAG 2.1.1, axe scrollable-region-focusable): даём ему фокус,
+      // но только пока ему есть что прокручивать — лишняя остановка Tab ни к чему.
+      if (body.scrollHeight > body.clientHeight) body.tabIndex = 0
+      else body.removeAttribute('tabindex')
+    }
     measure()
     // Строк стало больше/меньше — полоса появляется и исчезает, ширину надо пересчитать.
     const observer = new ResizeObserver(measure)
     observer.observe(body)
-    return () => observer.disconnect()
+    // Тело растянуто на свободную высоту (`fill`): пришедшие строки меняют только
+    // scrollHeight, размер самого tbody прежний — ResizeObserver этого не видит.
+    const rows = new MutationObserver(measure)
+    rows.observe(body, { childList: true })
+    return () => {
+      observer.disconnect()
+      rows.disconnect()
+    }
   }, [scrollBody])
 
   return (
@@ -198,7 +212,7 @@ export function TableBody({ className, ...props }: ComponentProps<'tbody'>) {
       // max-h/overflow работают только когда родительская `Table` в режиме scrollBody;
       // у обычной группы строк браузер их игнорирует.
       className={cn(
-        'max-h-[60vh] divide-y divide-border overflow-y-auto overscroll-contain',
+        'max-h-[60vh] divide-y divide-border overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset',
         className,
       )}
       {...props}

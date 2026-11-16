@@ -1,4 +1,5 @@
 export * from './api/application-service-api'
 export { pickLocale } from './lib/localize'
+export { useApplicationQueueRealtime } from './lib/use-queue-realtime'
 export { ApplicationStatusBadge } from './ui/application-status-badge'
 export * from './api/catalog-admin-api'

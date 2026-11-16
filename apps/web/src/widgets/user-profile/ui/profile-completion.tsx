@@ -27,7 +27,6 @@ export function ProfileCompletion({
     <button
       type="button"
       onClick={onEdit}
-      aria-label={`${t('completionTitle')} — ${percent}%`}
       className={cn(
         'group w-full rounded-xl border border-border bg-card px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/30',
         ENTER,

@@ -6,6 +6,7 @@ export { requestFile, saveFile, type DownloadedFile } from './download-file'
 export { useEscapeBack } from './use-escape-back'
 export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { useErrorToast } from './use-error-toast'
+export { translateValidationMessage, useValidationMessage } from './validation-message'
 export { useInfiniteScroll } from './use-infinite-scroll'
 export { OPTIONAL_TEXT, OPTIONAL_NUMBER } from './optional-field'
 export { localId } from './local-id'
@@ -73,7 +74,7 @@ export {
   BUILD_ID,
   type AppUpdate,
 } from './use-sw-update'
-export { useBackClose } from './use-back-close'
+export { afterOverlayClose, useBackClose } from './use-back-close'
 export { useDismissAnimation } from './use-dismiss-animation'
 export { useKeyboardInset } from './use-keyboard-inset'
 export { isIosDevice, isStandalonePwa } from './platform'

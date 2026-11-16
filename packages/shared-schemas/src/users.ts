@@ -9,6 +9,8 @@ import {
   queryBoolean,
 } from './pagination.js'
 import { RoleSchema } from './invites.js'
+import { vm } from './validation-messages.js'
+import type { AccountLibraryDebt } from './library.js'
 
 // Колонки таблицы пользователей, по которым разрешена сортировка (docs/PROJECT.md §12.2).
 export const USER_SORT_FIELDS = ['name', 'email', 'role', 'blocked', 'createdAt'] as const
@@ -162,6 +164,21 @@ export const DeleteAccountSchema = z
 
 export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>
 
+/** Что мешает удалить аккаунт прямо сейчас (`GET /users/me/deletion-check`). */
+export const ACCOUNT_DELETION_BLOCKERS = ['libraryDebts', 'lastPlatformAdmin'] as const
+export type AccountDeletionBlocker = (typeof ACCOUNT_DELETION_BLOCKERS)[number]
+
+/**
+ * Предпроверка удаления аккаунта: клиент показывает причины ДО того, как человек введёт
+ * пароль. `DELETE /users/me` проверяет то же самое сам — ответ здесь подсказка, а не допуск.
+ */
+export interface AccountDeletionCheck {
+  canDelete: boolean
+  blockers: AccountDeletionBlocker[]
+  /** Книги на руках и утерянные с непогашенным долгом — вернуть или возместить (21.C1). */
+  libraryDebts: AccountLibraryDebt[]
+}
+
 /**
  * Тело `POST /users/me/consent`: повторное согласие на обработку персональных данных.
  *
@@ -182,7 +199,7 @@ export const AcceptConsentSchema = z
     guardianConsent: z.boolean().optional(),
     birthDate: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+      .regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format'))
       .optional(),
   })
   .strict()
@@ -194,7 +211,7 @@ export const AcceptConsentSchema = z
     if (age < 0 || age > 120) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Проверьте дату рождения',
+        message: vm('validation.birthDate.implausible'),
         path: ['birthDate'],
       })
       return
@@ -202,7 +219,7 @@ export const AcceptConsentSchema = z
     if (age < AGE_OF_MAJORITY && v.guardianConsent !== true) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Нужно согласие законного представителя',
+        message: vm('validation.consent.guardianRequired'),
         path: ['guardianConsent'],
       })
     }

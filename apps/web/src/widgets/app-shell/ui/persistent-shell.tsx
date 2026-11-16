@@ -1,11 +1,17 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
 import { useAppSelector } from '../../../shared/store'
 import { isShellPath } from '../model/shell-paths'
 import { ROLE_TO_VARIANT, type NavVariant } from '../model/nav'
-import { AppShell } from './app-shell'
+
+// Оболочка — отдельным чанком (задача 21.B4). Она тянет панель уведомлений, поиск,
+// согласия и счётчики, а вход, юридические страницы и публичные ссылки рисуются без неё:
+// статический импорт отдавал этот код каждой странице. SSR остаётся (ssr по умолчанию):
+// на страницах с оболочкой чанк попадает в предзагрузку HTML, мигания нет.
+const AppShell = dynamic(() => import('./app-shell').then((m) => m.AppShell))
 
 /**
  * Оболочка, общая для всех ролевых зон. Стоит в корневом layout, поэтому при навигации

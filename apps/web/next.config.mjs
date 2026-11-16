@@ -228,7 +228,7 @@ const nextConfig = {
   // `dynamicOnHover` включает проп `unstable_dynamicOnHover` у Link (ссылки меню — NavLink):
   // без флага проп молча ничего не делает (process.env.__NEXT_DYNAMIC_ON_HOVER в
   // next/dist/client/components/links.js), и наведение не подгружало страницу.
-  experimental: { staleTimes: { dynamic: 30 }, dynamicOnHover: true },
+  experimental: { staleTimes: { dynamic: 30 }, dynamicOnHover: true, inlineCss: true },
   // Линтинг — отдельным шагом (root ESLint / CI), не во время next build.
   eslint: { ignoreDuringBuilds: true },
   // Минимальный self-contained сервер для production-образа (docker/apps/web/Dockerfile).

@@ -278,10 +278,16 @@ describe('SupportService.close', () => {
 })
 
 describe('SupportService — уведомление команды', () => {
-  it('сообщает в Telegram о новом обращении', async () => {
-    const { service, telegram } = setup()
+  // Новое обращение — первое сообщение в нём, каким бы путём оно ни пришло: формой
+  // (`open`) или из окна чата, открытого заранее (`chat`). Поэтому будит правило обращения,
+  // а не `open`.
+  it('сообщает в Telegram о новом обращении на первом сообщении автора', async () => {
+    const { service, prisma, telegram } = setup()
+    prisma.chat.findUnique.mockResolvedValue({ supportMergedIntoId: null, supportAssigneeId: null })
+    prisma.chat.updateMany.mockResolvedValue({ count: 0 })
 
-    await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
+    await service.onTicketMessage({ chatId: 'ticket-1', senderId: 'author-1', seq: 1 })
+    await new Promise((resolve) => setImmediate(resolve))
 
     // Последние аргументы — кнопка квитирования под уведомлением: без неё двое пишут
     // один ответ, а третье обращение не берёт никто.
@@ -297,14 +303,54 @@ describe('SupportService — уведомление команды', () => {
     )
   })
 
-  // Дописка в открытое обращение уже кого-то ждёт: второе уведомление о той же ветке
-  // ничего не добавляет, а внимание к уведомлениям расходует.
-  it('молчит, когда человек дописывает в открытое обращение', async () => {
-    const { service, telegram } = setup({ openTicket: { id: 'ticket-9' } })
+  // Иначе уведомление приходило бы дважды: из `open` и из правила обращения.
+  it('open сам команду не будит — это делает правило обращения', async () => {
+    const { service, telegram } = setup()
 
-    await service.open(who(Role.STUDENT), { text: 'ещё вопрос' })
+    await service.open(who(Role.STUDENT), { text: 'не приходит письмо на почту' })
 
     expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+})
+
+describe('SupportService.chat', () => {
+  // Приложение открывает переписку сразу: последнее обращение — и закрытое, сообщение в
+  // него откроет его снова.
+  it('отдаёт последнее обращение автора, не заводя нового', async () => {
+    const { service, prisma } = setup({ openTicket: { id: 'ticket-7' } })
+
+    const res = await service.chat(who(Role.STUDENT))
+
+    expect(res).toEqual({ id: 'ticket-7', created: false })
+    expect(prisma.chat.findFirst.mock.calls[0][0].where).toEqual({
+      type: ChatType.SUPPORT_PLATFORM,
+      supportMergedIntoId: null,
+      members: { some: { userId: 'u1' } },
+    })
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  it('без обращений заводит пустое — без сообщения и без уведомления команды', async () => {
+    const { service, prisma, chats, telegram } = setup()
+
+    const res = await service.chat(who(Role.STUDENT))
+
+    expect(res).toEqual({ id: 'ticket-1', created: true })
+    expect(prisma.chat.create).toHaveBeenCalled()
+    expect(chats.createMessage).not.toHaveBeenCalled()
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+  })
+
+  // Пустое обращение — ещё не обращение: в очереди и в счётчике его нет.
+  it('пустые обращения в очередь не попадают', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : Promise.resolve([0, null]),
+    )
+
+    await service.queueStats()
+
+    expect(prisma.chat.count.mock.calls[0][0].where).toMatchObject({ lastSeq: { gt: 0 } })
   })
 })
 

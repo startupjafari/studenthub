@@ -1,4 +1,4 @@
-import { generateKeyPairSync, type JsonWebKey } from 'node:crypto'
+import { generateKeyPairSync, type webcrypto } from 'node:crypto'
 import { Role } from '@studenthub/shared-types'
 import { CamerasService } from './cameras.service'
 import { CameraAgentsService, agentConnection } from './camera-agents.service'
@@ -9,6 +9,10 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RoomService } from '../rooms/rooms.service'
 import type { CameraAgentSignal } from './camera-agent-signal'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба).
+type JsonWebKey = webcrypto.JsonWebKey
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 

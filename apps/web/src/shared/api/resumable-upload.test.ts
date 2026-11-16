@@ -167,6 +167,28 @@ describe('uploadResumable', () => {
     expect(store.records.size).toBe(1)
   })
 
+  it('отмена отменяет загрузку в хранилище и забывает её состояние', async () => {
+    const file = fileOf(PART * 3)
+    const store = memoryStore()
+    const s = steps(3)
+    const controller = new AbortController()
+    // Первая часть принята, на второй человек жмёт крестик.
+    put.mockImplementation((url: string) => {
+      if (url.endsWith('/1')) return Promise.resolve({ headers: { etag: '"e1"' } })
+      controller.abort()
+      return Promise.reject(Object.assign(new Error('canceled'), { name: 'CanceledError' }))
+    })
+
+    await expect(
+      uploadResumable({ file, bucket: 'MATERIALS:m1', ...s, store, signal: controller.signal }),
+    ).rejects.toThrow()
+
+    expect(s.abort).toHaveBeenCalledWith({ key: 'user-1/a.mp4', uploadId: 'upload-1' })
+    expect(s.complete).not.toHaveBeenCalled()
+    // Иначе повторный выбор того же файла повёл бы «докачку» в уже отменённую загрузку.
+    expect(store.records.size).toBe(0)
+  })
+
   it('отпечаток различает файлы и бакеты', () => {
     const a = fileOf(PART, 'a.mp4')
     const b = fileOf(PART, 'b.mp4')

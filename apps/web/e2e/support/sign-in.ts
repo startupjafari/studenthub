@@ -11,15 +11,13 @@ import { expect, type Page } from '@playwright/test'
 
 // Аккаунты создаёт prisma/e2e-fixture.mjs — тестовые данные, не секреты.
 //
-// Здесь перечислены ВСЕ роли фикстуры, а не только те, что нужны сценариям: по ним ходит
-// UI-аудит (e2e/ui-audit) и axe-обход всех экранов, которым нужна каждая ролевая зона. Роли
-// EMPLOYER в списке нет: работодателя фикстура не заводит — компаний и вакансий на тестовом
-// стенде нет вовсе.
+// Здесь перечислены ВСЕ роли фикстуры: сценарии ролей (roles.e2e.ts) открывают каждую зону.
+// Работодатель — с компанией и одобренным вузом допуском (prisma/e2e-fixture.mjs, 21.E3).
 //
 // Про лимит входов: POST /auth/login throttled на 5 попыток / 15 мин с IP (docs/PROJECT.md §7.4).
 // На e2e-стенде счётчик снят штатным выключателем THROTTLE_DISABLED (playwright.config.ts,
-// webServer api; в проде флаг не действует), поэтому axe-обход (a11y-axe.e2e.ts) входит под
-// каждой ролью. Запущенный против api без этого флага, он упрётся в лимит на шестом входе.
+// webServer api; в проде флаг не действует), поэтому прогон входит под каждой ролью. Запущенный
+// против api без этого флага, он упрётся в лимит на шестом входе.
 export const PASSWORD = 'Admin1234!'
 export const ACCOUNTS = {
   student: 'student@studenthub.app',
@@ -32,6 +30,7 @@ export const ACCOUNTS = {
   platformModerator: 'platform-moderator@studenthub.app',
   securityGuard: 'security@studenthub.app',
   librarian: 'librarian@studenthub.app',
+  employer: 'employer@studenthub.app',
 } as const
 
 export type Role = keyof typeof ACCOUNTS

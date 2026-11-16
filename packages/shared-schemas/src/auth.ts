@@ -1,12 +1,13 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Схемы аутентификации — единый источник валидации для API (ZodValidationPipe) и форм фронта.
 
 // Вход по email ИЛИ имени пользователя (Telegram-стиль): одно поле-идентификатор.
 export const LoginSchema = z
   .object({
-    identifier: z.string().min(1, 'Введите email или имя пользователя'),
-    password: z.string().min(1, 'Введите пароль'),
+    identifier: z.string().min(1, vm('validation.auth.identifierRequired')),
+    password: z.string().min(1, vm('validation.auth.passwordRequired')),
   })
   .strict()
 
@@ -18,7 +19,7 @@ export const UsernameSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^[a-z0-9_]{3,32}$/, 'Только латиница, цифры и _, 3–32 символа')
+  .regex(/^[a-z0-9_]{3,32}$/, vm('validation.username.invalid'))
 
 /**
  * Предел длины пароля в байтах UTF-8. bcrypt учитывает только первые 72 байта и молча
@@ -42,14 +43,11 @@ function utf8Length(value: string): number {
 // работодатель, смена и сброс пароля.
 export const PasswordSchema = z
   .string()
-  .min(8, 'Минимум 8 символов')
-  .regex(/[A-Za-zА-Яа-я]/, 'Нужна хотя бы одна буква')
-  .regex(/[0-9]/, 'Нужна хотя бы одна цифра')
-  .regex(/[^A-Za-zА-Яа-я0-9]/, 'Нужен хотя бы один спецсимвол')
-  .refine(
-    (value) => utf8Length(value) <= PASSWORD_MAX_BYTES,
-    'Слишком длинный пароль: не больше 72 байт (около 36 букв кириллицей)',
-  )
+  .min(8, vm('validation.password.tooShort'))
+  .regex(/[A-Za-zА-Яа-я]/, vm('validation.password.letterRequired'))
+  .regex(/[0-9]/, vm('validation.password.digitRequired'))
+  .regex(/[^A-Za-zА-Яа-я0-9]/, vm('validation.password.specialRequired'))
+  .refine((value) => utf8Length(value) <= PASSWORD_MAX_BYTES, vm('validation.password.tooLong'))
 
 /**
  * Редакция правовых документов, на которую даётся согласие при регистрации.
@@ -96,7 +94,7 @@ export const RegisterByInviteSchema = z
     password: PasswordSchema,
     // Нижний регистр — как у адреса инвайта: email сравнивается без учёта регистра.
     email: z.string().trim().toLowerCase().email().optional(),
-    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
+    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, vm('validation.date.format')),
     /** Согласие с политикой и соглашением. Только `true`: отказ — это незаполненная форма. */
     consent: z.literal(true),
     /** Согласие законного представителя. Обязательно, если на дату регистрации нет 18. */
@@ -108,7 +106,7 @@ export const RegisterByInviteSchema = z
     if (Number.isNaN(born.getTime())) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Некорректная дата',
+        message: vm('validation.date.invalid'),
         path: ['birthDate'],
       })
       return
@@ -118,7 +116,7 @@ export const RegisterByInviteSchema = z
     if (age < 0 || age > 120) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Проверьте дату рождения',
+        message: vm('validation.birthDate.implausible'),
         path: ['birthDate'],
       })
       return
@@ -126,7 +124,7 @@ export const RegisterByInviteSchema = z
     if (age < AGE_OF_MAJORITY && v.guardianConsent !== true) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Нужно согласие законного представителя',
+        message: vm('validation.consent.guardianRequired'),
         path: ['guardianConsent'],
       })
     }
@@ -137,7 +135,7 @@ export type RegisterByInviteInput = z.infer<typeof RegisterByInviteSchema>
 // ── Двухфакторная аутентификация (TOTP) ──────────────────────────────────────
 
 // 6-значный код из приложения-аутентификатора (Google Authenticator и т.п.).
-const TotpCodeSchema = z.string().regex(/^\d{6}$/, 'Код из 6 цифр')
+const TotpCodeSchema = z.string().regex(/^\d{6}$/, vm('validation.twoFactor.codeFormat'))
 
 // Второй шаг входа: challenge из ответа /auth/login + код (TOTP 6 цифр ИЛИ backup-код).
 export const TwoFactorVerifySchema = z
@@ -161,6 +159,18 @@ export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
 // backup-кодов владельцем, сброс 2FA другого человека администратором.
 export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
+
+// ── Выход ─────────────────────────────────────────────────────────────────────
+
+// Выход. Сессию опознаёт refresh-cookie; тело необязательно. Нативный клиент кладёт сюда
+// токен пушей устройства — сервер отвязывает его вместе с сессией. Так выход, отложенный
+// без сети, досылается одним запросом без access-токена: отдельная отвязка требует входа,
+// а его к тому моменту уже нет. Запрос без тела схема превращает в {}.
+export const LogoutSchema = z
+  .object({ deviceToken: z.string().min(16).max(400).optional() })
+  .strict()
+  .default({})
+export type LogoutInput = z.infer<typeof LogoutSchema>
 
 // ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
 

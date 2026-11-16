@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 import UserNotifications
 
 /// Регистрация устройства для пушей (план iOS, Задача 1.8).
@@ -9,9 +8,14 @@ import UserNotifications
 /// однократно при первом согласии.
 struct PushRegistrar: Sendable {
     private let client: APIClient
+    /// Системная часть (`UIApplication`) — за протоколом: ядро без UIKit. В приложении —
+    /// `AppServices.pushRegistrar` с настоящей; по умолчанию пустышка, как у
+    /// `SessionStore` с `BackgroundActivity`.
+    private let system: RemoteNotificationRegistration
 
-    init(client: APIClient = AppServices.api) {
+    init(client: APIClient = AppServices.api, system: RemoteNotificationRegistration = NoRemoteNotificationRegistration()) {
         self.client = client
+        self.system = system
     }
 
     /// Спросить разрешение и, если дали, попросить систему о токене.
@@ -20,10 +24,12 @@ struct PushRegistrar: Sendable {
     /// работает дальше без них.
     @MainActor
     func requestAuthorization() async {
+        // UI-тесты: системный запрос перекрыл бы экран в каждом сценарии.
+        guard !UITestHooks.suppressesPushPrompt else { return }
         let center = UNUserNotificationCenter.current()
         let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
         guard granted else { return }
-        UIApplication.shared.registerForRemoteNotifications()
+        system.registerForRemoteNotifications()
     }
 
     /// Отдать серверу токен, который прислала система.
@@ -44,8 +50,21 @@ struct PushRegistrar: Sendable {
     func unregister() async {
         guard let token = Self.lastToken else { return }
         struct Body: Encodable { let token: String }
-        _ = try? await client.send(try .post("push/devices/remove", json: Body(token: token)))
+        // Не удалось — токен помним: его же унесёт выход (`SessionStore.signOut`), в том
+        // числе отложенный без сети.
+        guard (try? await client.send(try .post("push/devices/remove", json: Body(token: token)))) != nil else { return }
         Self.lastToken = nil
+    }
+
+    /// Токен этого устройства, если он уже отдан серверу.
+    static var deviceToken: String? { lastToken }
+
+    /// Перестать принимать пуши до следующего входа: выход не дошёл до сервера, и тот
+    /// ещё считает телефон устройством прежнего человека. `requestAuthorization` при
+    /// следующем входе регистрирует устройство заново.
+    @MainActor
+    func stopDelivery() {
+        system.unregisterForRemoteNotifications()
     }
 
     /// Последний отданный серверу токен. В `UserDefaults`, а не в связке ключей:

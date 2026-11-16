@@ -164,8 +164,13 @@ enum ApplicationStatus {
         case "SUBMITTED": return String(localized: "applications.submitted", defaultValue: "Подана")
         case "IN_REVIEW": return String(localized: "applications.inReview", defaultValue: "На рассмотрении")
         case "NEEDS_INFO": return String(localized: "applications.needsInfo", defaultValue: "Нужны документы")
+        case "NEEDS_CORRECTION": return String(localized: "applications.needsCorrection", defaultValue: "Нужно исправить")
+        case "RESUBMITTED": return String(localized: "applications.resubmitted", defaultValue: "Подана повторно")
+        case "IN_PREPARATION": return String(localized: "applications.inPreparation", defaultValue: "Готовится")
         case "APPROVED": return String(localized: "applications.approved", defaultValue: "Одобрена")
         case "READY": return String(localized: "applications.ready", defaultValue: "Готова")
+        case "READY_FOR_PICKUP": return String(localized: "applications.readyForPickup", defaultValue: "Можно забрать")
+        case "DELIVERED": return String(localized: "applications.delivered", defaultValue: "Доставлена")
         case "ISSUED": return String(localized: "applications.issued", defaultValue: "Выдана")
         case "REJECTED": return String(localized: "applications.rejected", defaultValue: "Отклонена")
         case "CANCELLED": return String(localized: "applications.cancelled", defaultValue: "Отменена")
@@ -175,6 +180,6 @@ enum ApplicationStatus {
 
     /// Заявка ещё в работе — её нельзя подавать второй раз, и это видно по цвету.
     static func isOpen(_ status: String) -> Bool {
-        !["ISSUED", "REJECTED", "CANCELLED"].contains(status)
+        !["ISSUED", "DELIVERED", "REJECTED", "CANCELLED"].contains(status)
     }
 }

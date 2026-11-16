@@ -16,6 +16,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
+  FileCheck2,
   FileText,
   FolderLock,
   FolderOpen,
@@ -34,9 +35,11 @@ import {
   Send,
   Table2,
   ShieldAlert,
+  Sticker,
   FileUser,
   TrendingUp,
   Users,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -215,6 +218,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
       // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
       { key: 'serviceCatalog', href: '/university-admin/services' },
       { key: 'documentTypes', href: '/university-admin/document-types' },
+      // DOCX-бланки вуза с переменными StudentHub (§3.8 «Шаблоны документов»).
+      { key: 'documentTemplates', href: '/university-admin/document-templates' },
     ],
   },
   // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
@@ -381,6 +386,8 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
   { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
+  // Каталог стикеров чатов: наборы видят все пользователи всех вузов, ведёт их платформа.
+  { key: 'stickers', href: '/platform-admin/stickers', icon: Sticker },
 ]
 
 export const PLATFORM_MODERATOR_NAV: NavItem[] = [
@@ -428,6 +435,8 @@ export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
   { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
+  // Справки «задолженностей нет» с кодом проверки и их отзыв (Фаза 21.C4).
+  { key: 'libraryClearances', href: '/library/clearances', icon: FileCheck2 },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
@@ -474,6 +483,9 @@ export const EMPLOYER_NAV: NavItem[] = [
   // Отдельного пункта «Компания» нет: страница компании — в профиле работодателя, за
   // переключателем «Мой профиль / Компания» (/profile?view=company).
   { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
+  // Команда компании (21.D2): приглашения коллег и состав. Управляет владелец, рекрутёр
+  // видит на странице, к кому обратиться.
+  { key: 'companyTeam', href: '/employer/team', icon: UserPlus },
 ]
 
 export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {

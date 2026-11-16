@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import os
 
 /// Делегат приложения.
 ///
@@ -7,13 +8,17 @@ import UserNotifications
 /// по-прежнему разговаривает с `UIApplicationDelegate`: токен устройства, тихие
 /// доставки и нажатие на уведомление приходят только сюда.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    private let registrar = PushRegistrar()
+    private let registrar = AppServices.pushRegistrar
+    /// Тихий пуш пришёл до первой разблокировки: догон отложен до неё.
+    private var deferredSync = false
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Signposts.launch.emitEvent("AppDidFinishLaunching")
         Observability.start()
+        KeyboardDismissal.install()
         UNUserNotificationCenter.current().delegate = self
         return true
     }
@@ -38,20 +43,59 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     /// Тихий пуш: данных в нём нет, есть повод за ними сходить. Система даёт на это
     /// считаные секунды, поэтому тянем только список чатов — он же обновит бейдж.
+    ///
+    /// Вариант с `completionHandler`, а не `async`: словарь пуша не `Sendable`, и в
+    /// асинхронную реализацию система передавала бы его через границу акторов. Здесь он
+    /// разбирается сразу, синхронно, а дальше идёт только признак.
     func application(
         _ application: UIApplication,
-        didReceiveRemoteNotification payload: [AnyHashable: Any]
-    ) async -> UIBackgroundFetchResult {
+        didReceiveRemoteNotification payload: [AnyHashable: Any],
+        fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
         Observability.pushDelivered(silent: true)
-        guard PushRouting.isSilent(payload) else { return .noData }
-        return await AppServices.pushSync.catchUp() ? .newData : .failed
+        guard PushRouting.isSilent(payload) else {
+            completion(.noData)
+            return
+        }
+        // До первой разблокировки база и связка ключей заперты: открывать базу нельзя
+        // (её приняли бы за повреждённую), а писать в память — значит потерять. Догон —
+        // по разблокировке.
+        guard AppServices.databaseHolder.isAvailable else {
+            deferredSync = true
+            completion(.noData)
+            return
+        }
+        Task {
+            completion(await AppServices.pushSync.catchUp() ? .newData : .failed)
+        }
+    }
+
+    /// Данные устройства разблокированы. После включения это первая разблокировка:
+    /// открываем базу, доводим продление сессии, отложенное из-за запертой связки ключей,
+    /// и догон, отложенный из-за тихого пуша. Потом приходит на каждую разблокировку —
+    /// тогда всё это уже сделано и ничего не стоит.
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        AppServices.databaseHolder.prewarm()
+        // Уборка кеша экранов, отложенная запуском до разблокировки (файлы были заперты).
+        ScreenCacheStore.shared.housekeeping()
+        ImageDiskCache.shared.housekeeping()
+        let syncDeferred = deferredSync
+        deferredSync = false
+        Task {
+            await AppServices.session.resumeAfterUnlock()
+            if syncDeferred { _ = await AppServices.pushSync.catchUp() }
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate
 
     /// Уведомление пришло, пока приложение открыто. Показываем плашку, но без
     /// звука: человек и так смотрит в экран.
-    func userNotificationCenter(
+    ///
+    /// `nonisolated`: система зовёт делегата уведомлений не с главного потока, и в Swift 6
+    /// неявная изоляция класса к нему приводила бы к падению. На главный — только там,
+    /// где трогаем экранное состояние.
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -67,7 +111,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     /// Нажатие на уведомление: ведём туда, о чём оно.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
@@ -78,11 +122,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // пуш мог прийти на устройство, где уже вошёл кто-то другой.
         let session = AppServices.session
         if let role = await session.currentToken?.role {
-            await AppServices.router.open(link, for: role)
+            _ = await MainActor.run { AppServices.router.open(link, for: role) }
         } else if await session.hasStoredSession {
             // Холодный старт: сессия ещё поднимается, роли пока нет. Откроем, когда
             // оболочка её узнает, — иначе разделы «Ещё» отказали бы как чужие.
-            await AppServices.router.postpone(link)
+            await MainActor.run { AppServices.router.postpone(link) }
         }
         // Иначе на экране входа: никто не вошёл, и маршрут достался бы следующему.
     }

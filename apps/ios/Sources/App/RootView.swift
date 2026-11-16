@@ -7,10 +7,13 @@ import SwiftUI
 /// ответа сервера: решение о доступе всё равно принимает API, а приложению роль
 /// нужна только для того, чтобы не рисовать разделы, которых у человека нет.
 struct RootView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.motionReduced) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var session = AppSessionModel()
     @State private var update = UpdateGateModel()
+    /// Ссылка из письма (новый пароль, приглашение), пришедшая до входа.
+    @State private var authLink: AuthLink?
 
     var body: some View {
         content
@@ -19,7 +22,22 @@ struct RootView: View {
             // «уменьшением движения» оно показывается сразу конечным состоянием.
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: session.state)
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: update.state)
+            // Экран загрузки — поверх содержимого, а не веткой в нём: так его уход
+            // анимируется сам по себе, а смена экранов под ним идёт прежним порядком.
+            .overlay {
+                if isLaunching {
+                    LaunchLoadingView()
+                        .transition(LaunchLoadingView.exitTransition(reduceMotion: reduceMotion))
+                }
+            }
+            .animation(LaunchLoadingView.exitAnimation(reduceMotion: reduceMotion), value: isLaunching)
             .task {
+                // База (открытие и миграции) поднимается фоном, пока идёт восстановление
+                // сессии: иначе её открывал бы первый кадр оболочки на главном потоке.
+                AppServices.databaseHolder.prewarm()
+                // Каталоги кеша экранов от прежних сборок и записи сверх лимитов — фоном.
+                ScreenCacheStore.shared.housekeeping()
+                ImageDiskCache.shared.housekeeping()
                 // Версию и сессию спрашиваем разом: они не зависят друг от друга, а
                 // по очереди это лишняя секунда к запуску.
                 async let version: Void = update.check()
@@ -28,6 +46,33 @@ struct RootView: View {
                 Observability.identify(userID: session.token?.subject)
                 Observability.launchFinished()
             }
+            // Ссылки внутрь приложения разбирает оболочка (`AppShellView`); здесь — только
+            // ссылки экранов до входа. Вошедшему человеку они ни к чему: регистрироваться
+            // второй раз незачем, а пароль меняется в настройках.
+            .onOpenURL { url in
+                guard let link = AuthLink(url: url), session.token == nil else { return }
+                authLink = link
+            }
+            .onChange(of: session.state) { _, state in
+                if case .signedIn = state { authLink = nil }
+            }
+            // Вернулись в приложение — возможно, уже со связью: выход, отложенный без
+            // сети, досылаем сразу, а не при следующем запуске. Версию и выключенные
+            // функции перечитываем там же: функцию, сломавшуюся у пользователей, гасят
+            // правкой env, и ждать холодного запуска (его может не быть неделями) нельзя.
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await session.completePendingLogouts() }
+                Task { await update.check() }
+            }
+    }
+
+    /// Экран загрузки держится, пока корневому экрану нечего показать: сессия ещё
+    /// поднимается, а блокировки по версии нет. Ни секунды сверх этого — анимация
+    /// знака запуск не задерживает.
+    private var isLaunching: Bool {
+        if case .blocked = update.state { return false }
+        return session.state == .restoring
     }
 
     @ViewBuilder
@@ -48,9 +93,12 @@ struct RootView: View {
     private var signedState: some View {
         switch session.state {
         case .restoring:
-            RestoringView()
+            // Пока сессия поднимается, поверх лежит экран загрузки (`isLaunching`);
+            // под ним — тот же фон, чтобы при его уходе не мелькнул другой цвет.
+            LaunchPalette.background
+                .ignoresSafeArea()
         case .signedOut:
-            LoginView(session: session)
+            LoginView(session: session, pendingLink: $authLink)
         case .signedIn(let token):
             // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
             // чем показать оболочку с пятью пустыми вкладками.
@@ -60,20 +108,5 @@ struct RootView: View {
                 UnsupportedRoleView(session: session)
             }
         }
-    }
-}
-
-/// Холодный старт: признак сессии есть, токен ещё едет. Показываем имя приложения,
-/// а не спиннер во весь экран — ожидание здесь обычно короче, чем заметно глазу.
-private struct RestoringView: View {
-    var body: some View {
-        VStack(spacing: Spacing.md) {
-            Text(verbatim: "StudentHub")
-                .font(Typography.pageTitle)
-                .foregroundStyle(Palette.foreground)
-            ProgressView()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background)
     }
 }

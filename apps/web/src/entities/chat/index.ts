@@ -54,6 +54,12 @@ export {
   createChatPoll,
   fetchPollResults,
   votePollRequest,
+  toggleChecklistItemRequest,
+  addChecklistItemRequest,
+  removeChecklistItemRequest,
+  stopLiveLocationRequest,
+  fetchChatPolls,
+  fetchStickerUrl,
   fetchChatUpdates,
   fetchChatFolders,
   createChatFolderRequest,
@@ -62,6 +68,8 @@ export {
   type ChatUpdates,
   type MessagesPage,
   type ChatMediaPage,
+  type ChatMediaType,
+  type ChatPollsPage,
   type ChatLinksPage,
 } from './api/chat-api'
 export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
@@ -83,11 +91,19 @@ export {
   type ChatLinkItem,
   type ChatPoll,
   type PollResults,
+  type MessageLocation,
+  type MessageContact,
+  type MessageChecklist,
+  type MessageChecklistItem,
+  type MessageSticker,
   type BlockedUser,
   type ChatFolder,
 } from './model/types'
 export { MessageContent } from './ui/message-content'
 export { ChatPollView } from './ui/chat-poll'
+export { MessageLocationCard, MessageContactCard } from './ui/message-place-cards'
+export { MessageChecklistView } from './ui/message-checklist'
+export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
 export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
@@ -120,4 +136,10 @@ export { sortChats } from './lib/sort-chats'
 export { useChatsUnread, scheduleChatsUnreadRefresh } from './lib/use-chats-unread'
 export { createRefreshCoalescer, type RefreshCoalescer } from './lib/refresh-coalescer'
 export { VoiceRateButton } from './ui/voice-rate-button'
+export {
+  applyLocationUpdate,
+  isLiveLocation,
+  liveUpdatedMinutesAgo,
+  LIVE_LOCATION_TICK_MS,
+} from './lib/live-location'
 export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'

@@ -21,11 +21,16 @@ final class LoginModel {
     private(set) var isBusy = false
     /// Ошибка всей формы: неверная пара логин-пароль, блокировка, нет связи.
     private(set) var formError: String?
+    /// Ошибка формы — обрыв связи: экран показывает «нет связи» с повтором, а не текст сбоя.
+    private(set) var formErrorIsOffline = false
     private(set) var identifierError: String?
     private(set) var passwordError: String?
     private(set) var codeError: String?
 
     private var challengeToken: String?
+    /// Поколение потока входа. «Назад» со второго шага его меняет: ответ, пришедший на
+    /// уже брошенную попытку, сессию не открывает (`docs/IOS_RULES.md` 10.1.8).
+    private var attempt = 0
     private let auth: SessionIssuing
 
     init(auth: SessionIssuing = AppServices.auth) {
@@ -53,9 +58,12 @@ final class LoginModel {
 
         isBusy = true
         defer { isBusy = false }
+        let current = attempt
 
         do {
-            switch try await auth.signIn(identifier: login, password: password) {
+            let result = try await auth.signIn(identifier: login, password: password)
+            guard isCurrent(current) else { return }
+            switch result {
             case .session(let issued):
                 await adopt(issued, into: session)
             case .twoFactorRequired(let challenge):
@@ -64,6 +72,7 @@ final class LoginModel {
                 step = .twoFactor
             }
         } catch {
+            guard isCurrent(current) else { return }
             handle(error)
         }
     }
@@ -76,7 +85,7 @@ final class LoginModel {
         codeError = nil
         formError = nil
 
-        let entered = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entered = OneTimeCode.normalized(code)
         guard entered.count >= 6 else {
             codeError = String(localized: "auth.error.codeTooShort", defaultValue: "Код из 6 цифр или резервный код")
             return
@@ -84,11 +93,14 @@ final class LoginModel {
 
         isBusy = true
         defer { isBusy = false }
+        let current = attempt
 
         do {
             let issued = try await auth.verifyTwoFactor(challengeToken: challengeToken, code: entered)
+            guard isCurrent(current) else { return }
             await adopt(issued, into: session)
         } catch let error as APIError where error.code == .unauthorized {
+            guard isCurrent(current) else { return }
             // UNAUTHORIZED на втором шаге — не неверный код, а мёртвый challenge: три
             // промаха или пять минут ожидания. Любой следующий код, даже верный, его не
             // оживит (§8.3 Auth) — возвращаем к паролю и говорим почему, как веб.
@@ -98,7 +110,24 @@ final class LoginModel {
                 defaultValue: "Время на ввод кода истекло или попытки закончились — введите пароль ещё раз"
             )
         } catch {
+            guard isCurrent(current) else { return }
             handle(error)
+        }
+    }
+
+    /// Поле, у которого есть своя ошибка.
+    enum Input {
+        case identifier, password, code
+    }
+
+    /// Человек исправляет поле — его ошибка больше не про то, что в нём написано.
+    /// Проверку это не отменяет: она снова пройдёт при отправке.
+    @MainActor
+    func clearError(for input: Input) {
+        switch input {
+        case .identifier: identifierError = nil
+        case .password: passwordError = nil
+        case .code: codeError = nil
         }
     }
 
@@ -106,6 +135,7 @@ final class LoginModel {
     /// живёт считаные минуты — возвращаться к нему всё равно нельзя.
     @MainActor
     func startOver() {
+        attempt += 1
         step = .credentials
         challengeToken = nil
         code = ""
@@ -115,10 +145,17 @@ final class LoginModel {
 
     // MARK: - Внутреннее
 
+    /// Ответ ещё про текущую попытку: человек не ушёл «Назад» и задача не отменена.
+    /// Отмена — не ошибка и не неверная попытка: просто молча отбрасываем ответ.
+    @MainActor
+    private func isCurrent(_ snapshot: Int) -> Bool {
+        snapshot == attempt && !Task.isCancelled
+    }
+
     @MainActor
     private func adopt(_ issued: AuthSession, into session: AppSessionModel) async {
         guard await session.adopt(issued) else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = String(localized: "error.generic", defaultValue: "Что-то пошло не так. Попробуйте ещё раз")
             return
         }
         password = ""
@@ -128,12 +165,13 @@ final class LoginModel {
     }
 
     /// Куда попадает текст ошибки, решает её код, а не экран: сообщение про код 2FA
-    /// под полем кода, всё остальное — над формой (§10.3). Серверные тексты уже на
-    /// языке платформы, поэтому показываем их как есть.
+    /// под полем кода, всё остальное — над формой (§10.3). Ошибка поля приходит ключом
+    /// валидации и переводится каталогом; прочие серверные тексты — как есть.
     @MainActor
     private func handle(_ error: Error) {
+        formErrorIsOffline = error.isOffline
         guard let apiError = error as? APIError else {
-            formError = String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            formError = error.userMessage
             return
         }
 
@@ -144,10 +182,10 @@ final class LoginModel {
 
         for detail in details {
             switch detail.field {
-            case "identifier": identifierError = detail.message
-            case "password": passwordError = detail.message
-            case "code": codeError = detail.message
-            default: formError = detail.message
+            case "identifier": identifierError = detail.displayMessage
+            case "password": passwordError = detail.displayMessage
+            case "code": codeError = detail.displayMessage
+            default: formError = detail.displayMessage
             }
         }
         guard details.isEmpty else { return }
@@ -162,6 +200,7 @@ final class LoginModel {
     @MainActor
     private func clearErrors() {
         formError = nil
+        formErrorIsOffline = false
         identifierError = nil
         passwordError = nil
         codeError = nil

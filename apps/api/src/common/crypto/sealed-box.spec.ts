@@ -1,5 +1,9 @@
-import { generateKeyPairSync, type JsonWebKey } from 'node:crypto'
+import { generateKeyPairSync, type webcrypto } from 'node:crypto'
 import { open, seal, x25519PublicKey } from './sealed-box'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба).
+type JsonWebKey = webcrypto.JsonWebKey
 
 // Конверт для агента камер: платформа шифрует пароль камеры его открытым ключом и сама
 // прочитать результат не может. Тесты закрывают формат с обеих сторон и подмены.

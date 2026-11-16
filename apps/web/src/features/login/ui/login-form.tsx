@@ -12,7 +12,7 @@ import type { ApiErrorBody } from '@studenthub/shared-types'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
 import { Button, CodeInput, Input, Label, LegalLinks, FieldError } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
-import { useFormAlert, safeNextPath, toApiError } from '../../../shared/lib'
+import { useFormAlert, useValidationMessage, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
@@ -23,6 +23,7 @@ export function LoginForm() {
   const t = useTranslations('Auth')
   const tErr = useTranslations('Errors')
   const tEmployer = useTranslations('Employer')
+  const translateValidation = useValidationMessage()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
@@ -52,7 +53,9 @@ export function LoginForm() {
       api.code === 'EMAIL_NOT_VERIFIED' && identifier?.includes('@') ? identifier : null
     toast.error(tErr(api.code), {
       id: 'login-error',
-      description: details?.length ? details.map((d) => d.message).join(' · ') : undefined,
+      description: details?.length
+        ? details.map((d) => translateValidation(d.message)).join(' · ')
+        : undefined,
       ...(resendTo
         ? {
             duration: 15_000,

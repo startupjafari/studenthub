@@ -391,6 +391,23 @@ describe('FileService — многочастная загрузка', () => {
     )
   })
 
+  it('собранный файл материала сразу привязан к материалу (21.B1)', async () => {
+    const { service } = setup({ head: PDF, size: 1024 })
+
+    const file = await service.completeMultipart({
+      bucket: 'materials',
+      key: 'user-1/lecture.pdf',
+      uploadId: 'upload-1',
+      ownerId: 'user-1',
+      parts: [{ part: 1, etag: 'a' }],
+      materialId: 'mat-1',
+      name: 'Лекция 1.pdf',
+    })
+
+    expect(file.materialId).toBe('mat-1')
+    expect(file.name).toBe('Лекция 1.pdf')
+  })
+
   it('собранный объект проходит ту же проверку типа: SVG под видом видео не пройдёт', async () => {
     const { service, minio } = setup({ head: SVG, size: 1024 })
 
@@ -418,6 +435,22 @@ describe('FileService — многочастная загрузка', () => {
         ownerId: 'user-1',
       }),
     ).resolves.toBeUndefined()
+  })
+
+  // Отмена чужой загрузки (в т.ч. вложения чата, POST /chats/:id/attachments/multipart/abort):
+  // зная чужой ключ и uploadId, нельзя стереть чужие части.
+  it('отмена чужого ключа — FORBIDDEN, в хранилище не идём', async () => {
+    const { service, minio } = setup()
+
+    await expect(
+      service.abortMultipart({
+        bucket: 'chat-media',
+        key: 'user-2/a.mp4',
+        uploadId: 'upload-1',
+        ownerId: 'user-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(minio.abortMultipartUpload).not.toHaveBeenCalled()
   })
 })
 
@@ -529,6 +562,8 @@ describe('FileService.deleteDetached', () => {
     companyId: null,
     universityPageId: null,
     highlightItem: null,
+    documentTemplateVersion: null,
+    sticker: null,
     _count: { stories: 0, albumsCovered: 0 },
   }
 
@@ -575,6 +610,8 @@ describe('FileService.deleteDetached', () => {
     ['файл материала', { materialId: 'mat-1' }],
     ['фото альбома', { albumId: 'al-1' }],
     ['страница документа', { documentId: 'd1' }],
+    ['исходник шаблона документа', { documentTemplateVersion: { id: 'v1' } }],
+    ['картинка стикера каталога', { sticker: { id: 'st-1' } }],
     ['файл сданной работы', { submissionId: 's1' }],
     ['медиа сториса', { _count: { stories: 1, albumsCovered: 0 } }],
     ['обложка альбома', { _count: { stories: 0, albumsCovered: 1 } }],

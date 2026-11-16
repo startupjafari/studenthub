@@ -24,6 +24,22 @@ struct ChatStore: Sendable {
         }
     }
 
+    /// Перечитать одну строку чата (`GET /chats/:id`, IOS_RULES 9.4.18): чат вне первой
+    /// страницы списка — открытый по пушу или ссылке, со сменой членства — иначе не
+    /// обновился бы. `false` — строку получить не удалось (сеть, чат не виден, сервер без
+    /// маршрута): вызывающий решает, звать ли страницу списка. Строку при этом не стираем —
+    /// «не найден» от сервера старой версии не значит «исключён».
+    @discardableResult
+    func refresh(chatID: String, api: ChatsFetching) async -> Bool {
+        guard let item = try? await api.chat(id: chatID) else { return false }
+        return (try? await save(chats: [item])) != nil
+    }
+
+    /// Есть ли строка чата в базе.
+    func hasChat(id: String) async -> Bool {
+        (try? await database.reader.read { db in try ChatRecord.exists(db, key: id) }) ?? false
+    }
+
     /// Сохранить папки. Здесь, наоборот, замена полная: папок единицы, сервер отдаёт
     /// их разом, и удалённая папка иначе осталась бы вкладкой навсегда.
     func save(folders: [ChatFolderDTO]) async throws {
@@ -33,22 +49,140 @@ struct ChatStore: Sendable {
                 try stale.delete(db)
             }
             for folder in folders {
-                try FolderRecord(id: folder.id, name: folder.name, position: folder.position)
-                    .upsert(db)
-                try FolderChatRecord
-                    .filter(Column("folderId") == folder.id)
-                    .deleteAll(db)
-                for chatID in folder.chatIds {
-                    try FolderChatRecord(folderId: folder.id, chatId: chatID).insert(db)
-                }
+                try write(folder, in: db)
             }
+        }
+    }
+
+    /// Одна папка — ответ на создание или правку, либо её вид до отказа сервера. Прочие
+    /// папки не трогаем: полная замена здесь стёрла бы чужую правку, что ещё в пути.
+    func save(folder: ChatFolderDTO) async throws {
+        try await database.writer.write { db in
+            try write(folder, in: db)
+        }
+    }
+
+    /// Состав уходит вместе с папкой — каскадом по внешнему ключу.
+    func deleteFolder(id: String) async throws {
+        _ = try await database.writer.write { db in
+            try FolderRecord.deleteOne(db, key: id)
         }
     }
 
     /// Переключатели списка. Пишем сразу, не дожидаясь сервера: это и есть
     /// оптимистичность — палец убрал, строка уже уехала. Откат делает вызывающий.
     func setPinned(_ pinned: Bool, chatID: String) async throws {
-        try await update(chatID) { chat in chat.pinnedAt = pinned ? Date() : nil }
+        try await database.writer.write { db in
+            guard var chat = try ChatRecord.fetchOne(db, key: chatID) else { return }
+            chat.pinnedAt = pinned ? Date() : nil
+            // Новое закрепление встаёт на самый верх, как на сервере: выше всех
+            // упорядоченных. Пока порядка нет ни у кого (старый сервер), его хватает и
+            // свежего `pinnedAt` — закреплённые без места идут по нему.
+            if pinned {
+                let top = try Int.fetchOne(
+                    db,
+                    sql: "SELECT MIN(pinnedOrder) FROM chat WHERE pinnedAt IS NOT NULL AND pinnedOrder IS NOT NULL"
+                )
+                chat.pinnedOrder = top.map { $0 - 1 }
+            } else {
+                chat.pinnedOrder = nil
+            }
+            try chat.update(db)
+        }
+    }
+
+    /// Ручной порядок закреплённых — id сверху вниз. Возвращает прежние места, чтобы
+    /// вызывающий мог откатить их при отказе сервера.
+    @discardableResult
+    func setPinnedOrder(_ ids: [String]) async throws -> [String: Int?] {
+        try await database.writer.write { db in
+            let pinned = try ChatRecord.filter(ChatRecord.Columns.pinnedAt != nil).fetchAll(db)
+            let previous = Dictionary(uniqueKeysWithValues: pinned.map { ($0.id, $0.pinnedOrder) })
+            let listed = Set(ids)
+            // Не перечисленные закреплённые встают ниже перечисленных в прежнем порядке
+            // списка — так их ставит и сервер (§B.2 контракта): после вызова место есть
+            // у всех закреплённых.
+            let rest = try ChatListQuery.pinnedChatIDs(in: db).filter { !listed.contains($0) }
+            let place = Dictionary((ids + rest).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            for var chat in pinned {
+                guard let order = place[chat.id], chat.pinnedOrder != order else { continue }
+                chat.pinnedOrder = order
+                try chat.update(db)
+            }
+            return previous
+        }
+    }
+
+    /// Вернуть места закреплённых, снятые `setPinnedOrder`.
+    func restorePinnedOrder(_ previous: [String: Int?]) async throws {
+        try await database.writer.write { db in
+            for (id, order) in previous {
+                guard var chat = try ChatRecord.fetchOne(db, key: id), chat.pinnedOrder != order else { continue }
+                chat.pinnedOrder = order
+                try chat.update(db)
+            }
+        }
+    }
+
+    func setMarkedUnread(_ marked: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.markedUnread = marked }
+    }
+
+    /// Прочитать чаты целиком: счётчик и пометка «как новое» гаснут сразу. Возвращает
+    /// прежнее состояние для отката.
+    @discardableResult
+    func markRead(chatIDs: [String]) async throws -> [ChatReadSnapshot] {
+        try await database.writer.write { db in
+            var previous: [ChatReadSnapshot] = []
+            for id in chatIDs {
+                guard var chat = try ChatRecord.fetchOne(db, key: id),
+                      chat.unreadCount != 0 || chat.markedUnread
+                else { continue }
+                previous.append(ChatReadSnapshot(chatID: id, unreadCount: chat.unreadCount, markedUnread: chat.markedUnread))
+                chat.unreadCount = 0
+                chat.markedUnread = false
+                try chat.update(db)
+            }
+            return previous
+        }
+    }
+
+    func restore(_ reads: [ChatReadSnapshot]) async throws {
+        try await database.writer.write { db in
+            for read in reads {
+                guard var chat = try ChatRecord.fetchOne(db, key: read.chatID) else { continue }
+                chat.unreadCount = read.unreadCount
+                chat.markedUnread = read.markedUnread
+                try chat.update(db)
+            }
+        }
+    }
+
+    /// Звук всем чатам папки — по тому же правилу состава, что и вкладка. Возвращает
+    /// прежние флаги для отката.
+    @discardableResult
+    func setMuted(_ muted: Bool, folderID: String) async throws -> [String: Bool] {
+        try await database.writer.write { db in
+            let condition = ChatListQuery.folderCondition(folderID)
+            let request: SQLRequest<ChatRecord> = "SELECT c.* FROM chat c WHERE \(condition)"
+            var previous: [String: Bool] = [:]
+            for var chat in try request.fetchAll(db) where chat.muted != muted {
+                previous[chat.id] = chat.muted
+                chat.muted = muted
+                try chat.update(db)
+            }
+            return previous
+        }
+    }
+
+    func restoreMuted(_ previous: [String: Bool]) async throws {
+        try await database.writer.write { db in
+            for (id, muted) in previous {
+                guard var chat = try ChatRecord.fetchOne(db, key: id) else { continue }
+                chat.muted = muted
+                try chat.update(db)
+            }
+        }
     }
 
     func setArchived(_ archived: Bool, chatID: String) async throws {
@@ -59,7 +193,75 @@ struct ChatStore: Sendable {
         try await update(chatID) { chat in chat.muted = muted }
     }
 
+    /// Фото группы после загрузки или удаления: сокет об удалении молчит (`nil` в
+    /// `chat:updated` не отличить от «не менялось»), а список и шапка читают базу.
+    func setAvatar(_ url: String?, chatID: String) async throws {
+        try await update(chatID) { chat in chat.avatarUrl = url }
+    }
+
+    /// Владение передано: права в шапке и меню — сразу, не дожидаясь списка.
+    func setOwner(_ isOwner: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.isOwner = isOwner }
+    }
+
+    /// Флаг «я заблокировал собеседника» у личного чата с человеком — для плашки над полем
+    /// ввода. Собеседника запись чата не хранит, поэтому чат находим по его сообщениям;
+    /// переписку без единого его сообщения поправит следующая страница списка.
+    func setBlocked(_ blocked: Bool, peerID: String) async throws {
+        _ = try await database.writer.write { db in
+            try ChatRecord
+                .filter(Column("type") == ChatKind.private.rawValue)
+                .filter(sql: "id IN (SELECT chatId FROM message WHERE senderId = ?)", arguments: [peerID])
+                .updateAll(db, Column("blocked").set(to: blocked))
+        }
+    }
+
+    /// Флаг блокировки у одного чата — из карточки чата, где чат уже известен.
+    func setBlocked(_ blocked: Bool, chatID: String) async throws {
+        try await update(chatID) { chat in chat.blocked = blocked }
+    }
+
+    /// Название и описание группы после правки: сервер принял, список и шапка читают базу.
+    func setGroupInfo(title: String, description: String, chatID: String) async throws {
+        try await update(chatID) { chat in
+            chat.title = title
+            chat.chatDescription = description
+        }
+    }
+
+    /// Чат удалён или покинут: строка уходит из списка сразу, не дожидаясь сокета.
+    func deleteChat(id: String) async throws {
+        _ = try await database.writer.write { db in try ChatRecord.deleteOne(db, key: id) }
+    }
+
     // MARK: - Внутреннее
+
+    /// Папка с составом. Состав заменяется целиком — так его хранит и сервер.
+    private func write(_ folder: ChatFolderDTO, in db: Database) throws {
+        try FolderRecord(
+            id: folder.id,
+            name: folder.name,
+            position: folder.position,
+            emoji: folder.emoji,
+            color: folder.color,
+            includeContacts: folder.includeContacts,
+            includeNonContacts: folder.includeNonContacts,
+            includeGroups: folder.includeGroups
+        )
+        .upsert(db)
+        try FolderChatRecord
+            .filter(Column("folderId") == folder.id)
+            .deleteAll(db)
+        for chatID in Set(folder.chatIds) {
+            try FolderChatRecord(folderId: folder.id, chatId: chatID).insert(db)
+        }
+        try FolderExcludedChatRecord
+            .filter(Column("folderId") == folder.id)
+            .deleteAll(db)
+        for chatID in Set(folder.excludedChatIds) {
+            try FolderExcludedChatRecord(folderId: folder.id, chatId: chatID).insert(db)
+        }
+    }
 
     private func update(
         _ chatID: String,
@@ -93,11 +295,30 @@ struct ChatStore: Sendable {
             othersReadAt: item.othersReadAt,
             lastMessageId: item.lastMessage?.id ?? known?.lastMessageId,
             // Номер только растёт: страница списка может приехать с отставанием от
-            // сокета, и откатить позицию догона означало бы перекачать переписку.
+            // сокета. Позицию догона (`syncSeq`) список не трогает: превью — не история,
+            // и всё между прежней позицией и ним иначе не скачалось бы никогда.
             lastSeq: max(known?.lastSeq ?? 0, item.lastMessage?.seq ?? 0),
-            updatedAt: item.updatedAt
+            updatedAt: item.updatedAt,
+            online: item.online ?? false,
+            isOwner: item.isOwner ?? false,
+            isAdmin: item.isAdmin ?? false,
+            blocked: item.blocked ?? false,
+            blockedBy: item.blockedBy ?? false,
+            markedUnread: item.markedUnread ?? false,
+            pinnedOrder: item.pinnedAt == nil ? nil : item.pinnedOrder,
+            isFriend: item.isFriend ?? false,
+            syncSeq: known?.syncSeq ?? 0,
+            syncedAt: known?.syncedAt,
+            // Несверенное — тоже свойство истории, а не превью: список его не трогает.
+            unsyncedBelow: known?.unsyncedBelow
         )
-        try chat.upsert(db)
+        // Только изменённые столбцы: страница списка приходит целиком на каждое обновление,
+        // и запись без перемен будила бы все наблюдения за таблицей чатов.
+        if let known {
+            try chat.updateChanges(db, from: known)
+        } else {
+            try chat.insert(db)
+        }
 
         // Превью пишем ПОСЛЕ чата: у сообщения внешний ключ на него, и при первой
         // синхронизации нового чата запись сорвалась бы на ограничении целиком.
@@ -111,22 +332,9 @@ struct ChatStore: Sendable {
     /// Сообщение-превью кладём в ту же таблицу, что и историю: это то же сообщение,
     /// и когда человек откроет чат, строка просто обновится.
     private func save(_ message: ChatMessageDTO, in db: Database) throws {
-        try MessageRecord(
-            id: message.id,
-            remoteId: message.id,
-            chatId: message.chatId,
-            seq: message.seq,
-            senderId: message.senderId,
-            content: message.content,
-            replyToId: message.replyToId,
-            replyQuote: message.replyQuote,
-            systemType: message.systemType,
-            editedAt: message.editedAt,
-            deletedAt: message.deletedAt,
-            pinnedAt: message.pinnedAt,
-            createdAt: message.createdAt,
-            sendState: .sent
-        ).upsert(db)
+        // Своё отправленное лежит под локальным ключом — его обновляет общий путь
+        // переписки, иначе превью вставило бы дубль с тем же `remoteId`.
+        try MessageStore.upsert(message, in: db)
     }
 
     /// Черновик с сервера принимаем, только если своего неотправленного нет.
@@ -139,15 +347,24 @@ struct ChatStore: Sendable {
         if let local, !local.isSynced { return }
 
         guard let text, !text.isEmpty else {
-            try DraftRecord.deleteOne(db, key: chatID)
+            if local != nil { try DraftRecord.deleteOne(db, key: chatID) }
             return
         }
-        try DraftRecord(
+        let mirrored = DraftRecord(
             chatId: chatID,
             text: text,
             replyToId: local?.replyToId,
             updatedAt: local?.updatedAt ?? Date(),
             isSynced: true
-        ).upsert(db)
+        )
+        guard mirrored != local else { return }
+        try mirrored.upsert(db)
     }
+}
+
+/// Состояние прочтения чата до «Прочитать» — для отката при отказе сервера.
+struct ChatReadSnapshot: Sendable, Equatable {
+    let chatID: String
+    let unreadCount: Int
+    let markedUnread: Bool
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import * as Sentry from '@sentry/nextjs'
+import { captureException } from '../shared/lib/capture-exception'
 
 // Последний рубеж: срабатывает, когда упал сам корневой layout — т.е. когда обычные
 // error.tsx отрисовать уже нечем. Поэтому здесь есть <html>/<body> (Ф13.8).
@@ -122,7 +122,7 @@ export default function GlobalError({
   reset: () => void
 }) {
   useEffect(() => {
-    Sentry.captureException(error, {
+    captureException(error, {
       tags: {
         source: 'global-error',
         ...(error.digest ? { next_digest: error.digest } : {}),

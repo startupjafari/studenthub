@@ -155,7 +155,8 @@ describe('ExportRegistryService', () => {
           where: { shortId: 'USERS234', kind: { in: [...VERIFIABLE_EXPORT_KINDS] } },
         }),
       )
-      expect(VERIFIABLE_EXPORT_KINDS).toEqual(['certificate'])
+      // Справка «задолженностей в библиотеке нет» (Фаза 21.C4) проверяется тем же путём.
+      expect(VERIFIABLE_EXPORT_KINDS).toEqual(['certificate', 'library-clearance'])
     })
 
     it('ФИО — фамилия с инициалами', async () => {
@@ -184,5 +185,67 @@ describe('ExportRegistryService', () => {
     )
     expect(tx.documentExport.updateMany).toHaveBeenCalled()
     expect(prisma.documentExport.updateMany).not.toHaveBeenCalled()
+  })
+
+  // Фаза 21.C4: справки одного вида ищут и отзывают по реквизитам в params (вуз, читатель).
+  describe('документы по реквизитам', () => {
+    it('отзыв — только действующих этого вида с совпавшими реквизитами', async () => {
+      const { service, prisma } = setup(jest.fn())
+      const after = new Date('2026-11-06T10:00:00Z')
+      await service.revokeMatching(
+        'library-clearance',
+        { universityId: 'uni-1', readerId: 'stu-1' },
+        { createdAfter: after },
+      )
+      expect(prisma.documentExport.updateMany).toHaveBeenCalledWith({
+        where: {
+          kind: 'library-clearance',
+          revokedAt: null,
+          AND: [
+            { params: { path: ['universityId'], equals: 'uni-1' } },
+            { params: { path: ['readerId'], equals: 'stu-1' } },
+          ],
+          createdAt: { gte: after },
+        },
+        data: { revokedAt: expect.any(Date) },
+      })
+    })
+
+    it('журнал: фильтр по статусу, реквизиты строками', async () => {
+      const { service, prisma } = setup(jest.fn())
+      const findMany = jest.fn().mockResolvedValue([
+        {
+          shortId: 'K7M3QABC',
+          documentNumber: 'LIB-2026-ABCDEF',
+          subjectName: 'Сейтова Айгерим',
+          userId: 'stu-1',
+          params: { universityId: 'uni-1', readerId: 'stu-1' },
+          createdAt: new Date('2026-11-06T10:00:00Z'),
+          revokedAt: null,
+        },
+      ])
+      Object.assign(prisma.documentExport, { findMany })
+      prisma.$transaction.mockImplementation(async (arg: unknown) =>
+        Promise.all(arg as Promise<unknown>[]),
+      )
+      prisma.documentExport.count.mockResolvedValue(1)
+      const page = await service.listIssued(
+        'library-clearance',
+        { universityId: 'uni-1' },
+        { status: 'revoked', skip: 0, take: 20 },
+      )
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            kind: 'library-clearance',
+            AND: [{ params: { path: ['universityId'], equals: 'uni-1' } }],
+            revokedAt: { not: null },
+          },
+          take: 20,
+        }),
+      )
+      expect(page.total).toBe(1)
+      expect(page.items[0]).toMatchObject({ shortId: 'K7M3QABC', params: { readerId: 'stu-1' } })
+    })
   })
 })

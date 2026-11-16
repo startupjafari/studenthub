@@ -1,42 +1,6 @@
 import Foundation
 import Observation
 
-/// Общий скелет экранов «Учёбы».
-///
-/// Четыре раздела устроены одинаково: сходить в сеть, показать данные, показать
-/// отказ. Один тип вместо четырёх почти одинаковых — меньше мест, где состояние
-/// загрузки окажется обработано по-разному.
-@Observable
-final class StudySectionModel<Value> {
-    private(set) var value: Value?
-    private(set) var isLoading = false
-    private(set) var failure: String?
-
-    private let load: @Sendable () async throws -> Value
-
-    init(load: @escaping @Sendable () async throws -> Value) {
-        self.load = load
-    }
-
-    var isEmptyAfterLoad: Bool { value == nil && !isLoading && failure == nil }
-
-    @MainActor
-    func refresh() async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            value = try await load()
-            failure = nil
-        } catch {
-            // Данные с прошлого раза не стираем: пустой экран с ошибкой хуже, чем
-            // вчерашние оценки с пометкой об ошибке обновления.
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
-        }
-    }
-}
-
 /// Отметка посещаемости преподавателем.
 ///
 /// Отдельная модель, а не раздел-список: здесь человек меняет данные, и у экрана
@@ -75,8 +39,7 @@ final class AttendanceMarkingModel {
             )
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -108,8 +71,7 @@ final class AttendanceMarkingModel {
             savedAt = Date()
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 }

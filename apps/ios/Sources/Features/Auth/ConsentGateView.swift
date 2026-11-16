@@ -60,8 +60,7 @@ final class ConsentGateModel {
             )
             failure = nil
         } catch {
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
         }
     }
 
@@ -83,6 +82,9 @@ final class ConsentGateModel {
 struct ConsentGateView: View {
     @Bindable var model: ConsentGateModel
     let session: AppSessionModel
+
+    /// Документ, открытый для чтения перед согласием.
+    @State private var reading: LegalDocument?
 
     var body: some View {
         ScrollView {
@@ -116,6 +118,13 @@ struct ConsentGateView: View {
                         defaultValue: "Я принимаю политику конфиденциальности и пользовательское соглашение"
                     ))
                     .font(Typography.body)
+                }
+
+                // Принять можно только прочитанное: оба документа — тут же, нативным
+                // экраном, а не ссылкой в браузер.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Spacing.lg) { legalLinks }
+                    VStack(alignment: .leading, spacing: 0) { legalLinks }
                 }
 
                 if model.needsGuardian {
@@ -155,6 +164,25 @@ struct ConsentGateView: View {
         }
         .background(Palette.background)
         .interactiveDismissDisabled()
+        .sheet(item: $reading) { document in
+            NavigationStack {
+                LegalDocumentView(document: document, route: { $0 })
+                    .navigationDestination(for: LegalDocument.self) { LegalDocumentView(document: $0, route: { $0 }) }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            SheetCloseButton { reading = nil }
+                        }
+                    }
+            }
+        }
+    }
+
+    private var legalLinks: some View {
+        ForEach(LegalDocument.allCases) { document in
+            Button(document.title) { reading = document }
+                .font(.footnote.weight(.semibold))
+                .frame(minHeight: 44)
+        }
     }
 
     private var title: String {

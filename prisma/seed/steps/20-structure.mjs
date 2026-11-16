@@ -10,7 +10,7 @@
 import { facultiesFor } from '../data/faculties.mjs'
 import { universityProfile } from '../data/universities.mjs'
 import { academicCalendar, enrollmentYears } from '../lib/calendar.mjs'
-import { id, universityId } from '../lib/ids.mjs'
+import { id, roomId as roomIdOf, universityId } from '../lib/ids.mjs'
 
 // Студентов в группе. 25 — типичный размер академической группы; от него считаются
 // и число групп, и нагрузка преподавателей.
@@ -160,7 +160,7 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
   for (let r = 0; r < plan.roomCount; r += 1) {
     const floor = (r % 4) + 1
     const kind = r % 7 === 6 ? 'LAB' : 'AUDITORIUM'
-    const roomId = id(index, 'room', r)
+    const roomId = roomIdOf(index, 'room', r)
     rooms.push(roomId)
     await writer.add('room', {
       id: roomId,
@@ -177,7 +177,7 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
     })
   }
   for (const [kind, name, openHours] of SERVICE_ROOMS) {
-    const roomId = id(index, 'srv', kind.toLowerCase())
+    const roomId = roomIdOf(index, 'srv', kind.toLowerCase())
     await writer.add('room', {
       id: roomId,
       universityId: uniId,

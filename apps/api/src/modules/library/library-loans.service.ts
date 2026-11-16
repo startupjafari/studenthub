@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma, type BookCopyStatus } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, leftAcademicStatusCode } from '@studenthub/shared-types'
 import { LIBRARY_RETURN_CANCEL_HOURS } from '@studenthub/shared-schemas'
 import type {
   CancelLoanInput,
@@ -11,13 +11,16 @@ import type {
   LibraryReaderSession,
   LoanItem,
   LoanListQueryInput,
+  LookupReaderInput,
   ReaderBlocker,
+  ReaderSessionVia,
   ReaderEligibility,
   RenewLoanInput,
   ReturnLoanInput,
   ReturnLoanResult,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { ExportRegistryService } from '../../common/export/export-registry.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -31,8 +34,14 @@ import { StudentIdService } from '../student-id/student-id.service'
 import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
 import { addDays, daysBetween, endOfDay, formatDay, todayIn } from './library-dates'
-import { issueReaderTicket, readTicket } from './library-ticket'
-import { lockBookQueue, lockReader, releaseCopy, type HeldFor } from './library-holds'
+import { issueReaderTicket, readTicketSession } from './library-ticket'
+import {
+  assertReaderActive,
+  lockBookQueue,
+  lockReader,
+  releaseCopy,
+  type HeldFor,
+} from './library-holds'
 import {
   READER_ROLES,
   libraryConflict,
@@ -48,6 +57,8 @@ import {
 
 /** Сколько недавних выдач читателя показать библиотекарю рядом с карточкой. */
 const SESSION_LOANS = 20
+/** Номер билета в вузе не обязан быть уникальным: двух совпавших хватает, чтобы отказать. */
+const CARD_MATCHES = 2
 
 export const LOAN_SELECT = {
   id: true,
@@ -61,6 +72,7 @@ export const LOAN_SELECT = {
   cancelReason: true,
   disputedAt: true,
   lostSettledAt: true,
+  withoutPhone: true,
   readerId: true,
   readerName: true,
   readerGroup: true,
@@ -74,6 +86,9 @@ export const LOAN_SELECT = {
     },
   },
   issuedBy: { select: { firstName: true, lastName: true } },
+  // Только учебный статус: пометка «отчислен» в отчёте о просрочках (Фаза 21.C3). Остальное
+  // о читателе — снимком в самой выдаче.
+  reader: { select: { academicStatus: true } },
 } satisfies Prisma.LoanSelect
 
 export type LoanRow = Prisma.LoanGetPayload<{ select: typeof LOAN_SELECT }>
@@ -134,6 +149,7 @@ export class LibraryLoansService {
     private readonly settings: LibrarySettingsService,
     private readonly notifier: LibraryNotifier,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly exports: ExportRegistryService,
   ) {}
 
   // ── Сверка читателя ──────────────────────────────────────────────────────────────
@@ -151,9 +167,77 @@ export class LibraryLoansService {
     const settings = await this.settings.requireEnabled(universityId)
     const card = await this.studentId.verify(actor, token, ctx)
     const reader = await this.readerOf(universityId, card.id)
+    return this.readerSession(actor, universityId, settings, reader, 'qr')
+  }
+
+  /**
+   * Читатель без телефона (Фаза 21.C5): библиотекарь находит его по номеру студенческого в
+   * своём вузе и сверяет ФИО и фото — карточка та же узкая, что после скана. Каждый поиск —
+   * строка журнала удостоверений с отметкой «без телефона»: это просмотр данных человека без
+   * его QR. Пропуск такой сессии (`via: card`) выдаёт книгу только с отметкой `withoutPhone`.
+   * Нет такого номера — `404`; номер у двоих — `409 cardAmbiguous` (выдать можно только сканом).
+   */
+  async lookupReader(
+    actor: JwtPayload,
+    input: LookupReaderInput,
+    ctx: RequestContext,
+  ): Promise<LibraryReaderSession> {
+    const universityId = librarianLibrary(actor)
+    const settings = await this.settings.requireEnabled(universityId)
+    const matches = await this.prisma.user.findMany({
+      where: {
+        universityId,
+        deletedAt: null,
+        role: { in: [...READER_ROLES] },
+        studentCardNumber: { equals: input.studentCardNumber, mode: 'insensitive' },
+      },
+      select: { id: true },
+      take: CARD_MATCHES,
+    })
+    const [match] = matches
+    if (!match) {
+      throw new AppException('NOT_FOUND', 'Читатель с таким номером студенческого не найден')
+    }
+    if (matches.length > 1) {
+      throw libraryConflict(
+        'cardAmbiguous',
+        'Этот номер студенческого у нескольких читателей — выдайте книгу по скану QR',
+      )
+    }
+    const reader = await this.readerOf(universityId, match.id)
+    await this.prisma.libraryIdAccessLog.create({
+      data: {
+        universityId,
+        librarianId: actor.sub,
+        librarianName: await this.librarianName(actor.sub),
+        readerId: reader.id,
+        readerName: fullName(reader),
+        withoutPhone: true,
+        ip: ctx.ip ?? null,
+        userAgent: ctx.userAgent?.slice(0, 500) ?? null,
+      },
+    })
+    return this.readerSession(actor, universityId, settings, reader, 'card')
+  }
+
+  /** Сессия выдачи: карточка, может ли брать, его выдачи, пропуск на 15 минут. */
+  private async readerSession(
+    actor: JwtPayload,
+    universityId: string,
+    settings: { maxActiveLoans: number; defaultLoanDays: number; maxLoanDays: number },
+    reader: ReaderRow,
+    via: ReaderSessionVia,
+  ): Promise<LibraryReaderSession> {
     const timezone = await this.timezoneOf(universityId)
     const today = todayIn(timezone)
-    const { ticket, expiresAt } = issueReaderTicket(this.config, reader.id, actor.sub, universityId)
+    const { ticket, expiresAt } = issueReaderTicket(
+      this.config,
+      reader.id,
+      actor.sub,
+      universityId,
+      Date.now(),
+      via,
+    )
     const loans = await this.prisma.loan.findMany({
       where: { readerId: reader.id, universityId },
       orderBy: [{ status: 'asc' }, { dueAt: 'asc' }],
@@ -163,6 +247,7 @@ export class LibraryLoansService {
     return {
       reader: toReader(reader),
       eligibility: await this.eligibility(reader, settings.maxActiveLoans),
+      via,
       ticket,
       ticketExpiresAt: expiresAt.toISOString(),
       loans: await this.toItems(loans, timezone),
@@ -171,12 +256,36 @@ export class LibraryLoansService {
     }
   }
 
+  /** «Фамилия Имя» библиотекаря — снимком в журнал удостоверений. */
+  private async librarianName(userId: string): Promise<string> {
+    const librarian = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
+    return librarian ? `${librarian.lastName} ${librarian.firstName}` : '—'
+  }
+
   // ── Выдача ───────────────────────────────────────────────────────────────────────
 
   async issue(actor: JwtPayload, input: IssueLoanInput, ctx: RequestContext): Promise<LoanItem> {
     const universityId = librarianLibrary(actor)
     const settings = await this.settings.requireEnabled(universityId)
-    const readerId = readTicket(this.config, input.ticket, actor.sub, universityId)
+    const { readerId, via } = readTicketSession(this.config, input.ticket, actor.sub, universityId)
+    // Без скана QR — только с явной отметкой «читатель без телефона», и наоборот: отметка
+    // на выдаче по скану исказила бы отчёт. Как опознан читатель, говорит подпись пропуска.
+    const withoutPhone = via === 'card'
+    if (withoutPhone && input.withoutPhone !== true) {
+      throw libraryConflict(
+        'noPhoneMark',
+        'Без скана QR выдача — только с отметкой «читатель без телефона»',
+      )
+    }
+    if (!withoutPhone && input.withoutPhone === true) {
+      throw libraryConflict(
+        'noPhoneMark',
+        'Отметка «читатель без телефона» — только для выдачи без скана QR',
+      )
+    }
     const reader = await this.readerOf(universityId, readerId)
     const eligibility = await this.eligibility(reader, settings.maxActiveLoans)
     const blocker = eligibility.blockers[0]
@@ -194,6 +303,7 @@ export class LibraryLoansService {
 
     const copy = await this.findCopy(universityId, input)
     if (copy.book.archivedAt) throw libraryConflict('archived', 'Книга в архиве')
+    const librarianName = withoutPhone ? await this.librarianName(actor.sub) : null
     let reservationId: string | null = null
     if (copy.status === 'RESERVED') {
       // Отложенный под бронь экземпляр выдаётся только тому, чья это бронь.
@@ -216,6 +326,7 @@ export class LibraryLoansService {
       // обе видят «на одну меньше предела». Лок очереди книги — бронь, отложившая экземпляр,
       // и её отмена или истечение не проскочат между проверкой и выдачей.
       await lockReader(tx, reader.id)
+      await assertReaderActive(tx, reader.id)
       await lockBookQueue(tx, copy.book.id)
       const late = (await this.eligibility(reader, settings.maxActiveLoans, tx)).blockers[0]
       if (late) throw this.blockerConflict(late)
@@ -237,9 +348,26 @@ export class LibraryLoansService {
           readerCard: reader.studentCardNumber,
           bookTitle: copy.book.title,
           inventoryNumber: copy.inventoryNumber,
+          withoutPhone,
         },
         select: LOAN_SELECT,
       })
+      // Выдача без скана — и в журнал удостоверений, рядом с поиском по билету (21.C5).
+      if (withoutPhone) {
+        await tx.libraryIdAccessLog.create({
+          data: {
+            universityId,
+            loanId: created.id,
+            librarianId: actor.sub,
+            librarianName: librarianName ?? '—',
+            readerId: reader.id,
+            readerName: fullName(reader),
+            withoutPhone: true,
+            ip: ctx.ip ?? null,
+            userAgent: ctx.userAgent?.slice(0, 500) ?? null,
+          },
+        })
+      }
       if (reservationId) {
         // Условно: бронь, которую успели снять или которая истекла (экземпляр уже отложен
         // следующему), выдачу не закрывает — откат, экземпляр остаётся тому, чья бронь.
@@ -286,6 +414,7 @@ export class LibraryLoansService {
         copyId: copy.id,
         dueDate,
         ...(reservationId ? { reservationId } : {}),
+        ...(withoutPhone ? { withoutPhone: true } : {}),
       },
       ...ctx,
     })
@@ -677,7 +806,18 @@ export class LibraryLoansService {
         data: { status: 'OPEN', returnedAt: null, returnedToId: null, returnCondition: null },
       })
       if (count === 0) throw libraryConflict('notReturned', 'Возврат уже отменён')
-      return tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+      // Книга снова на руках — справка «задолженностей нет», выданная после ошибочного
+      // возврата, лжёт: она отзывается в той же транзакции (Фаза 21.C4).
+      const revokedClearances = loan.readerId
+        ? await this.exports.revokeMatching(
+            'library-clearance',
+            { universityId, readerId: loan.readerId },
+            { createdAfter: returnedAt },
+            tx,
+          )
+        : 0
+      const row = await tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+      return { row, revokedClearances }
     })
     await this.audit.record({
       userId: actor.sub,
@@ -691,6 +831,7 @@ export class LibraryLoansService {
         reason: input.reason,
         returnedAt: returnedAt.toISOString(),
         returnedToId: loan.returnedToId,
+        ...(updated.revokedClearances > 0 ? { revokedClearances: updated.revokedClearances } : {}),
       },
       ...ctx,
     })
@@ -707,7 +848,7 @@ export class LibraryLoansService {
         dedupeKey: `library-return-cancelled:${loanId}:${returnedAt.getTime()}`,
       })
     }
-    const [item] = await this.toItems([updated], timezone)
+    const [item] = await this.toItems([updated.row], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item
   }
@@ -819,6 +960,7 @@ export class LibraryLoansService {
       ...(query.filter === 'closed' ? { status: { in: ['RETURNED', 'LOST', 'CANCELLED'] } } : {}),
       ...(query.readerId ? { readerId: query.readerId } : {}),
       ...(query.copyId ? { copyId: query.copyId } : {}),
+      ...(query.withoutPhone !== undefined ? { withoutPhone: query.withoutPhone } : {}),
       ...(query.q
         ? {
             OR: [
@@ -987,6 +1129,7 @@ export class LibraryLoansService {
       cancelReason: r.cancelReason,
       disputedAt: r.disputedAt?.toISOString() ?? null,
       lostSettledAt: r.lostSettledAt?.toISOString() ?? null,
+      withoutPhone: r.withoutPhone,
       book: {
         id: r.copy.book.id,
         title: r.copy.book.title,
@@ -994,7 +1137,13 @@ export class LibraryLoansService {
         coverUrl: r.copy.book.coverFileId ? (covers.get(r.copy.book.coverFileId) ?? null) : null,
       },
       copy: { id: r.copyId, inventoryNumber: r.inventoryNumber },
-      reader: { id: r.readerId, name: r.readerName, group: r.readerGroup, card: r.readerCard },
+      reader: {
+        id: r.readerId,
+        name: r.readerName,
+        group: r.readerGroup,
+        card: r.readerCard,
+        leftStatus: leftAcademicStatusCode(r.reader?.academicStatus),
+      },
       issuedBy: r.issuedBy ? fullName(r.issuedBy) : null,
     }))
   }

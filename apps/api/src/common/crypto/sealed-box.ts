@@ -7,9 +7,13 @@ import {
   generateKeyPairSync,
   hkdfSync,
   randomBytes,
-  type JsonWebKey,
+  type webcrypto,
   type KeyObject,
 } from 'node:crypto'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба).
+type JsonWebKey = webcrypto.JsonWebKey
 
 // «Запечатанный конверт» для получателя с открытым ключом X25519 (docs/PROJECT.md §3.10).
 //

@@ -8,6 +8,7 @@ export {
   updateUsernameRequest,
   changePasswordRequest,
   deleteAccountRequest,
+  fetchAccountDeletionCheck,
   fetchConsentState,
   acceptConsentRequest,
   type ConsentState,

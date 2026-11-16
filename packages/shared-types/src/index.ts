@@ -3,3 +3,4 @@
 export * from './roles.js'
 export * from './error-codes.js'
 export * from './api-response.js'
+export * from './academic-status.js'

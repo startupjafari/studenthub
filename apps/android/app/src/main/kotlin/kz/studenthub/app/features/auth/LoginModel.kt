@@ -9,6 +9,7 @@ import kotlinx.coroutines.launch
 import kz.studenthub.app.R
 import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
+import kz.studenthub.app.core.network.validationText
 import kz.studenthub.app.core.session.AuthSession
 import kz.studenthub.app.core.session.LoginOutcome
 import kz.studenthub.app.core.session.SessionIssuing
@@ -139,9 +140,10 @@ class LoginModel(
             formError = error.displayMessage
             return
         }
-        // Текст поля сервер пишет по-русски — под полем своя строка на языке приложения.
+        // Ошибка поля приходит ключом валидации — под полем его перевод. Незнакомый ключ или
+        // готовый русский текст — своя общая строка на языке приложения.
         for (detail in error.details) {
-            val message = UiText.Res(R.string.error_validation)
+            val message = detail.validationText ?: UiText.Res(R.string.error_validation)
             when (detail.field) {
                 "identifier" -> identifierError = message
                 "password" -> passwordError = message

@@ -4,92 +4,73 @@ import SwiftUI
 ///
 /// Экран для студента и старосты — тот же каталог, что в вебе в режиме читателя.
 /// Пагинация серверная: следующая страница подтягивается, когда человек докрутил
-/// до конца списка.
+/// до конца списка. Подача — как список чатов: поиск всегда виден, разделы — капсулами
+/// под ним, «только на полке» — в меню фильтра панели.
 struct LibraryCatalogView: View {
     @State private var model = LibraryCatalogModel()
 
     var body: some View {
         List {
-            if model.isDisabled {
-                LibraryDisabledView()
-            } else {
-                if let failure = model.failure {
-                    FormAlert(message: failure)
+            if !model.isDisabled {
+                if !model.sections.isEmpty {
+                    FilterChipsRow(options: sectionOptions, selection: $model.query.section)
+                }
+
+                if model.query.text.isEmpty {
+                    Section {
+                        NavigationLink(value: AppRoute.myBooks) {
+                            IconRow(
+                                title: String(localized: "library.tabMine", defaultValue: "Мои книги"),
+                                symbol: "books.vertical.fill",
+                                tint: TileTint.yellow
+                            )
+                        }
+                    }
+                }
+
+                if let failure = model.failure, !model.books.isEmpty {
+                    StaleDataBanner(message: failure, isOffline: model.isOffline) { await model.refresh() }
                         .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets())
                 }
 
-                Section {
-                    NavigationLink(value: AppRoute.myBooks) {
-                        Label(
-                            String(localized: "library.tabMine", defaultValue: "Мои книги"),
-                            systemImage: "books.vertical"
-                        )
-                        .font(Typography.body)
-                    }
-                }
-                .listRowBackground(Palette.card)
-
-                Section {
-                    Picker(selection: $model.query.section) {
-                        Text(String(localized: "library.allSections", defaultValue: "Все разделы"))
-                            .tag(String?.none)
-                        ForEach(model.sections, id: \.self) { section in
-                            Text(section).tag(String?.some(section))
-                        }
-                    } label: {
-                        Text(String(localized: "library.section", defaultValue: "Раздел"))
-                    }
-                    Toggle(
-                        String(localized: "library.onlyAvailable", defaultValue: "Есть на полке"),
-                        isOn: $model.query.onlyAvailable
-                    )
-                }
-                .font(Typography.body)
-                .listRowBackground(Palette.card)
-
-                Section {
-                    ForEach(model.books) { book in
-                        NavigationLink(value: AppRoute.book(id: book.id)) {
-                            BookRow(book: book)
-                        }
-                        .onAppear {
-                            if book.id == model.books.last?.id {
-                                Task { await model.loadMore() }
-                            }
-                        }
-                    }
-
-                    if model.isLoading {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .listRowBackground(Color.clear)
-                    }
-
-                    if model.books.isEmpty, !model.isLoading, model.loadedQuery != nil {
-                        if model.query.isFiltered {
-                            EmptyRow(text: String(localized: "library.nothingFound", defaultValue: "Ничего не найдено"))
-                        } else {
-                            EmptyRow(text: String(
-                                localized: "library.emptyCatalog",
-                                defaultValue: "Библиотека ещё заполняет каталог — загляните позже."
-                            ))
-                        }
-                    }
-                }
-                .listRowBackground(Palette.card)
+                books
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Palette.background)
+        .screenState(model.isDisabled || model.books.isEmpty) {
+            if model.isDisabled {
+                LibraryDisabledView()
+            } else {
+                booksState
+            }
+        }
         .navigationTitle(Text(String(localized: "library.title", defaultValue: "Библиотека")))
-        .searchable(
+        .listSearch(
             text: $model.query.text,
             prompt: Text(String(localized: "library.searchPlaceholder", defaultValue: "Название, автор или ISBN"))
         )
         .autocorrectionDisabled()
-        .refreshable { await model.refresh() }
+        .toolbar {
+            if !model.isDisabled {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Toggle(isOn: $model.query.onlyAvailable) {
+                            Label(
+                                String(localized: "library.onlyAvailable", defaultValue: "Есть на полке"),
+                                systemImage: "checkmark.circle"
+                            )
+                        }
+                    } label: {
+                        Image(systemName: model.query.onlyAvailable
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
+                    }
+                    .accessibilityLabel(Text(String(localized: "library.filter", defaultValue: "Фильтр")))
+                }
+            }
+        }
+        .pullToRefresh { await model.refresh() }
         .task(id: model.query) {
             // Возврат с карточки книги не перезагружает список: подгруженные страницы
             // и прокрутка остаются на месте. Свежее — по жесту обновления.
@@ -103,6 +84,69 @@ struct LibraryCatalogView: View {
             await model.refresh()
         }
     }
+
+    private var sectionOptions: [(value: String?, title: String)] {
+        var options: [(value: String?, title: String)] = [
+            (value: nil, title: String(localized: "library.allSections", defaultValue: "Все разделы")),
+        ]
+        options += model.sections.map { (value: String?.some($0), title: $0) }
+        return options
+    }
+
+    /// Книг на экране нет: первая загрузка, сбой, пустой поиск или пустой каталог.
+    @ViewBuilder
+    private var booksState: some View {
+        if model.loadedQuery == nil {
+            if let failure = model.failure, !model.isLoading {
+                ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+            } else {
+                LoadingStateView()
+            }
+        } else if model.isLoading {
+            ProgressView()
+        } else if let failure = model.failure {
+            // Сбой — не «ничего не найдено»: пустой список здесь значит, что ответа нет.
+            ErrorStateView(message: failure, isOffline: model.isOffline) { await model.refresh() }
+        } else if model.query.isFiltered {
+            EmptyStateView(
+                title: String(localized: "library.nothingFound", defaultValue: "Ничего не найдено"),
+                symbol: "magnifyingglass",
+                hint: String(localized: "services.notFound.hint", defaultValue: "Попробуйте другое слово")
+            )
+        } else {
+            EmptyStateView(
+                title: String(localized: "library.emptyCatalog", defaultValue: "Библиотека ещё заполняет каталог — загляните позже."),
+                symbol: "books.vertical"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var books: some View {
+        if !model.books.isEmpty {
+            Section {
+                ForEach(model.books) { book in
+                    NavigationLink(value: AppRoute.book(id: book.id)) {
+                        BookRow(book: book)
+                    }
+                    .onAppear {
+                        if book.id == model.books.last?.id {
+                            Task { await model.loadMore() }
+                        }
+                    }
+                }
+                if model.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                }
+            } footer: {
+                if model.total > 0 {
+                    Text(String(localized: "common.totalCount", defaultValue: "Всего: \(model.total.formatted())"))
+                }
+            }
+        }
+    }
 }
 
 /// Строка каталога: обложка, название, авторы и год, наличие.
@@ -110,22 +154,24 @@ private struct BookRow: View {
     let book: BookCardDTO
 
     var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            BookCoverView(url: book.coverUrl)
-            VStack(alignment: .leading, spacing: Spacing.xs) {
+        HStack(alignment: .center, spacing: Spacing.lg) {
+            BookCoverView(url: book.coverUrl, width: 44)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(book.title)
-                    .font(Typography.cardTitle)
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.foreground)
                     .lineLimit(2)
                 if !book.byline.isEmpty {
                     Text(book.byline)
-                        .font(Typography.meta)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.mutedForeground)
                         .lineLimit(1)
                 }
                 ShelfBadge(availability: book.availability)
+                    .padding(.top, 2)
             }
         }
-        .padding(.vertical, Spacing.xs)
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }

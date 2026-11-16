@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ExternalLink, Send } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, Send } from 'lucide-react'
 import { isApplicationFinal } from '@studenthub/shared-schemas'
 import {
   applicationKeys,
@@ -13,6 +13,11 @@ import {
   withdrawApplication,
   type StudentApplication,
 } from '../../../entities/career-application'
+import {
+  careerProfileKeys,
+  shareProfileWithCompany,
+  unshareProfileWithCompany,
+} from '../../../entities/career-profile'
 import {
   Badge,
   Button,
@@ -52,6 +57,21 @@ export function CareerApplicationsView() {
     onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
+  // Адресное открытие профиля компании (21.D1): закрыть или открыть снова. Обратимо в обе
+  // стороны, поэтому без подтверждения.
+  const profileAccess = useMutation({
+    mutationFn: ({ companyId, share }: { companyId: string; share: boolean }) =>
+      share ? shareProfileWithCompany(companyId) : unshareProfileWithCompany(companyId),
+    onSuccess: async (_data, { share }) => {
+      toast.success(share ? t('profileShared') : t('profileUnshared'))
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: applicationKeys.all }),
+        queryClient.invalidateQueries({ queryKey: careerProfileKeys.all }),
+      ])
+    },
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
+  })
+
   const rows = query.data?.items ?? []
 
   return (
@@ -87,7 +107,10 @@ export function CareerApplicationsView() {
               <ApplicationRow
                 key={application.id}
                 application={application}
-                busy={withdraw.isPending}
+                busy={withdraw.isPending || profileAccess.isPending}
+                onProfileAccess={(share) =>
+                  profileAccess.mutate({ companyId: application.vacancy.company.id, share })
+                }
                 // Отзыв необратим (WITHDRAWN — конечный статус): спрашиваем, а не отзываем
                 // с одного случайного нажатия.
                 onWithdraw={() =>
@@ -119,10 +142,12 @@ function ApplicationRow({
   application,
   busy,
   onWithdraw,
+  onProfileAccess,
 }: {
   application: StudentApplication
   busy: boolean
   onWithdraw: () => void
+  onProfileAccess: (share: boolean) => void
 }) {
   const t = useTranslations('CareerApplications')
   const { label, tone } = useApplicationStatusLabels()
@@ -150,6 +175,13 @@ function ApplicationRow({
             <ExternalLink className="size-3.5 shrink-0" aria-hidden />
           </a>
         )}
+        <ProfileAccessLine
+          access={application.profileAccess}
+          // Открывать профиль под завершённый отклик незачем, а закрыть — можно всегда.
+          canShare={!isApplicationFinal(application.status)}
+          busy={busy}
+          onChange={onProfileAccess}
+        />
       </div>
 
       <div className="flex items-center gap-1">
@@ -170,6 +202,46 @@ function ApplicationRow({
 
       {historyOpen && <ApplicationHistory applicationId={application.id} />}
     </li>
+  )
+}
+
+/**
+ * Видит ли компания карьерный профиль (21.D1). Профиль, открытый всем работодателям, тут не
+ * настраивается — это переключатель на экране профиля, строку не показываем.
+ */
+function ProfileAccessLine({
+  access,
+  canShare,
+  busy,
+  onChange,
+}: {
+  access: StudentApplication['profileAccess']
+  canShare: boolean
+  busy: boolean
+  onChange: (share: boolean) => void
+}) {
+  const t = useTranslations('CareerApplications')
+  if (access === 'EMPLOYERS') return null
+  const shared = access === 'COMPANY'
+  if (!shared && !canShare) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+      {shared ? (
+        <Eye className="size-3.5 shrink-0" aria-hidden />
+      ) : (
+        <EyeOff className="size-3.5 shrink-0" aria-hidden />
+      )}
+      <span>{shared ? t('profileSharedWithCompany') : t('profileHiddenFromCompany')}</span>
+      <Button
+        size="sm"
+        variant="link"
+        className="h-auto p-0"
+        disabled={busy}
+        onClick={() => onChange(!shared)}
+      >
+        {shared ? t('unshareProfile') : t('shareProfile')}
+      </Button>
+    </div>
   )
 }
 

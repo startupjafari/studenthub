@@ -206,7 +206,6 @@ export function ProfileTabs({
                 type="button"
                 role="tab"
                 aria-selected={active}
-                aria-label={count !== undefined ? `${item.label} (${count})` : item.label}
                 disabled={locked}
                 onClick={() => onTabChange(item.id)}
                 className={cn(

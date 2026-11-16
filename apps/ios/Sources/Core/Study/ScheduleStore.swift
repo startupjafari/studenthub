@@ -26,7 +26,9 @@ struct ScheduleStore: Sendable {
                     weekType: pair.weekType,
                     teacherName: Self.name(of: pair.teacher),
                     roomName: pair.room?.name,
-                    groupId: pair.groupId
+                    groupId: pair.groupId,
+                    roomId: pair.room?.id,
+                    teacherId: pair.teacher?.id
                 ).insert(db)
             }
         }

@@ -59,8 +59,8 @@ final class ChatStoreTests: XCTestCase {
         }
     }
 
-    /// Позиция догона только растёт: страница списка может приехать с отставанием от
-    /// сокета, и откат номера означал бы перекачку переписки.
+    /// Номер последнего только растёт: страница списка может приехать с отставанием от
+    /// сокета.
     func testLastSeqNeverGoesBackwards() async throws {
         let database = try AppDatabase.inMemory()
         let store = ChatStore(database: database)
@@ -70,6 +70,23 @@ final class ChatStoreTests: XCTestCase {
 
         let seq = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1")?.lastSeq }
         XCTAssertEqual(seq, 10)
+    }
+
+    /// Страница списка не двигает позицию догона (IOS_RULES 9.3.4): превью — не история,
+    /// и всё между прежней позицией и ним иначе не скачалось бы никогда.
+    func testListPageDoesNotMoveSyncPosition() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = ChatStore(database: database)
+        try await store.save(chats: [item(id: "c-1", seq: 4, text: "было")])
+        try await database.writer.write { db in
+            try db.execute(sql: "UPDATE chat SET syncSeq = 4")
+        }
+
+        try await store.save(chats: [item(id: "c-1", seq: 9, text: "после офлайна")])
+
+        let chat = try await database.reader.read { db in try ChatRecord.fetchOne(db, key: "c-1") }
+        XCTAssertEqual(chat?.lastSeq, 9)
+        XCTAssertEqual(chat?.syncSeq, 4)
     }
 
     /// Местный неотправленный черновик — всегда свежее серверного: человек печатает

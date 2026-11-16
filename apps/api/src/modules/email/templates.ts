@@ -1,5 +1,6 @@
 // Шаблоны писем (docs/PROJECT.md §10.1, §3.3 EmailProcessor).
-// Восемь типов: приглашение, подтверждение email компании, сброс пароля, сброс 2FA
+// Девять типов: приглашение, подтверждение email компании, приглашение в команду компании,
+// сброс пароля, сброс 2FA
 // администратором, офлайн-зеркало in-app уведомления и три письма прихода вуза —
 // подтверждение адреса заявки, одобрение, отказ. Приветствие, статус заявки, изменение
 // расписания и напоминание о событии убраны (F-F19): их никто не ставил в очередь, а
@@ -58,6 +59,18 @@ export interface CompanyVerificationPayload extends LocalizedEmailPayload {
   to: string
   companyName: string
   verifyUrl: string
+  expiresAt: string
+}
+
+/**
+ * Приглашение коллеги в команду компании (21.D2). Адресат ещё без аккаунта — языка у него
+ * нет, письмо уходит на языке по умолчанию. Ссылка одноразовая, в базе — только её хэш.
+ */
+export interface CompanyInvitePayload extends LocalizedEmailPayload {
+  to: string
+  companyName: string
+  invitedByName?: string
+  inviteUrl: string
   expiresAt: string
 }
 
@@ -309,6 +322,47 @@ export function renderInvite(data: InvitePayload): RenderedEmail {
     t,
   )
   return { subject, html, text }
+}
+
+export function renderCompanyInvite(data: CompanyInvitePayload): RenderedEmail {
+  const t = emailDict(data.locale)
+  // Кто приглашает: в html имя экранируется, в текстовой версии — как есть.
+  const lead = (name: string | undefined, company: string) =>
+    t.companyInvite.lead(
+      name ? t.invite.invitedBy(name) : t.companyInvite.invitedImpersonal,
+      company,
+    )
+  const html = layout(
+    {
+      preheader: t.companyInvite.preheader(esc(data.companyName), esc(data.expiresAt)),
+      heading: t.companyInvite.heading,
+      body:
+        paragraph(
+          lead(data.invitedByName ? esc(data.invitedByName) : undefined, esc(data.companyName)),
+        ) +
+        facts([
+          [t.facts.company, esc(data.companyName)],
+          [t.facts.validUntil, esc(data.expiresAt)],
+        ]) +
+        paragraph(t.companyInvite.finish) +
+        action(data.inviteUrl, t.companyInvite.action, t) +
+        note(t.companyInvite.note),
+    },
+    t,
+  )
+  const text = plain(
+    [
+      lead(data.invitedByName, data.companyName),
+      `${t.facts.validUntil} ${data.expiresAt}`,
+      '',
+      t.companyInvite.finish,
+      data.inviteUrl,
+      '',
+      t.companyInvite.plainNote,
+    ],
+    t,
+  )
+  return { subject: t.companyInvite.subject(data.companyName), html, text }
 }
 
 export function renderCompanyVerification(data: CompanyVerificationPayload): RenderedEmail {

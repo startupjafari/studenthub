@@ -180,6 +180,110 @@ extension AppDatabase {
             )
         }
 
+        migrator.registerMigration("v5.chatExtras") { db in
+            // Подробности сообщения и флаги чата для полноценной переписки. Колонки
+            // только добавляются: старые строки получают значения по умолчанию и
+            // дозаполняются при следующей синхронизации.
+            try db.alter(table: MessageRecord.databaseTableName) { table in
+                table.add(column: "senderName", .text)
+                table.add(column: "senderAvatar", .text)
+                table.add(column: "extras", .jsonText)
+            }
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "online", .boolean).notNull().defaults(to: false)
+                table.add(column: "isOwner", .boolean).notNull().defaults(to: false)
+                table.add(column: "isAdmin", .boolean).notNull().defaults(to: false)
+                table.add(column: "blocked", .boolean).notNull().defaults(to: false)
+                table.add(column: "blockedBy", .boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "placeholder", .text)
+                table.add(column: "durationMs", .integer)
+            }
+        }
+
+        migrator.registerMigration("v6.pairRefs") { db in
+            // Ссылки занятия на аудиторию и преподавателя: из карточки пары — на карту
+            // кампуса и в профиль. Старые строки остаются без них до следующей
+            // синхронизации расписания.
+            try db.alter(table: PairRecord.databaseTableName) { table in
+                table.add(column: "roomId", .text)
+                table.add(column: "teacherId", .text)
+            }
+        }
+
+        migrator.registerMigration("v7.attachmentSpoiler") { db in
+            // Снимок-спойлер: в пузыре размыт до касания. Старые записи — без размытия
+            // до следующей подгрузки переписки.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "spoiler", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("v8.attachmentAsDocument") { db in
+            // Вложение «как файл»: снимок в пузыре — строкой файла. Старые записи — превью
+            // до следующей подгрузки переписки.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "asDocument", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("listFolders_chatFlagsAndFolderRules") { db in
+            // Список как в Telegram: «пометить как новое», ручной порядок закреплённых,
+            // друзья для правил папок. Старые строки получают значения по умолчанию и
+            // дозаполняются следующей страницей списка.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "markedUnread", .boolean).notNull().defaults(to: false)
+                table.add(column: "pinnedOrder", .integer)
+                table.add(column: "isFriend", .boolean).notNull().defaults(to: false)
+            }
+            // Папка: значок, цвет тега и типы чатов. Состав по-прежнему в `folderChat`,
+            // исключения — рядом своей таблицей.
+            try db.alter(table: FolderRecord.databaseTableName) { table in
+                table.add(column: "emoji", .text)
+                table.add(column: "color", .integer)
+                table.add(column: "includeContacts", .boolean).notNull().defaults(to: false)
+                table.add(column: "includeNonContacts", .boolean).notNull().defaults(to: false)
+                table.add(column: "includeGroups", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: FolderExcludedChatRecord.databaseTableName) { table in
+                table.column("folderId", .text)
+                    .notNull()
+                    .references(FolderRecord.databaseTableName, onDelete: .cascade)
+                // Без внешнего ключа на чат — как и у состава: папка приходит раньше страниц.
+                table.column("chatId", .text).notNull()
+                table.primaryKey(["folderId", "chatId"])
+            }
+        }
+
+        migrator.registerMigration("syncIntegrity_chatSyncPosition") { db in
+            // Позиция догона отдельно от номера последнего сообщения: страница списка
+            // поднимает номер, но не скачивает того, что между (IOS_RULES 9.3.4). Текущее
+            // значение переносим как есть — лучшего у старой базы нет.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "syncSeq", .integer).notNull().defaults(to: 0)
+                table.add(column: "syncedAt", .datetime)
+            }
+            try db.execute(sql: "UPDATE \(ChatRecord.databaseTableName) SET syncSeq = lastSeq")
+        }
+
+        migrator.registerMigration("dataSync_messageSendRejected") { db in
+            // Отказ сервера по существу отдельно от «не дошло»: такую строку очередь сама
+            // не повторяет (IOS_RULES 9.3.1). Старые неудачи считаем временными — у
+            // старой базы различия нет, и лишний повтор безвреднее потерянного сообщения.
+            try db.alter(table: MessageRecord.databaseTableName) { table in
+                table.add(column: "sendRejected", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("overflowUnsynced_chatUnsyncedBelow") { db in
+            // Граница несверенного после переполнения догона: историю больше не стираем,
+            // а сверяем лениво (IOS_RULES 9.3.13). У старой базы несверенного нет.
+            try db.alter(table: ChatRecord.databaseTableName) { table in
+                table.add(column: "unsyncedBelow", .integer)
+            }
+        }
+
         return migrator
     }
 }

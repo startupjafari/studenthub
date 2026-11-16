@@ -8,6 +8,7 @@ import type {
   StaffManagedStudentField,
   UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
+import { BLOCKED_ACADEMIC_STATUSES } from '@studenthub/shared-types'
 import {
   adminUserKeys,
   fetchUserById,
@@ -62,8 +63,8 @@ const FIELDS: { key: StaffManagedStudentField; kind: Kind; options?: string[] }[
 ]
 
 // Статусы, с которыми студент выходит из вуза: при переводе в них показываем книги, которые
-// за ним числятся в библиотеке (Фаза 20.11). Значения — из ACADEMIC_STATUS_DICT.
-const LEAVING_STATUSES = new Set(['Выпускник', 'Отчислен', 'Переведён'])
+// за ним числятся в библиотеке (Фаза 20.11). Тот же список закрывает выдачу на api.
+const LEAVING_STATUSES = new Set<string>(BLOCKED_ACADEMIC_STATUSES)
 
 const NUMERIC = new Set<StaffManagedStudentField>([
   'course',

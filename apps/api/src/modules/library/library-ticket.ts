@@ -3,10 +3,15 @@ import type { ConfigService } from '@nestjs/config'
 import { signToken, verifyToken } from '../../common/crypto/signed-token'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { EnvVars } from '../../config/env.schema'
+import type { ReaderSessionVia } from '@studenthub/shared-schemas'
 
 // Пропуск на выдачу книг читателю (Фаза 20.4). QR студенческого живёт две минуты и разовый
 // — за это время выдать несколько книг подряд удаётся не всегда. Библиотекарь сканирует его
 // один раз и получает пропуск на 15 минут: только для себя, этого читателя и своего вуза.
+//
+// В пропуске — как опознан читатель (Фаза 21.C5): `qr` — скан студенческого, `card` — номер
+// билета у читателя без телефона. Выдача по `card` требует отметки «без телефона», и это
+// решает подпись пропуска, а не слово клиента. Пропуск без поля (выданный до правки) — `qr`.
 
 const TICKET_TTL_MS = 15 * 60_000
 
@@ -16,6 +21,7 @@ interface TicketPayload {
   lib: string
   uni: string
   exp: number
+  via?: ReaderSessionVia
 }
 
 /**
@@ -34,10 +40,11 @@ export function issueReaderTicket(
   librarianId: string,
   universityId: string,
   now = Date.now(),
+  via: ReaderSessionVia = 'qr',
 ): { ticket: string; expiresAt: Date } {
   const exp = now + TICKET_TTL_MS
   const ticket = signToken<TicketPayload>(
-    { typ: 'library-reader', sub: readerId, lib: librarianId, uni: universityId, exp },
+    { typ: 'library-reader', sub: readerId, lib: librarianId, uni: universityId, exp, via },
     secret(config),
   )
   return { ticket, expiresAt: new Date(exp) }
@@ -50,6 +57,16 @@ export function readTicket(
   librarianId: string,
   universityId: string,
 ): string {
+  return readTicketSession(config, ticket, librarianId, universityId).readerId
+}
+
+/** Читатель по пропуску и как он опознан (скан QR или номер билета). */
+export function readTicketSession(
+  config: ConfigService<EnvVars, true>,
+  ticket: string,
+  librarianId: string,
+  universityId: string,
+): { readerId: string; via: ReaderSessionVia } {
   const res = verifyToken<TicketPayload>(ticket, secret(config), Date.now())
   if (!res.ok) {
     throw new AppException(
@@ -66,5 +83,5 @@ export function readTicket(
       { field: 'ticket', message: 'foreign' },
     ])
   }
-  return p.sub
+  return { readerId: p.sub, via: p.via === 'card' ? 'card' : 'qr' }
 }

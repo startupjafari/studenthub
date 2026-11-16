@@ -12,14 +12,27 @@ import { Button } from './button'
 export interface FileUploadProps<T> {
   /** Категория задаёт лимит размера и белый список типов. */
   category: FileCategory
-  /** Функция загрузки — инкапсулирует эндпоинт/бакет (напр. аватар vs медиа поста). */
-  uploadFn: (file: File, onProgress: (percent: number) => void) => Promise<T>
+  /**
+   * Функция загрузки — инкапсулирует эндпоинт/бакет (напр. аватар vs медиа поста).
+   * `signal` — отмена крестиком во время загрузки: функция обязана оборвать запрос и
+   * завершиться ошибкой, а не дозалить файл (у многочастной загрузки это `abort` частей).
+   */
+  uploadFn: (file: File, onProgress: (percent: number) => void, signal: AbortSignal) => Promise<T>
   /** Успешная загрузка — родитель привязывает результат к своей сущности. */
   onUploaded: (result: T) => void
   /** Ошибка загрузки (код) — для внешней обработки при необходимости. */
   onError?: (code: string) => void
   className?: string
   disabled?: boolean
+  /**
+   * Сужение белого списка категории: MIME-типы и расширения для выбора файла. Нужно, когда
+   * модулю подходит не вся категория (шаблону документа — только .docx, а не PDF).
+   */
+  accept?: { mimes: readonly string[]; extensions: readonly string[] }
+  /** Предел меньше лимита категории (шаблону документа — мегабайты, а не 500 МБ). */
+  maxBytes?: number
+  /** Подробное описание ошибки загрузки вместо общего текста по коду; null — общий. */
+  describeError?: (error: unknown) => string | null
 }
 
 type Status = 'idle' | 'ready' | 'uploading' | 'error' | 'done'
@@ -33,6 +46,9 @@ export function FileUpload<T>({
   onError,
   className,
   disabled = false,
+  accept,
+  maxBytes,
+  describeError,
 }: FileUploadProps<T>) {
   const t = useTranslations('FileUpload')
   const tErr = useTranslations('Errors')
@@ -45,9 +61,11 @@ export function FileUpload<T>({
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  // Текущая загрузка — чтобы крестик мог её отменить.
+  const abortRef = useRef<AbortController | null>(null)
 
-  const allowedMimes = FILE_UPLOAD.ALLOWED_MIME[category] as readonly string[]
-  const categoryMax = FILE_UPLOAD.MAX_BYTES[category]
+  const allowedMimes = accept?.mimes ?? (FILE_UPLOAD.ALLOWED_MIME[category] as readonly string[])
+  const categoryMax = Math.min(maxBytes ?? Infinity, FILE_UPLOAD.MAX_BYTES[category])
 
   // Освобождаем object URL превью при замене/размонтировании.
   useEffect(() => {
@@ -69,7 +87,13 @@ export function FileUpload<T>({
   function selectFile(picked: File) {
     if (previewUrl) URL.revokeObjectURL(previewUrl)
 
-    if (!allowedMimes.includes(picked.type)) {
+    // С `accept` решает расширение: тип от браузера ненадёжен — пустой (Windows без Office
+    // не знает .docx) или общий (`application/octet-stream`, `application/zip`). Сервер всё
+    // равно проверит содержимое по сигнатуре.
+    const typeAllowed = accept
+      ? accept.extensions.some((ext) => picked.name.toLowerCase().endsWith(ext))
+      : allowedMimes.includes(picked.type)
+    if (!typeAllowed) {
       setError(t('invalidType'))
       setStatus('error')
       setFile(null)
@@ -108,16 +132,24 @@ export function FileUpload<T>({
 
   async function upload() {
     if (!file) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setStatus('uploading')
     setProgress(0)
     setError(null)
     try {
-      const result = await uploadFn(file, setProgress)
+      const result = await uploadFn(file, setProgress, controller.signal)
       setStatus('done')
       onUploaded(result)
     } catch (err) {
+      // Отменил сам человек — это не ошибка: файл остаётся выбранным, загрузку можно начать снова.
+      if (controller.signal.aborted) {
+        setProgress(0)
+        setStatus('ready')
+        return
+      }
       const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR'
-      setError(tErr(code))
+      setError(describeError?.(err) ?? tErr(code))
       setStatus('error')
       onError?.(code)
     }
@@ -130,7 +162,7 @@ export function FileUpload<T>({
       <input
         ref={inputRef}
         type="file"
-        accept={allowedMimes.join(',')}
+        accept={[...allowedMimes, ...(accept?.extensions ?? [])].join(',')}
         className="sr-only"
         onChange={onInputChange}
         disabled={disabled || status === 'uploading'}
@@ -149,7 +181,9 @@ export function FileUpload<T>({
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={cn(
-            'flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors',
+            // flex-1 — зона тянется, если обёртке дали высоту (className="flex-1"); без неё
+            // высота по содержимому, как раньше.
+            'flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors',
             'border-input text-muted-foreground hover:border-ring hover:text-foreground',
             dragOver && 'border-ring bg-accent',
             disabled && 'pointer-events-none opacity-50',
@@ -204,18 +238,16 @@ export function FileUpload<T>({
             )}
           </div>
 
-          {status !== 'uploading' && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="lg"
-              icon
-              aria-label={t('remove')}
-              onClick={reset}
-            >
-              <X className="size-4" aria-hidden />
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="lg"
+            icon
+            aria-label={status === 'uploading' ? t('cancel') : t('remove')}
+            onClick={() => (status === 'uploading' ? abortRef.current?.abort() : reset())}
+          >
+            <X className="size-4" aria-hidden />
+          </Button>
         </div>
       )}
 

@@ -39,6 +39,7 @@ function setup() {
       update: jest.fn().mockResolvedValue({}),
     },
     careerApplicationEvent: { create: jest.fn() },
+    careerProfileGrant: { upsert: jest.fn().mockResolvedValue({}) },
   }
   const prisma = {
     vacancy: {
@@ -53,6 +54,8 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     careerApplicationEvent: { findMany: jest.fn().mockResolvedValue([]) },
+    careerProfile: { findUnique: jest.fn().mockResolvedValue({ visibility: 'HIDDEN' }) },
+    careerProfileGrant: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
@@ -192,6 +195,63 @@ describe('ApplicationsService — свои отклики студента', () 
     expect(prisma.careerApplication.count.mock.calls[0][0].where).toMatchObject({
       vacancyId: 'v-2',
     })
+  })
+})
+
+describe('ApplicationsService — скрытый профиль и отклик (21.D1)', () => {
+  it('без галочки отклик профиль не открывает', async () => {
+    const { service, tx, audit } = setup()
+    await service.apply(student(), { vacancyId: 'v-1' }, ctx)
+    expect(tx.careerProfileGrant.upsert).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'career_profile_shared' }),
+    )
+  })
+
+  it('галочка открывает профиль только компании вакансии — в той же транзакции, что отклик', async () => {
+    const { service, tx, audit } = setup()
+    await service.apply(student(), { vacancyId: 'v-1', shareProfile: true }, ctx)
+    expect(tx.careerProfileGrant.upsert).toHaveBeenCalledWith({
+      where: { userId_companyId: { userId: 'stu-1', companyId: 'co-1' } },
+      create: { userId: 'stu-1', companyId: 'co-1' },
+      update: { revokedAt: null, grantedAt: expect.any(Date) },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'career_profile_shared',
+        metadata: expect.objectContaining({ companyId: 'co-1', via: 'application' }),
+      }),
+    )
+  })
+
+  it('«Мои отклики» показывают, видит ли компания профиль', async () => {
+    const { service, prisma } = setup()
+    const row = (id: string, companyId: string) => ({
+      id,
+      vacancy: { company: { id: companyId } },
+    })
+    prisma.careerApplication.findMany.mockResolvedValue([row('a-1', 'co-1'), row('a-2', 'co-2')])
+    prisma.careerProfileGrant.findMany.mockResolvedValue([{ companyId: 'co-1' }])
+
+    const page = await service.listMine(student(), { page: 1, limit: 20 })
+
+    expect(prisma.careerProfileGrant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'stu-1', companyId: { in: ['co-1', 'co-2'] }, revokedAt: null },
+      }),
+    )
+    expect(page.items.map((i) => i.profileAccess)).toEqual(['COMPANY', 'HIDDEN'])
+  })
+
+  it('профиль, открытый всем работодателям, — EMPLOYERS у каждой строки, без чтения открытий', async () => {
+    const { service, prisma } = setup()
+    prisma.careerProfile.findUnique.mockResolvedValue({ visibility: 'EMPLOYERS' })
+    prisma.careerApplication.findMany.mockResolvedValue([
+      { id: 'a-1', vacancy: { company: { id: 'co-1' } } },
+    ])
+    const page = await service.listMine(student(), { page: 1, limit: 20 })
+    expect(page.items[0]?.profileAccess).toBe('EMPLOYERS')
+    expect(prisma.careerProfileGrant.findMany).not.toHaveBeenCalled()
   })
 })
 

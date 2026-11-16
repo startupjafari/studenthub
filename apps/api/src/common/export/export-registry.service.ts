@@ -36,7 +36,56 @@ export interface RegisterExportInput {
  * «мои данные») лежат в том же журнале, но кода в файле не несут — и раскрывать по их коду
  * анонимному посетителю вид выгрузки и её дату незачем.
  */
-export const VERIFIABLE_EXPORT_KINDS: readonly ExportKind[] = ['certificate']
+export const VERIFIABLE_EXPORT_KINDS: readonly ExportKind[] = ['certificate', 'library-clearance']
+
+/**
+ * Реквизиты в `params`, по которым документы одного вида ищут и отзывают пачкой (вуз,
+ * читатель). Значения в журнале — строки (cleanParams), сравнение — точное.
+ */
+export type ExportParamsMatch = Record<string, string>
+
+/** Выданный документ глазами того, кто их ведёт (библиотекарь): с параметрами выдачи. */
+export interface IssuedDocument {
+  shortId: string
+  documentNumber: string | null
+  subjectName: string | null
+  issuedById: string | null
+  params: Record<string, string>
+  createdAt: Date
+  revokedAt: Date | null
+}
+
+const ISSUED_SELECT = {
+  shortId: true,
+  documentNumber: true,
+  subjectName: true,
+  userId: true,
+  params: true,
+  createdAt: true,
+  revokedAt: true,
+} satisfies Prisma.DocumentExportSelect
+
+function paramsWhere(match: ExportParamsMatch): Prisma.DocumentExportWhereInput[] {
+  return Object.entries(match).map(([key, value]) => ({ params: { path: [key], equals: value } }))
+}
+
+function toIssued(row: Prisma.DocumentExportGetPayload<{ select: typeof ISSUED_SELECT }>) {
+  const params =
+    row.params && typeof row.params === 'object' && !Array.isArray(row.params)
+      ? Object.fromEntries(
+          Object.entries(row.params).map(([k, v]) => [k, typeof v === 'string' ? v : String(v)]),
+        )
+      : {}
+  return {
+    shortId: row.shortId,
+    documentNumber: row.documentNumber,
+    subjectName: row.subjectName,
+    issuedById: row.userId,
+    params,
+    createdAt: row.createdAt,
+    revokedAt: row.revokedAt,
+  } satisfies IssuedDocument
+}
 
 /** Что показывает публичная страница проверки. Персональных данных — минимум (см. ниже). */
 export interface VerifiedExport {
@@ -117,6 +166,76 @@ export class ExportRegistryService {
       this.logFailure(input, error)
       return null
     }
+  }
+
+  /**
+   * Зарегистрировать официальный документ в транзакции вызывающего: проверка условий выдачи
+   * (нет долгов) и запись идут под его локом. Сбой — исключение, не `null`: документ без
+   * записи выдавать нельзя, и транзакция вызывающего откатывается целиком.
+   */
+  registerWithin(
+    db: Pick<Prisma.TransactionClient, 'documentExport'>,
+    input: RegisterExportInput,
+  ): Promise<ExportRecord> {
+    return this.create(db, input)
+  }
+
+  /** Выданные документы вида с реквизитами `match`, новые сверху; фильтр по статусу. */
+  async listIssued(
+    kind: ExportKind,
+    match: ExportParamsMatch,
+    opts: { status: 'active' | 'revoked' | 'all'; skip: number; take: number },
+  ): Promise<{ items: IssuedDocument[]; total: number }> {
+    const where: Prisma.DocumentExportWhereInput = {
+      kind,
+      AND: paramsWhere(match),
+      ...(opts.status === 'active' ? { revokedAt: null } : {}),
+      ...(opts.status === 'revoked' ? { revokedAt: { not: null } } : {}),
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.documentExport.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: opts.skip,
+        take: opts.take,
+        select: ISSUED_SELECT,
+      }),
+      this.prisma.documentExport.count({ where }),
+    ])
+    return { items: rows.map(toIssued), total }
+  }
+
+  /** Один выданный документ вида по коду — с реквизитами, чтобы проверить охват. */
+  async findIssued(kind: ExportKind, shortId: string): Promise<IssuedDocument | null> {
+    const row = await this.prisma.documentExport.findFirst({
+      where: { kind, shortId },
+      select: ISSUED_SELECT,
+    })
+    return row ? toIssued(row) : null
+  }
+
+  /**
+   * Отозвать действующие документы вида с реквизитами `match`; `createdAfter` — только
+   * выданные после момента (справка, выданная после ошибочного возврата книги). Возвращает
+   * число отозванных; уже отозванные не трогает — дата отзыва остаётся первой.
+   */
+  async revokeMatching(
+    kind: ExportKind,
+    match: ExportParamsMatch,
+    opts: { createdAfter?: Date; shortId?: string } = {},
+    db: Pick<Prisma.TransactionClient, 'documentExport'> = this.prisma,
+  ): Promise<number> {
+    const { count } = await db.documentExport.updateMany({
+      where: {
+        kind,
+        revokedAt: null,
+        AND: paramsWhere(match),
+        ...(opts.shortId ? { shortId: opts.shortId } : {}),
+        ...(opts.createdAfter ? { createdAt: { gte: opts.createdAfter } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    })
+    return count
   }
 
   private create(

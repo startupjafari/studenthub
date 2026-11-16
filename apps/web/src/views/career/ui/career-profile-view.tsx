@@ -19,8 +19,10 @@ import {
   careerProfileKeys,
   fetchMyCareerProfile,
   setCareerConsent,
+  unshareProfileWithCompany,
   updateMyCareerProfile,
 } from '../../../entities/career-profile'
+import { applicationKeys } from '../../../entities/career-application'
 import {
   Badge,
   Button,
@@ -81,6 +83,20 @@ export function CareerProfileView() {
   const consent = useMutation({
     mutationFn: (input: { field: ConsentField; granted: boolean }) => setCareerConsent(input),
     onSuccess: (updated) => queryClient.setQueryData(careerProfileKeys.mine(), updated),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
+  })
+
+  // Закрыть профиль, открытый компании адресно при отклике (21.D1). Обратимо — открыть
+  // снова можно в «Моих откликах», поэтому без подтверждения.
+  const unshare = useMutation({
+    mutationFn: (companyId: string) => unshareProfileWithCompany(companyId),
+    onSuccess: async () => {
+      toast.success(t('grantRevoked'))
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: careerProfileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: applicationKeys.all }),
+      ])
+    },
     onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
@@ -201,6 +217,32 @@ export function CareerProfileView() {
         >
           {visible ? t('hideProfile') : t('showProfile')}
         </Button>
+        {/* Кому скрытый профиль открыт адресно — галочкой в отклике (21.D1). При открытом
+            всем профиле список ничего не меняет, но держим его видимым: после скрытия эти
+            компании продолжат видеть профиль, и это надо знать заранее. */}
+        {data.profileGrants.length > 0 && (
+          <div className="flex basis-full flex-col gap-2 border-t border-border pt-3">
+            <p className="text-sm text-muted-foreground">{t('grantsTitle')}</p>
+            <ul className="flex flex-col gap-1.5">
+              {data.profileGrants.map((grant) => (
+                <li
+                  key={grant.companyId}
+                  className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                >
+                  <span className="min-w-0 truncate font-medium">{grant.companyName}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={unshare.isPending}
+                    onClick={() => unshare.mutate(grant.companyId)}
+                  >
+                    {t('grantRevoke')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {/* Готовность: не оценка человека, а перечень незаполненного. */}

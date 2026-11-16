@@ -128,6 +128,26 @@ export class UniversityService {
     return university
   }
 
+  /**
+   * Реквизиты вуза для DOCX-шаблонов документов (§3.8 «Шаблоны»). Без проверки scope: её
+   * делает вызывающий модуль — шаблон уже проверен на принадлежность вузу пользователя.
+   */
+  async documentRequisites(id: string) {
+    return this.prisma.university.findUnique({
+      where: { id },
+      select: {
+        name: true,
+        shortName: true,
+        city: true,
+        address: true,
+        contactPhone: true,
+        contactEmail: true,
+        website: true,
+        timezone: true,
+      },
+    })
+  }
+
   /** Обновление реквизитов вуза (PLATFORM_ADMIN). */
   async update(actor: JwtPayload, id: string, input: UpdateUniversityInput, ctx: RequestContext) {
     await this.findOrThrow(id)

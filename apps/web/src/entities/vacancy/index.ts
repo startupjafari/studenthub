@@ -8,6 +8,7 @@ export {
   publishVacancy,
   pauseVacancy,
   closeVacancy,
+  deleteVacancy,
   fetchVacancyReviewQueue,
   decideVacancyReview,
 } from './api/vacancy-api'

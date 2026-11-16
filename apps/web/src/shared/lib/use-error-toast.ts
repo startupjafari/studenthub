@@ -4,6 +4,7 @@ import { useCallback, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { toApiError } from './api-error'
+import { useValidationMessage } from './validation-message'
 
 /**
  * Серверная ошибка формы тостом в правый нижний угол вместо алерта в потоке
@@ -27,6 +28,7 @@ import { toApiError } from './api-error'
  */
 export function useErrorToast(id: string): { show: (error: unknown) => void } {
   const tErr = useTranslations('Errors')
+  const translate = useValidationMessage()
 
   const show = useCallback(
     (e: unknown) => {
@@ -36,10 +38,12 @@ export function useErrorToast(id: string): { show: (error: unknown) => void } {
       const details = api.code === 'VALIDATION_ERROR' ? api.details : undefined
       toast.error(tErr(api.code), {
         id,
-        description: details?.length ? details.map((d) => d.message).join(' · ') : undefined,
+        description: details?.length
+          ? details.map((d) => translate(d.message)).join(' · ')
+          : undefined,
       })
     },
-    [id, tErr],
+    [id, tErr, translate],
   )
 
   // Тост живёт ровно столько, сколько форма: окно закрыли — сообщение о его ошибке

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Камеры вуза (docs/PROJECT.md §3.10): агенты в сети вуза, камеры за ними и выключатель
 // модуля. Смотрят камеры только охрана и админ вуза; управляет админ вуза.
@@ -32,19 +33,19 @@ export const CameraStreamUrlSchema = z
   .superRefine((value, ctx) => {
     const match = RTSP_URL.exec(value)
     if (!match) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Адрес должен начинаться с rtsp://' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: vm('validation.cameras.rtspScheme') })
       return
     }
     const authority = match[1] ?? ''
     if (authority.includes('@')) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Логин и пароль укажите в отдельных полях, а не в адресе',
+        message: vm('validation.cameras.credentialsInUrl'),
       })
       return
     }
     if (!RTSP_AUTHORITY.test(authority)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'В адресе нет хоста камеры' })
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: vm('validation.cameras.hostMissing') })
     }
   })
 

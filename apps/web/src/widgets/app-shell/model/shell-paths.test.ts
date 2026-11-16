@@ -6,7 +6,8 @@ import { isShellPath } from './shell-paths'
 const APP_DIR = join(__dirname, '../../../app')
 
 // Страницы, которые рисовались без оболочки, пока её держали ролевые layout'ы (на 03.11.2026),
-// и полноэкранный редактор кампуса (Ф22, 04.11.2026).
+// полноэкранный редактор кампуса (Ф22, 04.11.2026) и приём приглашения в команду компании
+// (21.D2) — публичная страница рядом с регистрацией работодателя.
 // Переезд оболочки в корневой layout не должен был изменить ни одну из них — и ни одну
 // страницу с оболочкой не оставить без неё.
 const SHELL_FREE_PAGES = [
@@ -16,6 +17,7 @@ const SHELL_FREE_PAGES = [
   '/campus-editor/site/[campusId]',
   '/demo',
   '/demo/verify',
+  '/employer/join',
   '/employer/signup',
   '/employer/verify',
   '/forgot-password',

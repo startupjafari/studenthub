@@ -1,11 +1,11 @@
 import Foundation
-import GRDB
 import Observation
 
 /// Расписание на экране.
 ///
 /// Читает базу, как и чаты: расписание смотрят в коридоре и в метро, где связи
 /// нет, и экран, который в этот момент показывает спиннер, бесполезен.
+@MainActor
 @Observable
 final class ScheduleModel {
     /// День недели, выбранный человеком (1 — понедельник).
@@ -15,17 +15,22 @@ final class ScheduleModel {
     private(set) var changes: [String: PairChangeRecord] = [:]
     private(set) var isRefreshing = false
     private(set) var failure: String?
+    /// Сбой обновления — из-за связи: экран говорит «нет связи», а не «сломалось».
+    private(set) var isOffline = false
     /// Когда последний раз удалось обновиться. Нужно на экране: «расписание от
     /// вторника» честнее, чем молча показанное старое.
     private(set) var syncedAt: Date?
+    /// Пары выбранного дня ещё не прочитаны из базы: пустой список сейчас — не «пар
+    /// нет», а «ещё не знаем» (п. 29 аудита — на миг мелькало «пар нет»).
+    private(set) var isReadingDay = true
 
-    private let database: AppDatabase
+    private let queries: ScheduleQueries
     private let api: ScheduleFetching
     private let store: ScheduleStore
     private let calendar: Calendar
 
-    private var pairsTask: Task<Void, Never>?
-    private var changesTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var pairsTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var changesTask: Task<Void, Never>?
 
     init(
         database: AppDatabase = AppServices.database,
@@ -34,9 +39,9 @@ final class ScheduleModel {
         calendar: Calendar = .current,
         now: Date = Date()
     ) {
-        self.database = database
         self.api = api
         self.store = store ?? ScheduleStore(database: database)
+        queries = ScheduleQueries(database: database, store: self.store)
         self.calendar = calendar
         selectedDay = Self.isoDay(of: now, calendar: calendar)
         parity = WeekParity.current(now, in: Self.universityTimeZone ?? calendar.timeZone)
@@ -88,6 +93,15 @@ final class ScheduleModel {
     /// ставится посещаемость.
     var selectedDate: Date { dateOfSelectedDay() }
 
+    /// Обновить, только если последняя удачная синхронизация старше `maxAge` секунд:
+    /// экран расписания и «Главная» показываются часто, а расписание меняется редко
+    /// (п. 29). Жест обновления зовёт `refresh()` — всегда.
+    @MainActor
+    func refreshIfStale(maxAge: TimeInterval = 300) async {
+        if let syncedAt, Date().timeIntervalSince(syncedAt) < maxAge, failure == nil { return }
+        await refresh()
+    }
+
     @MainActor
     func refresh() async {
         guard !isRefreshing else { return }
@@ -112,10 +126,11 @@ final class ScheduleModel {
             syncedAt = Date()
             UserDefaults.standard.set(syncedAt, forKey: Self.syncedKey)
             failure = nil
+            isOffline = false
         } catch {
             // Сеть недоступна — экран остаётся рабочим: он читает базу.
-            failure = (error as? APIError)?.displayMessage
-                ?? String(localized: "error.unexpected", defaultValue: "Неожиданный ответ сервера")
+            failure = error.userMessage
+            isOffline = error.isOffline
         }
     }
 
@@ -135,7 +150,7 @@ final class ScheduleModel {
     }
 
     /// «HH:mm» — в той же форме, что время пар: сравнивается строкой.
-    static func clock(of date: Date, calendar: Calendar) -> String {
+    nonisolated static func clock(of date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
     }
@@ -148,21 +163,47 @@ final class ScheduleModel {
         changesTask?.cancel()
 
         let day = selectedDay
-        let pairsRequest = store.pairs(dayOfWeek: day)
-        let pairsObservation = ValueObservation.tracking { db in try pairsRequest.fetchAll(db) }
-        pairsTask = Task { @MainActor [weak self, database] in
-            for await rows in AsyncValues.stream(of: pairsObservation, in: database.reader) {
+        isReadingDay = true
+        pairsTask = Task { @MainActor [weak self, queries] in
+            for await rows in queries.observePairs(dayOfWeek: day) {
                 self?.pairs = rows
+                self?.isReadingDay = false
             }
+            // Поток кончился без значения (ошибка чтения базы) — «ещё читаем» не должно
+            // висеть вечно. Отменённая задача (сменили день) флаг не трогает: его уже
+            // завела новая.
+            if !Task.isCancelled { self?.isReadingDay = false }
         }
 
         let date = dateOfSelectedDay()
-        let changesRequest = store.changes(on: date, calendar: calendar)
-        let changesObservation = ValueObservation.tracking { db in try changesRequest.fetchAll(db) }
-        changesTask = Task { @MainActor [weak self, database] in
-            for await rows in AsyncValues.stream(of: changesObservation, in: database.reader) {
+        let calendar = calendar
+        changesTask = Task { @MainActor [weak self, queries] in
+            for await rows in queries.observeChanges(on: date, calendar: calendar) {
                 self?.changes = Dictionary(rows.map { ($0.pairId, $0) }, uniquingKeysWith: { first, _ in first })
             }
+        }
+    }
+
+    /// Понедельник показанной недели — от него полоса дней и режим «Неделя».
+    var weekStart: Date {
+        calendar.date(byAdding: .day, value: 1 - selectedDay, to: dateOfSelectedDay()) ?? dateOfSelectedDay()
+    }
+
+    /// Пары всей показанной недели по дням — для режима «Неделя». Чтение разовое, а
+    /// не наблюдение: неделю смотрят обзорно, а за живыми изменениями — в день.
+    @MainActor
+    func weekPairs() async -> [(day: Int, date: Date, pairs: [SchedulePair])] {
+        let start = weekStart
+        let parity = parity
+        let dates = (1...7).map { day in (day, calendar.date(byAdding: .day, value: day - 1, to: start) ?? start) }
+        let rows = (try? await queries.fetchDays(dates, calendar: calendar)) ?? []
+        return rows.compactMap { day, date, pairs, changes in
+            let byPair = Dictionary(changes.map { ($0.pairId, $0) }, uniquingKeysWith: { first, _ in first })
+            let items = pairs
+                .filter { parity.includes(weekType: $0.weekType) }
+                .map { SchedulePair(pair: $0, change: byPair[$0.id]) }
+                .sorted { $0.startTime < $1.startTime }
+            return items.isEmpty ? nil : (day, date, items)
         }
     }
 
@@ -175,7 +216,7 @@ final class ScheduleModel {
     }
 
     /// Понедельник — 1, воскресенье — 7, как в контракте API.
-    static func isoDay(of date: Date, calendar: Calendar) -> Int {
+    nonisolated static func isoDay(of date: Date, calendar: Calendar) -> Int {
         let weekday = calendar.component(.weekday, from: date)
         return ((weekday + 5) % 7) + 1
     }

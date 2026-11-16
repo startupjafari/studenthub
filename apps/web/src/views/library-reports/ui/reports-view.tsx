@@ -9,6 +9,7 @@ import {
   BookOpen,
   BookmarkCheck,
   CircleAlert,
+  PhoneOff,
   ListChecks,
   TrendingUp,
   UsersRound,
@@ -128,6 +129,15 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
           hint={t('readersHint')}
           loading={loading}
           index={5}
+        />
+        <MetricTile
+          icon={PhoneOff}
+          tone="text-muted-foreground"
+          label={t('withoutPhone30')}
+          value={s?.loans.withoutPhoneLast30 ?? null}
+          hint={t('withoutPhone30Hint')}
+          loading={loading}
+          index={7}
         />
         <MetricTile
           icon={CircleAlert}

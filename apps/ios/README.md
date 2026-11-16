@@ -31,8 +31,11 @@ open StudentHub.xcodeproj
 Из командной строки:
 
 ```sh
-xcodebuild -scheme StudentHub -destination 'platform=iOS Simulator,name=iPhone 16' test
+xcodebuild -project StudentHub.xcodeproj -scheme StudentHub -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
+
+`-project` обязателен: рядом лежит `Package.swift` для сборки без Mac (следующий раздел),
+и без флага `xcodebuild` может взять его вместо проекта.
 
 Адрес API задаётся в `Config/*.xcconfig`: в Debug — локальный `pnpm dev`
 (`http://localhost:3001/api/v1`), в Release — домен прода (пока заглушка
@@ -40,8 +43,251 @@ xcodebuild -scheme StudentHub -destination 'platform=iOS Simulator,name=iPhone 1
 попадает в `Info.plist` как `SHAPIBaseURL` и читается на старте. Так же приходит
 `SENTRY_DSN` (`SHSentryDSN`): пусто — трекер не инициализируется.
 
-CI: `.github/workflows/ios.yml` — сборка и тесты на симуляторе; `ios-release.yml` —
-архив и загрузка в TestFlight вручную. Выпуск — `docs/RELEASE_IOS.md`.
+CI: `.github/workflows/ios.yml` — сборка на каждый PR, тесты на симуляторе — ручным
+запуском (раздел «Тесты»). Архив и загрузку в TestFlight CI не делает (`ios-release.yml`
+удалён 16.11.2026). Выпуск — `docs/RELEASE_IOS.md`.
+
+## Тесты
+
+Одна команда на любом Mac с Xcode 26 и `xcodegen` — та же, что гоняет CI. На PR CI только
+собирает проект; тесты — ручным запуском `ios.yml` с полем `suites` (`pr`, `full`, `perf`…):
+
+```sh
+scripts/test.sh build      # как PR: только сборка приложения и тестов
+scripts/test.sh            # unit + snapshot + ui
+scripts/test.sh full       # + все UI-сценарии и замеры производительности
+scripts/test.sh snapshot --record   # переснять эталоны снимков
+```
+
+| Набор | Таргет | Что проверяет |
+|---|---|---|
+| `unit` | `StudentHubTests` | логика и модели; `MotionTests` — физика анимаций покадрово (60/120 Гц), перелёт, успокоение, перехват на лету, правила жестов |
+| `snapshot` | `StudentHubSnapshotTests` | снимки компонентов: светлая/тёмная тема, узкий/обычный/широкий экран, крупный шрифт |
+| `ui` | `StudentHubUITests` | сценарии на mock API: вход, вкладки, чат и отправка, клавиатура, свайп назад, листы, лента, уменьшение движения |
+| `perf` | `StudentHubPerfTests` | запуск, прокрутка длинных списков, переходы, CPU и память против `Tests/perf-baseline.json` |
+
+Результаты — в `build/test-output/`: `*.xcresult`, `summary.md`, вложения тестов и видео
+прогона (`artifacts/<набор>/`), расхождения снимков (`snapshot-diffs/…/reference.png`,
+`actual.png`, `diff.png`).
+
+**Mock API.** UI- и perf-тесты не ходят в сеть: приложение запускается с
+`SH_UITEST_MOCK=1` и берёт ответы из фикстур (`Sources/App/UITesting`, только в Debug).
+`SH_UITEST_SCENARIO=student` — сразу вошедший студент, `SH_UITEST_LARGE=1` — большие
+данные для замеров, `SH_UITEST_REDUCE_MOTION=1` — уменьшение движения,
+`SH_UITEST_HISTORY_DELAY_MS=1500` — медленная загрузка истории переписки. Учётка mock:
+`student@test.local` / `Test1234!`. Прод-секретов в тестах нет.
+
+**Флаги производительности** второй волны (`PerformanceFlags.Switch`) включаются не «на
+глаз»: `MessageBubbleSnapshotTests` и `PerformanceFlagUITests` в наборах `snapshot` и `ui` сравнивают
+вид с флагом и без него (пузыри во всей матрице снимков, лента переписки внизу, наверху и
+после возврата, приход истории при медленной сети). Весь прогон можно пустить в нужном
+положении: `SH_PERF_FLAGS=all=0 scripts/test.sh` (или `chatHeightCache=1,…`; в CI — поле
+`perf_flags` ручного запуска). Сейчас включены 2.6, 2.7 и 2.9; кеш высот ленты (2.5)
+выключен — у верха ленты между пузырями остаются дыры, тест держит это ожидаемым
+падением (`XCTExpectFailure`) и покраснеет, когда раскладку починят.
+
+**Эталоны снимков** лежат в `Tests/**/__Snapshots__/<среда>/` (`ios26@3x`) и сравнимы
+только в той же среде: Xcode 26.6, iPhone 17 Pro, iOS 26.5 — как в CI. Переснимать —
+ручным запуском `ios.yml` с `record_snapshots` (артефакт `ios-snapshot-references`; отдельный
+workflow `ios-snapshots.yml` удалён 16.11.2026) или локально `scripts/test.sh snapshot --record`,
+затем смотреть картинки и коммитить. Эталон не обновляют,
+чтобы «позеленить» тест, не посмотрев, что поменялось.
+
+**Без Mac (Linux/WSL).** Симулятор здесь не запускается. Ветка пушится, тесты запускаются
+вручную (`gh workflow run ios.yml --ref <ветка> -f suites=pr`), а результаты смотрятся так:
+
+```sh
+GH_TOKEN=$(gh auth token --user startupjafari) scripts/ci-results.sh --wait
+```
+
+Скрипт печатает сводку (сколько тестов выполнено и что упало) и скачивает артефакты в
+`build/ci/<id прогона>/`: снимки, видео, `.xcresult`.
+
+**Что тесты не заменяют.** Симулятор на раннере не говорит, сколько кадров в секунду
+будет на iPhone: частота 120 Гц (ProMotion), подвисания на устройстве, тактильный
+отклик, ощущение жестов под пальцем и нагрев проверяются только на телефоне
+(Instruments → Animation Hitches). Анимации принимаются по кадрам записи, а не по
+зелёной сборке — процедура ниже и полностью в §3 `docs/IOS_RULES.md`.
+
+### Проверка анимаций по кадрам
+
+Кратко по §3 `docs/IOS_RULES.md`:
+
+1. **До записи** написать ожидание: что движется и вместе с чем, какая пружина из
+   `Motion`, сколько длится, перелёты, и чего быть не должно — дыры, прыжка ленты,
+   мигания стекла (§3.1.2).
+2. **Запись.** iPhone — встроенная запись экрана: начать, подождать секунду, жест,
+   подождать секунду, остановить. CI — `run.mp4` из `scripts/test.sh`. Каждый путь —
+   отдельной записью (с клавиатурой и без, светлая и тёмная тема, «Уменьшение
+   движения»). Видео — в scratchpad, не в git (§3.2).
+3. **Разбор** — `scripts/frames.py` (стандартная библиотека Python + ffmpeg/ffprobe):
+
+   ```sh
+   # вся запись; разбор — в каталог вне репозитория
+   python3 scripts/frames.py ~/rec.mp4 --out /tmp/rec
+   # только движение, область жеста в точках, плитка 6×3
+   python3 scripts/frames.py ~/rec.mp4 --out /tmp/rec --start 1.2 --end 2.4 \
+       --crop 0,500,402,374 --columns 6 --rows 3
+   ```
+
+   Выход: `sheet-NN.png` (подпись «#номер t=секунды +мс от предыдущего», помеченные —
+   в красной рамке), `motion.png` (`to_final` — насколько кадр ещё далёк от покоя, и
+   `change` — изменение к предыдущему), `frames.tsv`, `frames/NNNNN.png`, сводка с
+   моментом успокоения, проходами через покой и флагами. Время кадра — только из
+   `ffprobe`; если число кадров у ffprobe и ffmpeg разошлось, скрипт останавливается.
+   Геометрия — в точках: `--points-width` (по умолчанию 402 pt) задаёт масштаб записи.
+4. **Флаги** `gap` (кадр пришёл поздно) и `jump` (рывок, телепорт) — подсказки: каждый
+   открыть на листе и назвать причину (§3.3.4).
+5. **Отчёт** — со ссылками на кадры: «#23–#31 (t=0,512–0,645): лента стоит, пока меню
+   перелетает на 9 pt». Не смотрели кадры — так и написать: «по кадрам не проверено»
+   (§3.1.4).
+
+**Предел записи iPhone.** Встроенная запись даёт не больше 30 к/с (интервалы по 33,3 мс,
+меньше 1 px на pt). По ней судят о форме движения, перелёте, обрезке, порядке слоёв и о
+том, едут ли элементы вместе. Рывки на 120 Гц (кадр 8,3 мс) в неё не попадают, и `gap`
+на ней — часто просто потерянный кадр записи. Темп кадров на телефоне — `ScrollJankMonitor`,
+MetricKit через Sentry и Instruments → Animation Hitches (§3.2.1).
+
+## Сборка на iPhone без Mac
+
+Из Linux или Windows (WSL) приложение собирается [xtool](https://xtool.sh) и ставится на
+телефон по кабелю. Манифест — `Package.swift` и `xtool.yml` рядом с `project.yml`; на
+сборку Xcode они не влияют. Бесплатного Apple ID достаточно. Симулятора, превью и
+выпуска в TestFlight здесь нет — для них по-прежнему Mac или CI.
+
+### Один раз: окружение
+
+1. Swift 6.4 — через swiftly по инструкции https://swift.org/install/linux. Команду
+   `apt-get install` из вывода `swiftly init` не пропускать: без неё `swift` падает на
+   `libncurses.so.6`. swiftly прописывает себя только в `~/.profile`, который терминал
+   VS Code не читает, — добавить `. "$HOME/.local/share/swiftly/env.sh"` в `~/.bashrc`.
+2. `sudo apt-get install usbmuxd libimobiledevice-utils libfuse2t64` — связь с телефоном
+   и запуск AppImage на Ubuntu 24.04.
+3. Xcode.xip той версии, что указана в
+   [установке xtool](https://xtool.sh/documentation/xtooldocs/installation-linux), — из
+   браузера, https://developer.apple.com/download/all/?q=Xcode. Положить в `~/Downloads`
+   внутри Linux, не на `/mnt/c`.
+4. xtool — AppImage в `/usr/local/bin/xtool` по той же инструкции, затем `xtool setup`:
+   вход `Password` для бесплатного Apple ID (`API Key` — для платного), путь к xip.
+   Проверка: `swift sdk list` показывает `darwin`.
+5. Только WSL: связь с телефоном через Windows. Проброс USB через usbipd не годится —
+   xtool зависает на шаге `[Connecting]`
+   ([xtool#19](https://github.com/xtool-org/xtool/issues/19)). Вместо него:
+   - из Microsoft Store поставить «Устройства Apple» (Apple Devices), открыть, подключить
+     iPhone кабелем, на телефоне «Доверять»;
+   - пробросить порт службы Apple в WSL. Адрес Windows со стороны WSL —
+     `ip route list default` в Ubuntu (ниже `172.25.128.1`); PowerShell от администратора:
+
+     ```powershell
+     netsh interface portproxy add v4tov4 listenaddress=172.25.128.1 listenport=27015 connectaddress=127.0.0.1 connectport=27015
+     New-NetFirewallRule -DisplayName "WSL usbmuxd" -Direction Inbound -InterfaceAlias "vEthernet (WSL)" -Protocol TCP -LocalPort 27015 -Action Allow
+     ```
+
+   - проверка в Ubuntu: `USBMUXD_SOCKET_ADDRESS=172.25.128.1:27015 ideviceinfo -k DeviceName`.
+     `scripts/device.sh` находит службу сам. Адрес может смениться после перезагрузки
+     Windows — тогда пересоздать проброс с новым.
+
+### Один раз: сеть до `pnpm dev` (только для `--local`)
+
+По умолчанию `scripts/device.sh` собирает приложение на тестовую среду Railway, и этот
+шаг не нужен. С флагом `--local` телефон ходит на API компьютера по Wi-Fi, а не на
+`localhost` из `Debug.xcconfig`: скрипт сам подставляет в сборку адрес компьютера в
+локальной сети. API уже
+слушает все интерфейсы (`apps/api/src/main.ts`), но в WSL с сетью NAT до Linux снаружи
+не достучаться — нужен проброс портов в Windows. PowerShell от администратора:
+
+```powershell
+netsh interface portproxy add v4tov6 listenaddress=0.0.0.0 listenport=3001 connectaddress=::1 connectport=3001
+netsh interface portproxy add v4tov6 listenaddress=0.0.0.0 listenport=9000 connectaddress=::1 connectport=9000
+New-NetFirewallRule -DisplayName "StudentHub dev" -Direction Inbound -Protocol TCP -LocalPort 3001,9000 -Action Allow -Profile Private
+```
+
+Оба порта — на `::1`, а не на `127.0.0.1`. WSL отдаёт свои порты в Windows только на
+`[::1]`, а `0.0.0.0` занимает сам проброс: проброс на `127.0.0.1` попадает обратно в
+себя, и запрос висит до таймаута. С MinIO это проявляется не сразу: пока WSL после
+запуска успевает занять `127.0.0.1:9000` раньше службы проброса, картинки грузятся, а
+после перезагрузки Windows перестают.
+
+Сеть Wi-Fi в Windows должна быть «Частной», телефон — в той же сети.
+
+9000 — MinIO. Ссылки на файлы сервер подписывает на один адрес, а ходят по ним и телефон,
+и браузер на компьютере. Голый IP (`192.168.0.19`) телефону подходит, а браузеру — нет:
+прямая загрузка из веба на него обрывается. Поэтому адрес — имя
+[nip.io](https://nip.io), которое каждый разрешает по-своему, а подпись (она привязана к
+имени) остаётся верной для обоих:
+
+- `apps/api/.env`: `MINIO_PUBLIC_ENDPOINT=<адрес компьютера>.nip.io`,
+  `MINIO_PUBLIC_PORT=9000`, `MINIO_PUBLIC_USE_SSL=false`, затем перезапуск API. Телефон
+  разрешает имя через обычный DNS в адрес компьютера;
+- компьютер — через `hosts` в себя же, тем путём, что работал с `localhost`. PowerShell от
+  администратора:
+
+  ```powershell
+  Add-Content -Path "$env:windir\System32\drivers\etc\hosts" -Value "127.0.0.1 192.168.0.19.nip.io"
+  ```
+
+- WSL — тоже через `hosts`. Подписывая первую ссылку, API спрашивает у MinIO регион по
+  публичному адресу, а до адреса Windows в сети из WSL не достучаться (брандмауэр): без
+  записи каждая лента ждала бы таймаут. WSL перечитывает `hosts` Windows только при
+  запуске, поэтому до перезапуска WSL — вручную:
+
+  ```sh
+  sudo sh -c 'echo "127.0.0.1 192.168.0.19.nip.io" >> /etc/hosts'
+  ```
+
+Сменился адрес компьютера в сети (после перезагрузки роутер может выдать другой) —
+поменять его во всех трёх местах и перезапустить API. Аватары, обложки профилей и статей
+хранят адрес целиком, с хостом, — их перезаписать в базе, подставив старый и новый адрес:
+
+```sql
+UPDATE users SET
+  avatar_url = replace(avatar_url, 'http://<старый>:9000/', 'http://<новый>:9000/'),
+  avatar_thumb_url = replace(avatar_thumb_url, 'http://<старый>:9000/', 'http://<новый>:9000/'),
+  cover_url = replace(cover_url, 'http://<старый>:9000/', 'http://<новый>:9000/')
+WHERE avatar_url LIKE 'http://<старый>:9000/%' OR cover_url LIKE 'http://<старый>:9000/%';
+UPDATE profile_articles SET cover_url = replace(cover_url, 'http://<старый>:9000/', 'http://<новый>:9000/')
+WHERE cover_url LIKE 'http://<старый>:9000/%';
+```
+
+Чтобы этого не делать, закрепить за компьютером адрес в роутере (резервирование DHCP).
+
+Убрать проброс: `netsh interface portproxy reset`.
+
+### Каждый раз
+
+```sh
+cd apps/ios && ./scripts/device.sh
+```
+
+Скрипт пересобирает `.device/` (Info.plist с адресом API, таблицы строк из каталога) и
+запускает `xtool dev`. Сервер по умолчанию — тестовая среда на Railway (деплой с
+`develop`): `studenthub-back-production.up.railway.app`. Свой `pnpm dev` —
+`./scripts/device.sh --local` (нужна сеть из шага выше). Любой другой сервер —
+`API_BASE_URL=https://.../api/v1 ./scripts/device.sh`.
+Для подсказок в VS Code (расширение Swift, окно WSL) достаточно один раз выполнить
+`./scripts/device.sh --prepare-only` и открыть `apps/ios`.
+
+Первый запуск на телефоне:
+
+- «Доверять этому компьютеру» — «Доверять». Если xtool после этого упал, запустить ещё раз;
+- ошибка про режим разработчика — «Настройки → Конфиденциальность и безопасность →
+  Режим разработчика», перезагрузка, снова `./scripts/device.sh`;
+- «Ненадёжный разработчик» — «Настройки → Основные → VPN и управление устройством →
+  ваш Apple ID → Доверять»;
+- «Разрешить доступ к локальной сети» — «Разрешить», иначе запросы к API не дойдут.
+
+### Чем отладочная копия отличается от сборки Xcode
+
+| | Почему |
+|---|---|
+| bundle ID `kz.studenthub.app.dev` | основной принадлежит команде выпуска; копия встаёт рядом со сборкой из TestFlight |
+| нет пушей | личный Apple ID не подписывает право `aps-environment` — нужна платная подписка |
+| нет Sentry | DSN в отладке пуст, трекер и так молчит; пакет не подключён |
+| системный цвет экрана запуска | каталог ассетов компилирует только Xcode (картинок иконки в нём пока нет и для Xcode) |
+| разрешён http | сервер разработки в локальной сети без TLS |
+| приложение живёт 7 дней | ограничение бесплатного Apple ID: потом `./scripts/device.sh` ещё раз |
+
+Модульные тесты (`Tests/`) так не запускаются — их гоняет CI на симуляторе.
 
 ## Роли
 
@@ -68,6 +314,13 @@ Resources              ассеты, каталог строк (ru, kk), ман�
 Config                 xcconfig по конфигурациям сборки, параметры экспорта в TestFlight
 Tests                  модульные тесты
 ```
+
+## Синхронизация
+
+Как переписка попадает в базу и догоняется после обрыва — источники правды, позиции (`syncSeq`,
+`syncedAt`, `lastSeq`, `unsyncedBelow`), разрыв и `overflow`, outbox, досылка, выход и переустановка, —
+в карте [`docs/IOS_SYNC_MAP.md`](../../docs/IOS_SYNC_MAP.md). Правка синхронизации обновляет карту в том
+же коммите (`docs/IOS_RULES.md` 15.1.5).
 
 ## Чего в этом репозитории не бывает
 

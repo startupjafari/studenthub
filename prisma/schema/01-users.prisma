@@ -136,6 +136,10 @@ model User {
   // Релизы: до какой версии «Что нового» человек дочитал (28-releases.prisma).
   releaseView ReleaseView?
 
+  // Авторы шаблонов документов вуза и их версий (37-document-templates.prisma).
+  documentTemplatesCreated        DocumentTemplate[]        @relation("DocumentTemplateAuthor")
+  documentTemplateVersionsCreated DocumentTemplateVersion[] @relation("DocumentTemplateVersionAuthor")
+
   // Привязанный Telegram — вход в админский мини-апп (29-telegram.prisma).
   telegramAccount TelegramAccount?
 
@@ -166,13 +170,24 @@ model User {
   storyHighlights StoryHighlight[] @relation("StoryHighlightOwner")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
-  chatMemberships   ChatMember[]
-  messages          Message[]
-  messagesScheduled ScheduledMessage[]
-  messagesPinned    Message[]          @relation("MessagePinnedBy")
-  messageReactions  MessageReaction[]
-  chatPollVotes     ChatPollVote[]
-  chatFolders       ChatFolder[]
+  chatMemberships    ChatMember[]
+  messages           Message[]
+  messagesScheduled  ScheduledMessage[]
+  messagesPinned     Message[]           @relation("MessagePinnedBy")
+  messageReactions   MessageReaction[]
+  chatPollVotes      ChatPollVote[]
+  chatFolders        ChatFolder[]
+  // Избранные стикеры (06-chats.prisma, FavoriteSticker).
+  favoriteStickers   FavoriteSticker[]
+  // «Удалить у себя»: сообщения, скрытые этим пользователем (06-chats.prisma, HiddenMessage).
+  hiddenMessages     HiddenMessage[]
+  // Карточки контакта в чатах, указывающие на этого пользователя (ChatContact.userId).
+  chatContactsOf     ChatContact[]       @relation("ChatContactUser")
+  // Пункты чек-листов: кто добавил и кто отметил выполненным (ChatChecklistItem).
+  checklistItems     ChatChecklistItem[] @relation("ChecklistItemCreatedBy")
+  checklistItemsDone ChatChecklistItem[] @relation("ChecklistItemDoneBy")
+  // Наборы стикеров, заведённые платформенным администратором (StickerSet.createdById).
+  stickerSets        StickerSet[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized       Event[]                @relation("EventOrganizer")
@@ -228,11 +243,12 @@ model User {
   portfolioItems           PortfolioItem[]      @relation("UserPortfolio")
 
   // Карьера (Ф18): членство в компании-работодателе. Уникально — один человек, одна компания.
-  companyMembership  CompanyMember?      @relation("UserCompanyMemberships")
-  careerProfile      CareerProfile?      @relation("UserCareerProfile")
-  careerConsents     CareerConsent[]     @relation("UserCareerConsents")
-  careerApplications CareerApplication[] @relation("StudentCareerApplications")
-  resume             Resume?             @relation("UserResume")
+  companyMembership   CompanyMember?       @relation("UserCompanyMemberships")
+  careerProfile       CareerProfile?       @relation("UserCareerProfile")
+  careerConsents      CareerConsent[]      @relation("UserCareerConsents")
+  careerProfileGrants CareerProfileGrant[] @relation("UserCareerProfileGrants")
+  careerApplications  CareerApplication[]  @relation("StudentCareerApplications")
+  resume              Resume?              @relation("UserResume")
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).

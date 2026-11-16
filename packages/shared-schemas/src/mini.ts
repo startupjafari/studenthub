@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Контракт админского мини-аппа в Telegram.
 //
@@ -26,6 +27,6 @@ export const MiniLinkSchema = z
       .string()
       .trim()
       .toUpperCase()
-      .length(MINI_LINK_CODE_LENGTH, `Код привязки — ${MINI_LINK_CODE_LENGTH} символов`),
+      .length(MINI_LINK_CODE_LENGTH, vm('validation.mini.linkCodeLength')),
   })
   .strict()

@@ -56,6 +56,7 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
       create: jest.fn().mockResolvedValue({ id: 'v-1' }),
       update: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     vacancyUniversityReview: {
       findUnique: jest.fn(),
@@ -573,6 +574,47 @@ describe('VacanciesService — переходы по графу (D-F29)', () => 
       data: { status: 'PAUSED' },
     })
     expect(err.code).toBe('CONFLICT')
+  })
+})
+
+describe('VacanciesService — удаление (21.D3)', () => {
+  it('черновик удаляется физически, с условием на статус и компанию в самом удалении', async () => {
+    const { service, prisma, audit } = setup()
+    await service.remove(employer, 'v-1', ctx)
+    expect(prisma.vacancy.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'v-1', companyId: 'co-1', status: 'DRAFT', deletedAt: null },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'vacancy_deleted', entityId: 'v-1' }),
+    )
+  })
+
+  it.each(['PUBLISHED', 'PAUSED', 'CLOSED'])(
+    'вакансию в статусе %s удалить нельзя — 409 VACANCY_NOT_DELETABLE, без аудита',
+    async (status) => {
+      const { service, prisma, audit } = setup()
+      prisma.vacancy.deleteMany.mockResolvedValue({ count: 0 })
+      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status })
+      const err = (await service
+        .remove(employer, 'v-1', ctx)
+        .catch((e: unknown) => e)) as AppException
+      expect(err.code).toBe('VACANCY_NOT_DELETABLE')
+      expect(err.getStatus()).toBe(409)
+      expect(audit.record).not.toHaveBeenCalled()
+    },
+  )
+
+  it('чужую или несуществующую вакансию — 404, а не подсказка про статус', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancy.deleteMany.mockResolvedValue({ count: 0 })
+    prisma.vacancy.findFirst.mockResolvedValue(null)
+    const err = (await service
+      .remove(employer, 'v-x', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.vacancy.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'v-x', companyId: 'co-1', deletedAt: null } }),
+    )
   })
 })
 

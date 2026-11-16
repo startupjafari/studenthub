@@ -17,6 +17,7 @@ import {
   type PortfolioAudience,
 } from '../portfolio/portfolio.service'
 import { CareerAccessService } from './career-access.service'
+import { grantProfileToCompany } from './career-profile-grants'
 
 /**
  * Карьерный профиль студента и — главное — ЕДИНСТВЕННОЕ место, где собирается карточка
@@ -61,11 +62,21 @@ export class CareerProfileService {
       })
     }
 
-    const consents = await this.prisma.careerConsent.findMany({
-      where: { userId: viewer.sub, revokedAt: null },
-      select: { field: true, companyId: true, grantedAt: true },
-      take: 100,
-    })
+    const [consents, grants] = await Promise.all([
+      this.prisma.careerConsent.findMany({
+        where: { userId: viewer.sub, revokedAt: null },
+        select: { field: true, companyId: true, grantedAt: true },
+        take: 100,
+      }),
+      // Компании, которым скрытый профиль открыт адресно (21.D1) — чтобы студент видел, кому
+      // открыл, и мог закрыть. Компаний, куда человек откликался, единицы — take страхует.
+      this.prisma.careerProfileGrant.findMany({
+        where: { userId: viewer.sub, revokedAt: null },
+        select: { companyId: true, grantedAt: true, company: { select: { name: true } } },
+        orderBy: { grantedAt: 'desc' },
+        take: 100,
+      }),
+    ])
 
     return {
       visibility: profile?.visibility ?? 'HIDDEN',
@@ -80,6 +91,11 @@ export class CareerProfileService {
       about: profile?.about ?? null,
       readiness,
       consents,
+      profileGrants: grants.map((g) => ({
+        companyId: g.companyId,
+        companyName: g.company.name,
+        grantedAt: g.grantedAt,
+      })),
       // Из платформы, только для показа: редактируются в обычном профиле.
       inherited: {
         firstName: source.firstName,
@@ -159,6 +175,51 @@ export class CareerProfileService {
     return this.myProfile(viewer)
   }
 
+  // ── Адресное открытие профиля компании (21.D1) ─────────────────────────────
+
+  /**
+   * Открыть скрытый профиль одной компании — повторно, из «Моих откликов» (первый раз это
+   * делает галочка в отклике). Открыть можно только компании, куда студент откликался:
+   * иначе это был бы способ самому разослать профиль компаниям мимо видимости «для всех».
+   */
+  async shareWithCompany(viewer: JwtPayload, companyId: string, ctx: RequestContext) {
+    const applied = await this.prisma.careerApplication.count({
+      where: { studentId: viewer.sub, companyId },
+    })
+    if (applied === 0) {
+      throw new AppException('NOT_FOUND', 'Отклика в эту компанию нет')
+    }
+    await grantProfileToCompany(this.prisma, viewer.sub, companyId)
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'career_profile_shared',
+      entity: 'CareerProfileGrant',
+      entityId: viewer.sub,
+      metadata: { companyId, via: 'settings' },
+      ...ctx,
+    })
+  }
+
+  /**
+   * Закрыть профиль компании. Действует сразу: карточка проверяет открытие в момент запроса.
+   * Идемпотентно — закрытие уже закрытого (или не открывавшегося) не ошибка.
+   */
+  async unshareWithCompany(viewer: JwtPayload, companyId: string, ctx: RequestContext) {
+    const { count } = await this.prisma.careerProfileGrant.updateMany({
+      where: { userId: viewer.sub, companyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    if (count === 0) return
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'career_profile_unshared',
+      entity: 'CareerProfileGrant',
+      entityId: viewer.sub,
+      metadata: { companyId },
+      ...ctx,
+    })
+  }
+
   // ── Карточка для работодателя ──────────────────────────────────────────────
 
   /**
@@ -166,8 +227,8 @@ export class CareerProfileService {
    *
    * 1. Компания допущена к вузу этого студента (иначе NOT_FOUND, а не WRONG_SCOPE: разный
    *    ответ на «чужой вуз» и «нет такого» подтверждал бы перебором, что id существует).
-   * 2. Карьерный профиль открыт для работодателей (иначе NOT_FOUND — существование
-   *    скрытого профиля не подтверждаем).
+   * 2. Карьерный профиль открыт для работодателей либо адресно этой компании (21.D1:
+   *    галочка в отклике). Иначе NOT_FOUND — существование скрытого профиля не подтверждаем.
    * 3. GPA, телефон и email отдаются только при активном согласии.
    * 4. Из портфолио — только PUBLIC-записи: компания вне вуза, UNIVERSITY ей не положено,
    *    PRIVATE — тем более.
@@ -186,7 +247,14 @@ export class CareerProfileService {
       throw new AppException('NOT_FOUND', 'Профиль не найден')
     }
 
-    if (source.careerProfile?.visibility !== 'EMPLOYERS') {
+    // Профиля нет совсем — нечего и открывать: адресное открытие без карьерного блока не
+    // делает карточку из пустоты.
+    const careerProfile = source.careerProfile
+    if (
+      !careerProfile ||
+      (careerProfile.visibility !== 'EMPLOYERS' &&
+        !(await this.hasProfileGrant(studentId, companyId)))
+    ) {
       // Скрытый профиль отвечает так же, как несуществующий: иначе перебор id
       // подтверждал бы, что такой студент есть.
       throw new AppException('NOT_FOUND', 'Профиль не найден')
@@ -209,18 +277,18 @@ export class CareerProfileService {
       lastName: source.lastName,
       avatarUrl: source.avatarThumbUrl ?? source.avatarUrl,
       headline: source.headline,
-      about: source.careerProfile.about,
+      about: careerProfile.about,
       university: source.university?.name ?? null,
       specialty: source.specialty,
       course: source.course,
       graduationYear: source.graduationYear,
       skills: source.skills,
       languages: source.languages,
-      employmentStatus: source.careerProfile.employmentStatus,
-      desiredPositions: source.careerProfile.desiredPositions,
-      employmentTypes: source.careerProfile.employmentTypes,
-      workFormats: source.careerProfile.workFormats,
-      relocationReady: source.careerProfile.relocationReady,
+      employmentStatus: careerProfile.employmentStatus,
+      desiredPositions: careerProfile.desiredPositions,
+      employmentTypes: careerProfile.employmentTypes,
+      workFormats: careerProfile.workFormats,
+      relocationReady: careerProfile.relocationReady,
       // Готовность — по тому, что работодатель видит сам: портфолио здесь уже только PUBLIC.
       // Кэш в профиле для этого не годится: он считает и записи «для вуза» и устаревает,
       // пока студент не откроет свой профиль.
@@ -274,6 +342,15 @@ export class CareerProfileService {
       hasPreferences: (source.careerProfile?.desiredPositions.length ?? 0) > 0,
       aboutLength: source.careerProfile?.about?.length ?? 0,
     })
+  }
+
+  /** Студент открыл скрытый профиль этой компании и не закрыл (21.D1). */
+  private async hasProfileGrant(userId: string, companyId: string): Promise<boolean> {
+    const grant = await this.prisma.careerProfileGrant.findFirst({
+      where: { userId, companyId, revokedAt: null },
+      select: { id: true },
+    })
+    return grant !== null
   }
 
   /**

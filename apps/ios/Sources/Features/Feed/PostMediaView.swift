@@ -1,0 +1,326 @@
+import AVKit
+import Observation
+import SwiftUI
+
+/// Медиа поста.
+///
+/// Одно вложение — в своих пропорциях, без обрезки значимого: высота ограничена, а
+/// слишком вытянутое по вертикали показывается целиком на размытой подложке. Несколько
+/// — листаются по одному с точками-индикаторами: сетка из четырёх плиток на телефоне
+/// превращает каждое фото в марку. Нажатие открывает полноэкранный просмотр.
+struct PostMediaView: View {
+    let media: [PostDTO.Media]
+    /// Пост медиа: по нему ролик получает свежую ссылку взамен истёкшей.
+    var postID: String?
+
+    @State private var selection = 0
+    @State private var viewerIndex: Int?
+
+    private var visible: [PostDTO.Media] {
+        media.filter { $0.status != "FAILED" && ($0.isImage || $0.isVideo) }
+    }
+
+    var body: some View {
+        let items = visible
+        if !items.isEmpty {
+            Color.clear
+                .aspectRatio(Self.ratio(for: items), contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if items.count == 1 {
+                        MediaTile(media: items[0], postID: postID) { viewerIndex = 0 }
+                    } else {
+                        TabView(selection: $selection) {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                MediaTile(media: item, postID: postID) { viewerIndex = index }
+                                    .tag(index)
+                            }
+                        }
+                        .tabViewStyle(.page(indexDisplayMode: .never))
+                        .overlay(alignment: .topTrailing) {
+                            Text(verbatim: "\(selection + 1)/\(items.count)")
+                                .font(Typography.tabular(Typography.meta))
+                                .padding(.horizontal, Spacing.md)
+                                .padding(.vertical, Spacing.xs)
+                                .floatingGlass(in: Capsule())
+                                .padding(Spacing.md)
+                                .accessibilityHidden(true)
+                        }
+                        .overlay(alignment: .bottom) {
+                            PageDots(count: items.count, selection: selection)
+                                .padding(.bottom, Spacing.md)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+                .fullScreenCover(item: Binding(
+                    get: { viewerIndex.map(ViewerTarget.init) },
+                    set: { viewerIndex = $0?.index }
+                )) { target in
+                    MediaViewer(media: items, start: target.index, resign: postID.map { postID in
+                        { VideoRecovery.post(postID, fileID: $0.id) }
+                    })
+                }
+        }
+    }
+
+    /// Пропорции блока: первого вложения (у галереи — самого высокого из первых), но
+    /// не выше 4:5 и не ниже 16:9 — так лента не превращается в столбы портретов и в
+    /// полоски панорам. Не влезшее показывается целиком на размытой подложке.
+    static func ratio(for items: [PostDTO.Media]) -> CGFloat {
+        let ratios = items.prefix(4).map { $0.aspectRatio ?? 1 }
+        let ratio = items.count == 1 ? ratios.first ?? 1 : ratios.min() ?? 1
+        return min(max(ratio, 4.0 / 5.0), 16.0 / 9.0)
+    }
+}
+
+/// Ширина карточки в точках для выбора копии: точный размер не нужен — копии идут
+/// ступенями 320/640/1280, и ошибка в полэкрана не меняет выбор. Декодируется копия уже
+/// под фактический размер плитки (`RemoteImage`).
+let cardImagePoints: CGFloat = 420
+
+private struct ViewerTarget: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
+/// Плитка вложения: фото или обложка видео.
+private struct MediaTile: View {
+    let media: PostDTO.Media
+    let postID: String?
+    let open: () -> Void
+
+    private var width: CGFloat { cardImagePoints }
+
+    var body: some View {
+        if media.isVideo {
+            InlineVideoView(media: media, width: width, resign: postID.map { VideoRecovery.post($0, fileID: media.id) })
+        } else {
+            Button(action: open) {
+                ZStack {
+                    // Подложка видна только по бокам вписанного вертикального снимка — поля
+                    // не выглядят пустыми. Раньше это была вторая загрузка того же фото с
+                    // размытием на каждом кадре (п. 33 аудита); теперь — уже размытое
+                    // превью из ответа, без сети и без прохода вне экрана, и только там,
+                    // где его видно. Размер плитки она не меняет.
+                    if media.tileContentMode == .fit {
+                        MediaBackdrop(placeholder: media.placeholder)
+                    }
+                    RemoteImage(
+                        url: media.imageURL(width: width),
+                        cacheKey: media.cacheKey(width),
+                        placeholder: media.placeholder,
+                        contentMode: media.tileContentMode
+                    )
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(String(localized: "feed.photo", defaultValue: "Фотография")))
+            .accessibilityHint(Text(String(localized: "feed.photo.open", defaultValue: "Открыть на весь экран")))
+        }
+    }
+}
+
+/// Подложка вписанного снимка: размытое превью, растянутое на всю плитку, или ровный
+/// цвет. Вписана в рамку плитки (`Color.clear` + `overlay`) и не влияет на раскладку.
+private struct MediaBackdrop: View {
+    let placeholder: String?
+
+    var body: some View {
+        Color.clear
+            .overlay {
+                if let preview = LQIP.blurred(from: placeholder) {
+                    Image(uiImage: preview)
+                        .resizable()
+                        .scaledToFill()
+                        .opacity(0.6)
+                } else {
+                    Palette.muted
+                }
+            }
+            .clipped()
+            .accessibilityHidden(true)
+    }
+}
+
+private struct PageDots: View {
+    let count: Int
+    let selection: Int
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            ForEach(0..<min(count, 10), id: \.self) { index in
+                Circle()
+                    .fill(index == selection ? Color.white : Color.white.opacity(0.5))
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+        .floatingGlass(in: Capsule())
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Видео
+
+/// Какое видео ленты сейчас играет. Одно на всё приложение: второе ставит первое
+/// на паузу, иначе прокрутка ленты включала бы хор.
+@MainActor
+@Observable
+final class VideoPlaybackCenter {
+    static let shared = VideoPlaybackCenter()
+
+    private(set) var activeID: String?
+
+    /// Плееры встроенных роликов по id файла — слабо: держит их сама карточка. Просмотр
+    /// забирает уже созданный плеер, а не грузит ролик заново с нуля и с чёрным кадром.
+    @ObservationIgnored private var players: [String: WeakPlayer] = [:]
+    /// Ролик, чей плеер сейчас у просмотра: уходящая карточка его не останавливает.
+    @ObservationIgnored private(set) var lentID: String?
+
+    private final class WeakPlayer {
+        weak var player: AVPlayer?
+        init(_ player: AVPlayer) { self.player = player }
+    }
+
+    func activate(_ id: String) { activeID = id }
+
+    func deactivate(_ id: String) {
+        if activeID == id { activeID = nil }
+    }
+
+    func register(_ player: AVPlayer, for id: String) {
+        players = players.filter { $0.value.player != nil }
+        players[id] = WeakPlayer(player)
+    }
+
+    /// Плеер карточки для просмотра — с той же позицией и уже скачанным началом.
+    func borrow(_ id: String) -> AVPlayer? {
+        guard let player = players[id]?.player else { return nil }
+        lentID = id
+        return player
+    }
+
+    func giveBack(_ id: String) {
+        if lentID == id { lentID = nil }
+    }
+}
+
+/// Видео в карточке: обложка с кнопкой, по нажатию — системный плеер на месте.
+/// Плеер создаётся только при запуске: десяток постов с видео не держит десяток
+/// декодеров. Ушло с экрана — пауза.
+struct InlineVideoView: View {
+    let media: PostDTO.Media
+    let width: CGFloat
+    var resign: VideoRecovery.Resign?
+
+    @State private var player: AVPlayer?
+    private let center = VideoPlaybackCenter.shared
+
+    var body: some View {
+        ZStack {
+            if let player, center.activeID == media.id {
+                VideoPlayer(player: player)
+            } else {
+                RemoteImage(
+                    url: media.posterURL(width: width),
+                    cacheKey: "poster:" + media.cacheKey(width),
+                    placeholder: media.placeholder
+                )
+                Button(action: play) {
+                    Image(systemName: "play.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .floatingGlass(in: Circle())
+                }
+                .buttonStyle(.pressableIcon)
+                .disabled(media.playbackURL == nil)
+                .accessibilityLabel(Text(String(localized: "feed.video.play", defaultValue: "Воспроизвести видео")))
+
+                if let duration = media.durationMs {
+                    Text(verbatim: Duration.milliseconds(duration).formatted(.time(pattern: .minuteSecond)))
+                        .font(Typography.tabular(Typography.meta))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xs)
+                        .background(.black.opacity(0.5), in: Capsule())
+                        .padding(Spacing.md)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .accessibilityHidden(true)
+                }
+                if media.status == "PROCESSING" || media.status == "PENDING" {
+                    Text(String(localized: "feed.video.processing", defaultValue: "Видео обрабатывается"))
+                        .font(Typography.meta)
+                        .foregroundStyle(.white)
+                        .padding(Spacing.md)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
+            }
+        }
+        .onChange(of: center.activeID) { _, active in
+            if active != media.id { recovery?.pause() }
+        }
+        .onDisappear {
+            // Плеер у просмотра (лента ушла под полноэкранный показ) — ролик там играет.
+            if center.lentID != media.id { recovery?.pause() }
+            center.deactivate(media.id)
+        }
+    }
+
+    private func play() {
+        guard let url = media.playbackURL else { return }
+        let current = player ?? AVPlayer(url: url)
+        if player == nil {
+            player = current
+            center.register(current, for: media.id)
+        }
+        center.activate(media.id)
+        VideoRecovery.attach(to: current, resign: resign).play()
+    }
+
+    /// Повтор после сбоя сети и переподпись ссылки (IOS_RULES 9.6.13); пауза — через него же,
+    /// чтобы отложенный повтор не запустил ролик, ушедший с экрана.
+    private var recovery: VideoRecovery? {
+        player.map { VideoRecovery.attach(to: $0, resign: resign) }
+    }
+}
+
+// MARK: - Адреса
+
+extension PostDTO.Media {
+    var isVideo: Bool { mime?.hasPrefix("video/") == true || hls != nil }
+    var isImage: Bool { mime?.hasPrefix("image/") == true || (mime == nil && hls == nil) }
+
+    /// Ширина к высоте. Без размеров — квадрат: так плитка не прыгает после загрузки.
+    var aspectRatio: CGFloat? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return CGFloat(width) / CGFloat(height)
+    }
+
+    func imageURL(width points: CGFloat) -> URL? {
+        let raw = sources?.best(forPoints: points)?.url ?? url
+        return raw.flatMap(URL.init(string:))
+    }
+
+    func posterURL(width points: CGFloat) -> URL? {
+        (poster?.best(forPoints: points)?.url).flatMap(URL.init(string:)) ?? imageURL(width: points)
+    }
+
+    /// HLS, если ролик уже нарезан, иначе — оригинал.
+    var playbackURL: URL? {
+        if let hls, let url = URL.apiRooted(hls) { return url }
+        return url.flatMap(URL.init(string:))
+    }
+
+    func cacheKey(_ points: CGFloat) -> String {
+        "\(id):\(sources?.best(forPoints: points)?.width ?? 0)"
+    }
+
+    /// Как снимок ложится в плитку: слишком вытянутый по вертикали — целиком (на
+    /// подложке), остальные — заполняя плитку.
+    var tileContentMode: ContentMode {
+        (aspectRatio ?? 1) < 4.0 / 5.0 ? .fit : .fill
+    }
+}

@@ -132,6 +132,7 @@ export class LibraryIdAccessService {
           readerName: true,
           loanId: true,
           ip: true,
+          withoutPhone: true,
           loan: { select: { bookTitle: true } },
         },
       }),
@@ -147,6 +148,7 @@ export class LibraryIdAccessService {
         loanId: r.loanId,
         bookTitle: r.loan?.bookTitle ?? null,
         ip: r.ip,
+        withoutPhone: r.withoutPhone,
       })),
       { total },
     )

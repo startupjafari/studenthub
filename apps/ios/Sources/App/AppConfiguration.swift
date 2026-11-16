@@ -17,6 +17,16 @@ enum AppConfiguration {
         return url
     }()
 
+    /// Адрес веба — для ссылок «Поделиться». Пусто — пункт меню не показывается:
+    /// ссылка в никуда хуже её отсутствия.
+    static let webBaseURL: URL? = string(for: "SHWebBaseURL")
+        .flatMap { $0.isEmpty ? nil : URL(string: $0) }
+
+    /// Адрес поста в вебе — тот же, что копирует веб (`/posts/:id`).
+    static func webURL(forPost id: String) -> URL? {
+        webBaseURL?.appendingPathComponent("posts").appendingPathComponent(id)
+    }
+
     static let marketingVersion = string(for: "CFBundleShortVersionString") ?? "0.0.0"
     static let buildNumber = string(for: "CFBundleVersion") ?? "0"
 

@@ -65,3 +65,33 @@ describe('Инвентаризация', () => {
     expect(report).toMatchObject({ expected: 10, checked: 7, onLoan: 4, total: 3 })
   })
 })
+
+// Фаза 21.C5: выдачи без скана QR — отдельной цифрой в сводке.
+describe('Сводка', () => {
+  it('выдачи без телефона за 30 дней — отдельно от всех выдач', async () => {
+    const loanCount = jest
+      .fn()
+      .mockImplementation(({ where }: { where: { withoutPhone?: boolean } }) =>
+        Promise.resolve(where.withoutPhone ? 2 : 9),
+      )
+    const prisma = {
+      book: { count: jest.fn().mockResolvedValue(5) },
+      bookCopy: { groupBy: jest.fn().mockResolvedValue([]) },
+      loan: { count: loanCount },
+      reservation: { groupBy: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([{ withLoans: 1, debtors: 0 }]),
+    }
+    const service = new LibraryReportsService(prisma as never, {} as never, {} as never)
+    const summary = await service.summary(librarian)
+    expect(loanCount).toHaveBeenCalledWith({
+      where: {
+        universityId: 'uni-1',
+        withoutPhone: true,
+        issuedAt: { gte: expect.any(Date) },
+        status: { not: 'CANCELLED' },
+      },
+    })
+    expect(summary.loans.withoutPhoneLast30).toBe(2)
+    expect(summary.loans.issuedLast30).toBe(9)
+  })
+})

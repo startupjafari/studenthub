@@ -105,6 +105,12 @@ function setup() {
     upload: jest.fn(),
     delete: jest.fn(),
     getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed'),
+    startMultipart: jest
+      .fn()
+      .mockResolvedValue({ key: 'me/k.pdf', uploadId: 'up-1', partSize: 10, partCount: 6 }),
+    presignParts: jest.fn().mockResolvedValue({ parts: [], expiresAt: 'e' }),
+    completeMultipart: jest.fn().mockResolvedValue({ id: 'f9', mime: 'application/pdf', size: 9 }),
+    abortMultipart: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('documents') }
   // true — job поставлен: по нему крон сроков решает, помечать ли документ (BUG-091).
@@ -169,6 +175,66 @@ describe('DocumentsService', () => {
     const err = await service.uploadFile(actor(), Buffer.from('x')).catch((e) => e)
     expect(err.code).toBe('FILE_TYPE_NOT_ALLOWED')
     expect(files.delete).toHaveBeenCalledWith('f1', 'me')
+  })
+
+  it('многочастная загрузка: не PDF/JPG/PNG по заявленному MIME — не открывается', async () => {
+    const { service, files } = setup()
+    const err = await service.startFileMultipart(actor(), 'video/mp4', 60_000_000).catch((e) => e)
+    expect(err.code).toBe('FILE_TYPE_NOT_ALLOWED')
+    expect(files.startMultipart).not.toHaveBeenCalled()
+  })
+
+  it('многочастная загрузка: start → бакет документов от имени вызывающего', async () => {
+    const { service, files } = setup()
+    await service.startFileMultipart(actor(), 'application/pdf', 60_000_000)
+    expect(files.startMultipart).toHaveBeenCalledWith({
+      bucket: 'documents',
+      mime: 'application/pdf',
+      size: 60_000_000,
+      ownerId: 'me',
+    })
+  })
+
+  it('многочастная загрузка: complete проверяет тот же белый список MIME, что confirm', async () => {
+    const { service, files } = setup()
+    const parts = [{ part: 1, etag: 'e1' }]
+    const res = await service.completeFileMultipart(actor(), {
+      key: 'me/k.pdf',
+      uploadId: 'up-1',
+      parts,
+      name: 'диплом.pdf',
+    })
+    const call = files.completeMultipart.mock.calls[0][0]
+    expect(call).toMatchObject({
+      bucket: 'documents',
+      key: 'me/k.pdf',
+      uploadId: 'up-1',
+      ownerId: 'me',
+      parts,
+      name: 'диплом.pdf',
+    })
+    expect([...call.allowedMimes].sort()).toEqual(['application/pdf', 'image/jpeg', 'image/png'])
+    expect(res).toEqual({ id: 'f9', mime: 'application/pdf', size: 9 })
+  })
+
+  it('многочастная загрузка: urls и abort — в бакет документов с владельцем-вызывающим', async () => {
+    const { service, files } = setup()
+    await service.fileMultipartUrls(actor(), { key: 'me/k.pdf', uploadId: 'up-1', from: 1, to: 6 })
+    await service.abortFileMultipart(actor(), { key: 'me/k.pdf', uploadId: 'up-1' })
+    expect(files.presignParts).toHaveBeenCalledWith({
+      bucket: 'documents',
+      ownerId: 'me',
+      key: 'me/k.pdf',
+      uploadId: 'up-1',
+      from: 1,
+      to: 6,
+    })
+    expect(files.abortMultipart).toHaveBeenCalledWith({
+      bucket: 'documents',
+      ownerId: 'me',
+      key: 'me/k.pdf',
+      uploadId: 'up-1',
+    })
   })
 
   it('getFileUrl: чужой документ → NOT_FOUND, presigned не выдаётся', async () => {

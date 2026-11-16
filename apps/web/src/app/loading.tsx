@@ -1,5 +1,5 @@
 import { useTranslations } from 'next-intl'
-import { PageLoader } from '../shared/ui'
+import { PageLoader } from '../shared/ui/page-loader'
 
 // Каждый route segment обязан иметь loading.tsx (docs/FRONTEND_RULES.md §2.2).
 //

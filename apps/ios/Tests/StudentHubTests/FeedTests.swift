@@ -1,3 +1,4 @@
+import Observation
 import XCTest
 
 @testable import StudentHub
@@ -18,6 +19,32 @@ final class FeedModelTests: XCTestCase {
         XCTAssertEqual(model.count("👍", in: "p-1"), 3)
     }
 
+    /// Реакция на один пост не трогает наблюдателей другого: карточка ленты зависит
+    /// только от своего поста, и лайк не перерисовывает все видимые карточки.
+    func testReactionNotifiesOnlyItsOwnPost() async {
+        let api = StubFeed()
+        api.posts = [post(id: "p-1", reactions: ["👍": 2], mine: []), post(id: "p-2", reactions: ["👍": 5], mine: [])]
+        let model = FeedModel(api: api)
+        await model.refresh()
+
+        let otherChanged = ChangeFlag()
+        let ownChanged = ChangeFlag()
+        withObservationTracking {
+            _ = model.isMine("👍", in: "p-2")
+            _ = model.count("👍", in: "p-2")
+            _ = model.isBookmarked("p-2")
+        } onChange: { otherChanged.raise() }
+        withObservationTracking {
+            _ = model.count("👍", in: "p-1")
+        } onChange: { ownChanged.raise() }
+
+        await model.toggle("👍", on: "p-1")
+
+        XCTAssertTrue(ownChanged.raised, "карточка поста не узнала о своей реакции")
+        XCTAssertFalse(otherChanged.raised, "реакция на p-1 перерисовала бы карточку p-2")
+        XCTAssertEqual(model.count("👍", in: "p-2"), 5)
+    }
+
     /// Отказ сервера откатывает: иначе человек уверен, что поставил лайк, а его нет.
     func testFailedReactionRollsBack() async {
         let api = StubFeed()
@@ -30,7 +57,10 @@ final class FeedModelTests: XCTestCase {
 
         XCTAssertFalse(model.isMine("👍", in: "p-1"))
         XCTAssertEqual(model.count("👍", in: "p-1"), 2)
-        XCTAssertNotNil(model.failure)
+        // Отказ действия — сбой действия (`actionFailure`, алерт), а не ленты: полоса
+        // «данные устарели» над свежей лентой солгала бы.
+        XCTAssertNotNil(model.actionFailure)
+        XCTAssertNil(model.failure)
     }
 
     /// Снятие своей реакции уменьшает счётчик, но не уводит его в минус.
@@ -74,6 +104,157 @@ final class FeedModelTests: XCTestCase {
             },
             counts: PostDTO.Counts(comments: 0)
         )
+    }
+}
+
+/// Итерация 3: действия ленты и уведомлений — сразу на экране, на сервер — итоговое.
+@MainActor
+final class OptimisticFeedActionsTests: XCTestCase {
+    /// «Вкл-выкл-вкл», пока первый запрос в полёте: на сервер уходит один запрос, на
+    /// экране — итог, счётчик не уплывает.
+    func testRapidReactionTogglesSendFinalStateOnce() async {
+        let api = StubFeed()
+        api.posts = [post(id: "p-1", reactions: ["👍": 2], mine: [])]
+        api.holdsReactions = true
+        let model = FeedModel(api: api, pacing: .immediate)
+        await model.refresh()
+
+        let first = Task { await model.toggle("👍", on: "p-1") }
+        await waitUntil { api.heldCount == 1 }
+        await model.toggle("👍", on: "p-1")
+        await model.toggle("👍", on: "p-1")
+        api.release()
+        await first.value
+
+        XCTAssertEqual(api.reactCalls, [true])
+        XCTAssertTrue(model.isMine("👍", in: "p-1"))
+        XCTAssertEqual(model.count("👍", in: "p-1"), 3)
+    }
+
+    /// Обновление ленты, пришедшее посреди запроса, не снимает только что
+    /// поставленный лайк.
+    func testRefreshDuringFlightKeepsOptimisticReaction() async {
+        let api = StubFeed()
+        api.posts = [post(id: "p-1", reactions: ["👍": 2], mine: [])]
+        api.holdsReactions = true
+        let model = FeedModel(api: api, pacing: .immediate)
+        await model.refresh()
+
+        let toggle = Task { await model.toggle("👍", on: "p-1") }
+        await waitUntil { api.heldCount == 1 }
+        await model.refresh()
+
+        XCTAssertTrue(model.isMine("👍", in: "p-1"))
+        XCTAssertEqual(model.count("👍", in: "p-1"), 3)
+        api.release()
+        await toggle.value
+    }
+
+    func testMarkReadIsImmediateWithoutReloadingList() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false), notification(id: "n-2", read: false)]
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
+        await model.refresh()
+        let loadsBefore = api.notificationLoads
+
+        await model.markRead("n-1")
+
+        XCTAssertEqual(model.items.first { $0.id == "n-1" }?.isRead, true)
+        XCTAssertEqual(model.unreadCount, 1)
+        XCTAssertEqual(api.markedRead, ["n-1"])
+        XCTAssertEqual(api.notificationLoads, loadsBefore, "после «прочитано» список не перечитывается")
+    }
+
+    func testMarkAllReadIsImmediateAndRollsBackOnRejection() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false), notification(id: "n-2", read: true)]
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
+        await model.refresh()
+        api.failure = .server(code: .forbidden, message: "Нельзя", details: [], statusCode: 403)
+
+        await model.markAllRead()
+
+        XCTAssertEqual(api.markAllCalls, 1)
+        XCTAssertEqual(model.unreadCount, 1, "отказ по существу — откат")
+        XCTAssertNotNil(model.actionNotice)
+    }
+
+    /// Второе «прочитать все», пока первое в пути, уходит своим запросом: между
+    /// нажатиями могли прийти новые уведомления.
+    func testSecondReadAllIsSentSeparately() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false)]
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
+        await model.refresh()
+        api.holdsReadAll = true
+
+        let first = Task { await model.markAllRead() }
+        await waitUntil { api.markAllCalls == 1 }
+        api.notifications = [notification(id: "n-2", read: false), notification(id: "n-1", read: false)]
+        await model.refresh()
+        let second = Task { await model.markAllRead() }
+        await waitUntil { api.heldReadAllCount == 2 }
+        api.releaseReadAll()
+        await first.value
+        await second.value
+
+        XCTAssertEqual(api.markAllCalls, 2)
+        XCTAssertEqual(model.unreadCount, 0)
+    }
+
+    /// Без связи «прочитано» не откатывается сразу: повторяется, и связь появилась —
+    /// сохранено без сообщения.
+    func testMarkReadRetriesWhenOffline() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false)]
+        api.markReadDrops = 1
+        let model = NotificationsModel(api: api, pacing: .immediate, counter: Self.quietCounter())
+        await model.refresh()
+
+        await model.markRead("n-1")
+
+        XCTAssertEqual(api.markedRead, ["n-1", "n-1"])
+        XCTAssertEqual(model.unreadCount, 0)
+        XCTAssertNil(model.actionNotice)
+    }
+
+    /// Обновление списка до ответа на «прочитано» не возвращает точку непрочитанного.
+    func testRefreshKeepsPendingRead() async {
+        let api = StubFeed()
+        api.notifications = [notification(id: "n-1", read: false)]
+        api.markReadDrops = 1
+        // Пауза перед повтором — чтобы обновление пришло, пока «прочитано» не решено.
+        let pacing = OptimisticPacing(debounce: .zero, retryDelays: [.milliseconds(300)])
+        let model = NotificationsModel(api: api, pacing: pacing, counter: Self.quietCounter())
+        await model.refresh()
+
+        let task = Task { await model.markRead("n-1") }
+        await waitUntil { api.markedRead.count == 1 }
+        await model.refresh()
+
+        XCTAssertEqual(model.unreadCount, 0, "сервер ещё не знает, но точка не возвращается")
+        await task.value
+        XCTAssertEqual(model.unreadCount, 0)
+    }
+
+    private func post(id: String, reactions: [String: Int], mine: [String]) -> PostDTO {
+        let emojis = Set(reactions.keys).union(mine).sorted()
+        return PostDTO(
+            id: id, content: "текст", createdAt: Date(), author: nil, media: nil,
+            reactionSummary: emojis.map { emoji in
+                PostDTO.ReactionSummary(emoji: emoji, count: reactions[emoji] ?? 0, mine: mine.contains(emoji))
+            },
+            counts: PostDTO.Counts(comments: 0)
+        )
+    }
+
+    /// Счётчик без сети и без бейджа иконки.
+    private static func quietCounter() -> UnreadNotificationsCounter {
+        UnreadNotificationsCounter(fetch: { 0 }, setBadge: { _ in })
+    }
+
+    private func notification(id: String, read: Bool) -> NotificationDTO {
+        NotificationDTO(id: id, type: "POST", title: "Пост", body: "Текст", isRead: read, createdAt: Date(), data: nil)
     }
 }
 
@@ -129,11 +310,111 @@ final class PostCommentsModelTests: XCTestCase {
     }
 }
 
+@MainActor
+final class FeedActionsTests: XCTestCase {
+    /// Закладка ставится сразу, а отказ сервера её снимает: иначе человек уверен, что
+    /// пост сохранён.
+    func testFailedBookmarkRollsBack() async {
+        let api = StubFeed()
+        api.posts = [PostDTO(
+            id: "p-1", content: "текст", createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )]
+        let model = FeedModel(api: api)
+        await model.refresh()
+        api.failure = .transport(URLError(.notConnectedToInternet))
+
+        await model.toggleBookmark("p-1")
+
+        XCTAssertFalse(model.isBookmarked("p-1"))
+        XCTAssertNotNil(model.actionFailure)
+    }
+
+    /// Ответ на ответ уходит на корень: вложенность у сервера одна.
+    func testReplyToReplyTargetsRoot() async {
+        let api = StubFeed()
+        let model = PostCommentsModel(postID: "p-1", api: api)
+        model.replyTo = PostCommentDTO(id: "c-2", content: "ответ", createdAt: Date(), author: nil, parentId: "c-1")
+        model.draft = "ещё ответ"
+
+        await model.send()
+
+        XCTAssertEqual(model.comments.last?.parentId, "c-1")
+        XCTAssertNil(model.replyTo)
+    }
+
+    /// Неизвестная наклейка истории не роняет разбор: сервер добавит тип раньше, чем
+    /// обновятся телефоны.
+    func testUnknownStoryElementIsSkipped() throws {
+        let json = Data(
+            """
+            [{"type":"sticker3d","x":0.2,"y":0.3,"scale":1,"rotation":0},
+             {"type":"mention","userId":"u-1","name":"Аян","x":0.5,"y":0.5,"scale":1,"rotation":10}]
+            """.utf8
+        )
+
+        let elements = try JSONCoding.decoder.decode([StoryElement].self, from: json)
+
+        XCTAssertEqual(elements.first?.kind, .unknown)
+        XCTAssertEqual(elements.last?.kind, .mention(userID: "u-1", name: "Аян"))
+        XCTAssertEqual(elements.last?.rotation, 10)
+    }
+
+    /// Пост ленты разбирает медиа с копиями и HLS, репост и права.
+    func testPostDecodesMediaAndRepost() throws {
+        let json = Data(
+            """
+            {"id":"p-2","content":"","createdAt":"2026-11-07T10:00:00.000Z","authorId":"u-1",
+            "author":{"id":"u-1","firstName":"Аян","lastName":"Серик","role":"TEACHER","avatarUrl":null},
+            "audience":"GROUP","originalPostId":"p-1","original":null,"bookmarked":true,"canDelete":false,
+            "media":[{"id":"m-1","mime":"video/mp4","width":1920,"height":1080,"placeholder":null,
+            "sources":[],"poster":[{"width":640,"height":360,"url":"https://cdn/p.webp"}],
+            "hls":"/api/v1/media/m-1/hls/master.m3u8?t=x","status":"READY","durationMs":12000}],
+            "reactionSummary":[],"_count":{"comments":0}}
+            """.utf8
+        )
+
+        let post = try JSONCoding.decoder.decode(PostDTO.self, from: json)
+
+        XCTAssertTrue(post.isRepost)
+        XCTAssertNil(post.original)
+        XCTAssertEqual(post.author?.role, "TEACHER")
+        XCTAssertEqual(post.media?.first?.isVideo, true)
+        XCTAssertEqual(post.media?.first?.aspectRatio, 1920.0 / 1080.0)
+        XCTAssertEqual(post.bookmarked, true)
+    }
+}
+
 private final class StubFeed: FeedFetching, @unchecked Sendable {
     private let lock = NSLock()
     var posts: [PostDTO] = []
     var events: [EventDTO] = []
     var failure: APIError?
+    var bookmarkResult = true
+    var notifications: [NotificationDTO] = []
+    /// Сколько раз спросили список уведомлений — «прочитано» не должно его перечитывать.
+    private(set) var notificationLoads = 0
+    private(set) var markedRead: [String] = []
+    private(set) var markAllCalls = 0
+    private(set) var reactCalls: [Bool] = []
+    /// Ответ, который придёт после `release()`: так тест видит, что на экране, пока
+    /// запрос в полёте.
+    var holdsReactions = false
+    var holdsReadAll = false
+    private var heldReadAll: [CheckedContinuation<Void, Never>] = []
+    /// Сколько первых «прочитано» оборвать «нет связи».
+    var markReadDrops = 0
+    private var heldReactions: [CheckedContinuation<Void, Never>] = []
+
+    func release() {
+        let held = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            defer { heldReactions = [] }
+            return heldReactions
+        }
+        held.forEach { $0.resume() }
+    }
+
+    var heldCount: Int { lock.withLock { heldReactions.count } }
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
         Page(items: lock.withLock { posts }, meta: nil)
@@ -144,23 +425,101 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
         }
         return post
     }
-    func comments(postID: String) async throws -> [PostCommentDTO] { [] }
-    func comment(postID: String, text: String) async throws -> PostCommentDTO {
+    func comments(postID: String, cursor: String?) async throws -> Page<PostCommentDTO> {
+        Page(items: [], meta: nil)
+    }
+    func comment(postID: String, text: String, parentID: String?) async throws -> PostCommentDTO {
         if let failure = lock.withLock({ failure }) { throw failure }
-        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil)
+        return PostCommentDTO(id: "c-1", content: text, createdAt: Date(), author: nil, parentId: parentID)
+    }
+    func deleteComment(postID: String, commentID: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
     }
     func react(postID: String, emoji: String, on: Bool) async throws {
+        lock.withLock { reactCalls.append(on) }
+        if lock.withLock({ holdsReactions }) {
+            await withCheckedContinuation { continuation in
+                lock.withLock { heldReactions.append(continuation) }
+            }
+        }
         if let failure = lock.withLock({ failure }) { throw failure }
     }
+    func toggleBookmark(postID: String) async throws -> Bool {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return lock.withLock { bookmarkResult }
+    }
+    func repost(postID: String, note: String?) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: "r-1", content: note, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil, originalPostId: postID
+        )
+    }
+    func editPost(id: String, content: String) async throws -> PostDTO {
+        if let failure = lock.withLock({ failure }) { throw failure }
+        return PostDTO(
+            id: id, content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
+            counts: nil
+        )
+    }
+    func deletePost(id: String) async throws {
+        if let failure = lock.withLock({ failure }) { throw failure }
+    }
+    func markViewed(postID: String) async throws {}
+    func createPost(content: String, mediaIDs: [String], targetUserID: String?) async throws -> PostDTO {
+        PostDTO(id: "n-1", content: content, createdAt: Date(), author: nil, media: nil, reactionSummary: nil, counts: nil)
+    }
+    func upload(_ data: Data, mime: String, filename: String, bucket: UploadBucket) async throws -> UploadedFileDTO {
+        UploadedFileDTO(id: "f-1", mime: mime)
+    }
+    func report(_ target: ComplaintTarget, id: String, reason: String) async throws {}
+    func upcomingEvents() async throws -> [EventDTO] { lock.withLock { events } }
+    func unreadNotifications() async throws -> Int { 0 }
+    func search(_ query: String) async throws -> SearchResultsDTO { SearchResultsDTO(people: [], events: []) }
     func events(onlyMine: Bool) async throws -> Page<EventDTO> {
         Page(items: lock.withLock { events }, meta: nil)
     }
     func register(eventID: String, on: Bool) async throws {
         if let failure = lock.withLock({ failure }) { throw failure }
     }
-    func notifications(cursor: String?) async throws -> Page<NotificationDTO> { Page(items: [], meta: nil) }
-    func markRead(notificationID: String) async throws {}
-    func markAllRead() async throws {}
+    func notifications(cursor: String?) async throws -> Page<NotificationDTO> {
+        lock.withLock {
+            notificationLoads += 1
+            return Page(items: notifications, meta: nil)
+        }
+    }
+    func markRead(notificationID: String) async throws {
+        let dropped = lock.withLock { () -> Bool in
+            markedRead.append(notificationID)
+            guard markReadDrops > 0 else { return false }
+            markReadDrops -= 1
+            return true
+        }
+        if dropped { throw APIError.transport(URLError(.notConnectedToInternet)) }
+        if let failure = lock.withLock({ failure }) { throw failure }
+    }
+    func markAllRead() async throws {
+        let hold = lock.withLock { () -> Bool in
+            markAllCalls += 1
+            return holdsReadAll
+        }
+        if hold {
+            await withCheckedContinuation { continuation in
+                lock.withLock { heldReadAll.append(continuation) }
+            }
+        }
+        if let failure = lock.withLock({ failure }) { throw failure }
+    }
+
+    var heldReadAllCount: Int { lock.withLock { heldReadAll.count } }
+
+    func releaseReadAll() {
+        let held = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            defer { heldReadAll = [] }
+            return heldReadAll
+        }
+        held.forEach { $0.resume() }
+    }
     func notificationSettings() async throws -> NotificationSettingsDTO {
         NotificationSettingsDTO(pushEnabled: true, emailEnabled: true)
     }
@@ -174,4 +533,12 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     func user(id: String) async throws -> UserProfileDTO { try await me() }
     func updateProfile(firstName: String, lastName: String, bio: String?) async throws {}
     func uploadAvatar(_ data: Data, mime: String) async throws {}
+}
+
+/// Флаг «наблюдатель сработал» для `withObservationTracking` (замыкание `@Sendable`).
+private final class ChangeFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var raised: Bool { lock.withLock { value } }
+    func raise() { lock.withLock { value = true } }
 }

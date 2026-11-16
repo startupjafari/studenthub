@@ -30,6 +30,40 @@ export interface CompanyPage {
   isMember?: boolean
 }
 
+/** Участник команды компании (GET /career/companies/me/members, 21.D2). */
+export interface CompanyMember {
+  userId: string
+  firstName: string
+  lastName: string
+  email: string
+  role: CompanyMemberRole
+  joinedAt: string
+  /** Это сам смотрящий — себя исключить нельзя. */
+  isMe: boolean
+}
+
+/** Ожидающее приглашение коллеги. `expired` — срок прошёл, ссылка уже не работает. */
+export interface CompanyInvite {
+  id: string
+  email: string
+  role: CompanyMemberRole
+  expiresAt: string
+  createdAt: string
+  expired: boolean
+}
+
+export interface CompanyTeam {
+  members: CompanyMember[]
+  invites: CompanyInvite[]
+}
+
+/** Приглашение по ссылке из письма — до регистрации. Адрес — под маской. */
+export interface CompanyInvitePreview {
+  companyName: string
+  email: string
+  expiresAt: string
+}
+
 /** Своя компания (GET|PATCH /career/companies/me): витрина плюс служебные поля. */
 export interface Company extends CompanyPage {
   status: CompanyStatus

@@ -6,6 +6,7 @@ import { EMAIL_JOBS, QUEUES } from '../../common/queue'
 import type { JobPayload } from '../../common/queue'
 import { MailerService } from './mailer.service'
 import {
+  renderCompanyInvite,
   renderCompanyVerification,
   renderDemoApproved,
   renderDemoRejected,
@@ -14,6 +15,7 @@ import {
   renderNotification,
   renderPasswordReset,
   renderTwoFactorReset,
+  type CompanyInvitePayload,
   type CompanyVerificationPayload,
   type DemoApprovedPayload,
   type DemoRejectedPayload,
@@ -110,6 +112,8 @@ export class EmailProcessor extends WorkerHost {
         return renderNotification(data as unknown as NotificationPayload)
       case EMAIL_JOBS.SEND_COMPANY_VERIFICATION:
         return renderCompanyVerification(data as unknown as CompanyVerificationPayload)
+      case EMAIL_JOBS.SEND_COMPANY_INVITE:
+        return renderCompanyInvite(data as unknown as CompanyInvitePayload)
       case EMAIL_JOBS.SEND_PASSWORD_RESET:
         return renderPasswordReset(data as unknown as PasswordResetPayload)
       case EMAIL_JOBS.SEND_TWO_FACTOR_RESET:

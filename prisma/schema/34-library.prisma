@@ -117,6 +117,10 @@ model Loan {
   // брони, как просрочка.
   lostSettledAt   DateTime?      @map("lost_settled_at")
   lostSettledById String?        @map("lost_settled_by_id")
+  // Выдача без скана QR студенческого (Фаза 21.C5): читатель без телефона, библиотекарь нашёл
+  // его по номеру билета, сверил ФИО и фото и поставил обязательную отметку. Видна в отчётах
+  // отдельно и продублирована в журнале удостоверений.
+  withoutPhone    Boolean        @default(false) @map("without_phone")
   // Снимок читателя и книги на момент выдачи.
   readerName      String         @map("reader_name")
   readerGroup     String?        @map("reader_group")
@@ -147,6 +151,8 @@ model Loan {
   @@index([returnedToId])
   @@index([cancelledById])
   @@index([lostSettledById])
+  // Выдачи без скана в отчётах (фильтр выдач, сводка за 30 дней).
+  @@index([universityId, withoutPhone, issuedAt])
   @@map("loans")
 }
 
@@ -192,6 +198,9 @@ model LibraryIdAccessLog {
   librarianName String   @map("librarian_name")
   readerId      String?  @map("reader_id")
   readerName    String   @map("reader_name")
+  // Читатель найден по номеру студенческого, без скана QR (Фаза 21.C5): поиск по билету и
+  // выдача по нему — отдельные строки журнала с этой отметкой.
+  withoutPhone  Boolean  @default(false) @map("without_phone")
   ip            String?
   userAgent     String?  @map("user_agent")
   createdAt     DateTime @default(now()) @map("created_at")

@@ -10,12 +10,21 @@ struct ChatUpdatesDTO: Decodable, Equatable {
     let deletedIds: [String]
     let latestSeq: Int
     let overflow: Bool
+    /// Момент до чтения по часам сервера — `sinceTs` следующего догона. `nil` у старого
+    /// сервера.
+    var syncedAt: Date? = nil
 }
 
 /// Маршруты переписки. Отдельно от списка: у ленты свой набор и свои тесты.
 protocol ChatMessagesFetching: Sendable {
     /// Страница истории. Сервер отдаёт свежие первыми.
     func messages(chatID: String, cursor: String?, limit: Int) async throws -> Page<ChatMessageDTO>
+    /// Окно вокруг первого сообщения на дату или позже: до `limit` старее, оно само и до
+    /// `limit` новее. Позже даты ничего нет — сервер отдаёт обычную последнюю страницу.
+    func messages(chatID: String, aroundDate: Date, limit: Int) async throws -> Page<ChatMessageDTO>
+    /// Страница НОВЕЕ сообщения `cursor` — догрузка вниз после перехода в окно истории.
+    /// Курсор следующей страницы — `meta.prevCursor`, есть ли она — `meta.hasPrev`.
+    func newerMessages(chatID: String, after cursor: String, limit: Int) async throws -> Page<ChatMessageDTO>
     /// Догон после обрыва: только то, что изменилось с позиции клиента.
     func updates(chatID: String, since: Int, sinceTs: Date?) async throws -> ChatUpdatesDTO
 }
@@ -23,6 +32,10 @@ protocol ChatMessagesFetching: Sendable {
 extension ChatsAPI: ChatMessagesFetching {
     /// Потолок страницы истории на сервере — 50.
     static let messagePageLimit = 50
+    /// Окно перехода по дате: по тридцать сообщений в обе стороны, как в вебе.
+    static let dateWindowLimit = 30
+    /// Страница поиска внутри чата — та же, что у веба.
+    static let searchPageLimit = 30
 
     func messages(
         chatID: String,
@@ -33,6 +46,23 @@ extension ChatsAPI: ChatMessagesFetching {
         if let cursor {
             query.append(URLQueryItem(name: "cursor", value: cursor))
         }
+        return try await client.page(.get("chats/\(chatID)/messages", query: query), of: ChatMessageDTO.self)
+    }
+
+    func messages(chatID: String, aroundDate: Date, limit: Int = messagePageLimit) async throws -> Page<ChatMessageDTO> {
+        let query = [
+            URLQueryItem(name: "aroundDate", value: ISO8601DateFormatter.contract.string(from: aroundDate)),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
+        return try await client.page(.get("chats/\(chatID)/messages", query: query), of: ChatMessageDTO.self)
+    }
+
+    func newerMessages(chatID: String, after cursor: String, limit: Int = messagePageLimit) async throws -> Page<ChatMessageDTO> {
+        let query = [
+            URLQueryItem(name: "cursor", value: cursor),
+            URLQueryItem(name: "direction", value: "newer"),
+            URLQueryItem(name: "limit", value: String(limit)),
+        ]
         return try await client.page(.get("chats/\(chatID)/messages", query: query), of: ChatMessageDTO.self)
     }
 

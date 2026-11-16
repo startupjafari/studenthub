@@ -30,7 +30,11 @@ interface RoleWorkerFixtures {
   deanContext: BrowserContext
 }
 
-async function signedInContext(browser: Browser, role: Role): Promise<BrowserContext> {
+/**
+ * Живой авторизованный контекст роли: один вход. Экспортируется для файлов, которым нужна
+ * роль вне двух фикстур ниже (roles.e2e.ts) — тот же приём, без своего варианта входа.
+ */
+export async function signedInContext(browser: Browser, role: Role): Promise<BrowserContext> {
   const context = await browser.newContext()
   const page = await context.newPage()
   const rotationSettled = trackTokenRotation(page)
@@ -41,7 +45,7 @@ async function signedInContext(browser: Browser, role: Role): Promise<BrowserCon
 }
 
 // Каждому тесту — своя вкладка в общем авторизованном контексте роли.
-async function freshPage(
+export async function freshPage(
   context: BrowserContext,
   use: (page: Page) => Promise<void>,
 ): Promise<void> {

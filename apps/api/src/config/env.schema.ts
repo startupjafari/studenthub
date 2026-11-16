@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DOCUMENT_TEMPLATE_LIMITS } from '@studenthub/shared-config'
 
 // Единый контракт переменных окружения (docs/PROJECT.md §13, docs/BACKEND_RULES.md §14.2).
 // Валидируется на старте: отсутствие обязательной переменной = приложение не стартует.
@@ -21,6 +22,39 @@ const booleanFromString = z
  */
 const optionalEnv = <T extends z.ZodTypeAny>(schema: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema.optional())
+
+/**
+ * Список имён функций клиента через запятую (`chatVideoUpload,liveLocation`) — для
+ * удалённого выключателя (`GET /client-version`, docs/PROJECT.md).
+ *
+ * Пустая строка и отсутствие переменной — пустой список: по умолчанию выключено
+ * ничего. Пробелы вокруг имён и пустые элементы (`a,,b`, хвостовая запятая) прощаем —
+ * их оставляет ручная правка в панели хостинга; а вот имя не в camelCase — отказ
+ * старта: опечатку вроде `chat-video` клиент молча пропустил бы, и функция осталась бы
+ * включённой у всех, хотя человек считает её выключенной.
+ */
+const featureListEnv = (name: string) =>
+  z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item !== ''),
+    )
+    .pipe(
+      z
+        .array(
+          z
+            .string()
+            .regex(
+              /^[a-z][A-Za-z0-9]{0,63}$/,
+              `${name}: имена функций в camelCase через запятую, например chatVideoUpload,liveLocation`,
+            ),
+        )
+        .max(50, `${name}: не больше 50 имён`),
+    )
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -85,6 +119,14 @@ export const envSchema = z.object({
   MINIO_BUCKET_PROFILE_COVERS: z.string().default('profile-covers'),
   // Документы (Ф15) — приватный бакет, доступ только по presigned-URL.
   MINIO_BUCKET_DOCUMENTS: z.string().default('documents'),
+  // Предел размера DOCX-шаблона документов вуза (§3.8 «Шаблоны»), байты. Потолок — порог
+  // буферной загрузки (10 МБ): шаблон идёт через API-процесс, его тут же разбирают.
+  DOCUMENT_TEMPLATE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(DOCUMENT_TEMPLATE_LIMITS.MAX_BYTES_CEILING)
+    .default(DOCUMENT_TEMPLATE_LIMITS.MAX_BYTES_DEFAULT),
 
   // Публичный адрес MinIO для presigned-ссылок, отдаваемых в браузер (напр. домен
   // Railway у minio-сервиса). Если не задан — presigned генерятся на внутренний
@@ -237,6 +279,13 @@ export const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: optionalEnv(z.string().min(1)),
 
   /**
+   * Ключ GIPHY для поиска GIF в чатах (`/chats/gifs/trending|search`, `/chats/:id/gif/external`).
+   * Ключ живёт только на сервере: клиенты ходят в каталог через API-прокси. Не задан —
+   * поиск выключен, эндпоинты отвечают `503 FEATURE_DISABLED`.
+   */
+  GIPHY_API_KEY: optionalEnv(z.string().min(1)),
+
+  /**
    * Секрет вебхука Telegram. Бот присылает его в заголовке `x-telegram-bot-api-secret-token`
    * при каждом обновлении; адрес вебхука публичен, и без сверки секрета кто угодно смог бы
    * прислать «нажатие кнопки» от чужого имени. Не задан — вебхук отвечает 404, то есть
@@ -300,6 +349,17 @@ export const envSchema = z.object({
     .default('0.0.0'),
   /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
   ANDROID_STORE_URL: optionalEnv(z.string().url()),
+
+  /**
+   * Удалённый выключатель рискованных функций мобильных клиентов (IOS_RULES 14.5.1).
+   *
+   * `CLIENT_DISABLED_FEATURES` выключает функцию на всех платформах, `IOS_…`/`ANDROID_…`
+   * — только на своей: сломаться функция может в одной сборке, и гасить её у всех
+   * было бы лишним. В ответ уходит объединение. Пусто — выключено ничего.
+   */
+  CLIENT_DISABLED_FEATURES: featureListEnv('CLIENT_DISABLED_FEATURES'),
+  IOS_DISABLED_FEATURES: featureListEnv('IOS_DISABLED_FEATURES'),
+  ANDROID_DISABLED_FEATURES: featureListEnv('ANDROID_DISABLED_FEATURES'),
 
   // Медиа-ретранслятор камер (docs/PROJECT.md §3.10). Без них просмотр камер выключен:
   // запрос просмотра отвечает 409 (`details.field=relay`), агенты потоки не отдают.

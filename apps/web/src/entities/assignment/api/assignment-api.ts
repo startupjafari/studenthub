@@ -6,15 +6,7 @@ import type {
   SaveSubmissionDraftInput,
   UpdateAssignmentInput,
 } from '@studenthub/shared-schemas'
-import type { AxiosProgressEvent } from 'axios'
-import {
-  api,
-  getPaged,
-  needsDirectUpload,
-  uploadDirect,
-  type Paged,
-  type PresignedTarget,
-} from '../../../shared/api'
+import { api, getPaged, uploadToDomain, type Paged } from '../../../shared/api'
 import type { AssignmentItem, SubmissionFile, SubmissionItem } from '../model/types'
 
 export const assignmentKeys = {
@@ -131,37 +123,23 @@ export async function submitAssignmentRequest(assignmentId: string): Promise<Sub
 }
 
 /**
- * Приложить файл к работе. Как у материалов: до порога — буферная загрузка через API,
- * больше — прямая в MinIO по подписанной ссылке. Черновика сдачи нет — сервер заведёт его.
+ * Приложить файл к работе. Как у материалов: до порога — буферная загрузка через API, до
+ * 50 МБ — прямая в MinIO по подписанной ссылке, крупнее — частями с докачкой после обрыва.
+ * Черновика сдачи нет — сервер заведёт его.
  */
 export async function uploadSubmissionFileRequest(
   assignmentId: string,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<SubmissionFile> {
-  const base = `/assignments/${assignmentId}/submission/files`
-  if (needsDirectUpload(file.size)) {
-    return uploadDirect<SubmissionFile>({
-      file,
-      presign: async (mime) => {
-        const { data } = await api.post<PresignedTarget>(`${base}/presign`, { mime })
-        return data
-      },
-      confirm: async (key, name) => {
-        const { data } = await api.post<SubmissionFile>(`${base}/confirm`, { key, name })
-        return data
-      },
-      onProgress,
-    })
-  }
-  const form = new FormData()
-  form.append('file', file)
-  const { data } = await api.post<SubmissionFile>(base, form, {
-    onUploadProgress: (e: AxiosProgressEvent) => {
-      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
-    },
+  return uploadToDomain<SubmissionFile>({
+    file,
+    base: `/assignments/${assignmentId}/submission/files`,
+    scope: `SUBMISSION:${assignmentId}`,
+    onProgress,
+    signal,
   })
-  return data
 }
 
 export async function deleteSubmissionFileRequest(

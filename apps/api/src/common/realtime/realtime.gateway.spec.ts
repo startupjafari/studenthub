@@ -297,6 +297,35 @@ describe('RealtimeGateway.getOnlineUserIds', () => {
   })
 })
 
+describe('RealtimeGateway.emitEventToUsers', () => {
+  it('одна отправка в личные комнаты адресатов, конвертом в канал event', () => {
+    const { gateway, server, roomEmit } = setup()
+    gateway.emitEventToUsers(['u1', 'u2'], 'application.queue.changed', 'a1', {
+      status: 'SUBMITTED',
+    })
+    expect(server.to).toHaveBeenCalledTimes(1)
+    expect(server.to).toHaveBeenCalledWith(['user:u1', 'user:u2'])
+    expect(roomEmit).toHaveBeenCalledWith(
+      'event',
+      expect.objectContaining({
+        type: 'application.queue.changed',
+        entityId: 'a1',
+        version: 1,
+        data: { status: 'SUBMITTED' },
+      }),
+    )
+    expect(server.emit).not.toHaveBeenCalled()
+  })
+
+  it('пустой список адресатов — ничего не шлёт', () => {
+    const { gateway, server, roomEmit } = setup()
+    gateway.emitEventToUsers([], 'application.queue.changed', 'a1', {})
+    expect(server.to).not.toHaveBeenCalled()
+    expect(roomEmit).not.toHaveBeenCalled()
+    expect(server.emit).not.toHaveBeenCalled()
+  })
+})
+
 // Подписи мало: этим же секретом подписан промежуточный токен первого шага входа, а
 // форс 2FA живёт в HTTP-guard'е, которого в handshake нет.
 describe('RealtimeGateway — второй фактор в handshake', () => {

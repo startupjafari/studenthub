@@ -4,6 +4,7 @@ import { SiteHeader } from './site-header'
 import { Hero } from './hero'
 import { Doors } from './doors'
 import { Roles } from './roles'
+import { Modules } from './modules'
 import { Security } from './security'
 import { Rollout } from './rollout'
 import { Scale } from './scale'
@@ -17,8 +18,8 @@ import { SiteMotion } from './site-motion'
  * Композиция страницы. Одна и та же для всех языков — различается только словарь.
  *
  * Порядок секций не случаен: сначала действие (первый экран и три двери), потом
- * показ продукта (роли), потом доверие (безопасность, внедрение, масштаб), и только в
- * конце — вопросы и заявка. Человек, пришедший войти, не должен пролистывать маркетинг,
+ * показ продукта (роли и модули), потом доверие (безопасность, внедрение, масштаб), и
+ * только в конце — вопросы и заявка. Человек, пришедший войти, не должен пролистывать маркетинг,
  * чтобы найти кнопку.
  */
 export function LandingPage({ locale }: { locale: Locale }) {
@@ -43,10 +44,17 @@ export function LandingPage({ locale }: { locale: Locale }) {
         <Hero dict={dict} locale={locale} />
         <Doors dict={dict} locale={locale} tone="plain" />
         <Roles dict={dict} tone="muted" />
-        <Security dict={dict} tone="plain" />
-        <Rollout dict={dict} tone="muted" />
-        <Scale dict={dict} tone="plain" />
-        <Faq dict={dict} locale={locale} tone="muted" />
+        {/*
+          Модули — сразу за ролями, до «Безопасности»: это продолжение показа продукта
+          (роли — учёба, модули — остальной кампус), и рассказ о защите должен начинаться,
+          когда человек уже знает, что именно защищается. Поставь их после доверия — и
+          страница вернётся к демонстрации, уже перейдя к аргументам.
+        */}
+        <Modules dict={dict} tone="plain" />
+        <Security dict={dict} tone="muted" />
+        <Rollout dict={dict} tone="plain" />
+        <Scale dict={dict} tone="muted" />
+        <Faq dict={dict} locale={locale} tone="plain" />
         <Cta dict={dict} locale={locale} />
       </main>
       <SiteFooter dict={dict} locale={locale} />

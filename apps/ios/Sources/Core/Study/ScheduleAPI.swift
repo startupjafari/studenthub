@@ -32,6 +32,9 @@ struct PairDTO: Codable, Equatable {
 struct ScheduleDTO: Decodable, Equatable {
     let timezone: String?
     let pairs: [PairDTO]
+    /// Продолжение: сервер отдаёт пары страницами по 500. У студента их десятки, а у
+    /// декана большого факультета — тысячи, и первая страница теряла бы остальные.
+    var nextCursor: String? = nil
 }
 
 /// Разовое изменение: перенос, смена аудитории, отмена, замена.
@@ -62,7 +65,19 @@ struct ScheduleAPI: ScheduleFetching {
     }
 
     func schedule() async throws -> ScheduleDTO {
-        try await client.send(.get("schedule"), as: ScheduleDTO.self)
+        var page = try await client.send(.get("schedule"), as: ScheduleDTO.self)
+        var pairs = page.pairs
+        // Предохранитель от зацикливания: 40 страниц — 20 000 пар, больше вуза не бывает.
+        var guardCount = 0
+        while let cursor = page.nextCursor, !cursor.isEmpty, guardCount < 40 {
+            guardCount += 1
+            page = try await client.send(
+                .get("schedule", query: [URLQueryItem(name: "cursor", value: cursor)]),
+                as: ScheduleDTO.self
+            )
+            pairs += page.pairs
+        }
+        return ScheduleDTO(timezone: page.timezone, pairs: pairs)
     }
 
     /// Период — датами `YYYY-MM-DD`, как требует `ScheduleChangeQuerySchema`. Метка
@@ -83,11 +98,6 @@ struct ScheduleAPI: ScheduleFetching {
 
     /// Календарная дата момента в поясе вуза.
     static func day(_ date: Date, in timeZone: TimeZone) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        DayString.string(from: date, timeZone: timeZone)
     }
 }

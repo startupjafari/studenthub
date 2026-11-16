@@ -6,6 +6,7 @@ import {
 } from './pagination.js'
 import { PostAudienceSchema } from './posts.js'
 import { CareerEventKindSchema } from './career.js'
+import { vm } from './validation-messages.js'
 
 // События (docs/PROJECT.md §3.5, Ф10). Аудитория — тот же enum, что у постов (видимость по аналогии).
 
@@ -29,7 +30,7 @@ export const MeetingUrlSchema = z
   .trim()
   .url()
   .max(500)
-  .refine((url) => /^https?:\/\//i.test(url), { message: 'Ссылка должна быть http или https' })
+  .refine((url) => /^https?:\/\//i.test(url), { message: vm('validation.url.httpOnly') })
 
 /**
  * Провайдер по хосту ссылки. Определяет СЕРВЕР при сохранении: если бы значение
@@ -80,7 +81,7 @@ const endAfterStart = (v: { startsAt: string; endsAt?: string }, ctx: z.Refineme
   if (v.endsAt && v.endsAt <= v.startsAt) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Окончание должно быть позже начала',
+      message: vm('validation.range.endAfterStart'),
       path: ['endsAt'],
     })
   }
@@ -152,7 +153,7 @@ export const CreateEventCommentSchema = z
   })
   .strict()
   .refine((v) => (v.content?.length ?? 0) > 0 || (v.mediaIds?.length ?? 0) > 0, {
-    message: 'Нужен текст или вложение',
+    message: vm('validation.common.textOrAttachment'),
     path: ['content'],
   })
 export type CreateEventCommentInput = z.infer<typeof CreateEventCommentSchema>

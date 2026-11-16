@@ -1,0 +1,1020 @@
+import AVKit
+import PhotosUI
+import SwiftUI
+
+// MARK: - Полоса
+
+/// Полоса историй над лентой: первым — своё кольцо или «добавить», дальше —
+/// непросмотренные, затем просмотренные (порядок задаёт сервер).
+struct StoriesRail: View {
+    let model: StoriesModel
+    let viewerID: String
+    let viewerName: String?
+    let viewerAvatar: String?
+    let open: (String) -> Void
+    let create: () -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(alignment: .top, spacing: Spacing.lg) {
+                if let own = model.ownRing(viewerID: viewerID) {
+                    StoryAvatar(
+                        name: String(localized: "stories.mine", defaultValue: "Моя история"),
+                        avatar: own.author.avatarUrl,
+                        state: own.hasUnseen ? .unseen : .seen,
+                        showsAdd: true,
+                        action: { open(own.id) },
+                        addAction: create
+                    )
+                } else {
+                    StoryAvatar(
+                        name: String(localized: "stories.add", defaultValue: "Добавить"),
+                        avatar: viewerAvatar,
+                        fallbackName: viewerName,
+                        state: .none,
+                        showsAdd: true,
+                        action: create,
+                        addAction: create
+                    )
+                    .accessibilityIdentifier("stories.add")
+                }
+                ForEach(model.rings.filter { $0.author.id != viewerID }) { ring in
+                    StoryAvatar(
+                        name: ring.author.firstName ?? ring.author.name,
+                        avatar: ring.author.avatarUrl,
+                        fallbackName: ring.author.name,
+                        state: ring.hasUnseen ? .unseen : .seen,
+                        action: { open(ring.id) }
+                    )
+                    .accessibilityIdentifier("stories.ring.\(ring.id)")
+                }
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.xs)
+        }
+        .scrollClipDisabled()
+    }
+}
+
+/// Аватар в полосе. Непросмотренное — цветное кольцо, просмотренное — тонкое серое.
+struct StoryAvatar: View {
+    enum RingState {
+        case unseen, seen, none
+    }
+
+    let name: String
+    let avatar: String?
+    var fallbackName: String?
+    let state: RingState
+    var showsAdd = false
+    let action: () -> Void
+    var addAction: (() -> Void)?
+
+    private let size: CGFloat = 64
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: Spacing.sm) {
+                ZStack(alignment: .bottomTrailing) {
+                    AvatarView(url: avatar, name: fallbackName ?? name, size: size - 8)
+                        .padding(4)
+                        .overlay {
+                            switch state {
+                            case .unseen:
+                                Circle().strokeBorder(
+                                    AngularGradient(
+                                        colors: [Palette.primary, Palette.chart3, Palette.primary],
+                                        center: .center
+                                    ),
+                                    lineWidth: 2.5
+                                )
+                            case .seen:
+                                Circle().strokeBorder(Palette.border, lineWidth: 1.5)
+                            case .none:
+                                EmptyView()
+                            }
+                        }
+                    if showsAdd {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Palette.primaryForeground)
+                            .frame(width: 22, height: 22)
+                            .background(Palette.primary, in: Circle())
+                            .overlay(Circle().strokeBorder(Palette.background, lineWidth: 2))
+                            // Значок маленький, а палец — нет: зона касания шире кружка.
+                            .padding(Spacing.md)
+                            .contentShape(Rectangle())
+                            .onTapGesture { (addAction ?? action)() }
+                            .padding(-Spacing.md)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(width: size, height: size)
+
+                Text(name)
+                    .font(.caption2)
+                    .foregroundStyle(state == .seen ? Palette.mutedForeground : Palette.foreground)
+                    .lineLimit(1)
+                    .frame(width: size + 8)
+            }
+        }
+        .buttonStyle(.pressableIcon)
+        .accessibilityLabel(Text(name))
+        .accessibilityValue(Text(state == .unseen
+            ? String(localized: "stories.unseen", defaultValue: "Есть новые истории")
+            : ""))
+        // Значок «+» скрыт от VoiceOver — его действие доступно из меню действий кнопки.
+        .accessibilityActions {
+            if showsAdd, let addAction {
+                Button(String(localized: "stories.add", defaultValue: "Добавить"), action: addAction)
+            }
+        }
+    }
+}
+
+// MARK: - Просмотр
+
+/// Полноэкранный просмотр: истории автора по очереди с полосами прогресса.
+///
+/// Нажатие слева — назад, справа — вперёд, удержание — пауза, смахивание вниз —
+/// закрыть, вбок — соседний автор. Пауза ставится и пока человек пишет ответ или
+/// выбирает вариант в опросе: история не должна уехать из-под пальца.
+struct StoryViewer: View {
+    let model: StoriesModel
+    let startRingID: String
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.viewerID) private var viewerID
+    @Environment(\.motionReduced) private var reduceMotion
+    /// Под VoiceOver история не уходит сама: человек не успел бы её дослушать.
+    @Environment(\.voiceOverOn) private var voiceOverOn
+
+    @State private var ringIndex = 0
+    @State private var storyIndex = 0
+    /// Доля показа текущего кадра — отдельным объектом (`StoryClock`): таймер меняет её
+    /// 20 раз в секунду, и пересчитываться должна только полоска, а не весь просмотр.
+    @State private var clock = StoryClock()
+    @State private var holding = false
+    @State private var pollExpanded = false
+    @State private var muted = false
+    @State private var reply = ""
+    @State private var replySent = 0
+    @State private var reporting = false
+    @State private var confirmingDelete = false
+    @State private var showingViewers = false
+    @State private var addingToHighlight = false
+    @State private var dragOffset: CGSize = .zero
+    /// Ось жеста решается один раз, в момент признания, и точка отсчёта — оттуда же:
+    /// иначе кадр прыгал бы на `minimumDistance` и переключался между осями под пальцем.
+    @State private var dragStart: (origin: CGSize, axis: Axis)?
+    /// Жест идёт — история стоит на паузе (как в Telegram) и сбрасывается при отмене
+    /// жеста системой, когда `onEnded` не приходит.
+    @GestureState private var dragging = false
+    @State private var viewSize = CGSize(width: 393, height: 852)
+    /// Автор на экране — по нему просмотр находит своё место, когда кольца меняются
+    /// под ним: удалили историю, скрыли автора.
+    @State private var shownRingID: String?
+    @FocusState private var replyFocused: Bool
+
+    /// Кадр без видео и без своей длительности — шесть секунд, как в вебе.
+    private static let frameSeconds = 6.0
+
+    private var rings: [StoryRingDTO] { model.rings }
+
+    private var ring: StoryRingDTO? {
+        rings.indices.contains(ringIndex) ? rings[ringIndex] : nil
+    }
+
+    private var story: StoryDTO? {
+        guard let ring, ring.stories.indices.contains(storyIndex) else { return nil }
+        return ring.stories[storyIndex]
+    }
+
+    private var isOwn: Bool { ring?.author.id == viewerID }
+
+    private var paused: Bool {
+        holding || dragging || pollExpanded || replyFocused || reporting || confirmingDelete || showingViewers || addingToHighlight
+            || voiceOverOn
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if let story, let ring {
+                StoryCanvas(story: story, paused: paused, muted: muted)
+                    .ignoresSafeArea()
+                    .overlay(tapZones)
+                    .overlay(alignment: .top) { header(ring: ring, story: story) }
+                    .overlay(alignment: .bottom) { footer(story: story) }
+                    .offset(dragOffset)
+                    .scaleEffect(1 - min(abs(dragOffset.height) / 2000, 0.1))
+                    .gesture(dismissDrag)
+                    .id(story.id)
+                    .transition(.opacity)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { viewSize = $0 }
+                    .onChange(of: dragging) { _, active in
+                        // Жест отменён системой: `onEnded` не было — кадр на место.
+                        guard !active, dragStart != nil else { return }
+                        dragStart = nil
+                        withAnimation(Motion.respecting(Motion.interactive, reduceMotion: reduceMotion)) { dragOffset = .zero }
+                    }
+            } else {
+                // Кадра нет (кольца поменялись под просмотром) — выход всё равно на месте:
+                // чёрный экран без крестика был бы ловушкой.
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(Spacing.lg)
+            }
+        }
+        .statusBarHidden()
+        .preferredColorScheme(.dark)
+        .sensoryFeedback(.success, trigger: replySent)
+        .task(id: story?.id) { await run() }
+        .onAppear {
+            ringIndex = rings.firstIndex { $0.id == startRingID } ?? 0
+            // Своё кольцо и полностью просмотренное — с начала, иначе — с первой
+            // непросмотренной, как в вебе.
+            storyIndex = ring?.stories.firstIndex { $0.seen != true } ?? 0
+        }
+        .onChange(of: rings) { _, _ in realign() }
+        .sheet(isPresented: $showingViewers) {
+            if let story {
+                CommunityStoryViewersView(storyID: story.id)
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .sheet(isPresented: $addingToHighlight) {
+            if let story {
+                CommunityHighlightPicker(storyID: story.id, ownerID: viewerID)
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .alert(
+            String(localized: "stories.report.title", defaultValue: "Что не так с историей?"),
+            isPresented: $reporting
+        ) {
+            ForEach(ComplaintReason.allCases) { reason in
+                Button(reason.title) {
+                    guard let story else { return }
+                    Task { _ = await model.report(story, reason: reason.title) }
+                }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .alert(
+            String(localized: "stories.delete.title", defaultValue: "Удалить историю?"),
+            isPresented: $confirmingDelete
+        ) {
+            Button(String(localized: "feed.delete", defaultValue: "Удалить"), role: .destructive) {
+                guard let story else { return }
+                Task { await model.delete(story) }
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {}
+        }
+        .alert(
+            String(localized: "feed.actionFailed", defaultValue: "Не получилось"),
+            isPresented: Binding(
+                get: { model.actionFailure != nil },
+                set: { if !$0 { model.dismissActionFailure() } }
+            )
+        ) {
+            Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
+        } message: {
+            Text(model.actionFailure ?? "")
+        }
+    }
+
+    // MARK: Таймер
+
+    private func run() async {
+        guard let story else { return }
+        shownRingID = ring?.id
+        clock.progress = 0
+        prefetchNeighbours()
+        await model.markViewed(story, viewerID: viewerID)
+        let seconds = story.media?.durationMs.map { min(Double($0) / 1000, 120) } ?? Self.frameSeconds
+        let step = 0.05
+        while clock.progress < 1 {
+            try? await Task.sleep(for: .milliseconds(Int(step * 1000)))
+            if Task.isCancelled { return }
+            if !paused { clock.advance(by: step / max(seconds, 1), over: step) }
+        }
+        advance()
+    }
+
+    /// Следующий и предыдущий кадры грузятся заранее: переход не ждёт сети.
+    private func prefetchNeighbours() {
+        var neighbours: [StoryDTO] = []
+        if let ring {
+            if ring.stories.indices.contains(storyIndex + 1) { neighbours.append(ring.stories[storyIndex + 1]) }
+            if ring.stories.indices.contains(storyIndex - 1) { neighbours.append(ring.stories[storyIndex - 1]) }
+        }
+        if rings.indices.contains(ringIndex + 1) {
+            let next = rings[ringIndex + 1]
+            if let first = next.stories.first(where: { $0.seen != true }) ?? next.stories.first { neighbours.append(first) }
+        }
+        // Ширина самого просмотра, а не `UIScreen.main`: на внешнем экране и в окне
+        // другого размера кадр нужен под своё место.
+        let width = viewSize.width
+        for story in neighbours {
+            guard let media = story.media, media.mime?.hasPrefix("video/") != true else { continue }
+            guard let url = (media.sources?.best(forPoints: width)?.url ?? media.url).flatMap(URL.init(string:)) else { continue }
+            let key = "story:\(media.id)"
+            guard ImageMemoryCache.shared.image(for: key) == nil else { continue }
+            Task.detached(priority: .utility) { _ = await ImageMemoryCache.shared.load(url, key: key) }
+        }
+    }
+
+    /// Кольца поменялись под просмотром. Автор остался — стоим на нём, а номер кадра
+    /// не дальше последнего (удалили последнюю историю). Автора скрыли — переходим к
+    /// следующему, как после его последнего кадра. Смотреть больше нечего — закрываем.
+    private func realign() {
+        if let shownRingID, let index = rings.firstIndex(where: { $0.id == shownRingID }) {
+            ringIndex = index
+            storyIndex = min(storyIndex, rings[index].stories.count - 1)
+        } else if rings.indices.contains(ringIndex) {
+            storyIndex = rings[ringIndex].stories.firstIndex { $0.seen != true } ?? 0
+        } else {
+            dismiss()
+            return
+        }
+        if story == nil { dismiss() }
+    }
+
+    private func advance() {
+        guard let ring else { return dismiss() }
+        if storyIndex + 1 < ring.stories.count {
+            storyIndex += 1
+        } else if ringIndex + 1 < rings.count {
+            switchRing(to: ringIndex + 1)
+        } else {
+            dismiss()
+        }
+    }
+
+    private func back() {
+        if storyIndex > 0 {
+            storyIndex -= 1
+        } else if ringIndex > 0 {
+            switchRing(to: ringIndex - 1)
+        } else {
+            clock.progress = 0
+        }
+    }
+
+    private func switchRing(to index: Int) {
+        withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) {
+            ringIndex = index
+            storyIndex = rings[index].stories.firstIndex { $0.seen != true } ?? 0
+        }
+        pollExpanded = false
+        reply = ""
+    }
+
+    // MARK: Жесты
+
+    private var tapZones: some View {
+        HStack(spacing: 0) {
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity)
+                .onTapGesture { back() }
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity)
+                .onTapGesture { advance() }
+        }
+        .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
+        } onPressingChanged: { pressing in
+            holding = pressing
+        }
+        // Для VoiceOver страница — регулируемый элемент «История N из M»: свайп вверх и
+        // вниз листает истории автора, а переход к другому автору — действие, которое
+        // есть, только когда соседний автор есть.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(accessibilityAuthor))
+        .accessibilityValue(Text(String(
+            localized: "stories.position",
+            defaultValue: "История \(storyIndex + 1) из \(ring?.stories.count ?? 0)"
+        )))
+        .accessibilityAdjustableAction { direction in
+            guard let ring else { return }
+            switch direction {
+            case .increment:
+                if storyIndex + 1 < ring.stories.count { storyIndex += 1 }
+            case .decrement:
+                if storyIndex > 0 { storyIndex -= 1 }
+            @unknown default:
+                break
+            }
+        }
+        .accessibilityActions {
+            if ringIndex + 1 < rings.count {
+                Button(String(localized: "stories.nextAuthor", defaultValue: "Следующий автор")) {
+                    switchRing(to: ringIndex + 1)
+                }
+            }
+            if ringIndex > 0 {
+                Button(String(localized: "stories.previousAuthor", defaultValue: "Предыдущий автор")) {
+                    switchRing(to: ringIndex - 1)
+                }
+            }
+        }
+    }
+
+    private var accessibilityAuthor: String {
+        guard let ring else { return "" }
+        return isOwn ? String(localized: "stories.mine", defaultValue: "Моя история") : ring.author.name
+    }
+
+    /// Вниз — закрыть, вбок — соседний автор. Кадр идёт за пальцем 1:1; за краем (нет
+    /// соседа) — с сопротивлением. Решение на отпускании — `GesturePhysics`: положение
+    /// плюс скорость, так что короткий бросок срабатывает, а медленная оттяжка — нет.
+    private var dismissDrag: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .updating($dragging) { _, state, _ in state = true }
+            .onChanged { value in
+                guard !replyFocused else { return }
+                if dragStart == nil {
+                    let axis: Axis = abs(value.translation.height) > abs(value.translation.width) ? .vertical : .horizontal
+                    dragStart = (value.translation, axis)
+                }
+                guard let start = dragStart else { return }
+                let dx = value.translation.width - start.origin.width
+                let dy = value.translation.height - start.origin.height
+                switch start.axis {
+                case .vertical:
+                    dragOffset = CGSize(width: 0, height: dy > 0 ? dy : GesturePhysics.rubberBand(dy, limit: 40))
+                case .horizontal:
+                    let hasNeighbor = dx < 0 ? ringIndex + 1 < rings.count : ringIndex > 0
+                    dragOffset = CGSize(width: hasNeighbor ? dx : GesturePhysics.rubberBand(dx, limit: 60), height: 0)
+                }
+            }
+            .onEnded { value in
+                guard let start = dragStart else { return }
+                dragStart = nil
+                let offset = dragOffset
+                switch start.axis {
+                case .vertical:
+                    if GesturePhysics.shouldComplete(translation: offset.height, velocity: value.velocity.height, extent: viewSize.height) {
+                        dismiss()
+                        return
+                    }
+                case .horizontal:
+                    let forward = -offset.width
+                    if ringIndex + 1 < rings.count,
+                       GesturePhysics.shouldComplete(translation: forward, velocity: -value.velocity.width, extent: viewSize.width) {
+                        switchRing(to: ringIndex + 1)
+                        dragOffset = .zero
+                        return
+                    }
+                    if ringIndex > 0,
+                       GesturePhysics.shouldComplete(translation: -forward, velocity: value.velocity.width, extent: viewSize.width) {
+                        switchRing(to: ringIndex - 1)
+                        dragOffset = .zero
+                        return
+                    }
+                }
+                // Возврат на место — с той скоростью, с какой палец отпустил.
+                let velocity = start.axis == .vertical ? value.velocity.height : value.velocity.width
+                let distance = start.axis == .vertical ? offset.height : offset.width
+                withAnimation(Motion.respecting(Motion.release(from: distance, to: 0, velocity: velocity), reduceMotion: reduceMotion)) {
+                    dragOffset = .zero
+                }
+            }
+    }
+
+    // MARK: Шапка и низ
+
+    private func header(ring: StoryRingDTO, story: StoryDTO) -> some View {
+        VStack(spacing: Spacing.md) {
+            StoryProgressBars(ids: ring.stories.map(\.id), current: storyIndex, clock: clock)
+                .accessibilityHidden(true)
+
+            HStack(spacing: Spacing.md) {
+                AvatarView(url: ring.author.avatarUrl, name: ring.author.name, size: 32)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(isOwn ? String(localized: "stories.mine", defaultValue: "Моя история") : ring.author.name)
+                        .font(Typography.meta.weight(.semibold))
+                        .lineLimit(1)
+                    Text(story.createdAt, format: .relative(presentation: .named))
+                        .font(.caption2)
+                        .opacity(0.8)
+                }
+                Spacer()
+                if story.media?.mime?.hasPrefix("video/") == true {
+                    iconButton(muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                               label: String(localized: "stories.sound", defaultValue: "Звук")) {
+                        muted.toggle()
+                    }
+                }
+                Menu {
+                    if isOwn {
+                        Button {
+                            addingToHighlight = true
+                        } label: {
+                            Label(String(localized: "community.highlights.add", defaultValue: "В актуальное"), systemImage: "sparkles")
+                        }
+                        Button {
+                            showingViewers = true
+                        } label: {
+                            Label(String(localized: "community.viewers.title", defaultValue: "Просмотры"), systemImage: "eye")
+                        }
+                        if story.canDelete == true {
+                            Button(role: .destructive) {
+                                confirmingDelete = true
+                            } label: {
+                                Label(String(localized: "feed.delete", defaultValue: "Удалить"), systemImage: "trash")
+                            }
+                        }
+                    } else {
+                        Button {
+                            Task { await model.mute(ring.author.id) }
+                        } label: {
+                            Label(
+                                String(localized: "stories.mute", defaultValue: "Не показывать истории автора"),
+                                systemImage: "eye.slash"
+                            )
+                        }
+                        Button {
+                            reporting = true
+                        } label: {
+                            Label(String(localized: "feed.report", defaultValue: "Пожаловаться"), systemImage: "exclamationmark.bubble")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(Text(String(localized: "stories.more", defaultValue: "Действия с историей")))
+                iconButton("xmark", label: String(localized: "common.close", defaultValue: "Закрыть")) {
+                    dismiss()
+                }
+            }
+            .foregroundStyle(.white)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.md)
+        .background(
+            LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        )
+    }
+
+    private func footer(story: StoryDTO) -> some View {
+        VStack(spacing: Spacing.lg) {
+            // Ссылка и опрос в одной колонке у нижнего края, ссылка выше: так они не
+            // накладываются друг на друга и на наклейки по центру кадра.
+            if let link = story.linkUrl, let url = URL(string: link) {
+                Link(destination: url) {
+                    Label(story.linkLabel ?? url.host() ?? link, systemImage: "link")
+                        .font(Typography.meta.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, Spacing.xl)
+                        .frame(height: ControlHeight.lg)
+                        .foregroundStyle(.white)
+                        .floatingGlass(in: Capsule())
+                }
+            }
+
+            if let poll = story.poll {
+                StoryPollView(
+                    poll: poll,
+                    expanded: $pollExpanded,
+                    vote: { option in Task { await model.vote(option, on: story) } }
+                )
+            }
+
+            if isOwn {
+                if let views = story.viewsCount {
+                    Button {
+                        showingViewers = true
+                    } label: {
+                        Label {
+                            Text(verbatim: String(views))
+                        } icon: {
+                            Image(systemName: "eye")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Typography.meta)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(Text(String(localized: "feed.views", defaultValue: "Просмотры")))
+                    .accessibilityValue(Text(verbatim: String(views)))
+                }
+            } else {
+                replyBar(story: story)
+            }
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.bottom, Spacing.md)
+        .background(
+            LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        )
+    }
+
+    private func replyBar(story: StoryDTO) -> some View {
+        VStack(spacing: Spacing.md) {
+            if !replyFocused {
+                HStack(spacing: Spacing.md) {
+                    ForEach(StoryReactions.all, id: \.self) { emoji in
+                        Button {
+                            Task { await model.toggle(emoji, on: story) }
+                        } label: {
+                            Text(verbatim: emoji)
+                                .font(.title3)
+                                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                                .background(
+                                    model.isMine(emoji, on: story) ? Color.white.opacity(0.25) : .clear,
+                                    in: Circle()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .sensoryFeedback(.impact(weight: .light), trigger: model.isMine(emoji, on: story))
+                        .accessibilityLabel(Text(verbatim: emoji))
+                        .accessibilityAddTraits(model.isMine(emoji, on: story) ? .isSelected : [])
+                    }
+                }
+            }
+            HStack(spacing: Spacing.md) {
+                TextField(
+                    String(localized: "stories.reply", defaultValue: "Ответить автору"),
+                    text: $reply,
+                    axis: .vertical
+                )
+                .lineLimit(1...3)
+                .focused($replyFocused)
+                .foregroundStyle(.white)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.md)
+                .overlay(Capsule().strokeBorder(.white.opacity(0.5)))
+
+                if !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    iconButton("arrow.up.circle.fill", label: String(localized: "chats.send", defaultValue: "Отправить")) {
+                        let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+                        Task {
+                            if await model.reply(text, to: story) {
+                                reply = ""
+                                replyFocused = false
+                                replySent += 1
+                            }
+                        }
+                    }
+                    .font(.title2)
+                }
+            }
+        }
+        .foregroundStyle(.white)
+    }
+
+    private func iconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .frame(width: ControlHeight.xl, height: ControlHeight.xl)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
+    }
+}
+
+// MARK: - Кадр
+
+/// Содержимое кадра: фон, медиа, текст и наклейки.
+/// Кадр истории для экранов вне просмотра историй: актуальное, превью в правке.
+struct CommunityStoryCanvas: View {
+    let story: StoryDTO
+    let paused: Bool
+    let muted: Bool
+
+    var body: some View {
+        StoryCanvas(story: story, paused: paused, muted: muted)
+    }
+}
+
+private struct StoryCanvas: View {
+    let story: StoryDTO
+    let paused: Bool
+    let muted: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if let media = story.media {
+                    if media.mime?.hasPrefix("video/") == true {
+                        StoryVideoView(media: media, paused: paused, muted: muted)
+                    } else {
+                        RemoteImage(
+                            url: (media.sources?.best(forPoints: proxy.size.width)?.url ?? media.url)
+                                .flatMap(URL.init(string:)),
+                            cacheKey: "story:\(media.id)",
+                            placeholder: media.placeholder,
+                            contentMode: .fit
+                        )
+                    }
+                } else {
+                    StoryBackground.gradient(story.background)
+                }
+
+                if let text = story.text, !text.isEmpty {
+                    Text(text)
+                        .font(story.media == nil ? .title2.weight(.semibold) : Typography.body.weight(.medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .shadow(color: .black.opacity(story.media == nil ? 0 : 0.6), radius: 4)
+                        .padding(Spacing.xxl)
+                        .frame(maxHeight: .infinity, alignment: story.media == nil ? .center : .bottom)
+                        .padding(.bottom, story.media == nil ? 0 : 160)
+                }
+
+                ForEach(Array((story.elements ?? []).enumerated()), id: \.offset) { _, element in
+                    StickerView(element: element)
+                        .scaleEffect(min(max(element.scale, 0.4), 3))
+                        .rotationEffect(.degrees(element.rotation))
+                        .position(x: proxy.size.width * element.x, y: proxy.size.height * element.y)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+}
+
+/// Наклейка поверх кадра. Упоминание, событие и пост ведут туда же, куда в вебе.
+private struct StickerView: View {
+    let element: StoryElement
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        switch element.kind {
+        case .text(let text, let color, let background):
+            Text(text)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color(storyHex: color) ?? .white)
+                .padding(.horizontal, background == "none" ? 0 : Spacing.md)
+                .padding(.vertical, background == "none" ? 0 : Spacing.xs)
+                .background {
+                    if background == "solid" {
+                        RoundedRectangle(cornerRadius: Radius.md).fill(.black.opacity(0.75))
+                    } else if background == "soft" {
+                        RoundedRectangle(cornerRadius: Radius.md).fill(.white.opacity(0.25))
+                    }
+                }
+                .multilineTextAlignment(.center)
+        case .emoji(let emoji):
+            Text(verbatim: emoji).font(.system(size: 56))
+        case .mention(let userID, let name):
+            chip(symbol: "at", text: name ?? "") {
+                open(.profile(id: userID))
+            }
+        case .event(let id, let title):
+            chip(symbol: "calendar", text: title ?? String(localized: "more.events", defaultValue: "События")) {
+                open(.community(.event(id: id)))
+            }
+        case .post(let id, let title):
+            chip(symbol: "doc.text", text: title ?? String(localized: "shell.post", defaultValue: "Публикация")) {
+                open(.post(id: id))
+            }
+        case .schedule(let subject, let time):
+            chip(symbol: "clock", text: [subject, time].compactMap { $0 }.joined(separator: " · ")) {}
+        case .unknown:
+            EmptyView()
+        }
+    }
+
+    private func chip(symbol: String, text: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(text, systemImage: symbol)
+                .font(Typography.meta.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(.white)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+                .floatingGlass(in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Переход из истории: просмотр закрывается, экран открывается во вкладке «Главная».
+    private func open(_ route: AppRoute) {
+        dismiss()
+        AppServices.router.selectedTab = .home
+        AppServices.router.push(route, in: .home)
+    }
+}
+
+private struct StoryVideoView: View {
+    let media: StoryDTO.Media
+    let paused: Bool
+    let muted: Bool
+
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .disabled(true)
+            .onAppear {
+                let raw = media.hls.flatMap(URL.apiRooted) ?? media.url.flatMap(URL.init(string:))
+                guard let raw else { return }
+                player = AVPlayer(url: raw)
+                player?.isMuted = muted
+                player?.play()
+            }
+            .onChange(of: paused) { _, paused in
+                if paused { player?.pause() } else { player?.play() }
+            }
+            .onChange(of: muted) { _, muted in player?.isMuted = muted }
+            .onDisappear { player?.pause() }
+    }
+}
+
+/// Опрос. Два варианта — сразу кнопками. Больше — свёрнутой плашкой: раскрытый список
+/// из четырёх вариантов закрыл бы весь кадр, а смотреть пришли на кадр.
+private struct StoryPollView: View {
+    let poll: StoryDTO.Poll
+    @Binding var expanded: Bool
+    let vote: (String) -> Void
+    @Environment(\.motionReduced) private var reduceMotion
+
+    private var voted: Bool { poll.myOptionId != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Button {
+                withAnimation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: Spacing.md) {
+                    Image(systemName: "chart.bar.fill")
+                    Text(poll.question)
+                        .font(Typography.meta.weight(.semibold))
+                        .lineLimit(expanded ? 3 : 1)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                    if poll.options.count > 2 {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.up")
+                            .font(.caption.weight(.bold))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(poll.options.count <= 2)
+
+            if expanded || poll.options.count <= 2 {
+                ScrollView {
+                    VStack(spacing: Spacing.sm) {
+                        ForEach(poll.options) { option in
+                            optionRow(option)
+                        }
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: 240)
+            }
+
+            if voted {
+                Text(String(localized: "stories.poll.votes", defaultValue: "Голосов: \(poll.totalVotes)"))
+                    .font(.caption2)
+                    .opacity(0.8)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(Spacing.lg)
+        .floatingGlass(in: RoundedRectangle(cornerRadius: Radius.xxl, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func optionRow(_ option: StoryDTO.Poll.Option) -> some View {
+        let share = poll.totalVotes > 0 ? Double(option.votes) / Double(poll.totalVotes) : 0
+        let mine = poll.myOptionId == option.id
+        return Button {
+            vote(option.id)
+        } label: {
+            HStack(spacing: Spacing.md) {
+                Text(option.text)
+                    .font(Typography.meta.weight(mine ? .bold : .medium))
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                if voted {
+                    Text(verbatim: share.formatted(.percent.precision(.fractionLength(0))))
+                        .font(Typography.tabular(Typography.meta))
+                }
+                if mine { Image(systemName: "checkmark.circle.fill") }
+            }
+            .padding(.horizontal, Spacing.lg)
+            .frame(minHeight: ControlHeight.lg)
+            .background(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule().fill(.white.opacity(voted ? 0.3 : 0))
+                        .frame(width: proxy.size.width * share)
+                }
+            }
+            .background(.white.opacity(0.12), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .sensoryFeedback(.selection, trigger: poll.myOptionId)
+        .accessibilityValue(Text(verbatim: voted ? share.formatted(.percent.precision(.fractionLength(0))) : ""))
+        .accessibilityAddTraits(mine ? .isSelected : [])
+    }
+}
+
+/// Градиенты текстовых историй — те же, что в вебе (`STORY_BACKGROUND_CLASS`).
+enum StoryBackground {
+    static let all = ["sunset", "ocean", "forest", "grape", "graphite", "rose"]
+
+    /// Цвета градиента (`0xRRGGBB`) — их же рисует редактор историй в экспорт.
+    static func colors(_ key: String?) -> [UInt32] {
+        switch key {
+        case "sunset": return [0xFB923C, 0xF43F5E, 0xC026D3]
+        case "ocean": return [0x38BDF8, 0x3B82F6, 0x4F46E5]
+        case "forest": return [0x34D399, 0x22C55E, 0x0D9488]
+        case "grape": return [0x8B5CF6, 0x9333EA, 0xA21CAF]
+        case "rose": return [0xF472B6, 0xF43F5E, 0xEF4444]
+        default: return [0x475569, 0x334155, 0x0F172A]
+        }
+    }
+
+    static func gradient(_ key: String?) -> LinearGradient {
+        LinearGradient(
+            colors: colors(key).map(Color.init(rgb:)),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
+extension Color {
+    fileprivate init(rgb: UInt32) {
+        self.init(
+            red: Double((rgb >> 16) & 0xFF) / 255,
+            green: Double((rgb >> 8) & 0xFF) / 255,
+            blue: Double(rgb & 0xFF) / 255
+        )
+    }
+
+    /// Цвет текстовой наклейки (`#rrggbb` из палитры сервера).
+    fileprivate init?(storyHex: String?) {
+        guard let storyHex, storyHex.hasPrefix("#"), let value = UInt32(storyHex.dropFirst(), radix: 16) else {
+            return nil
+        }
+        self.init(rgb: value)
+    }
+}
+
+/// Доля показа текущего кадра истории (P2-1 аудита). Таймер просмотра пишет сюда, а
+/// читает только `StoryProgressBars` — тело просмотра от тиков не пересчитывается.
+@Observable
+final class StoryClock {
+    var progress: Double = 0
+
+    /// Шаг таймера. Полоска между тиками доезжает линейной анимацией длиной в шаг: без
+    /// неё она двигалась ступеньками по 20 раз в секунду, заметными на экране 120 Гц.
+    /// Тело полосок при этом считается по-прежнему раз в тик — кадры между тиками
+    /// рисует анимация, а не пересчёт. Сброс (`progress = 0`) — без анимации: полоска
+    /// нового кадра не должна «отъезжать» назад.
+    func advance(by delta: Double, over duration: TimeInterval) {
+        withAnimation(.linear(duration: duration)) { progress += delta }
+    }
+}
+
+/// Полоски кадров над историей: пройденные — полные, текущая — по таймеру.
+struct StoryProgressBars: View {
+    let ids: [String]
+    let current: Int
+    let clock: StoryClock
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            ForEach(Array(ids.enumerated()), id: \.element) { index, _ in
+                GeometryReader { proxy in
+                    Capsule().fill(.white.opacity(0.3))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(.white)
+                                .frame(width: proxy.size.width * fill(for: index))
+                        }
+                }
+                .frame(height: 2.5)
+            }
+        }
+    }
+
+    private func fill(for index: Int) -> Double {
+        if index < current { return 1 }
+        if index > current { return 0 }
+        return min(max(clock.progress, 0), 1)
+    }
+}

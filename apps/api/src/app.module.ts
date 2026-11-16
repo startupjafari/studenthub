@@ -61,6 +61,7 @@ import { MaterialsModule } from './modules/materials/materials.module'
 import { ProfileContentModule } from './modules/profile-content/profile-content.module'
 import { PollsModule } from './modules/polls/polls.module'
 import { DocumentsModule } from './modules/documents/documents.module'
+import { DocumentTemplatesModule } from './modules/document-templates/document-templates.module'
 import { FriendsModule } from './modules/friends/friends.module'
 import { EmailModule } from './modules/email/email.module'
 import { NotificationsModule } from './modules/notifications/notifications.module'
@@ -168,6 +169,7 @@ import { AppController } from './app.controller'
     ProfileContentModule,
     PollsModule,
     DocumentsModule,
+    DocumentTemplatesModule,
     FriendsModule,
     EmailModule,
     NotificationsModule,

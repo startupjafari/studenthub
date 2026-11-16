@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Консультации (docs/ACADEMIC_CORE.md, задача 15). Статус — строка (SSOT здесь).
 export const CONSULTATION_STATUSES = ['OPEN', 'BOOKED', 'CANCELLED'] as const
@@ -19,7 +20,7 @@ export const CreateSlotSchema = z
   // Моменты, а не строки: «10:00+05:00» и «06:00Z» лексикографически сравнивались неверно
   // при разных смещениях.
   .refine((v) => new Date(v.endsAt).getTime() > new Date(v.startsAt).getTime(), {
-    message: 'endsAt must be after startsAt',
+    message: vm('validation.range.endAfterStart'),
     path: ['endsAt'],
   })
 export type CreateSlotInput = z.infer<typeof CreateSlotSchema>

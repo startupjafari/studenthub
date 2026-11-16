@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Контракт управления платформой: рычаги, которыми админ меняет поведение веба без деплоя.
 // Читается состояние публично (`GET /platform/state`), пишется только платформенным
@@ -97,7 +98,7 @@ export const AnnounceReleaseSchema = z
     version: z
       .string()
       .trim()
-      .regex(/^\d+\.\d+\.\d+$/, 'Версия в формате 1.2.3')
+      .regex(/^\d+\.\d+\.\d+$/, vm('validation.version.format'))
       .nullable(),
   })
   .strict()

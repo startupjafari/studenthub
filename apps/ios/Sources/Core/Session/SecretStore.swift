@@ -5,8 +5,18 @@ import Security
 /// иначе прогон упирается в связку ключей симулятора.
 protocol SecretStore: Sendable {
     func value(for key: SecretKey) -> String?
-    func set(_ value: String, for key: SecretKey)
+    /// `false` — запись не удалась (связка ключей заперта, нет места, сбой системы):
+    /// в хранилище осталось прежнее значение. Решать, чем это опасно, — вызывающему.
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool
     func remove(_ key: SecretKey)
+    /// Хранилище заперто (связка ключей до первой разблокировки после включения):
+    /// `value` вернёт `nil`, хотя секрет есть. Отсутствие тогда — не «сессии нет».
+    var isLocked: Bool { get }
+}
+
+extension SecretStore {
+    var isLocked: Bool { false }
 }
 
 enum SecretKey: String {
@@ -18,6 +28,13 @@ enum SecretKey: String {
     /// приложение не отличает «не входил ни разу» от «токен в памяти пропал после
     /// выгрузки» и либо зря дёргает обновление сессии, либо зря показывает вход.
     case sessionPresent = "session.present"
+    /// Последний выданный access-токен. Для запросов не годится (живёт 15 минут), но из
+    /// него видно, кто вошёл и с какой ролью: холодный старт без сети открывает
+    /// приложение по нему, а не выбрасывает на вход.
+    case lastAccessToken = "session.last-access-token"
+    /// Выходы, которые не дошли до сервера (не было сети): refresh-токен и токен пушей
+    /// каждого. Досылаются, когда связь появится (`SessionStore.completePendingLogouts`).
+    case pendingLogouts = "session.pending-logouts"
 }
 
 /// Связка ключей iOS.
@@ -51,8 +68,9 @@ struct Keychain: SecretStore {
         return String(data: data, encoding: .utf8)
     }
 
-    func set(_ value: String, for key: SecretKey) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    func set(_ value: String, for key: SecretKey) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         let query = baseQuery(for: key)
         // Доступность переписывается и при обновлении: записи, заведённые прежними
         // сборками без `ThisDeviceOnly`, переезжают на неё при первой же записи.
@@ -64,16 +82,27 @@ struct Keychain: SecretStore {
         // Сначала пробуем обновить: SecItemAdd на существующий ключ вернёт
         // errSecDuplicateItem, и секрет молча не обновится.
         if SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecSuccess {
-            return
+            return true
         }
+        // Результат добавления — это и есть итог записи: обновление не прошло, и если
+        // не пройдёт и оно (связка заперта, запись есть, но не обновилась), на месте
+        // осталось прежнее значение — об этом обязан узнать вызывающий (правило 10.2.2).
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = Self.accessibility
-        SecItemAdd(insert as CFDictionary, nil)
+        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 
     func remove(_ key: SecretKey) {
         SecItemDelete(baseQuery(for: key) as CFDictionary)
+    }
+
+    /// Запрос к связке ключей отклонён как недоступный в этом состоянии устройства —
+    /// значит, она заперта, а не пуста.
+    var isLocked: Bool {
+        var query = baseQuery(for: .sessionPresent)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecInteractionNotAllowed
     }
 
     private func baseQuery(for key: SecretKey) -> [String: Any] {

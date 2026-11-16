@@ -16,8 +16,16 @@ export interface DownloadedFile {
 export async function requestFile(
   url: string,
   params?: Record<string, unknown>,
+  /**
+   * POST — для действий, которые создают файл на сервере (документ по шаблону): такой
+   * запрос не идемпотентен и пишется в журнал, а параметры едут в теле.
+   */
+  post?: { body?: unknown },
 ): Promise<DownloadedFile> {
-  const response = await api.get<Blob>(url, { params, responseType: 'blob' })
+  const config = { params, responseType: 'blob' as const }
+  const response = post
+    ? await api.post<Blob>(url, post.body, config)
+    : await api.get<Blob>(url, config)
   return {
     blob: response.data,
     filename: filenameFromDisposition(response.headers['content-disposition']),

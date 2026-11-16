@@ -10,7 +10,7 @@ import { Container, LinkButton } from './primitives'
 import { LanguageMenu } from './language-menu'
 
 /** Разделы страницы в порядке следования — по ним же считается активный пункт. */
-const SECTIONS = ['product', 'security', 'rollout', 'faq'] as const
+const SECTIONS = ['product', 'modules', 'security', 'rollout', 'faq'] as const
 
 /**
  * Шапка сайта.
@@ -37,6 +37,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
 
   const links = [
     { id: 'product', label: dict.nav.product },
+    { id: 'modules', label: dict.nav.modules },
     { id: 'security', label: dict.nav.security },
     { id: 'rollout', label: dict.nav.rollout },
     { id: 'faq', label: dict.nav.faq },

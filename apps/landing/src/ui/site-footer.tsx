@@ -6,11 +6,8 @@ import { Container } from './primitives'
 import { LanguageMenu } from './language-menu'
 
 /**
- * Подвал: переключатель языка, вход, дверь работодателя и почта для связи.
- *
- * Больше здесь ничего нет, и это не недоделка. Ссылки на юридические документы стояли бы
- * в никуда: политика и соглашение живут в платформе и открываются модальным окном,
- * отдельных адресов у них пока не существует.
+ * Подвал: переключатель языка, вход, дверь работодателя, почта для связи и юридические
+ * документы.
  */
 export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const year = new Date().getFullYear()
@@ -46,14 +43,21 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
         </div>
 
         {/*
-          Политика конфиденциальности и пользовательское соглашение живут в платформе
-          (apps/web, shared/ui/legal-links) и открываются там модальным окном — отдельных
-          адресов у них нет. Ставить сюда ссылку в никуда хуже, чем не ставить её вовсе:
-          публичные URL для юридических документов — отдельная задача, и она ещё не решена.
+          Политика и соглашение — публичные страницы платформы (/legal/privacy,
+          /legal/terms): документы одни на сайт и продукт, и держать вторую копию текста
+          здесь значило бы рано или поздно разойтись с редакцией, которую человек принимает
+          при регистрации. Стоят в строке копирайта мелким текстом: их ищут целенаправленно,
+          а не читают по пути.
         */}
-        <p className="text-xs text-muted-foreground">
-          © {year} StudentHub. {dict.footer.rights}
-        </p>
+        <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            © {year} StudentHub. {dict.footer.rights}
+          </p>
+          <nav aria-label={dict.footer.legal} className="flex flex-wrap gap-x-5 gap-y-2">
+            <FooterLink href={links.privacy}>{dict.footer.privacy}</FooterLink>
+            <FooterLink href={links.terms}>{dict.footer.terms}</FooterLink>
+          </nav>
+        </div>
       </Container>
     </footer>
   )

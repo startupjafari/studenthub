@@ -491,6 +491,7 @@ export class DataExportService {
     const [
       chatReactions,
       chatPollVotes,
+      chatChecklistItems,
       chatFolders,
       scheduledMessages,
       eventsOrganized,
@@ -512,6 +513,13 @@ export class DataExportService {
       this.prisma.chatPollVote.findMany({
         where: { userId },
         select: { pollId: true, optionId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Пункты чек-листов, которые человек добавил сам (свой текст в общем списке).
+      this.prisma.chatChecklistItem.findMany({
+        where: { createdById: userId },
+        select: { checklistId: true, text: true, doneAt: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take,
       }),
@@ -618,6 +626,7 @@ export class DataExportService {
     return {
       chatReactions: section(chatReactions, SECTION_LIMIT),
       chatPollVotes: section(chatPollVotes, SECTION_LIMIT),
+      chatChecklistItems: section(chatChecklistItems, SECTION_LIMIT),
       chatFolders: section(chatFolders, SECTION_LIMIT),
       scheduledMessages: section(scheduledMessages, SECTION_LIMIT),
       eventsOrganized: section(eventsOrganized, SECTION_LIMIT),
@@ -637,7 +646,7 @@ export class DataExportService {
     userId: string,
     take: number,
   ): Promise<Record<string, ExportSection>> {
-    const [profile, consents, applications, resume, companies] = await Promise.all([
+    const [profile, consents, grants, applications, resume, companies] = await Promise.all([
       this.prisma.careerProfile.findMany({
         where: { userId },
         select: {
@@ -660,6 +669,17 @@ export class DataExportService {
       this.prisma.careerConsent.findMany({
         where: { userId },
         select: { field: true, companyId: true, grantedAt: true, revokedAt: true },
+        orderBy: { grantedAt: 'desc' },
+        take,
+      }),
+      // Адресное открытие скрытого профиля одной компании (21.D1): кому и когда открыт.
+      this.prisma.careerProfileGrant.findMany({
+        where: { userId },
+        select: {
+          grantedAt: true,
+          revokedAt: true,
+          company: { select: { name: true } },
+        },
         orderBy: { grantedAt: 'desc' },
         take,
       }),
@@ -712,6 +732,10 @@ export class DataExportService {
     return {
       careerProfile: section(profile, SECTION_LIMIT),
       careerConsents: section(consents, SECTION_LIMIT),
+      careerProfileGrants: section(
+        grants.map(({ company, ...rest }) => ({ ...rest, company: company.name })),
+        SECTION_LIMIT,
+      ),
       careerApplications: section(applications.map(careerApplicationView), SECTION_LIMIT),
       resume: section(resume, SECTION_LIMIT),
       companies: section(companies, SECTION_LIMIT),
@@ -841,6 +865,8 @@ export class DataExportService {
           cancelledAt: true,
           cancelReason: true,
           disputedAt: true,
+          // Выдана без скана QR, по номеру билета (21.C5) — факт о его же выдаче.
+          withoutPhone: true,
         },
         orderBy: { issuedAt: 'desc' },
         take,
@@ -1282,6 +1308,21 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'MessageReaction.userId': { section: 'chatReactions' },
     'ChatFolder.userId': { section: 'chatFolders' },
     'ChatPollVote.userId': { section: 'chatPollVotes' },
+    'ChatChecklistItem.createdById': { section: 'chatChecklistItems' },
+    'ChatChecklistItem.doneById': {
+      excluded: 'отметка «выполнено» в общем списке переписки — пункт выгружается его автору',
+    },
+    'HiddenMessage.userId': {
+      excluded:
+        'служебная отметка интерфейса «скрыто у себя»: только id сообщения, без содержимого',
+    },
+    'ChatContact.userId': {
+      excluded: 'карточка контакта, которую отправил другой человек; сервер поле не заполняет',
+    },
+    'StickerSet.createdById': { excluded: STAFF_WORK },
+    'FavoriteSticker.userId': {
+      excluded: 'служебная настройка интерфейса: только id стикеров каталога платформы',
+    },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
@@ -1328,6 +1369,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'CompanyMember.userId': { section: 'companies' },
     'CareerProfile.userId': { section: 'careerProfile' },
     'CareerConsent.userId': { section: 'careerConsents' },
+    'CareerProfileGrant.userId': { section: 'careerProfileGrants' },
     'CareerApplication.studentId': { section: 'careerApplications' },
     'Resume.userId': { section: 'resume' },
     'ReleaseView.userId': { excluded: 'служебная отметка интерфейса «что нового» о версии' },
@@ -1363,6 +1405,9 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'SecurityPass.guardId': { excluded: STAFF_WORK },
     'SecurityVisitor.createdById': { excluded: STAFF_WORK },
     'SecurityVisitor.exitedById': { excluded: STAFF_WORK },
+    // DOCX-шаблоны документов вуза (§3.8): заводят и загружают версии сотрудники.
+    'DocumentTemplate.createdById': { excluded: STAFF_WORK },
+    'DocumentTemplateVersion.createdById': { excluded: STAFF_WORK },
   }
 
 const NOT_USER = 'идентификатор не человека'
@@ -1415,6 +1460,14 @@ export const SCALAR_ID_FIELDS: Readonly<
   'CompanyUniversityAccess.decidedById': { excluded: STAFF_WORK },
   'Vacancy.createdById': { excluded: 'работа сотрудника компании от её имени — данные компании' },
   'VacancyUniversityReview.decidedById': { excluded: STAFF_WORK },
+  // Приглашение коллеги в компанию (21.D2): кто пригласил — работа от имени компании,
+  // кто принял — итог в разделе companies (членство).
+  'CompanyInvite.invitedById': {
+    excluded: 'работа сотрудника компании от её имени — данные компании',
+  },
+  'CompanyInvite.acceptedById': {
+    excluded: 'принятое приглашение: итог — членство в компании, раздел companies',
+  },
   'CareerApplicationEvent.actorId': {
     excluded: 'история отклика: шаги компании — её работа, итог — раздел careerApplications',
   },
@@ -1449,4 +1502,12 @@ export const SCALAR_ID_FIELDS: Readonly<
   'CampusSpaceIndex.spaceId': { notUser: NOT_USER },
   'CampusSpaceIndex.buildingId': { notUser: NOT_USER },
   'CampusSpaceIndex.floorId': { notUser: NOT_USER },
+  // Шаблоны документов вуза (§3.8): публикация и выдача — работа сотрудника. Сформированный
+  // по шаблону DOCX платформа не хранит, журнал выдач — только факт: какой шаблон, кто и когда.
+  'DocumentTemplate.publishedById': { excluded: STAFF_WORK },
+  'DocumentTemplateGeneration.universityId': { notUser: NOT_USER },
+  'DocumentTemplateGeneration.studentId': {
+    excluded: 'журнал выдач по шаблонам: сам документ не хранится, строка — учёт работы вуза',
+  },
+  'DocumentTemplateGeneration.actorId': { excluded: STAFF_WORK },
 }

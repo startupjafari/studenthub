@@ -58,5 +58,8 @@ model DocumentExport {
 
   @@index([userId])
   @@index([createdAt])
+  // Журнал справок одного вида (библиотечные справки вуза, Фаза 21.C4): без индекса по виду
+  // список читал бы все выгрузки платформы.
+  @@index([kind, createdAt])
   @@map("document_exports")
 }

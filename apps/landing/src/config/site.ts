@@ -65,7 +65,7 @@ export const OG_LOCALES: Record<Locale, string> = {
 }
 
 /**
- * Три двери на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
+ * Ссылки на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
  * это единственные адреса продукта, которые можно открыть без аккаунта.
  *
  * Каждая ссылка несёт язык страницы (`?lang=`): у платформы свой домен, язык она берёт из
@@ -85,6 +85,14 @@ export function platformLinks(locale: Locale) {
     demoRequest: link('/demo'),
     employerSignup: link('/employer/signup'),
     verifyDocument: link('/verify'),
+    /**
+     * Юридические документы — публичные страницы платформы (`LEGAL_ROUTES` в
+     * apps/web/src/shared/config/routes.ts), открываются без входа и вошедшим тоже.
+     * Своего переключателя языка у них нет: текст берётся из cookie платформы, поэтому
+     * `?lang=` здесь нужен так же, как у входа.
+     */
+    privacy: link('/legal/privacy'),
+    terms: link('/legal/terms'),
   } as const
 }
 

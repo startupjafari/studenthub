@@ -14,7 +14,7 @@ import {
   uploadDocumentFile,
   type DocumentDto,
 } from '../../../entities/document'
-import { Button, useConfirm } from '../../../shared/ui'
+import { Button, UploadProgress, useConfirm } from '../../../shared/ui'
 import { formatBytes, isOversizeOnPick, useByteUnitLabel } from '../../../shared/lib'
 import { DocModal } from './doc-modal'
 
@@ -56,6 +56,9 @@ export function DocumentPagesModal({
   const [doc, setDoc] = useState(initial)
   const [replacing, setReplacing] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Ход текущего файла и его отмена: крупный скан идёт частями минутами (21.B1).
+  const [progress, setProgress] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
   const pages = doc.files
 
   const onDone = (next: DocumentDto, message?: string) => {
@@ -93,18 +96,28 @@ export function DocumentPagesModal({
       toast.error(tErr(bad))
       return null
     }
-    return (await uploadDocumentFile(file)).id
+    setProgress(0)
+    return (await uploadDocumentFile(file, setProgress, abortRef.current?.signal)).id
+  }
+
+  /** Начать пачку загрузок; её сигнал отменяет крестик в строке хода. */
+  function beginUpload(): AbortSignal {
+    const controller = new AbortController()
+    abortRef.current = controller
+    setUploading(true)
+    return controller.signal
   }
 
   async function onReplacePicked(file: File | undefined): Promise<void> {
     const target = replacing
     if (!file || !target) return
-    setUploading(true)
+    const signal = beginUpload()
     try {
       const fileId = await upload(file)
       if (fileId) onDone(await replaceDocumentFile(doc.id, target, fileId), t('pageReplaced'))
     } catch (e) {
-      onFail(e)
+      // Отмена — решение человека, а не сбой: без тоста.
+      if (!signal.aborted) onFail(e)
     } finally {
       setUploading(false)
       setReplacing(null)
@@ -113,7 +126,7 @@ export function DocumentPagesModal({
 
   async function onAddPicked(list: FileList | null): Promise<void> {
     if (!list || list.length === 0) return
-    setUploading(true)
+    const signal = beginUpload()
     try {
       const ids: string[] = []
       for (const file of Array.from(list)) {
@@ -122,7 +135,8 @@ export function DocumentPagesModal({
       }
       if (ids.length > 0) onDone(await attachDocumentFiles(doc.id, ids), t('pagesAdded'))
     } catch (e) {
-      onFail(e)
+      // Отмена — решение человека, а не сбой: без тоста.
+      if (!signal.aborted) onFail(e)
     } finally {
       setUploading(false)
     }
@@ -255,6 +269,9 @@ export function DocumentPagesModal({
         </ul>
       )}
       {pages.length === 1 && <p className="text-xs text-muted-foreground">{t('pagesLastHint')}</p>}
+      {uploading && (
+        <UploadProgress percent={progress} onCancel={() => abortRef.current?.abort()} />
+      )}
       <div className="flex justify-end">
         <Button
           type="button"

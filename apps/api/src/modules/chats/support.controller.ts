@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import {
   ApiBearerAuth,
@@ -48,6 +48,17 @@ export class SupportController {
     @Req() req: FastifyRequest,
   ) {
     return this.support.open(user, dto, this.ctx(req))
+  }
+
+  @Post('chat')
+  // Открыть чат поддержки можно часто (каждый переход в «Поддержку»), а новое обращение
+  // заводится только когда обращений ещё не было.
+  @Throttle({ default: { limit: 60, ttl: 60 * 60_000 } })
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Чат поддержки автора: последнее обращение или новое, пустое' })
+  @ApiResponse({ status: 200, description: '{ id, created }' })
+  chat(@CurrentUser() user: CurrentUserData) {
+    return this.support.chat(user)
   }
 
   @Get()

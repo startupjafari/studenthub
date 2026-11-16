@@ -20,7 +20,7 @@ import { child } from '../lib/ids.mjs'
 
 const DEMO_UNIVERSITY_ID = 'seed-university-001'
 
-// Именованные dev-аккаунты: по ним ходят и человек, и UI-аудит.
+// Именованные dev-аккаунты: по ним ходят и человек, и e2e.
 const DEV_EMAILS = [
   'student@studenthub.app',
   'starosta@studenthub.app',

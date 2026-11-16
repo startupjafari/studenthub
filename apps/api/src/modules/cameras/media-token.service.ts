@@ -6,10 +6,15 @@ import {
   createPublicKey,
   randomUUID,
   sign,
-  type JsonWebKey,
+  type webcrypto,
   type KeyObject,
 } from 'node:crypto'
 import type { EnvVars } from '../../config/env.schema'
+
+// `JsonWebKey` в @types/node 26 живёт только в `webcrypto`: прежний экспорт из
+// `node:crypto` убран (в 22-й версии было оба). У веб-типа нет `kid` — идентификатор
+// ключа в JWKS (RFC 7517 §4.5) добавлен явно.
+type JsonWebKey = webcrypto.JsonWebKey & { kid?: string }
 
 // Медиатокены для ретранслятора камер (docs/PROJECT.md §3.10): короткие JWT ES256, которые
 // MediaMTX проверяет сам по нашему открытому ключу (JWKS) — без запроса к API на каждый

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 // Страница организации (компания, университет) в стиле профиля: общие поля витрины —
 // описание, сайт, год основания, контакты и соцсети. Одна схема на обе страницы, чтобы
@@ -29,7 +30,7 @@ const clearableWebsite = z
   .trim()
   .max(200)
   .url()
-  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+  .refine((v) => v.startsWith('http://') || v.startsWith('https://'), vm('validation.url.httpOnly'))
   .nullable()
   .optional()
   .or(emptyToNull)
@@ -56,7 +57,7 @@ export const OrgPageFieldsShape = {
     .number()
     .int()
     .min(ORG_FOUNDED_MIN)
-    .refine((y) => y <= new Date().getFullYear(), 'Год из будущего')
+    .refine((y) => y <= new Date().getFullYear(), vm('validation.org.foundedYearFuture'))
     .nullable()
     .optional()
     .or(emptyToNull),
@@ -72,7 +73,7 @@ export const OrgPageFieldsShape = {
   contactPhone: z
     .string()
     .trim()
-    .regex(KZ_PHONE_RE, 'Номер в формате +7 (777) 777-77-77')
+    .regex(KZ_PHONE_RE, vm('validation.phone.format'))
     .nullable()
     .optional()
     .or(emptyToNull),
@@ -83,11 +84,11 @@ export const OrgPageFieldsShape = {
     .trim()
     .regex(
       /^(@[A-Za-z0-9_]{4,32}|https:\/\/t\.me\/[A-Za-z0-9_]{4,32})$/,
-      '@имя или https://t.me/имя',
+      vm('validation.org.telegram'),
     )
     .nullable()
     .optional()
     .or(emptyToNull),
-  instagram: clearableSocialUrl(INSTAGRAM_URL_RE, 'Ссылка вида https://instagram.com/имя'),
-  linkedin: clearableSocialUrl(LINKEDIN_URL_RE, 'Ссылка вида https://linkedin.com/company/имя'),
+  instagram: clearableSocialUrl(INSTAGRAM_URL_RE, vm('validation.org.instagram')),
+  linkedin: clearableSocialUrl(LINKEDIN_URL_RE, vm('validation.org.linkedin')),
 }

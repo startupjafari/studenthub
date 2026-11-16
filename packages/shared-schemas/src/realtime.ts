@@ -19,6 +19,9 @@ export const REALTIME_EVENTS = {
   scheduleLessonUpdated: 'schedule.lesson.updated',
   notificationCreated: 'notification.created',
   applicationStatusChanged: 'application.status.changed',
+  // Очередь обработчиков (21.B3): заявку подали, сменили ей статус или назначили ответственного.
+  // Адресаты — кто видит заявку в очереди (админ и модератор её вуза, деканы её факультета).
+  applicationQueueChanged: 'application.queue.changed',
   gradePublished: 'grade.published',
 } as const
 export type RealtimeEventType = (typeof REALTIME_EVENTS)[keyof typeof REALTIME_EVENTS]

@@ -31,6 +31,7 @@ describe('AuthService: refresh-токен без верного секрета',
     }
     const passwords = { compare: jest.fn() }
     const audit = { record: jest.fn() }
+    const push = { removeAllForUser: jest.fn(), unregisterDevice: jest.fn() }
     const service = new AuthService(
       prisma as never,
       {} as never,
@@ -47,9 +48,9 @@ describe('AuthService: refresh-токен без верного секрета',
       { assertAllowed: jest.fn() } as never,
       {} as never,
       {} as never,
-      { removeAllForUser: jest.fn() } as never,
+      push as never,
     )
-    return { service, prisma, audit, passwords }
+    return { service, prisma, audit, passwords, push }
   }
 
   it('refresh с чужим секретом → 401, цепочка не гасится', async () => {
@@ -72,6 +73,25 @@ describe('AuthService: refresh-токен без верного секрета',
       expect.objectContaining({ where: { familyId: 'fam-1', revokedAt: null } }),
     )
     expect(passwords.compare).not.toHaveBeenCalled()
+  })
+
+  // Выход, отложенный без сети, досылается без access-токена: токен пушей отвязывается здесь.
+  it('logout с верным секретом отвязывает токен пушей у владельца сессии', async () => {
+    const { service, push } = setup()
+    await service.logout('rt-1.good', {}, 'apns-token-0123456789abcdef')
+    expect(push.unregisterDevice).toHaveBeenCalledWith('u1', 'apns-token-0123456789abcdef')
+  })
+
+  it('logout с чужим секретом токен пушей не трогает', async () => {
+    const { service, push } = setup()
+    await service.logout('rt-1.wrong', {}, 'apns-token-0123456789abcdef')
+    expect(push.unregisterDevice).not.toHaveBeenCalled()
+  })
+
+  it('logout без токена устройства пуши не трогает', async () => {
+    const { service, push } = setup()
+    await service.logout('rt-1.good', {})
+    expect(push.unregisterDevice).not.toHaveBeenCalled()
   })
 })
 

@@ -4,10 +4,11 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Briefcase, Eye, Pencil, Plus } from 'lucide-react'
+import { Briefcase, Eye, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { VacancyReviewStatus, VacancyStatus } from '@studenthub/shared-schemas'
 import {
   closeVacancy,
+  deleteVacancy,
   fetchMyVacancies,
   pauseVacancy,
   publishVacancy,
@@ -25,6 +26,8 @@ import {
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { VacancyFormModal } from './vacancy-form-modal'
+
+type VacancyAction = 'publish' | 'pause' | 'close' | 'delete'
 
 /**
  * Вакансии компании.
@@ -49,13 +52,14 @@ export function EmployerVacanciesView() {
   })
 
   const act = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'publish' | 'pause' | 'close' }) => {
+    mutationFn: ({ id, action }: { id: string; action: VacancyAction }) => {
       if (action === 'publish') return publishVacancy(id)
       if (action === 'pause') return pauseVacancy(id)
+      if (action === 'delete') return deleteVacancy(id)
       return closeVacancy(id)
     },
-    onSuccess: async () => {
-      toast.success(t('saved'))
+    onSuccess: async (_data, { action }) => {
+      toast.success(action === 'delete' ? t('deleted') : t('saved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
     },
     onError: (error) => toast.error(tErr(toApiError(error).code)),
@@ -106,18 +110,28 @@ export function EmployerVacanciesView() {
                 vacancy={vacancy}
                 busy={act.isPending}
                 onAct={(action) => {
-                  if (action !== 'close') {
+                  if (action !== 'close' && action !== 'delete') {
                     act.mutate({ id: vacancy.id, action })
                     return
                   }
-                  // Закрытие необратимо: вакансия уходит с витрин, её нельзя ни править,
-                  // ни опубликовать снова — поэтому только после подтверждения.
-                  void confirm({
-                    title: t('closeConfirm'),
-                    description: t('closeConfirmText'),
-                    confirmLabel: t('close'),
-                    destructive: true,
-                  }).then((ok) => {
+                  // Закрытие и удаление необратимы: закрытую вакансию нельзя ни править, ни
+                  // опубликовать снова, а удалённый черновик не восстановить — поэтому только
+                  // после подтверждения.
+                  void confirm(
+                    action === 'close'
+                      ? {
+                          title: t('closeConfirm'),
+                          description: t('closeConfirmText'),
+                          confirmLabel: t('close'),
+                          destructive: true,
+                        }
+                      : {
+                          title: t('deleteConfirm'),
+                          description: t('deleteConfirmText'),
+                          confirmLabel: t('delete'),
+                          destructive: true,
+                        },
+                  ).then((ok) => {
                     if (ok) act.mutate({ id: vacancy.id, action })
                   })
                 }}
@@ -147,7 +161,7 @@ function VacancyRow({
 }: {
   vacancy: EmployerVacancy
   busy: boolean
-  onAct: (action: 'publish' | 'pause' | 'close') => void
+  onAct: (action: VacancyAction) => void
   onEdit: () => void
 }) {
   const t = useTranslations('EmployerVacancies')
@@ -214,6 +228,13 @@ function VacancyRow({
           {vacancy.status !== 'CLOSED' && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAct('close')}>
               {t('close')}
+            </Button>
+          )}
+          {/* Удалить можно только черновик: у опубликованной вакансии история модерации
+              и откликов, её закрывают (21.D3). */}
+          {vacancy.status === 'DRAFT' && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onAct('delete')}>
+              <Trash2 className="size-4" aria-hidden /> {t('delete')}
             </Button>
           )}
         </div>

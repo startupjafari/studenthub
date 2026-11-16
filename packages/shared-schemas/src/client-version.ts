@@ -20,12 +20,23 @@ export type ClientPlatform = z.infer<typeof ClientPlatformSchema>
 export const ClientVersionQuerySchema = z.object({ platform: ClientPlatformSchema }).strict()
 export type ClientVersionQuery = z.infer<typeof ClientVersionQuerySchema>
 
+// Имя функции клиента для удалённого выключателя: camelCase, как ключи в клиентском
+// коде (`chatVideoUpload`, `liveLocation`). Список известных имён — docs/PROJECT.md
+// рядом с маршрутом; сервер имена не проверяет по списку, чтобы выключить функцию
+// новой сборки можно было без выпуска бэкенда.
+export const ClientFeatureNameSchema = z.string().regex(/^[a-z][A-Za-z0-9]{0,63}$/)
+
 // Ответ: минимальная версия, ниже которой приложение работать не должно, и адрес
 // магазина для кнопки «Обновить». Сравнение версий делает клиент: он всё равно
 // обязан уметь жить без сети и помнить последний ответ.
+//
+// `disabledFeatures` — удалённый выключатель рискованных функций: сломанную функцию
+// откатывают у всех установленных сборок правкой env, а не новым выпуском. Пустой
+// список — всё включено; незнакомое имя клиент обязан молча пропускать.
 export const ClientVersionSchema = z.object({
   platform: ClientPlatformSchema,
   minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   storeUrl: z.string().url().optional(),
+  disabledFeatures: z.array(ClientFeatureNameSchema).default([]),
 })
 export type ClientVersionInfo = z.infer<typeof ClientVersionSchema>

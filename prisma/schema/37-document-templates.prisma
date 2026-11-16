@@ -1,0 +1,104 @@
+// DOCX-шаблоны документов вуза (docs/PROJECT.md §3.8 «Шаблоны документов»).
+//
+// Вуз сам готовит документ в Word со своими бланком, логотипом и подписями и вставляет в него
+// переменные StudentHub (`{student.fullName}`); платформа подставляет значения через
+// docxtemplater. Оформление не навязывается — меняются только переменные.
+//
+// Шаблон — карточка (название, вид, статус), файлы — версии. Каждая загрузка DOCX — новая
+// версия: опубликованный файл не перезаписывается. Генерация идёт по `publishedVersion`,
+// загрузка новой версии меняет только `currentVersion` (рабочую), пока её не опубликуют.
+//
+// Статусы и виды — СТРОКАМИ (стиль новых доменов), контракт — в @studenthub/shared-schemas.
+
+model DocumentTemplate {
+  id           String  @id @default(uuid())
+  universityId String  @map("university_id")
+  title        String
+  // CERTIFICATE | APPLICATION | ORDER | CONTRACT | CLEARANCE | DORMITORY | OTHER
+  category     String
+  description  String?
+  // Язык, на котором подставляются значения-коды (форма обучения, финансирование).
+  locale       String  @default("ru")
+  // DRAFT | PUBLISHED | ARCHIVED
+  status       String  @default("DRAFT")
+
+  // Рабочая версия — последняя загруженная. Опубликованная — та, по которой формируются
+  // документы; при «заменить файл» они расходятся до повторной публикации.
+  currentVersionId   String?   @unique @map("current_version_id")
+  publishedVersionId String?   @map("published_version_id")
+  publishedAt        DateTime? @map("published_at")
+  publishedById      String?   @map("published_by_id") // скаляр без FK, как actorId в «Документах»
+  archivedAt         DateTime? @map("archived_at")
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  university       University                   @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy        User?                        @relation("DocumentTemplateAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  currentVersion   DocumentTemplateVersion?     @relation("DocumentTemplateCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  publishedVersion DocumentTemplateVersion?     @relation("DocumentTemplatePublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  versions         DocumentTemplateVersion[]    @relation("DocumentTemplateVersions")
+  generations      DocumentTemplateGeneration[]
+
+  @@index([universityId, status])
+  @@index([universityId, updatedAt])
+  @@index([createdById])
+  @@index([publishedVersionId])
+  @@map("document_templates")
+}
+
+// Версия шаблона: неизменяемый DOCX + результат проверки на момент загрузки. Файл — в
+// приватном бакете `documents` (запись File); удалить его, пока жива версия, нельзя (Restrict).
+model DocumentTemplateVersion {
+  id         String   @id @default(uuid())
+  templateId String   @map("template_id")
+  version    Int
+  fileId     String   @unique @map("file_id")
+  fileName   String?  @map("file_name")
+  size       Int
+  // SHA-256 исходного файла: по нему видно, тот ли документ опубликован.
+  checksum   String
+  // Переменные реестра, найденные в документе (без повторов).
+  variables  String[] @default([])
+  // DocumentTemplateValidation (shared-schemas): ошибки и предупреждения проверки.
+  validation Json
+  valid      Boolean  @default(false)
+
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  template    DocumentTemplate             @relation("DocumentTemplateVersions", fields: [templateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file        File                         @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy   User?                        @relation("DocumentTemplateVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  currentOf   DocumentTemplate?            @relation("DocumentTemplateCurrentVersion")
+  publishedOf DocumentTemplate[]           @relation("DocumentTemplatePublishedVersion")
+  generations DocumentTemplateGeneration[]
+
+  @@unique([templateId, version])
+  @@index([createdById])
+  @@map("document_template_versions")
+}
+
+// Журнал сформированных документов для студентов (проверочные на демо-данных сюда не пишутся).
+// Ссылки на шаблон и версию — Restrict: версию, по которой уже выдан документ, удалить нельзя,
+// поэтому такой шаблон не удаляется, а архивируется. Сам DOCX не хранится — только факт выдачи.
+// studentId/actorId — скаляры без FK: строка журнала переживает удаление аккаунта.
+model DocumentTemplateGeneration {
+  id           String   @id @default(uuid())
+  templateId   String   @map("template_id")
+  versionId    String   @map("version_id")
+  universityId String   @map("university_id")
+  studentId    String?  @map("student_id")
+  actorId      String?  @map("actor_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  template DocumentTemplate        @relation(fields: [templateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  version  DocumentTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([templateId, createdAt])
+  @@index([versionId])
+  @@index([studentId])
+  @@index([universityId, createdAt])
+  @@map("document_template_generations")
+}

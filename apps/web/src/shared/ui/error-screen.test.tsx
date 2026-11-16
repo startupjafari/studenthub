@@ -2,7 +2,8 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const { captureException } = vi.hoisted(() => ({ captureException: vi.fn() }))
-vi.mock('@sentry/nextjs', () => ({ captureException }))
+// Отправка в Sentry идёт через ленивую обёртку (SDK — отдельным чанком); контракт тот же.
+vi.mock('../lib/capture-exception', () => ({ captureException }))
 // StatusScreen тянет next/navigation и next-intl; проверяем контракт boundary, а не вёрстку.
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,

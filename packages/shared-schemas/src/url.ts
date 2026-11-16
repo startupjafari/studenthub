@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { vm } from './validation-messages.js'
 
 const HTTP_URL = /^https?:\/\//i
 
@@ -15,7 +16,7 @@ export function httpUrl(max: number) {
     .trim()
     .url()
     .max(max)
-    .refine((v) => HTTP_URL.test(v), { message: 'Ссылка должна быть http или https' })
+    .refine((v) => HTTP_URL.test(v), { message: vm('validation.url.httpOnly') })
 }
 
 /**
@@ -30,7 +31,7 @@ export const WebsiteSchema = z
   .trim()
   .max(120)
   .refine((v) => v === '' || HTTP_URL.test(v) || BARE_DOMAIN.test(v), {
-    message: 'Укажите адрес сайта, например example.kz',
+    message: vm('validation.url.website'),
   })
 
 /**

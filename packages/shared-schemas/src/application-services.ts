@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, queryBoolean } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Контракт домена «Услуги университета» (переработка «Заявок»). Единый источник истины для
 // state-machine, формы и фильтров — и для бэкенда (guard/сервис), и для фронта. Значения —
@@ -119,7 +120,7 @@ export const FormDataValueSchema = z.union([
 export const FormDataSchema = z
   .record(z.string().max(60), FormDataValueSchema)
   .refine((data) => Object.keys(data).length <= FORM_DATA_MAX_FIELDS, {
-    message: `Не больше ${FORM_DATA_MAX_FIELDS} полей`,
+    message: vm('validation.applications.tooManyFields'),
   })
 
 // Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
@@ -188,11 +189,11 @@ export const AddApplicationResultSchema = z
   })
   .strict()
   .refine((v) => !(v.fileId && v.documentId), {
-    message: 'Укажите либо файл, либо существующий документ',
+    message: vm('validation.applications.fileOrDocument'),
     path: ['fileId'],
   })
   .refine((v) => !v.fileId || !!v.documentType, {
-    message: 'Укажите вид документа',
+    message: vm('validation.applications.documentTypeRequired'),
     path: ['documentType'],
   })
 export type AddApplicationResultInput = z.infer<typeof AddApplicationResultSchema>
@@ -261,7 +262,7 @@ export const CatalogCodeSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^[a-z0-9][a-z0-9-]{1,59}$/, 'Латиница, цифры и дефис, 2–60 символов')
+  .regex(/^[a-z0-9][a-z0-9-]{1,59}$/, vm('validation.applications.catalogCode'))
 
 const LocalizedTitle = z.string().trim().min(1).max(200)
 // Пустая строка из формы и null равнозначны: сервер сохраняет их как null.
@@ -312,7 +313,7 @@ export const ServiceFormFieldInputSchema = z
   .strict()
   // Поле выбора без вариантов студент заполнить не сможет, а сервер отклонит любой ответ.
   .refine((f) => !CHOICE_FIELD_TYPES.includes(f.type) || (f.options?.length ?? 0) > 0, {
-    message: 'У поля выбора нужен хотя бы один вариант',
+    message: vm('validation.applications.choiceOptionsRequired'),
     path: ['options'],
   })
 export type ServiceFormFieldInput = z.infer<typeof ServiceFormFieldInputSchema>
@@ -351,15 +352,15 @@ export const UpsertApplicationServiceSchema = z
   })
   .strict()
   .refine((s) => new Set(s.deliveryModes).size === s.deliveryModes.length, {
-    message: 'Способ выдачи указан дважды',
+    message: vm('validation.applications.duplicateDeliveryMode'),
     path: ['deliveryModes'],
   })
   .refine((s) => uniqueCodes(s.requirements), {
-    message: 'Коды документов должны быть разными',
+    message: vm('validation.applications.duplicateRequirementCodes'),
     path: ['requirements'],
   })
   .refine((s) => uniqueCodes(s.formFields), {
-    message: 'Коды полей должны быть разными',
+    message: vm('validation.applications.duplicateFieldCodes'),
     path: ['formFields'],
   })
 export type UpsertApplicationServiceInput = z.infer<typeof UpsertApplicationServiceSchema>

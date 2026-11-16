@@ -137,3 +137,19 @@ final class MessageTimelineTests: XCTestCase {
         )
     }
 }
+
+/// Время пузыря готово после сборки ленты (шаг 2.4 плана аудита).
+final class MessageTimelinePrecomputedTests: XCTestCase {
+    func testTimeIsFormattedAtBuild() {
+        let created = Date(timeIntervalSince1970: 1_800_000_000)
+        let message = MessageRecord(
+            id: "m-1", remoteId: "m-1", chatId: "c-1", seq: 1, senderId: "u-1", content: "привет",
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: created, sendState: .sent
+        )
+
+        let item = MessageTimeline.build(from: [message], viewerID: "u-me").first?.items.first
+
+        XCTAssertEqual(item?.time, created.formatted(date: .omitted, time: .shortened))
+    }
+}

@@ -11,6 +11,7 @@ import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationProcessService } from './application-process.service'
 import { ApplicationPolicy } from './application.policy'
 import { ApplicationNotifier } from './application-notifier'
+import { ApplicationQueueEvents } from './application-queue-events'
 
 // Домен «Услуги университета» (переработка «Заявок»). PrismaService доступен глобально.
 // FilesModule — presigned для файлов документов заявки. DocumentsModule — выдача готового
@@ -27,6 +28,7 @@ import { ApplicationNotifier } from './application-notifier'
     ApplicationProcessService,
     ApplicationPolicy,
     ApplicationNotifier,
+    ApplicationQueueEvents,
   ],
   // ApplicationNotifier — для ежедневной сводки просрочки (cron в CleanupModule).
   exports: [ApplicationPolicy, CatalogService, ApplicationsService, ApplicationNotifier],

@@ -6,31 +6,49 @@ import UIKit
 /// Экран живёт за входом: подтвердить чужой вход может только тот, кто сам вошёл.
 /// Порядок шагов повторяет страницу `/qr` в вебе — сканирование, предупреждение,
 /// подтверждение, — потому что это одна и та же операция с одними последствиями.
+///
+/// Открывается на весь экран: пока идёт сканирование, камера занимает его целиком, от
+/// края до края, а поверх — как у системного сканера кодов: затемнение вокруг рамки,
+/// короткая подсказка, фонарик и два коротких пункта «откуда код и чего остерегаться».
 struct QRApproveView: View {
     @State private var model = QRApproveModel()
+    @State private var torchOn = false
+    @State private var hasTorch = false
     @Environment(\.dismiss) private var dismiss
+
+    private var isScanning: Bool {
+        if case .scanning = model.state { return true }
+        return false
+    }
 
     var body: some View {
         NavigationStack {
-            content
-                .padding(Spacing.xl)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Palette.background)
-                .navigationTitle(Text(String(
-                    localized: "auth.qrApproveTitle",
-                    defaultValue: "Вход на другом устройстве"
-                )))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text(String(localized: "common.close", defaultValue: "Закрыть"))
-                        }
-                    }
+            Group {
+                if isScanning {
+                    scanning
+                } else {
+                    content
+                        .padding(Spacing.xl)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Palette.background)
                 }
-                .animation(Motion.calm, value: model.state)
+            }
+            // Над камерой панель светлая: заголовок и «Закрыть» читаются на тёмной
+            // картинке.
+            .toolbarColorScheme(isScanning ? .dark : nil, for: .navigationBar)
+            .navigationTitle(Text(String(
+                localized: "auth.qrApproveTitle",
+                defaultValue: "Вход на другом устройстве"
+            )))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Над камерой крестик белый: синий на тёмной картинке терялся.
+                    closeButton
+                        .tint(isScanning ? .white : nil)
+                }
+            }
+            .animation(Motion.calm, value: model.state)
         }
     }
 
@@ -74,31 +92,174 @@ struct QRApproveView: View {
         }
     }
 
-    private var scanning: some View {
-        VStack(spacing: Spacing.xl) {
-            QRScannerView(
-                onScan: { payload in Task { await model.scanned(payload) } },
-                onUnavailable: { model.cameraUnavailable() }
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 320)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.xxl))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.xxl)
-                    .strokeBorder(Palette.border, lineWidth: 1)
-            )
-            .accessibilityLabel(Text(String(
-                localized: "auth.qrScannerLabel",
-                defaultValue: "Видоискатель камеры"
-            )))
+    /// «Закрыть»: на iOS 26 — системный крестик в стекле, как у листов приложения
+    /// (`SheetCloseButton`); раньше — слово. Не `SheetCloseButton` сам: его запасной
+    /// вариант — «Отмена», а после подтверждения входа отменять уже нечего.
+    @ViewBuilder
+    private var closeButton: some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Button(role: .close, action: { dismiss() })
+                    .accessibilityLabel(Text(String(localized: "common.close", defaultValue: "Закрыть")))
+            } else {
+                legacyCloseButton
+            }
+        #else
+            legacyCloseButton
+        #endif
+    }
 
-            Text(String(
-                localized: "auth.qrScanHint",
-                defaultValue: "Наведите камеру на QR-код на экране компьютера"
-            ))
-            .font(Typography.meta)
-            .foregroundStyle(Palette.mutedForeground)
-            .multilineTextAlignment(.center)
+    private var legacyCloseButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Text(String(localized: "common.close", defaultValue: "Закрыть"))
+        }
+    }
+
+    /// Камера на весь экран, поверх — как у системного сканера кодов: всё вокруг рамки
+    /// притемнено, и видно, куда держать код; под рамкой — подсказка в капсуле; внизу —
+    /// фонарик и два коротких пункта. Рамка поднята: держать телефон, глядя в верхнюю
+    /// часть экрана, естественнее. Распознаётся код в любом месте кадра — рамка лишь
+    /// подсказывает, куда навести.
+    private var scanning: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width - Spacing.xxl * 4, 260)
+            let hole = CGRect(
+                x: (proxy.size.width - side) / 2,
+                y: proxy.size.height * 0.38 - side / 2,
+                width: side,
+                height: side
+            )
+            ZStack(alignment: .topLeading) {
+                QRScannerView(
+                    onScan: { payload in Task { await model.scanned(payload) } },
+                    onUnavailable: { model.cameraUnavailable() },
+                    torchOn: torchOn,
+                    onTorchAvailable: { hasTorch = $0 }
+                )
+                .accessibilityLabel(Text(String(
+                    localized: "auth.qrScannerLabel",
+                    defaultValue: "Видоискатель камеры"
+                )))
+
+                ScannerDimming(hole: hole, radius: 30)
+                    .fill(.black.opacity(0.5), style: FillStyle(eoFill: true))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                ViewfinderCorners(length: 40, radius: 30)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    .frame(width: side + 6, height: side + 6)
+                    .position(x: hole.midX, y: hole.midY)
+                    .accessibilityHidden(true)
+
+                Text(String(
+                    localized: "auth.qrScanHint",
+                    defaultValue: "Наведите камеру на QR-код на экране компьютера"
+                ))
+                .font(Typography.meta.weight(.semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.sm)
+                .background { scannerGlass(Capsule()) }
+                .environment(\.colorScheme, .dark)
+                .frame(maxWidth: proxy.size.width - Spacing.xxl * 2)
+                .position(x: hole.midX, y: hole.maxY + Spacing.xxl + Spacing.md)
+
+                VStack(spacing: Spacing.lg) {
+                    if hasTorch { torchButton }
+                    scanTips
+                }
+                .padding(.horizontal, Spacing.xl)
+                .padding(.bottom, proxy.safeAreaInsets.bottom + Spacing.lg)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
+            }
+        }
+        .ignoresSafeArea()
+        .sensoryFeedback(.selection, trigger: torchOn)
+    }
+
+    /// Фонарик — круглой кнопкой из стекла, как в системной камере: в полутьме экран
+    /// компьютера бликует, и код читается хуже.
+    private var torchButton: some View {
+        Button {
+            torchOn.toggle()
+        } label: {
+            Image(systemName: torchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(torchOn ? .black : .white)
+                .frame(width: 58, height: 58)
+                .background {
+                    if torchOn {
+                        Circle().fill(.white)
+                    } else {
+                        scannerGlass(Circle())
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.pressable)
+        .environment(\.colorScheme, .dark)
+        .accessibilityLabel(Text(String(localized: "auth.qrTorch", defaultValue: "Фонарик")))
+        .accessibilityAddTraits(torchOn ? .isSelected : [])
+    }
+
+    /// Откуда взять код и чего остерегаться — двумя короткими строками. Главный риск —
+    /// отсканировать чужой код, присланный в сообщении, — назван до шага подтверждения.
+    private var scanTips: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            scanTip(
+                symbol: "desktopcomputer",
+                text: String(
+                    localized: "auth.qrTipOpen",
+                    defaultValue: "Откройте StudentHub на компьютере и выберите вход по QR-коду"
+                )
+            )
+            scanTip(
+                symbol: "exclamationmark.shield",
+                text: String(
+                    localized: "auth.qrTipSafety",
+                    defaultValue: "Сканируйте только код со своего экрана — не из сообщений и писем"
+                )
+            )
+        }
+        .frame(maxWidth: 480, alignment: .leading)
+        .padding(Spacing.lg)
+        .background { scannerGlass(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)) }
+        // Над тёмной картинкой камеры: текст и стекло — в тёмном варианте при любой теме.
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Стекло на iOS 26, раньше — материал. Стекло притемнено: за ним бывает белый экран
+    /// компьютера, и светлый текст на прозрачном стекле над ним терялся бы.
+    @ViewBuilder
+    private func scannerGlass<S: Shape>(_ shape: S) -> some View {
+        #if compiler(>=6.2)
+            if #available(iOS 26, *) {
+                Color.clear.glassEffect(.regular.tint(.black.opacity(0.35)), in: shape)
+            } else {
+                shape.fill(.regularMaterial)
+            }
+        #else
+            shape.fill(.regularMaterial)
+        #endif
+    }
+
+    private func scanTip(symbol: String, text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.md) {
+            Image(systemName: symbol)
+                .font(Typography.meta.weight(.semibold))
+                .foregroundStyle(Palette.mutedForeground)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(Typography.meta)
+                .foregroundStyle(Palette.foreground)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 
@@ -178,7 +339,7 @@ struct QRApproveView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Spacing.lg)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func waiting(_ text: String) -> some View {
@@ -275,3 +436,48 @@ struct QRApproveView: View {
         }
     }
 #endif
+
+/// Затемнение вокруг рамки: весь экран, кроме скруглённого квадрата рамки (заливка
+/// «чёт-нечет»), — как у системного сканера кодов.
+private struct ScannerDimming: Shape {
+    let hole: CGRect
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect)
+        path.addRoundedRect(in: hole, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
+        return path
+    }
+}
+
+/// Четыре скруглённых уголка квадрата — прицел сканера QR, как в системной камере.
+private struct ViewfinderCorners: Shape {
+    var length: CGFloat = 32
+    var radius: CGFloat = 14
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, length)
+        // Левый верхний.
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + length))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + length, y: rect.minY))
+        // Правый верхний.
+        path.move(to: CGPoint(x: rect.maxX - length, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r), control: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + length))
+        // Правый нижний.
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - length))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - length, y: rect.maxY))
+        // Левый нижний.
+        path.move(to: CGPoint(x: rect.minX + length, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r), control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - length))
+        return path
+    }
+}

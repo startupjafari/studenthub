@@ -14,6 +14,7 @@ import {
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler'
 import { RESTRICTED_ROLES, Role } from '@studenthub/shared-types'
+import type { AccountDeletionCheck } from '@studenthub/shared-schemas'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
@@ -175,6 +176,22 @@ export class UsersController {
   }
 
   /**
+   * Предпроверка удаления аккаунта (Фаза 21.C1): что помешает удалить его прямо сейчас —
+   * книги библиотеки на руках, последний администратор платформы. Клиент показывает это до
+   * ввода пароля; `DELETE /users/me` проверяет то же сам.
+   */
+  @RestrictedAllowed(...RESTRICTED_ROLES)
+  @Get('me/deletion-check')
+  @ApiOperation({ summary: 'Что мешает удалить свой аккаунт (книги библиотеки на руках и т. п.)' })
+  @ApiResponse({
+    status: 200,
+    description: '{ canDelete, blockers: (libraryDebts|lastPlatformAdmin)[], libraryDebts[] }',
+  })
+  deletionCheck(@CurrentUser() user: CurrentUserData): Promise<AccountDeletionCheck> {
+    return this.users.deletionCheck(user.sub)
+  }
+
+  /**
    * Удаление своего аккаунта — только с повторной аутентификацией: текущий пароль и, если
    * включена 2FA, её код (TOTP или резервный). Необратимое действие раньше выполнял любой,
    * у кого в руках открытая вкладка или access-токен. Последнего администратора платформы
@@ -206,7 +223,11 @@ export class UsersController {
     description: 'BAD_REQUEST — пароль не передан или неверен; не передан код 2FA',
   })
   @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE — неверный код 2FA' })
-  @ApiResponse({ status: 409, description: 'CONFLICT — последний администратор платформы' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'CONFLICT — последний администратор платформы; LIBRARY_DEBTS_OPEN — за человеком книги библиотеки (на руках или утерянные с непогашенным долгом), строка на книгу в details[]',
+  })
   @ApiResponse({
     status: 429,
     description: 'RATE_LIMIT — слишком много неверных паролей или кодов',

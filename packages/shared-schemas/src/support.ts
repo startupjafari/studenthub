@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PageSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Обращение в поддержку платформы: приватная переписка человека с командой платформы.
 //
@@ -11,7 +12,7 @@ import { PageSchema } from './pagination.js'
 /** Первое сообщение. Нижняя граница не придирка: «Помогите» не даёт поддержке ничего. */
 export const OpenSupportTicketSchema = z
   .object({
-    text: z.string().trim().min(10, 'Опишите вопрос подробнее').max(4000),
+    text: z.string().trim().min(10, vm('validation.support.textTooShort')).max(4000),
   })
   .strict()
 export type OpenSupportTicketInput = z.infer<typeof OpenSupportTicketSchema>

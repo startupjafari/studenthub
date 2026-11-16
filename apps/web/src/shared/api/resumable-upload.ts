@@ -70,25 +70,33 @@ export async function uploadResumable<T>(params: {
   const run = async (resume?: { target: MultipartTarget; done: UploadedPart[] }): Promise<T> => {
     const done = [...(resume?.done ?? [])]
     let target = resume?.target
-    const result = await uploadMultipart<T>({
-      file: params.file,
-      start: params.start,
-      urls: params.urls,
-      complete: params.complete,
-      abort: params.abort,
-      onProgress: params.onProgress,
-      signal: params.signal,
-      resume: target,
-      done,
-      onStart: (t) => {
-        target = t
-        void remember(t, done)
-      },
-      onPartDone: (part) => {
-        done.push(part)
-        if (target) void remember(target, done)
-      },
-    })
+    let result: T
+    try {
+      result = await uploadMultipart<T>({
+        file: params.file,
+        start: params.start,
+        urls: params.urls,
+        complete: params.complete,
+        abort: params.abort,
+        onProgress: params.onProgress,
+        signal: params.signal,
+        resume: target,
+        done,
+        onStart: (t) => {
+          target = t
+          void remember(t, done)
+        },
+        onPartDone: (part) => {
+          done.push(part)
+          if (target) void remember(target, done)
+        },
+      })
+    } catch (e) {
+      // Отмена — это `abort` загрузки в хранилище (его зовёт uploadMultipart): продолжать
+      // больше нечего, и запись о ней повела бы следующий выбор того же файла в 404 частей.
+      if (params.signal?.aborted) await store.drop(fingerprint)
+      throw e
+    }
     // Дошли до конца — состояние больше не нужно, а лежать оно будет сутки.
     await store.drop(fingerprint)
     return result

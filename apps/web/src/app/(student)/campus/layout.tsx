@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Role } from '@studenthub/shared-types'
 import { RoleGuard } from '../../../shared/session/role-guard'
+import { MessagesScope } from '../../../i18n/messages-scope'
 
 // Карта кампуса — всем членам вуза и охране (§16.1); работодателю — нет (docs/PROJECT.md §3.13).
 const VIEWERS = [
@@ -16,5 +17,9 @@ const VIEWERS = [
 ]
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return <RoleGuard allow={VIEWERS}>{children}</RoleGuard>
+  return (
+    <RoleGuard allow={VIEWERS}>
+      <MessagesScope scope="(student)/campus">{children}</MessagesScope>
+    </RoleGuard>
+  )
 }

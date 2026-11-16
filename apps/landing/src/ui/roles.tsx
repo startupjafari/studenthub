@@ -1,7 +1,17 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Building2, Check, GraduationCap, Landmark, UserCog, Users } from 'lucide-react'
+import {
+  Briefcase,
+  Building2,
+  Check,
+  GraduationCap,
+  Landmark,
+  Library,
+  ShieldCheck,
+  UserCog,
+  Users,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Dictionary } from '../content'
 import { AnimatePresence, motion, SPRING, SWAP, useReducedMotion } from './motion'
@@ -12,15 +22,25 @@ import { AppMock } from './scenes/app-mock'
 const INSTANT = { duration: 0 } as const
 
 /**
- * Иконки ролей. Пять текстовых пунктов в ряд сливаются в сплошную полосу — значок даёт
+ * Запас от края ряда до выбранной вкладки, px. Чуть больше ширины затухания `.sh-fade-x`
+ * (1.25rem): вкладка, докрученная ровно до края, осталась бы наполовину прозрачной.
+ */
+const TAB_EDGE = 24
+
+/**
+ * Иконки ролей. Восемь текстовых пунктов в ряд сливаются в сплошную полосу — значок даёт
  * каждой вкладке опору для глаза и помогает вернуться к нужной после прокрутки.
  *
  * Живут в коде, а не в словаре: это часть интерфейса, а не текст для перевода.
  *
- * Ролей у платформы одиннадцать (enum Role, их же считает «Масштаб»), а вкладок пять.
+ * Ролей у платформы одиннадцать (enum Role, их же считает «Масштаб»), а вкладок восемь.
  * Администратора и модератора самой платформы на сайте нет: это наши собственные роли, а
- * не роли вуза, и вузу на странице о нём они не адресованы. Модератор вуза, охрана,
- * библиотекарь и работодатель — узкие роли, и рассказ о продукте строится не на них.
+ * не роли вуза, и вузу на странице о нём они не адресованы. Модератора вуза тоже нет: его
+ * разделы — подмножество разделов администрации, и отдельная вкладка повторила бы её.
+ *
+ * Библиотекарь, охрана и работодатель стоят в конце: рассказ о продукте начинается с
+ * учёбы, но вуз, выбирающий платформу, спрашивает и о них, а без вкладки ответить «что
+ * увидит охранник» было нечем. Работодатель — последним: он единственный не из вуза.
  */
 const ROLE_ICONS: Record<string, LucideIcon> = {
   student: GraduationCap,
@@ -28,6 +48,9 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
   teacher: UserCog,
   dean: Landmark,
   universityAdmin: Building2,
+  librarian: Library,
+  securityGuard: ShieldCheck,
+  employer: Briefcase,
 }
 
 /**
@@ -67,6 +90,28 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
     return () => observer.disconnect()
   }, [])
 
+  /*
+    Выбранная вкладка прокручивается в видимую часть ряда. Вкладок восемь, и на 360 px
+    больше половины ряда за краем: нажатая у самого края, вкладка оставалась под
+    затуханием, и было не понять, выбрана ли она. Стрелки двигают фокус, и браузер
+    докручивает ряд сам, но запас под маску даёт только этот код.
+
+    Двигаем сам ряд, а не `scrollIntoView`: тот прокручивает и страницу по вертикали, и
+    переключение роли дёргало бы экран.
+  */
+  useEffect(() => {
+    const row = rowRef.current
+    const tab = tabRefs.current[activeIndex]
+    if (!row || !tab) return
+    const rowBox = row.getBoundingClientRect()
+    const tabBox = tab.getBoundingClientRect()
+    let delta = 0
+    if (tabBox.left < rowBox.left + TAB_EDGE) delta = tabBox.left - rowBox.left - TAB_EDGE
+    else if (tabBox.right > rowBox.right - TAB_EDGE) delta = tabBox.right - rowBox.right + TAB_EDGE
+    if (delta === 0) return
+    row.scrollBy({ left: delta, behavior: calm ? 'auto' : 'smooth' })
+  }, [activeIndex, calm])
+
   const active = t.tabs[activeIndex] ?? t.tabs[0]
   if (!active) return null
 
@@ -92,9 +137,11 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">
         {/*
-          Пять ролей в строку помещаются не на всякой ширине, поэтому ряд прокручивается
-          сам, а затухание у краёв сообщает, что вкладки продолжаются (только когда ряд
-          и правда не помещается — см. `overflowing`).
+          Восемь ролей в строку помещаются только на широком экране, поэтому ряд
+          прокручивается сам, а затухание у краёв сообщает, что вкладки продолжаются
+          (только когда ряд и правда не помещается — см. `overflowing`). На вторую строку
+          вкладки не переносятся: плашка выбора переезжает между ними (layoutId), и прыжок
+          со строки на строку читался бы как сбой, а не как переключение.
           Горизонтальной прокрутки страницы при этом не появляется — едет только ряд.
 
           Дорожки с рамкой вокруг ряда больше нет: подложку носит сама активная вкладка и

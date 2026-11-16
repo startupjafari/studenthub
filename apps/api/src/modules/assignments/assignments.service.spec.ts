@@ -70,6 +70,12 @@ function setup(opts: { submission?: object | null } = {}) {
     upload: jest.fn().mockResolvedValue({ id: 'f-1' }),
     presignPut: jest.fn().mockResolvedValue({ key: 'stu-1/k.pdf', url: 'u', expiresAt: 'e' }),
     confirmDirectUpload: jest.fn().mockResolvedValue({ id: 'f-2' }),
+    startMultipart: jest
+      .fn()
+      .mockResolvedValue({ key: 'stu-1/k.mp4', uploadId: 'up-1', partSize: 10, partCount: 6 }),
+    presignParts: jest.fn().mockResolvedValue({ parts: [], expiresAt: 'e' }),
+    completeMultipart: jest.fn().mockResolvedValue({ id: 'f-3' }),
+    abortMultipart: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
     getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed'),
   }
@@ -85,6 +91,101 @@ function setup(opts: { submission?: object | null } = {}) {
   )
   return { service, prisma, files, audit, queue }
 }
+
+describe('AssignmentsService — многочастная загрузка файла сдачи (21.B1)', () => {
+  const parts = [{ part: 1, etag: 'e1' }]
+
+  it('start открывает загрузку в бакет сдач от имени студента', async () => {
+    const { service, files } = setup({ submission: null })
+    await service.startSubmissionFileMultipart(student, 'as-1', 'video/mp4', 60_000_000)
+    expect(files.startMultipart).toHaveBeenCalledWith({
+      bucket: 'applications',
+      mime: 'video/mp4',
+      size: 60_000_000,
+      ownerId: 'stu-1',
+    })
+  })
+
+  it('в отправленную работу загрузку не открыть', async () => {
+    const { service, files } = setup({
+      submission: { id: 'sub-1', status: 'SUBMITTED', _count: { files: 0 } },
+    })
+    await expect(
+      service.startSubmissionFileMultipart(student, 'as-1', 'video/mp4', 60_000_000),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(files.startMultipart).not.toHaveBeenCalled()
+  })
+
+  it('преподавателю загрузку сдачи не открыть', async () => {
+    const { service, files } = setup()
+    await expect(
+      service.startSubmissionFileMultipart(teacher, 'as-1', 'video/mp4', 60_000_000),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(files.startMultipart).not.toHaveBeenCalled()
+  })
+
+  it('подписи частей чужой группе не выдаются', async () => {
+    const { service, files } = setup()
+    const stranger = { ...student, groupId: 'grp-2' }
+    await expect(
+      service.submissionFilePartUrls(stranger, 'as-1', {
+        key: 'stu-1/k.mp4',
+        uploadId: 'up-1',
+        from: 1,
+        to: 6,
+      }),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(files.presignParts).not.toHaveBeenCalled()
+  })
+
+  it('complete собирает с архивами и привязывает к черновику', async () => {
+    const { service, prisma, files } = setup({ submission: null })
+    await service.completeSubmissionFileMultipart(student, 'as-1', {
+      key: 'stu-1/k.mp4',
+      uploadId: 'up-1',
+      parts,
+      name: 'отчёт.mp4',
+    })
+    expect(files.completeMultipart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucket: 'applications',
+        key: 'stu-1/k.mp4',
+        uploadId: 'up-1',
+        ownerId: 'stu-1',
+        parts,
+        allowArchives: true,
+      }),
+    )
+    expect(prisma.file.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'f-3' }, data: { submissionId: 'sub-new' } }),
+    )
+  })
+
+  it(`complete при ${SUBMISSION_FILES_LIMIT} файлах не собирает объект`, async () => {
+    const { service, files } = setup({
+      submission: { id: 'sub-1', status: 'DRAFT', _count: { files: SUBMISSION_FILES_LIMIT } },
+    })
+    await expect(
+      service.completeSubmissionFileMultipart(student, 'as-1', {
+        key: 'stu-1/k.mp4',
+        uploadId: 'up-1',
+        parts,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(files.completeMultipart).not.toHaveBeenCalled()
+  })
+
+  it('abort уходит в бакет сдач с владельцем-вызывающим', async () => {
+    const { service, files } = setup()
+    await service.abortSubmissionFileMultipart(student, { key: 'stu-1/k.mp4', uploadId: 'up-1' })
+    expect(files.abortMultipart).toHaveBeenCalledWith({
+      bucket: 'applications',
+      ownerId: 'stu-1',
+      key: 'stu-1/k.mp4',
+      uploadId: 'up-1',
+    })
+  })
+})
 
 describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
   it('работа из одних файлов отправляется', async () => {

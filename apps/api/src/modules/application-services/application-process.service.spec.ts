@@ -106,6 +106,8 @@ function setup(appRow: Record<string, unknown>) {
     hasActiveDocument: jest.fn().mockResolvedValue(false),
     revokeByShortId: jest.fn().mockResolvedValue(undefined),
   }
+  // Живые очереди обработчиков (application-queue-events.spec.ts); здесь — когда их зовут.
+  const queueEvents = { changed: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationProcessService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
@@ -115,8 +117,19 @@ function setup(appRow: Record<string, unknown>) {
     users as never,
     branding as never,
     exportRegistry as never,
+    queueEvents as never,
   )
-  return { service, prisma, queue, realtime, documents, users, branding, exportRegistry }
+  return {
+    service,
+    prisma,
+    queue,
+    realtime,
+    documents,
+    users,
+    branding,
+    exportRegistry,
+    queueEvents,
+  }
 }
 
 const base = {
@@ -490,6 +503,26 @@ describe('ApplicationProcessService.assign — кому можно поручи�
     await expect(service.assign(dean, 'a1', 'ghost')).rejects.toBeInstanceOf(AppException)
   })
 
+  it('назначение видно в очередях коллег без перезагрузки (21.B3)', async () => {
+    const { service, users, queueEvents } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+    await service.assign(dean, 'a1', 'ua')
+    expect(queueEvents.changed).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a1', universityId: 'uni', facultyId: 'fac' }),
+    )
+  })
+
+  it('отказ в назначении очереди не трогает', async () => {
+    const { service, queueEvents } = setup({ ...base, status: 'IN_REVIEW' })
+    await expect(service.assign(dean, 'a1', 'ghost')).rejects.toBeInstanceOf(AppException)
+    expect(queueEvents.changed).not.toHaveBeenCalled()
+  })
+
   it('список кандидатов — по вузу и факультету заявки', async () => {
     const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
     await service.assignees(dean, 'a1')
@@ -612,6 +645,27 @@ describe('ApplicationProcessService — гонка переходов (усло�
     expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
     expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+
+  it('переход сообщает очередям обработчиков новый статус заявки (21.B3)', async () => {
+    const { service, prisma, queueEvents } = setup({ ...base, status: 'SUBMITTED' })
+    prisma.application.update.mockResolvedValueOnce({ ...base, status: 'IN_REVIEW' })
+    await service.take(dean, 'a1')
+    expect(queueEvents.changed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'a1',
+        status: 'IN_REVIEW',
+        universityId: 'uni',
+        facultyId: 'fac',
+      }),
+    )
+  })
+
+  it('переход, проигравший гонку, очереди не трогает', async () => {
+    const { service, prisma, queueEvents } = setup({ ...base, status: 'SUBMITTED' })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(queueEvents.changed).not.toHaveBeenCalled()
   })
 
   it('отказ, проигравший гонку, студента не уведомляет', async () => {

@@ -146,6 +146,14 @@ export class SupportService implements OnModuleInit {
         where: { id: event.chatId, supportFirstReplyAt: null },
         data: { supportFirstReplyAt: new Date() },
       })
+    } else if (event.seq === 1) {
+      // Первое сообщение — новое обращение. Размер очереди прямо в уведомлении: одно
+      // обращение в спокойный день и одно поверх десяти неразобранных требуют разной
+      // срочности. «Беру в работу» под уведомлением: без квитирования двое пишут один
+      // ответ, а третье обращение не берёт никто, решив, что его уже взяли.
+      void this.notifyNewTicket(targetId).catch((error: unknown) => {
+        this.logger.warn(`Не удалось уведомить команду о новом обращении: ${String(error)}`)
+      })
     } else if (reopened > 0 || (await this.lastWordIsStaff(event, staff))) {
       // Отправку сообщения Telegram не задерживает: уведомление — побочный сигнал, и
       // человек, приславший скриншот, не должен ждать ответа чужого API.
@@ -202,26 +210,23 @@ export class SupportService implements OnModuleInit {
       entityId: chatId,
       ...ctx,
     })
-    // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
-    // уведомление о той же ветке ничего не добавляет. Дописку в ответ на слово команды
-    // отмечает `onTicketMessage` — для неё мяч снова на стороне поддержки.
-    if (created) {
-      // Размер очереди прямо в уведомлении: одно обращение в спокойный день и одно
-      // поверх десяти неразобранных требуют разной срочности, а по голому «пришло
-      // новое» отличить их можно было только открыв приложение.
-      const { count } = await this.queueStats()
-      await this.telegram.notifyStaff(
-        'ticket',
-        `Новое обращение в поддержку\nОткрытых обращений: ${count}`,
-        `support_${chatId}`,
-        new Date(),
-        false,
-        // «Беру в работу» прямо под уведомлением: без квитирования двое пишут один ответ,
-        // а третье обращение не берёт никто, решив, что его уже взяли.
-        { kind: 'ticket', id: chatId },
-      )
-    }
+    // О новом обращении команду будит `onTicketMessage` на первом сообщении — каким бы
+    // путём оно ни пришло: отсюда или из окна чата (`chat`).
     return { id: chatId, created }
+  }
+
+  /**
+   * Чат поддержки автора — чтобы приложение открыло переписку сразу, ещё до первого
+   * сообщения: последнее обращение (и закрытое — сообщение в него откроет его снова,
+   * `onTicketMessage`), а если обращений не было — новое, пустое.
+   *
+   * Пустое обращение команду не будит и в очередь не попадает (`lastSeq > 0` в `queue` и
+   * `queueStats`): обращением оно становится с первым сообщением.
+   */
+  async chat(user: JwtPayload): Promise<{ id: string; created: boolean }> {
+    const latest = await this.findLatestTicket(user.sub)
+    if (latest) return { id: latest.id, created: false }
+    return this.openTicketOf(user.sub)
   }
 
   /** Очередь обращений. Только команда платформы. */
@@ -235,6 +240,8 @@ export class SupportService implements OnModuleInit {
     const where: Prisma.ChatWhereInput = {
       type: ChatType.SUPPORT_PLATFORM,
       supportClosedAt: query.status === 'open' ? null : { not: null },
+      // Пустое обращение (чат поддержки открыли, но ещё не написали, `chat`) — не обращение.
+      lastSeq: { gt: 0 },
       // Склеенная ветка в очереди не показывается ни открытой, ни закрытой: она больше
       // не самостоятельное обращение, а часть другого.
       supportMergedIntoId: null,
@@ -734,7 +741,8 @@ export class SupportService implements OnModuleInit {
    * обращения и ни одного слова из переписки.
    */
   async queueStats(): Promise<{ count: number; oldestAt: Date | null }> {
-    const where = { type: ChatType.SUPPORT_PLATFORM, supportClosedAt: null }
+    // Пустое обращение (чат открыли, но не написали, `chat`) в очередь не входит.
+    const where = { type: ChatType.SUPPORT_PLATFORM, supportClosedAt: null, lastSeq: { gt: 0 } }
     const [count, oldest] = await this.prisma.$transaction([
       this.prisma.chat.count({ where }),
       this.prisma.chat.findFirst({
@@ -753,7 +761,7 @@ export class SupportService implements OnModuleInit {
   async dayStats(since: Date): Promise<{ created: number; closed: number }> {
     const type = ChatType.SUPPORT_PLATFORM
     const [created, closed] = await this.prisma.$transaction([
-      this.prisma.chat.count({ where: { type, createdAt: { gte: since } } }),
+      this.prisma.chat.count({ where: { type, createdAt: { gte: since }, lastSeq: { gt: 0 } } }),
       this.prisma.chat.count({ where: { type, supportClosedAt: { gte: since } } }),
     ])
     return { created, closed }
@@ -784,6 +792,31 @@ export class SupportService implements OnModuleInit {
       const raced = await this.findOpenTicket(tx, authorId)
       if (raced) return { id: raced.id, created: false }
       return { id: await this.createTicket(tx, authorId), created: true }
+    })
+  }
+
+  private async notifyNewTicket(chatId: string): Promise<void> {
+    const { count } = await this.queueStats()
+    await this.telegram.notifyStaff(
+      'ticket',
+      `Новое обращение в поддержку\nОткрытых обращений: ${count}`,
+      `support_${chatId}`,
+      new Date(),
+      false,
+      { kind: 'ticket', id: chatId },
+    )
+  }
+
+  /** Последнее обращение автора, открытое или закрытое; склеенные ветки — не обращения. */
+  private findLatestTicket(authorId: string) {
+    return this.prisma.chat.findFirst({
+      where: {
+        type: ChatType.SUPPORT_PLATFORM,
+        supportMergedIntoId: null,
+        members: { some: { userId: authorId } },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
     })
   }
 

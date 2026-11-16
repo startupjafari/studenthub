@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import {
   BadgeCheck,
   Ban,
+  BarChart3,
   Bell,
   BellOff,
   Check,
@@ -18,6 +19,7 @@ import {
   ExternalLink,
   FileText,
   Image as ImageIcon,
+  ImagePlay,
   Link2,
   RotateCcw,
   Loader2,
@@ -25,6 +27,7 @@ import {
   MessageSquare,
   Mic,
   MoreVertical,
+  Music,
   Pause,
   Pencil,
   Play,
@@ -50,6 +53,7 @@ import {
   fetchChatLinks,
   fetchChatMedia,
   fetchChatMembers,
+  fetchChatPolls,
   fetchChatInviteCode,
   removeChatMemberRequest,
   resetChatInviteCode,
@@ -64,6 +68,7 @@ import {
   type ChatListItem,
   type ChatMediaItem,
   type ChatMemberInfo,
+  type ChatMessage,
   useVoiceRate,
   VoiceRateButton,
 } from '../../../entities/chat'
@@ -205,6 +210,25 @@ function Empty({ icon, title }: { icon: React.ReactNode; title: string }) {
   )
 }
 
+// Ошибка загрузки вкладки: сообщение и «Повторить» (FRONTEND_RULES §9).
+function TabError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
+  return (
+    <div className="flex min-h-0 flex-1 flex-col p-3">
+      <EmptyState
+        title={t('sharedLoadError')}
+        action={
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RotateCcw className="size-4" aria-hidden />
+            {tCommon('retry')}
+          </Button>
+        }
+      />
+    </div>
+  )
+}
+
 function LoadMore({
   onClick,
   loading,
@@ -279,6 +303,7 @@ function MediaTab({ chatId }: { chatId: string }) {
   // Пока вкладка едет — пусто. Ветка нужна не ради заглушки, а чтобы на секунду загрузки
   // не показывалось «здесь пока пусто»: это разные сообщения, и путать их нельзя.
   if (q.isLoading) return <div className="min-h-0 flex-1" />
+  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0)
     return <Empty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   // Для fullscreen-viewer маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
@@ -435,10 +460,13 @@ function FileRow({
  */
 function VoicePlaylist({
   items,
+  music = false,
   onJump,
   locale,
 }: {
   items: ChatMediaItem[]
+  /** Музыка: в строке — название трека и кто прислал, а не только автор записи. */
+  music?: boolean
   onJump: (id: string) => void
   locale: string
 }) {
@@ -538,9 +566,14 @@ function VoicePlaylist({
               className="min-w-0 flex-1 text-left"
             >
               <span className="block truncate text-sm font-medium">
-                {it.sender ? `${it.sender.lastName} ${it.sender.firstName}` : t('attachment')}
+                {music
+                  ? (it.name ?? t('attachment'))
+                  : it.sender
+                    ? `${it.sender.lastName} ${it.sender.firstName}`
+                    : t('attachment')}
               </span>
               <span className="block truncate text-xs text-muted-foreground">
+                {music && it.sender && `${it.sender.lastName} ${it.sender.firstName} · `}
                 {formatBytes(it.size, unit)} · {date}
               </span>
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
@@ -562,18 +595,25 @@ function VoicePlaylist({
   )
 }
 
+// Голосовые — только записи с микрофона (`voice_note`): `voice` отдаёт всё аудио, и музыка
+// попадала бы в список голосовых. Музыка — своя вкладка (`music`).
+const FILE_TAB_ICON = {
+  file: FileText,
+  voice_note: Mic,
+  music: Music,
+} as const
+
 function FileTab({
   chatId,
-  voice,
+  type,
   onJump,
 }: {
   chatId: string
-  voice: boolean
+  type: 'file' | 'voice_note' | 'music'
   onJump: (id: string) => void
 }) {
   const t = useTranslations('Chats')
   const locale = useLocale()
-  const type = voice ? 'voice' : 'file'
   const q = useInfiniteQuery({
     queryKey: chatKeys.media(chatId, type),
     queryFn: ({ pageParam }) => fetchChatMedia(chatId, type, pageParam),
@@ -582,23 +622,144 @@ function FileTab({
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <div className="min-h-0 flex-1" />
+  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0) {
-    const icon = voice ? (
-      <Mic className="size-6" aria-hidden />
-    ) : (
-      <FileText className="size-6" aria-hidden />
-    )
-    return <Empty icon={icon} title={t('sharedEmpty')} />
+    const Icon = FILE_TAB_ICON[type]
+    return <Empty icon={<Icon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   }
   return (
     <>
-      {voice ? (
-        <VoicePlaylist items={items} onJump={onJump} locale={locale} />
+      {type !== 'file' ? (
+        <VoicePlaylist items={items} music={type === 'music'} onJump={onJump} locale={locale} />
       ) : (
         items.map((it) => (
           <FileRow key={it.id} item={it} voice={false} onJump={onJump} locale={locale} />
         ))
       )}
+      {q.hasNextPage && (
+        <LoadMore
+          onClick={() => void q.fetchNextPage()}
+          loading={q.isFetchingNextPage}
+          label={t('loadMore')}
+        />
+      )}
+    </>
+  )
+}
+
+// ── GIF: анимированная сетка ─────────────────────────────────────────────────
+// Оригинал, а не копия: уменьшенные варианты медиа-системы статичны, и GIF в них не
+// двигается. Клик — к сообщению в переписке, как у файлов.
+function GifThumb({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) => void }) {
+  const t = useTranslations('Chats')
+  const link = useFileLink(item.id)
+  return (
+    <button
+      type="button"
+      onClick={() => onJump(item.messageId)}
+      aria-label={t('goToMessage')}
+      className="relative aspect-square overflow-hidden rounded-md bg-muted"
+    >
+      {link.data ? (
+        // Подписанная ссылка на приватный бакет: next/image её не оптимизирует.
+        <img src={link.data.url} alt="" loading="lazy" className="size-full object-cover" />
+      ) : item.placeholder ? (
+        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
+      ) : (
+        <div className="size-full animate-pulse bg-muted" />
+      )}
+    </button>
+  )
+}
+
+function GifTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
+  const t = useTranslations('Chats')
+  const q = useInfiniteQuery({
+    queryKey: chatKeys.media(chatId, 'gif'),
+    queryFn: ({ pageParam }) => fetchChatMedia(chatId, 'gif', pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
+  })
+  const items = q.data?.pages.flatMap((p) => p.items) ?? []
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
+  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
+  if (items.length === 0)
+    return <Empty icon={<ImagePlay className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-1 p-1">
+        {items.map((it) => (
+          <GifThumb key={it.id} item={it} onJump={onJump} />
+        ))}
+      </div>
+      {q.hasNextPage && (
+        <LoadMore
+          onClick={() => void q.fetchNextPage()}
+          loading={q.isFetchingNextPage}
+          label={t('loadMore')}
+        />
+      )}
+    </>
+  )
+}
+
+// ── Опросы: список, клик — к опросу в переписке ──────────────────────────────
+function PollRow({
+  message,
+  onJump,
+  locale,
+}: {
+  message: ChatMessage
+  onJump: (id: string) => void
+  locale: string
+}) {
+  const t = useTranslations('Chats')
+  const poll = message.poll
+  if (!poll) return null
+  const date = new Date(message.createdAt).toLocaleDateString(locale, {
+    day: '2-digit',
+    month: 'short',
+  })
+  const author = `${message.sender.lastName} ${message.sender.firstName}`
+  return (
+    <button
+      type="button"
+      onClick={() => onJump(message.id)}
+      className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted"
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <BarChart3 className="size-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{poll.question}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {poll.closed && `${t('pollClosed')} · `}
+          {author} · {date}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function PollsTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
+  const t = useTranslations('Chats')
+  const locale = useLocale()
+  const q = useInfiniteQuery({
+    queryKey: chatKeys.polls(chatId),
+    queryFn: ({ pageParam }) => fetchChatPolls(chatId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
+  })
+  const items = q.data?.pages.flatMap((p) => p.items) ?? []
+  if (q.isLoading) return <div className="min-h-0 flex-1" />
+  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
+  if (items.length === 0)
+    return <Empty icon={<BarChart3 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  return (
+    <>
+      {items.map((m) => (
+        <PollRow key={m.id} message={m} onJump={onJump} locale={locale} />
+      ))}
       {q.hasNextPage && (
         <LoadMore
           onClick={() => void q.fetchNextPage()}
@@ -674,6 +835,7 @@ function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => 
   })
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <div className="min-h-0 flex-1" />
+  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0)
     return <Empty icon={<Link2 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
   return (
@@ -1398,6 +1560,15 @@ export function ChatDetailsPanel({
           <TabsTrigger value="voice" aria-label={t('tabVoice')}>
             <Mic className="size-4" aria-hidden />
           </TabsTrigger>
+          <TabsTrigger value="music" aria-label={t('tabMusic')}>
+            <Music className="size-4" aria-hidden />
+          </TabsTrigger>
+          <TabsTrigger value="gif" aria-label={t('tabGif')}>
+            <ImagePlay className="size-4" aria-hidden />
+          </TabsTrigger>
+          <TabsTrigger value="polls" aria-label={t('tabPolls')}>
+            <BarChart3 className="size-4" aria-hidden />
+          </TabsTrigger>
         </TabsList>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1415,13 +1586,22 @@ export function ChatDetailsPanel({
             <MediaTab chatId={chat.id} />
           </TabsContent>
           <TabsContent value="files" className={TAB_PANE}>
-            <FileTab chatId={chat.id} voice={false} onJump={onJump} />
+            <FileTab chatId={chat.id} type="file" onJump={onJump} />
           </TabsContent>
           <TabsContent value="links" className={TAB_PANE}>
             <LinksTab chatId={chat.id} onJump={onJump} />
           </TabsContent>
           <TabsContent value="voice" className={TAB_PANE}>
-            <FileTab chatId={chat.id} voice onJump={onJump} />
+            <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
+          </TabsContent>
+          <TabsContent value="music" className={TAB_PANE}>
+            <FileTab chatId={chat.id} type="music" onJump={onJump} />
+          </TabsContent>
+          <TabsContent value="gif" className={TAB_PANE}>
+            <GifTab chatId={chat.id} onJump={onJump} />
+          </TabsContent>
+          <TabsContent value="polls" className={TAB_PANE}>
+            <PollsTab chatId={chat.id} onJump={onJump} />
           </TabsContent>
         </div>
       </Tabs>

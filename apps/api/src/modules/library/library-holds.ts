@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { AppException } from '../../common/exceptions/app.exception'
 import { isTerminalAcademicStatus } from '../users/academic-status'
 import { addDays, endOfDay, todayIn } from './library-dates'
 
@@ -22,6 +23,19 @@ export function lockBookQueue(tx: Prisma.TransactionClient, bookId: string): Pro
  */
 export function lockReader(tx: Prisma.TransactionClient, readerId: string): Promise<void> {
   return advisoryXactLock(tx, `library:reader:${readerId}`)
+}
+
+/**
+ * Под локом читателя: он всё ещё есть и не заблокирован. Удаление аккаунта держит тот же лок
+ * (LibraryAccountService.forgetReader) — выдача или бронь, ждавшая его, иначе записала бы
+ * книгу на только что удалённого, у которого уже проверили «долгов нет».
+ */
+export async function assertReaderActive(
+  tx: Prisma.TransactionClient,
+  readerId: string,
+): Promise<void> {
+  const alive = await tx.user.count({ where: { id: readerId, deletedAt: null, isBlocked: false } })
+  if (alive === 0) throw new AppException('NOT_FOUND', 'Читатель не найден')
 }
 
 /** Готовая бронь держится до конца N-го дня по часам вуза. */

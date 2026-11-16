@@ -106,6 +106,23 @@ updates:
     commit-message:
       prefix: 'chore(deps)'
 
+  # Пакеты Swift iOS-клиента (GRDB, Socket.IO): версии точные (IOS_RULES 14.1.2), поэтому
+  # сами не обновляются — новые версии приходят только этими PR. Бот правит Package.swift и
+  # Package.resolved; project.yml (сборка Xcode, ещё и Sentry) он не читает — в том же PR
+  # поднять exactVersion там руками, иначе ios.yml упадёт на шаге «Пакеты»
+  # (scripts/check_packages.py). Sentry бот не видит вовсе: его нет в Package.swift —
+  # обновлять руками по выпускам sentry-cocoa.
+  - package-ecosystem: swift
+    target-branch: develop
+    directory: /apps/ios
+    schedule:
+      interval: monthly
+    # Выдержка в неделю — см. «Про cooldown» в шапке файла.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: 'chore(deps)'
+
   # Actions пришпилены по мажорной версии (actions/checkout@v4) и сами не обновляются.
   - package-ecosystem: github-actions
     target-branch: develop

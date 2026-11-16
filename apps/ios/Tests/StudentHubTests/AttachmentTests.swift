@@ -55,6 +55,42 @@ final class AttachmentTests: XCTestCase {
         }
     }
 
+    /// «Повторить» у неудавшегося вложения отправляет файл, а не одну подпись: байты
+    /// берутся из копии, которую загрузчик положил на диск при первой попытке.
+    func testRetryUploadsTheFileAgain() async throws {
+        let database = try await seeded()
+        let api = StubAttachments()
+        api.failure = .transport(URLError(.timedOut))
+        let uploader = AttachmentUploader(database: database, api: api)
+        let sent = await uploader.send(
+            OutgoingAttachment(data: Data("байты".utf8), mime: "image/jpeg", name: "photo.jpg"),
+            chatID: "c-1",
+            senderID: "u-me",
+            caption: nil,
+            replyToID: nil
+        )
+        XCTAssertFalse(sent)
+        let failed = try await database.reader.read { db in try MessageRecord.fetchOne(db) }
+        let stored = try await database.reader.read { db in try AttachmentRecord.fetchOne(db) }
+        XCTAssertNotNil(stored?.localPath, "без копии на диске повторять нечего")
+
+        let failedID = try XCTUnwrap(failed?.id)
+        // Первая попытка падает ещё на подписи (`presign`) и до загрузки байтов может не
+        // дойти — поэтому сверяем прирост, а не абсолютное число: повтор обязан залить
+        // файл ровно один раз.
+        let uploadsBefore = api.uploads
+        api.failure = nil
+        api.message = message(id: "server-1", fileID: "file-1")
+        let retried = await uploader.retry(messageID: failedID)
+
+        XCTAssertTrue(retried)
+        XCTAssertEqual(api.uploads, uploadsBefore + 1)
+        try await database.reader.read { db in
+            XCTAssertEqual(try MessageRecord.fetchOne(db)?.sendState, .sent)
+            XCTAssertEqual(try AttachmentRecord.fetchOne(db)?.id, "file-1")
+        }
+    }
+
     /// Вложения входящего сообщения кладутся вместе с ним, а повторная синхронизация
     /// не теряет уже скачанный файл.
     func testIncomingAttachmentsAreStoredAndKeepLocalCopy() async throws {
@@ -144,15 +180,36 @@ private final class StubAttachments: AttachmentSending, @unchecked Sendable {
         )
     }
 
-    func upload(_ data: Data, to url: URL, mime: String) async throws {
+    func upload(
+        fileAt file: URL,
+        to url: URL,
+        mime: String,
+        progress: @escaping @Sendable (Int64) -> Void
+    ) async throws {
         if let failure = lock.withLock({ uploads += 1; return failure }) { throw failure }
     }
+
+    func startMultipart(chatID: String, mime: String, size: Int) async throws -> MultipartUploadTarget {
+        throw APIError.malformedResponse(statusCode: 0)
+    }
+
+    func partURLs(chatID: String, key: String, uploadID: String, from: Int, to: Int) async throws -> [MultipartPartURL] {
+        throw APIError.malformedResponse(statusCode: 0)
+    }
+
+    func uploadPart(_ data: Data, to url: URL, progress: @escaping @Sendable (Int64) -> Void) async throws -> String {
+        throw APIError.malformedResponse(statusCode: 0)
+    }
+
+    func abortMultipart(chatID: String, key: String, uploadID: String) async throws {}
 
     func sendUploaded(
         chatID: String,
         content: String?,
         replyToID: String?,
-        attachments: [AttachmentUpload]
+        asFiles: Bool,
+        attachments: [AttachmentUpload],
+        nonce: String
     ) async throws -> ChatMessageDTO {
         if let failure = lock.withLock({ failure }) { throw failure }
         guard let message = lock.withLock({ message }) else {

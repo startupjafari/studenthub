@@ -91,10 +91,12 @@ async function putToStorage(
   target: PresignedTarget,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   try {
     await axios.put(target.url, file, {
       headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      signal,
       // Прогресс по факту отправленных байт: для 25 МБ по мобильной сети это единственный
       // способ показать пользователю, что что-то происходит.
       onUploadProgress: (event: AxiosProgressEvent) => {
@@ -104,7 +106,7 @@ async function putToStorage(
       },
     })
   } catch (error) {
-    throw toStorageError(error)
+    throw toStorageError(error, signal)
   }
 }
 
@@ -117,9 +119,16 @@ export async function uploadDirect<T>(params: {
   presign: (mime: string) => Promise<PresignedTarget>
   confirm: (key: string, name?: string) => Promise<T>
   onProgress?: (percent: number) => void
+  /**
+   * Отмена: обрывает PUT в хранилище, а подтверждение после неё не отправляется — иначе
+   * отменённый пользователем файл всё равно появился бы в списке. Залитое без confirm
+   * подметёт ночная cleanOrphanFiles.
+   */
+  signal?: AbortSignal
 }): Promise<T> {
   const target = await params.presign(params.file.type || 'application/octet-stream')
-  await putToStorage(target, params.file, params.onProgress)
+  await putToStorage(target, params.file, params.onProgress, params.signal)
+  params.signal?.throwIfAborted()
   return params.confirm(target.key, params.file.name)
 }
 

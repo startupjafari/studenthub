@@ -51,3 +51,22 @@ describe('validateEnv — необязательные переменные', ()
     )
   })
 })
+
+describe('validateEnv — выключенные функции клиента', () => {
+  it('не задано или пусто — пустой список', () => {
+    expect(validateEnv(base).CLIENT_DISABLED_FEATURES).toEqual([])
+    expect(validateEnv({ ...base, IOS_DISABLED_FEATURES: '' }).IOS_DISABLED_FEATURES).toEqual([])
+  })
+
+  it('прощает пробелы и пустые элементы от ручной правки', () => {
+    const env = validateEnv({ ...base, IOS_DISABLED_FEATURES: ' chatVideoUpload , ,liveLocation,' })
+
+    expect(env.IOS_DISABLED_FEATURES).toEqual(['chatVideoUpload', 'liveLocation'])
+  })
+
+  // Опечатку клиент молча пропустил бы, и функция осталась бы включённой, хотя человек
+  // считает её выключенной, — поэтому старт падает.
+  it('имя не в camelCase роняет старт', () => {
+    expect(() => validateEnv({ ...base, CLIENT_DISABLED_FEATURES: 'chat-video' })).toThrow()
+  })
+})

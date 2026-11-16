@@ -27,9 +27,12 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AuthService, type RequestContext, type SessionResult } from './auth.service'
 import { AUTH_COOKIE_PATH, REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
 import { RegisterByInviteDto } from './dto/register-by-invite.dto'
+import { AcceptCompanyInviteDto } from './dto/accept-company-invite.dto'
+import { CompanyMembersService } from '../career/company-members.service'
 import { TwoFactorVerifyDto } from './dto/two-factor-verify.dto'
 import { QrApproveDto } from './dto/qr-approve.dto'
 import { QrClaimDto } from './dto/qr-claim.dto'
+import { LogoutDto } from './dto/logout.dto'
 import { QrLoginService } from './qr-login.service'
 import { PasswordResetService } from './password-reset.service'
 import { ForgotPasswordDto } from './dto/forgot-password.dto'
@@ -62,6 +65,7 @@ export class AuthController {
     private readonly audit: AuditService,
     private readonly passwordReset: PasswordResetService,
     private readonly jwt: JwtService,
+    private readonly companyMembers: CompanyMembersService,
   ) {}
 
   // §6.3: 5 / 15 мин на пару «адрес + логин» и потолок 50 / 15 мин с адреса — кампус за NAT
@@ -178,6 +182,33 @@ export class AuthController {
   }
 
   /**
+   * Регистрация по приглашению компании (21.D2): аккаунт EMPLOYER и членство RECRUITER.
+   * Почта, роль и компания — из приглашения; тело — только имя и пароль. Сессия — та же,
+   * что после регистрации по инвайту вуза. Лимит тот же: 10 / час на токен, 100 / час с адреса.
+   */
+  @Public()
+  @AuthThrottle('invite-body', { limit: 10, ttl: HOUR }, { limit: 100, ttl: HOUR })
+  @Post('register-by-company-invite')
+  @ApiOperation({ summary: 'Регистрация по приглашению в компанию (роль и компания — из него)' })
+  @ApiResponse({ status: 201, description: '{ accessToken } + refresh-cookie' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — ссылка недействительна' })
+  @ApiResponse({
+    status: 409,
+    description: 'COMPANY_INVITE_EMAIL_TAKEN — на адрес уже есть аккаунт',
+  })
+  @ApiResponse({ status: 410, description: 'INVITE_USED / INVITE_REVOKED / INVITE_EXPIRED' })
+  async registerByCompanyInvite(
+    @Body() dto: AcceptCompanyInviteDto,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<{ accessToken: string }> {
+    const { userId } = await this.companyMembers.accept(dto, this.ctx(req))
+    const session = await this.authService.issueSessionForUser(userId, this.ctx(req))
+    this.setAuthCookies(reply, session)
+    return { accessToken: session.accessToken }
+  }
+
+  /**
    * «Забыли пароль» (docs/PROJECT.md §7.2). Ответ одинаков для любого адреса — эндпоинт не
    * должен работать проверкой, кто зарегистрирован. Лимит строже входа: каждый вызов
    * отправляет письмо, и без потолка им заваливали бы чужой ящик.
@@ -254,12 +285,22 @@ export class AuthController {
 
   @Public()
   @Post('logout')
-  @ApiOperation({ summary: 'Выход: инвалидация сессии и очистка cookie' })
+  @ApiOperation({
+    summary: 'Выход: инвалидация сессии и очистка cookie',
+    description:
+      'Тело необязательно. `deviceToken` — токен пушей устройства (нативный клиент): ' +
+      'отвязывается вместе с сессией, если принадлежит её владельцу.',
+  })
+  @ApiResponse({ status: 201, description: 'Сессия погашена (или её не было), cookie очищены' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — неверный deviceToken' })
   async logout(
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
+    // Тип — сам DTO, без `| undefined`: иначе ZodValidationPipe пропустил бы тело без
+    // проверки. Запрос без тела схема превращает в {}.
+    @Body() dto: LogoutDto,
   ): Promise<null> {
-    await this.authService.logout(req.cookies?.[REFRESH_COOKIE], this.ctx(req))
+    await this.authService.logout(req.cookies?.[REFRESH_COOKIE], this.ctx(req), dto.deviceToken)
     this.clearAuthCookies(reply)
     return null
   }

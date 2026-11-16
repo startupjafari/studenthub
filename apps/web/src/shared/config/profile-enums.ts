@@ -1,5 +1,7 @@
 // Статические справочники-перечисления профиля для Select-полей (выбор + свой ввод).
 
+import { ACADEMIC_STATUSES } from '@studenthub/shared-types'
+
 export const EDUCATION_LEVEL_DICT: string[] = [
   'Среднее',
   'Среднее специальное',
@@ -14,13 +16,9 @@ export const STUDY_FORM_DICT: string[] = ['Очная', 'Заочная', 'Оч�
 
 export const FUNDING_TYPE_DICT: string[] = ['Бюджетное', 'Платное', 'Грант', 'Целевое']
 
-export const ACADEMIC_STATUS_DICT: string[] = [
-  'Обучающийся',
-  'Академический отпуск',
-  'Выпускник',
-  'Отчислен',
-  'Переведён',
-]
+// Закрытый справочник — общий с api (`AcademicStatus` в shared-types): из него же api решает,
+// кому закрыта выдача книг и вход на пост.
+export const ACADEMIC_STATUS_DICT: string[] = [...ACADEMIC_STATUSES]
 
 export const DORMITORY_DICT: string[] = ['Да', 'Нет']
 

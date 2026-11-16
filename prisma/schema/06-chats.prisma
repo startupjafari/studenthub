@@ -136,6 +136,15 @@ model ChatMember {
   // Закрепление чата «у себя» (Telegram-стиль): не null — чат закреплён этим участником и показывается
   // сверху списка (сортировка по времени закрепления). Персонально, другим участникам не видно.
   pinnedAt          DateTime? @map("pinned_at")
+  // Место среди закреплённых «у себя»: 0 — самый верх. Отдельно от pinnedAt, потому что порядок
+  // человек задаёт руками (перетаскиванием), а время закрепления такой порядок не выражает.
+  // Новое закрепление встаёт на 0, остальные сдвигаются; у закреплённых до этого поля — null,
+  // их клиент ставит после упорядоченных по pinnedAt.
+  pinnedOrder       Int?      @map("pinned_order")
+  // «Пометить как новое» (Telegram-стиль): не null — чат считается непрочитанным, хотя все
+  // сообщения прочитаны. Снимается любым прочтением. Время, а не флаг — чтобы при разборе
+  // было видно, когда пометили, и без лишней миграции, если понадобится сортировка.
+  markedUnreadAt    DateTime? @map("marked_unread_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -187,6 +196,9 @@ model Message {
   // детали для рендера {targetName?, title?}. NULL — обычное сообщение. senderId = инициатор события.
   systemType       String?   @map("system_type")
   systemMeta       Json?     @map("system_meta")
+  // Стикер из каталога (StickerSet/Sticker). Текст у такого сообщения пустой. Стикер убрали из
+  // каталога — связь обнуляется (SetNull), и клиент рисует «стикер недоступен».
+  stickerId        String?   @map("sticker_id")
   createdAt        DateTime  @default(now()) @map("created_at")
 
   chat          Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -202,6 +214,14 @@ model Message {
   reactions     MessageReaction[]
   // Опрос в чате (§38): 1:1 с сообщением-опросом (ChatPoll.messageId уникален).
   poll          ChatPoll?
+  // Геопозиция, карточка контакта и чек-лист — 1:1 с сообщением, как опрос. У таких
+  // сообщений `content` пустой: содержимое целиком в связанной записи.
+  location      ChatLocation?
+  contact       ChatContact?
+  checklist     ChatChecklist?
+  sticker       Sticker?          @relation(fields: [stickerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  // «Удалить у себя»: у кого это сообщение скрыто (HiddenMessage).
+  hiddenBy      HiddenMessage[]
 
   // Дельта-догон: range-скан `chatId + seq > since`. Уникальность заодно защищает от дублей
   // при гонке аллокатора.
@@ -217,6 +237,7 @@ model Message {
   // Закреплённые сообщения чата.
   @@index([chatId, pinnedAt])
   @@index([deletedAt])
+  @@index([stickerId])
   @@map("messages")
 }
 
@@ -246,12 +267,24 @@ model MessageReaction {
 // считаются на клиенте по типу чата и в БД не хранятся — здесь только то, что человек собрал
 // сам. Папка личная: у каждого участника чата свои папки, чужие ему не видны.
 model ChatFolder {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  name      String
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  name               String
   // Порядок вкладок; при равных — по createdAt (стабильность важнее, чем плотная нумерация).
-  position  Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
+  position           Int      @default(0)
+  // Значок вкладки — один эмодзи (та же проверка, что у реакций). null — без значка.
+  emoji              String?
+  // Цвет вкладки — индекс палитры клиента 0..6 (синий, зелёный, оранжевый, красный, фиолетовый,
+  // бирюзовый, розовый). Индекс, а не RGB: палитра у тёмной и светлой темы своя.
+  color              Int?
+  // Правила состава поверх явного списка (Telegram-стиль): «все контакты» (личные чаты с
+  // друзьями), «все не контакты» (личные с остальными), «все группы» (групповые и официальные).
+  // Чат в папке ⇔ не исключён И (в списке ИЛИ подходит под включённое правило) — функция
+  // chatInFolder в shared-schemas, одна на сервер и клиентов.
+  includeContacts    Boolean  @default(false) @map("include_contacts")
+  includeNonContacts Boolean  @default(false) @map("include_non_contacts")
+  includeGroups      Boolean  @default(false) @map("include_groups")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   user  User             @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   items ChatFolderItem[]
@@ -262,10 +295,15 @@ model ChatFolder {
   @@map("chat_folders")
 }
 
+// Строка состава папки. Явно добавленные и исключённые чаты — одна таблица с флагом, а не две:
+// чат не может быть в папке и исключённым из неё одновременно, и уникальный ключ
+// (folderId, chatId) держит это на уровне БД.
 model ChatFolderItem {
   id        String   @id @default(uuid())
   folderId  String   @map("folder_id")
   chatId    String   @map("chat_id")
+  // true — чат исключён из папки, даже если подходит под правило (includeGroups и т.п.).
+  excluded  Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
   folder ChatFolder @relation(fields: [folderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -280,6 +318,8 @@ model ChatPoll {
   id          String   @id @default(uuid())
   messageId   String   @unique @map("message_id")
   question    String
+  // Пояснение под вопросом (≤ 500). NULL — без пояснения.
+  description String?
   multiple    Boolean  @default(false)
   anonymous   Boolean  @default(false)
   allowRevote Boolean  @default(true) @map("allow_revote")
@@ -357,4 +397,160 @@ model ScheduledMessage {
   @@index([chatId, senderId])
   @@index([senderId])
   @@map("scheduled_messages")
+}
+
+/// «Удалить у себя» (Telegram-стиль): сообщение скрыто только у этого пользователя.
+///
+/// Отдельная таблица, а не поле на Message: скрывает каждый участник сам по себе, и у одного
+/// сообщения таких отметок может быть сколько угодно. История, поиск, догон, закреплённые,
+/// общие материалы и список опросов исключают скрытое через `hiddenBy: { none: { userId } }`.
+model HiddenMessage {
+  userId    String   @map("user_id")
+  messageId String   @map("message_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([userId, messageId])
+  @@index([messageId])
+  @@map("hidden_messages")
+}
+
+/// Геопозиция в сообщении. Координаты WGS84; title/address — подпись места от отправителя.
+/// Трансляция (live location): liveUntil — до какого момента отправитель двигает точку
+/// (null — статичная), liveUpdatedAt — время последней точки (по нему /updates отдаёт
+/// сообщение в mutated). heading — направление в градусах от севера, accuracy — точность в м.
+model ChatLocation {
+  messageId     String    @id @map("message_id")
+  lat           Float
+  lng           Float
+  title         String?
+  address       String?
+  liveUntil     DateTime? @map("live_until")
+  liveUpdatedAt DateTime? @map("live_updated_at")
+  heading       Float?
+  accuracy      Float?
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("chat_locations")
+}
+
+/// Карточка контакта в сообщении: имя, до пяти телефонов и адресов. userId — пользователь
+/// StudentHub, если отправитель указал его и сам его видит (сейчас сервер его не заполняет).
+model ChatContact {
+  messageId String   @id @map("message_id")
+  name      String
+  phones    String[] @default([])
+  emails    String[] @default([])
+  userId    String?  @map("user_id")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User?   @relation("ChatContactUser", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([userId])
+  @@map("chat_contacts")
+}
+
+/// Чек-лист в сообщении: 1:1 с сообщением, до 50 пунктов. othersCanAdd / othersCanMark —
+/// могут ли участники кроме автора сообщения добавлять пункты и отмечать их.
+model ChatChecklist {
+  id            String   @id @default(uuid())
+  messageId     String   @unique @map("message_id")
+  title         String
+  othersCanAdd  Boolean  @default(true) @map("others_can_add")
+  othersCanMark Boolean  @default(true) @map("others_can_mark")
+  createdAt     DateTime @default(now()) @map("created_at")
+  // Любая правка пунктов (добавили, убрали, отметили) двигает отметку: по ней догон после
+  // обрыва (GET /chats/:id/updates) отдаёт сообщение чек-листа в `mutated`.
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  message Message             @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items   ChatChecklistItem[]
+
+  @@map("chat_checklists")
+}
+
+model ChatChecklistItem {
+  id          String    @id @default(uuid())
+  checklistId String    @map("checklist_id")
+  text        String
+  // Порядок пунктов; новый пункт встаёт в конец (max + 1).
+  order       Int
+  // Кто и когда отметил выполненным. NULL — не выполнен.
+  doneById    String?   @map("done_by_id")
+  doneAt      DateTime? @map("done_at")
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  checklist ChatChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  doneBy    User?         @relation("ChecklistItemDoneBy", fields: [doneById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy User          @relation("ChecklistItemCreatedBy", fields: [createdById], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([checklistId, order])
+  @@index([doneById])
+  @@index([createdById])
+  @@map("chat_checklist_items")
+}
+
+/// Набор стикеров каталога. Заводит и публикует только PLATFORM_ADMIN; клиентам отдаются
+/// только опубликованные наборы (isPublished), по `order`.
+model StickerSet {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  order       Int      @default(0)
+  isPublished Boolean  @default(false) @map("is_published")
+  // Кто завёл набор. SetNull: удаление учётки админа не должно уносить каталог.
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User?     @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  stickers  Sticker[]
+
+  @@index([isPublished, order])
+  @@index([createdById])
+  @@map("sticker_sets")
+}
+
+/// Стикер набора: картинка (png/webp/gif ≤ 512 КБ) в бакете чатов — запись File, 1:1.
+model Sticker {
+  id        String   @id @default(uuid())
+  setId     String   @map("set_id")
+  fileId    String   @unique @map("file_id")
+  emoji     String?
+  order     Int      @default(0)
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  set       StickerSet        @relation(fields: [setId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file      File              @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  messages  Message[]
+  favorites FavoriteSticker[]
+
+  @@index([setId, order])
+  @@map("stickers")
+}
+
+// Избранные стикеры пользователя (Telegram-стиль): до 30 штук, свежие сверху. Повторное
+// добавление поднимает стикер наверх (createdAt обновляется), сверх лимита вытесняется самый
+// старый. Удалили стикер из каталога — строка уходит каскадом; набор сняли с публикации —
+// строка остаётся, но в выдачу не попадает.
+model FavoriteSticker {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  stickerId String   @map("sticker_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sticker Sticker @relation(fields: [stickerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, stickerId])
+  // Выдача «свежие сверху» и поиск самого старого для вытеснения.
+  @@index([userId, createdAt])
+  @@index([stickerId])
+  @@map("favorite_stickers")
 }

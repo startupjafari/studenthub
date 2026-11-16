@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
@@ -47,6 +59,33 @@ export class CareerProfileController {
     @Req() req: FastifyRequest,
   ) {
     return this.profiles.setConsent(user, dto, this.ctx(req))
+  }
+
+  @Put('grants/:companyId')
+  @Roles(Role.STUDENT, Role.STAROSTA)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Открыть скрытый профиль одной компании, куда был отклик (21.D1)' })
+  @ApiResponse({ status: 204, description: 'Профиль открыт компании' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — отклика в эту компанию нет' })
+  share(
+    @CurrentUser() user: CurrentUserData,
+    @Param('companyId') companyId: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.profiles.shareWithCompany(user, companyId, this.ctx(req))
+  }
+
+  @Delete('grants/:companyId')
+  @Roles(Role.STUDENT, Role.STAROSTA)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Закрыть профиль, открытый компании адресно (21.D1)' })
+  @ApiResponse({ status: 204, description: 'Профиль закрыт для компании (идемпотентно)' })
+  unshare(
+    @CurrentUser() user: CurrentUserData,
+    @Param('companyId') companyId: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.profiles.unshareWithCompany(user, companyId, this.ctx(req))
   }
 
   /**

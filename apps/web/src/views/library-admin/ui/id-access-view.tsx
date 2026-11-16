@@ -5,6 +5,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { Search, ShieldCheck } from 'lucide-react'
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -135,7 +136,14 @@ export function IdAccessView() {
                     <TableText value={row.librarianName} />
                   </TableCell>
                   <TableCell>
-                    <TableText value={row.readerName} />
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <TableText value={row.readerName} />
+                      {row.withoutPhone && (
+                        <Badge variant="outline" className="shrink-0">
+                          {t('withoutPhoneBadge')}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className={HIDE.book}>
                     <TableText value={row.bookTitle} />

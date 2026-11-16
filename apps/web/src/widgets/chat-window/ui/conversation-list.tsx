@@ -22,7 +22,9 @@ import {
   FileText,
   FolderPlus,
   ImageIcon,
+  ListChecks,
   Loader2,
+  MapPin,
   Mic,
   MessagesSquare,
   Newspaper,
@@ -202,6 +204,10 @@ function MessagePreview({
     sharedStory?: unknown
     sharedStoryReply?: boolean
     poll?: unknown
+    location?: { title: string | null } | null
+    contact?: { name: string } | null
+    checklist?: { title: string } | null
+    sticker?: { emoji: string | null } | null
     sender?: { firstName: string } | null
   } | null
   t: ReturnType<typeof useTranslations<'Chats'>>
@@ -233,6 +239,36 @@ function MessagePreview({
       <PreviewWithIcon icon={BarChart3}>
         {t('previewPoll', { question: plainPreview(message.content ?? '') })}
       </PreviewWithIcon>
+    )
+  }
+  // Особые сообщения: текста у них нет, превью строится по содержимому.
+  if (message.location) {
+    return (
+      <PreviewWithIcon icon={MapPin}>
+        {message.location.title || t('previewLocation')}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.contact) {
+    return (
+      <PreviewWithIcon icon={UserRound}>
+        {t('previewContact', { name: message.contact.name })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.checklist) {
+    return (
+      <PreviewWithIcon icon={ListChecks}>
+        {t('previewChecklist', { title: message.checklist.title })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.sticker) {
+    return (
+      <>
+        {message.sticker.emoji ? `${message.sticker.emoji} ` : ''}
+        {t('previewSticker')}
+      </>
     )
   }
   if (message.sharedPost) {
@@ -820,11 +856,13 @@ export function ConversationList({
                 onContextMenu={(e) => openRowMenu(e, c.id)}
                 className="relative shrink-0 overflow-hidden duration-200 animate-in fade-in slide-in-from-left-2 lg:overflow-visible"
               >
+                {/* Кнопки свайпа без aria-label: имя — видимая короткая подпись. Длинная
+                    («Отметить прочитанным») не содержала видимой («Прочитано») и расходилась с
+                    ней для голосового управления (WCAG 2.5.3). */}
                 {/* Свайп ВПРАВО: Прочитать · Закрепить (мобильный). */}
                 <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">
                   <button
                     type="button"
-                    aria-label={t('markRead')}
                     onClick={() => {
                       onMarkRead(c.id)
                       onCloseSwiped(c.id)
@@ -836,7 +874,6 @@ export function ConversationList({
                   </button>
                   <button
                     type="button"
-                    aria-label={c.pinned ? t('unpin') : t('pin')}
                     onClick={() => {
                       onTogglePin(c)
                       onCloseSwiped(c.id)
@@ -855,7 +892,6 @@ export function ConversationList({
                 <div className="absolute inset-y-0 right-0 z-0 flex lg:hidden">
                   <button
                     type="button"
-                    aria-label={c.muted ? t('unmute') : t('mute')}
                     onClick={() => {
                       onToggleMute(c)
                       onCloseSwiped(c.id)
@@ -871,7 +907,6 @@ export function ConversationList({
                   </button>
                   <button
                     type="button"
-                    aria-label={c.archived ? t('unarchive') : t('archive')}
                     onClick={() => {
                       onToggleArchive(c)
                       onCloseSwiped(c.id)
@@ -890,7 +925,6 @@ export function ConversationList({
                   {canDeleteChat(c.type) ? (
                     <button
                       type="button"
-                      aria-label={t('delete')}
                       onClick={() => {
                         onCloseSwiped(c.id)
                         onDeleteChat(c)
@@ -903,7 +937,6 @@ export function ConversationList({
                   ) : (
                     <button
                       type="button"
-                      aria-label={t('clearHistory')}
                       onClick={() => {
                         onCloseSwiped(c.id)
                         onClearHistory(c)

@@ -70,7 +70,14 @@ async function deleteUniversity(prisma, universityId, log) {
     if (count > 0) counts[name] = (counts[name] ?? 0) + count
   }
 
+  // Шаблоны документов — до пользователей: версия держит File (Restrict), а File уходит
+  // каскадом с владельцем. Журнал генераций держит шаблон и версию. Версии — каскадом.
+  await run('documentTemplateGeneration', prisma.documentTemplateGeneration.deleteMany({ where: { universityId } })) // prettier-ignore
+  await run('documentTemplate', prisma.documentTemplate.deleteMany({ where: { universityId } }))
+
   counts.user = await deleteUsers(prisma, universityId, log)
+  // Выгрузки документов без внешних ключей: находим по префиксу id вуза генератора.
+  await run('documentExport', prisma.documentExport.deleteMany({ where: { id: { startsWith: `${universityId}-exp-` } } })) // prettier-ignore
 
   const faculties = await prisma.faculty.findMany({ where: { universityId }, select: { id: true } })
   const facultyIds = faculties.map((f) => f.id)
@@ -95,6 +102,16 @@ async function deleteUniversity(prisma, universityId, log) {
   await run('group', prisma.group.deleteMany({ where: { id: { in: groupIds } } }))
   await run('subject', prisma.subject.deleteMany({ where: { universityId } }))
   await run('term', prisma.term.deleteMany({ where: { universityId } }))
+  // Кампус — до помещений: индекс пространств ссылается на них SetNull'ом, и без этого
+  // удаление помещений пошло бы лишними апдейтами. Снимки этажей без внешнего ключа —
+  // их находим по этажам кампуса; остальное уходит каскадом с кампусом (вуз — Restrict).
+  const campusFloors = await prisma.campusFloor.findMany({
+    where: { building: { campus: { universityId } } },
+    select: { id: true },
+    take: 10_000,
+  })
+  await run('campusFloorPlanSnapshot', prisma.campusFloorPlanSnapshot.deleteMany({ where: { floorId: { in: campusFloors.map((f) => f.id) } } })) // prettier-ignore
+  await run('campus', prisma.campus.deleteMany({ where: { universityId } }))
   await run('room', prisma.room.deleteMany({ where: { universityId } }))
   await run('specialty', prisma.specialty.deleteMany({ where: { universityId } }))
   await run('faculty', prisma.faculty.deleteMany({ where: { id: { in: facultyIds } } }))
@@ -118,6 +135,11 @@ async function deleteUniversity(prisma, universityId, log) {
   await run('loan', prisma.loan.deleteMany({ where: { universityId } }))
   await run('bookCopy', prisma.bookCopy.deleteMany({ where: { universityId } }))
   await run('book', prisma.book.deleteMany({ where: { universityId } }))
+
+  // Камеры: агент держит вуз Restrict'ом, камеры уходят с агентом каскадом — отдельно
+  // только ради счётчика. Журналы охраны и просмотров уходят каскадом вместе с вузом.
+  await run('camera', prisma.camera.deleteMany({ where: { universityId } }))
+  await run('cameraAgent', prisma.cameraAgent.deleteMany({ where: { universityId } }))
 
   await run('university', prisma.university.deleteMany({ where: { id: universityId } }))
   return counts

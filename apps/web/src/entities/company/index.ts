@@ -3,6 +3,12 @@ export {
   employerSignup,
   verifyCompanyEmail,
   resendCompanyVerification,
+  previewCompanyInvite,
+  acceptCompanyInvite,
+  fetchCompanyTeam,
+  inviteCompanyMember,
+  revokeCompanyInvite,
+  removeCompanyMember,
   fetchMyCompany,
   updateMyCompany,
   fetchCompanyPage,
@@ -19,6 +25,10 @@ export { COMPANY_ACCESS_DECIDERS, isCompanyOwner } from './model/permissions'
 export { CompanyMark, companyPath } from './ui/company-mark'
 export type {
   Company,
+  CompanyInvite,
+  CompanyInvitePreview,
+  CompanyMember,
+  CompanyTeam,
   CompanyPage,
   CompanyAccess,
   CompanyUniversityOption,

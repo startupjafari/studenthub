@@ -2,6 +2,7 @@ import type {
   CompanyListQueryInput,
   CompanyUniversityDirectoryQueryInput,
   DecideCompanyAccessInput,
+  AcceptCompanyInviteInput,
   EmployerSignupInput,
   RequestCompanyAccessInput,
   UpdateCompanyInput,
@@ -9,6 +10,8 @@ import type {
 import { api, getPaged, type Paged } from '../../../shared/api'
 import type {
   Company,
+  CompanyInvitePreview,
+  CompanyTeam,
   CompanyPage,
   CompanyAccess,
   CompanyUniversityOption,
@@ -20,6 +23,8 @@ export const companyKeys = {
   mine: () => ['company', 'mine'] as const,
   page: (id: string) => ['company', 'page', id] as const,
   myAccess: () => ['company', 'access'] as const,
+  team: () => ['company', 'team'] as const,
+  invitePreview: (token: string) => ['company', 'invite-preview', token] as const,
   universityOptions: (params: Partial<CompanyUniversityDirectoryQueryInput>) =>
     ['company', 'universities', params] as const,
   universityAccess: (params: Partial<CompanyListQueryInput> = {}) =>
@@ -46,6 +51,23 @@ export async function resendCompanyVerification(email: string): Promise<void> {
   await api.post('/career/companies/resend-verification', { email })
 }
 
+// Приглашение в команду компании (21.D2): предпросмотр и регистрация по ссылке из письма.
+export async function previewCompanyInvite(token: string): Promise<CompanyInvitePreview> {
+  const { data } = await api.get<CompanyInvitePreview>(
+    `/career/companies/invites/${encodeURIComponent(token)}/preview`,
+  )
+  return data
+}
+
+/** Регистрация по приглашению: отдаёт access-токен, refresh — cookie (как у инвайта вуза). */
+export async function acceptCompanyInvite(input: AcceptCompanyInviteInput): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>(
+    '/auth/register-by-company-invite',
+    input,
+  )
+  return data.accessToken
+}
+
 // ── Работодатель ─────────────────────────────────────────────────────────────
 
 export async function fetchMyCompany(): Promise<Company> {
@@ -56,6 +78,25 @@ export async function fetchMyCompany(): Promise<Company> {
 export async function updateMyCompany(input: UpdateCompanyInput): Promise<Company> {
   const { data } = await api.patch<Company>('/career/companies/me', input)
   return data
+}
+
+// ── Команда компании (только владелец) ───────────────────────────────────────
+
+export async function fetchCompanyTeam(): Promise<CompanyTeam> {
+  const { data } = await api.get<CompanyTeam>('/career/companies/me/members')
+  return data
+}
+
+export async function inviteCompanyMember(email: string): Promise<void> {
+  await api.post('/career/companies/me/invites', { email })
+}
+
+export async function revokeCompanyInvite(id: string): Promise<void> {
+  await api.delete(`/career/companies/me/invites/${id}`)
+}
+
+export async function removeCompanyMember(userId: string): Promise<void> {
+  await api.delete(`/career/companies/me/members/${userId}`)
 }
 
 /** Картинка страницы компании: логотип (аватар) или обложка. Меняет только владелец. */

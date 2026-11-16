@@ -28,19 +28,23 @@ settings:
 # Внешние зависимости. Каждая согласована отдельно (план, «Архитектурные решения»:
 # строки со звёздочкой).
 #
-# `Package.resolved` в репозиторий не попадает: он лежит внутри .xcodeproj, а проект
-# генерируется и не коммитится. Значит сборка берёт свежую версию в пределах мажора —
-# понадобится воспроизводимость до патча, тут меняется `from` на `exactVersion`.
+# Версии точные (IOS_RULES 14.1.2): сборка не должна сама взять новый патч пакета, который
+# никто не смотрел. Те же версии — в Package.swift (сборка xtool), транзитивные (Starscream у
+# Socket.IO) — в закоммиченном Package.resolved. Сгенерированный .xcodeproj не коммитится,
+# поэтому scripts/test.sh кладёт этот Package.resolved в проект перед сборкой и после неё
+# сверяет, что Xcode взял те же версии (scripts/check_packages.py). Обновления — PR
+# Dependabot в Package.swift и Package.resolved; версию здесь поднимают в том же PR —
+# иначе проверка «Пакеты» в ios.yml падает.
 packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
-    from: "7.0.0"
+    exactVersion: "7.12.0"
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
-    from: "16.1.0"
+    exactVersion: "16.1.1"
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    from: "8.40.0"
+    exactVersion: "8.58.4"
 
 targets:
   StudentHub:
@@ -82,6 +86,9 @@ targets:
         # Тихие пуши: без этого режима система не будит приложение ради догона.
         UIBackgroundModes:
           - remote-notification
+          # Живая геопозиция в чате: обновления идут и в фоне — только пока человек сам
+          # включил трансляцию, с синим индикатором системы.
+          - location
         # Своя схема для пушей и ссылок из веба: `studenthub://chats?c=…`.
         # Универсальные ссылки (https) появятся вместе с apple-app-site-association
         # на домене — до этого адрес веба открывает браузер, как и раньше.
@@ -89,18 +96,39 @@ targets:
           - CFBundleURLName: kz.studenthub.app
             CFBundleURLSchemes:
               - studenthub
-        # Камера нужна ровно для одного — отсканировать QR входа на компьютере.
+        # Камера: снимок или скан документа в чат, фото профиля и QR входа на компьютере.
         # Текст видит человек в системном запросе, поэтому в нём сказано зачем,
         # а не «приложению нужен доступ к камере».
-        NSCameraUsageDescription: Чтобы отсканировать QR-код входа на компьютере.
-        # Микрофон — только для голосовых сообщений в чате.
-        NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение.
+        NSCameraUsageDescription: Чтобы снять фото или видео для истории, сфотографировать или отсканировать документ для чата, сфотографироваться для профиля и отсканировать QR-код входа на компьютере.
+        # Микрофон — голосовые сообщения в чате и звук видео для историй (запрос — при
+        # первой записи видео, не при открытии камеры).
+        NSMicrophoneUsageDescription: Чтобы записать голосовое сообщение или видео для истории со звуком.
+        # «Фото» — только запись: сохранить снимок или ролик из просмотрщика.
+        NSPhotoLibraryAddUsageDescription: Чтобы сохранить фото и видео из приложения в «Фото».
+        # Чтение «Фото» — сетка недавних снимков в листе вложений чата. Без доступа
+        # (или с частичным) работает системный выбор фото, которому разрешение не нужно.
+        NSPhotoLibraryUsageDescription: Чтобы показать недавние фото и видео при отправке в чат и при создании истории.
+        # Геопозиция — только по нажатию «Геопозиция» в листе вложений. Трансляцию человек
+        # включает сам на выбранный срок; в фоне она идёт с синим индикатором системы.
+        NSLocationWhenInUseUsageDescription: Чтобы отправить своё местоположение в чат или транслировать его, пока вы сами не остановите трансляцию.
+        # Контакты — только по нажатию «Контакт» в листе вложений: список, из которого
+        # человек сам выбирает, чью карточку отправить. Без доступа — системный выбор.
+        NSContactsUsageDescription: Чтобы выбрать контакт и отправить его карточку в чат.
+        # Системный экран запуска — только цвет (чисто белый / чисто чёрный), без знака:
+        # знак прорисовывает уже SwiftUI (`LaunchLoadingView`), и её первый кадр
+        # совпадает с этим экраном. Цвет менять вместе с `LaunchPalette.background`.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # ProMotion (120 Гц): без этого ключа iPhone держит анимации, которые рисует само
+        # приложение (пружины SwiftUI, CADisplayLink ленты), на 60 кадрах, а 120 получает
+        # только системная прокрутка. Telegram ставит его по той же причине.
+        CADisableMinimumFrameDurationOnPhone: true
         # Адрес API приходит из xcconfig, а не из кода: у Debug и Release он разный.
         SHAPIBaseURL: $(API_BASE_URL)
+        # Адрес веба — для «Поделиться» и «Копировать ссылку» на пост.
+        SHWebBaseURL: $(WEB_BASE_URL)
         # Пусто — трекер не инициализируется вовсе, как и на бэкенде без DSN.
         SHSentryDSN: $(SENTRY_DSN)
     settings:
@@ -117,7 +145,49 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - path: Tests
+      - path: Tests/StudentHubTests
+    dependencies:
+      - target: StudentHub
+
+  # Сценарии переписки на живом сервере (XCUITest). Учётка — из окружения схемы
+  # SH_UITEST_LOGIN / SH_UITEST_PASSWORD; без неё тесты пропускаются (CI без учётки).
+  StudentHubUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubUITests
+        excludes:
+          - "**/__Snapshots__/**"
+      # Сравнение полноэкранных снимков с эталоном — общее со снимочными тестами.
+      - path: Tests/Shared
+      # Помощники XCUITest, общие с замерами производительности.
+      - path: Tests/UIShared
+    dependencies:
+      - target: StudentHub
+
+  # Снимки компонентов и экранов: темы, размеры экрана, крупный шрифт. Эталоны —
+  # PNG в __Snapshots__ рядом с тестами; в бандл они не копируются, тест читает их
+  # по пути исходника (scripts/test.sh, README «Тесты»).
+  StudentHubSnapshotTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubSnapshotTests
+        excludes:
+          - "**/__Snapshots__/**"
+      - path: Tests/Shared
+    dependencies:
+      - target: StudentHub
+
+  # Производительность: запуск, прокрутка длинных списков, переходы — на mock API.
+  # Без SH_PERF=1 пропускаются (обычный `xcodebuild test` их не ждёт); scripts/test.sh
+  # perf включает и сверяет метрики с Tests/perf-baseline.json.
+  StudentHubPerfTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/StudentHubPerfTests
+      - path: Tests/UIShared
     dependencies:
       - target: StudentHub
 
@@ -127,11 +197,24 @@ schemes:
       targets:
         StudentHub: all
         StudentHubTests: [test]
+        StudentHubSnapshotTests: [test]
+        StudentHubUITests: [test]
+        StudentHubPerfTests: [test]
     run:
       config: Debug
     test:
       config: Debug
+      # Язык и регион процесса тестов — как у пользователей: снимки с датами и временем
+      # («10 минут назад», «09:41») иначе выходят на английском.
+      language: ru
+      region: KZ
       targets:
         - StudentHubTests
+        - StudentHubSnapshotTests
+        # Сценарии на mock API идут всегда; ChatFlowsUITests без
+        # SH_UITEST_LOGIN/SH_UITEST_PASSWORD (xcodebuild передаёт их раннеру как
+        # TEST_RUNNER_SH_UITEST_LOGIN=…) пропускаются.
+        - StudentHubUITests
+        - StudentHubPerfTests
     archive:
       config: Release

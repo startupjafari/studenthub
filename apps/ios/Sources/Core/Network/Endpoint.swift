@@ -20,6 +20,11 @@ struct Endpoint {
     var requiresAuthorization = true
     /// Тип тела. По умолчанию JSON; multipart подставляет свой вместе с границей.
     var contentType = "application/json"
+    /// Refresh-cookie этого запроса вместо текущей — выход, отложенный без сети, гасит
+    /// сессию того, кто выходил, а не того, кто вошёл после него.
+    var refreshCookie: String?
+    /// Свой предел ожидания ответа; `nil` — системный (60 с).
+    var timeout: TimeInterval?
     /// Можно ли повторить запрос при обрыве связи или 5xx. Повторяем только чтение:
     /// повтор POST создаст вторую заявку или второе сообщение.
     var isIdempotent: Bool { method == .get }

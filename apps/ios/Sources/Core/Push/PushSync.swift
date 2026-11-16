@@ -43,23 +43,18 @@ struct PushSync: Sendable {
 /// уведомления (`GET /notifications/unread-count`). Раньше приложение ставило сумму
 /// непрочитанного по чатам: пуш показывал одно, открытое приложение — другое, и бейдж
 /// прыгал. Нет связи — не трогаем: старое число честнее, чем ноль.
+///
+/// Число берётся у общего счётчика (`UnreadNotificationsCounter`, п. 18 аудита): он же
+/// у колокольчика, и запрос в полёте — один на всех. Догон по пушу просит свежее число
+/// (`maxAge: 0`), но к уже идущему запросу присоединяется.
 struct BadgeCounter: Sendable {
-    private let client: APIClient
-
-    init(client: APIClient = AppServices.api) {
-        self.client = client
-    }
-
     func refresh() async {
-        struct Answer: Decodable { let count: Int }
-        guard let answer = try? await client.send(.get("notifications/unread-count"), as: Answer.self) else {
-            return
-        }
-        try? await UNUserNotificationCenter.current().setBadgeCount(answer.count)
+        await AppServices.unreadNotifications.refresh(maxAge: 0)
     }
 
     /// Выход из аккаунта: чужое число на иконке следующему человеку ни к чему.
     func reset() async {
+        await AppServices.unreadNotifications.reset()
         try? await UNUserNotificationCenter.current().setBadgeCount(0)
     }
 }

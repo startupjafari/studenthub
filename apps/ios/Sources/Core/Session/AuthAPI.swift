@@ -25,7 +25,9 @@ enum LoginOutcome: Equatable {
 /// клиент спрашивает у хранилища токен, хранилище просит у этого протокола новый.
 protocol SessionRefreshing: Sendable {
     func refresh() async throws -> AuthSession
-    func endSession() async throws
+    /// Выход. `deviceToken` — токен пушей: сервер отвязывает его вместе с сессией.
+    /// `refreshToken` — чья сессия гасится, если не текущая (выход, отложенный без сети).
+    func endSession(deviceToken: String?, refreshToken: String?) async throws
 }
 
 /// Выдача сессии: оба шага входа. Отдельно от `SessionRefreshing`, потому что это
@@ -81,18 +83,34 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
 
     // MARK: - Продление и выход
 
+    /// Предел ожидания связан с окном грации сервера (`REFRESH_REUSE_GRACE_MS`, 10 с,
+    /// `apps/api/src/config/env.schema.ts`; на клиенте — `SessionStore.serverReuseGrace`).
+    /// Ответ потерялся — сервер мог уже ротировать токен, и единственный повтор старым
+    /// токеном обязан прийти внутри окна, иначе сервер сочтёт его кражей и погасит
+    /// сессии на всех устройствах (правило 9.7.2). Поэтому таймаут + пауза повтора
+    /// (`SessionStore.defaultLossRetryDelay`) = 7,5 с — меньше бюджета 8 с с запасом
+    /// до 10 с. `timeoutInterval` в `URLRequest` — предел простоя, а не всего запроса:
+    /// растянутый ответ ловит ещё и замер длительности в `SessionStore`.
+    static let refreshTimeout: TimeInterval = 6
+
     func refresh() async throws -> AuthSession {
-        try await client.send(publicEndpoint("auth/refresh"), as: AuthSession.self)
+        var endpoint = publicEndpoint("auth/refresh")
+        endpoint.timeout = Self.refreshTimeout
+        return try await client.send(endpoint, as: AuthSession.self)
     }
 
-    func endSession() async throws {
-        try await client.send(publicEndpoint("auth/logout"))
+    func endSession(deviceToken: String?, refreshToken: String?) async throws {
+        var endpoint = deviceToken.map { token in
+            (try? publicEndpoint("auth/logout", json: LogoutRequest(deviceToken: token))) ?? publicEndpoint("auth/logout")
+        } ?? publicEndpoint("auth/logout")
+        endpoint.refreshCookie = refreshToken
+        try await client.send(endpoint)
     }
 
     // MARK: - Внутреннее
 
-    /// Запрос уходит пустым: сессию опознаёт refresh-cookie, которую `URLSession`
-    /// подставляет сама. Класть токен ещё и в тело нельзя — он попал бы в логи
+    /// Запрос уходит пустым: сессию опознаёт refresh-cookie, которую подставляет
+    /// `APIClient`. Класть токен ещё и в тело нельзя — он попал бы в логи
     /// запросов на обеих сторонах.
     private func publicEndpoint(_ path: String) -> Endpoint {
         var endpoint = Endpoint.post(path)
@@ -104,6 +122,10 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         var endpoint = try Endpoint.post(path, json: body)
         endpoint.requiresAuthorization = false
         return endpoint
+    }
+
+    private struct LogoutRequest: Encodable {
+        let deviceToken: String
     }
 
     private struct LoginRequest: Encodable {
@@ -121,5 +143,18 @@ struct AuthAPI: SessionRefreshing, SessionIssuing {
         let accessToken: String?
         let twoFactorRequired: Bool?
         let challengeToken: String?
+    }
+}
+
+extension AuthSession: RedactedDescription {
+    var redactedDescription: String { "AuthSession(accessToken: \(SecretMask.hidden))" }
+}
+
+extension LoginOutcome: RedactedDescription {
+    var redactedDescription: String {
+        switch self {
+        case .session: "LoginOutcome.session(\(SecretMask.hidden))"
+        case .twoFactorRequired: "LoginOutcome.twoFactorRequired(challengeToken: \(SecretMask.hidden))"
+        }
     }
 }

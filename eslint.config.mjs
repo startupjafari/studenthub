@@ -75,6 +75,7 @@ export default tseslint.config(
       'scripts/**/*.mjs',
       'apps/api/scripts/**/*.mjs',
       'apps/web/e2e/**/*.mjs',
+      'apps/web/scripts/**/*.mjs',
       'apps/landing/scripts/**/*.mjs',
       'apps/mini-app/scripts/**/*.mjs',
     ],

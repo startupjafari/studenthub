@@ -160,6 +160,8 @@ const NO_OWNER_BUT_POSTS_BUCKET_WHERE = {
   highlightItem: { is: null },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
+  // DOCX версии шаблона документов вуза лежит в бакете documents без documentId.
+  documentTemplateVersion: { is: null },
 } satisfies Prisma.FileWhereInput
 
 const NO_OWNER_BUT_POST_WHERE = {
@@ -612,6 +614,9 @@ export class CleanupService {
       {
         bucket: chatBucket,
         messageId: null,
+        // Картинка стикера каталога живёт в бакете чатов без сообщения — законно, пока на
+        // неё ссылается стикер (Sticker.fileId).
+        sticker: { is: null },
         createdAt: { lt: new Date(now - DETACHED_CHAT_FILE_SAFETY_MINUTES * 60 * 1000) },
       },
       { bucket: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), materialId: null },

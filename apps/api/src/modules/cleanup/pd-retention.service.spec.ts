@@ -391,6 +391,24 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
     expect(prisma.user.findMany.mock.calls[1][0].where.AND[1]).toEqual({ id: { gt: 'c' } })
   })
 
+  it('исходник шаблона документов блокирует удаление, только если в вузе нет другого админа', async () => {
+    const { service, prisma } = makeService()
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]).mockResolvedValueOnce([])
+
+    await service.purgeAccountTombstones(true)
+
+    const where = prisma.file.count.mock.calls[0][0].where as { OR: Record<string, unknown>[] }
+    expect(where.OR).toContainEqual({
+      documentTemplateVersion: {
+        template: {
+          university: {
+            users: { none: { role: 'UNIVERSITY_ADMIN', deletedAt: null, id: { not: 'u1' } } },
+          },
+        },
+      },
+    })
+  })
+
   it('боевой прогон: переписывает чужие сканы, стирает цитаты и гранты, удаляет строку', async () => {
     const { service, prisma, audit } = makeService()
     prisma.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]).mockResolvedValueOnce([])
@@ -399,10 +417,15 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
     const counts = await service.purgeAccountTombstones(false)
 
     expect(counts.User).toBe(1)
-    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(2)
     const sql = (prisma.$executeRaw.mock.calls[0][0] as TemplateStringsArray).join('?')
     expect(sql).toContain('UPDATE "files"')
     expect(sql).toContain('d."owner_id" <>')
+    // Исходники шаблонов документов переходят к другому действующему админу вуза.
+    const templates = (prisma.$executeRaw.mock.calls[1][0] as TemplateStringsArray).join('?')
+    expect(templates).toContain('"document_template_versions"')
+    expect(templates).toContain(`u."role" = 'UNIVERSITY_ADMIN'`)
+    expect(templates).toContain('u."deleted_at" IS NULL')
     expect(prisma.message.updateMany).toHaveBeenCalledWith({
       where: { replyTo: { senderId: 'u1' }, replyQuote: { not: null } },
       data: { replyQuote: null },

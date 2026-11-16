@@ -4,8 +4,8 @@
 // не во что резолвить, и селект «Город» отдаёт пустой список. Поэтому шаг выполняется
 // и при развёртывании, а не только в dev.
 //
-// Данные: prisma/seed/data/kato.json — генерируется из выгрузки stat.gov.kz скриптом
-// scripts/gen-kato.mjs (там же перечислены дефекты источника, которые он чинит).
+// Данные: prisma/seed/data/kato.json — собран из выгрузки stat.gov.kz с починкой её дефектов
+// (генератор удалён 16.11.2026, достать из истории: git show b6809d9a:scripts/gen-kato.mjs).
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

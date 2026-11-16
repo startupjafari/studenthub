@@ -238,6 +238,83 @@ export class MaterialsService {
     }
   }
 
+  // ── Многочастная загрузка (21.B1) ──────────────────────────────────────────
+  // Файлы больше FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES (запись лекции до 500 МБ): тот же
+  // протокол, что у вложений чата, — start → urls → PUT частей → complete. Права на материал
+  // проверяются на каждом шаге, как у presign/confirm: общий /files о материалах не знает и
+  // пустил бы кого угодно писать в бакет materials.
+
+  /** Шаг 1: открыть загрузку. Права и место под файл — ДО выдачи ключа. */
+  async startFileMultipart(actor: JwtPayload, id: string, mime: string, size: number) {
+    await this.findManageable(actor, id)
+    await this.assertFilesRoom(id)
+    return this.files.startMultipart({ bucket: this.bucket(), mime, size, ownerId: actor.sub })
+  }
+
+  /** Шаг 2: подписи на диапазон частей. */
+  async fileMultipartUrls(
+    actor: JwtPayload,
+    id: string,
+    input: { key: string; uploadId: string; from: number; to: number },
+  ) {
+    await this.findManageable(actor, id)
+    return this.files.presignParts({ bucket: this.bucket(), ownerId: actor.sub, ...input })
+  }
+
+  /** Шаг 4: сборка и та же проверка объекта, что у `confirmFile`; файл сразу привязан. */
+  async completeFileMultipart(
+    actor: JwtPayload,
+    id: string,
+    input: {
+      key: string
+      uploadId: string
+      parts: { part: number; etag: string }[]
+      name?: string
+    },
+    ctx: RequestContext,
+  ) {
+    const material = await this.findManageable(actor, id)
+    await this.assertFilesRoom(material.id)
+    const file = await this.files.completeMultipart({
+      bucket: this.bucket(),
+      key: input.key,
+      uploadId: input.uploadId,
+      parts: input.parts,
+      name: input.name,
+      ownerId: actor.sub,
+      materialId: material.id,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'material_file_added',
+      entity: 'Material',
+      entityId: id,
+      metadata: { fileId: file.id, direct: true, multipart: true },
+      ...ctx,
+    })
+    return {
+      id: file.id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    }
+  }
+
+  /**
+   * Отмена: хранилище удаляет залитые части. Права на материал здесь не проверяются
+   * намеренно — это уборка своего же мусора (ключ обязан начинаться с id вызывающего, это
+   * проверяет FileService), и лишение прав посреди загрузки не должно оставлять части лежать
+   * до ночного sweep.
+   */
+  async abortFileMultipart(actor: JwtPayload, input: { key: string; uploadId: string }) {
+    await this.files.abortMultipart({ bucket: this.bucket(), ownerId: actor.sub, ...input })
+  }
+
+  private bucket(): string {
+    return this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
+  }
+
   async addFile(
     actor: JwtPayload,
     id: string,
