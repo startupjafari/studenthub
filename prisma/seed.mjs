@@ -17,6 +17,7 @@ import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedMedia } from './seed/steps/10-media.mjs'
 import { seedFormats } from './seed/steps/12-formats.mjs'
+import { seedPlatformCoverage } from './seed/steps/92-platform-coverage.mjs'
 import { formatPool } from './seed/lib/formats.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
@@ -359,6 +360,17 @@ async function main() {
       platform: config.demoUniversity && !config.allowRemote,
     })
     await demoWriter.flush()
+    // Вузы PENDING/BLOCKED, инвайты платформенного уровня, события для всех — только на
+    // локальном стенде, по тому же правилу, что строка состояния платформы выше.
+    if (config.demoUniversity && !config.allowRemote) {
+      const platform = await seedPlatformCoverage(prisma)
+      if (!platform.skipped) {
+        console.log(
+          `  платформа: ${platform.universities} вуза (ожидает, заблокирован), ` +
+            `${platform.invites} инвайтов, ${platform.events} события для всех`,
+        )
+      }
+    }
   }
 
   // ── Манифест прогона ────────────────────────────────────────────────────────
