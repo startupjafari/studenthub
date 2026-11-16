@@ -18,8 +18,20 @@ const STAGE_LIST = ['kato', 'media', 'companies', 'universities', 'demo']
 const PROFILES = {
   // demo: генератор вузов выключен — заливается только демо-вуз основного сида.
   demo: { universities: 0, students: [340, 380], label: 'демо (текущий объём)' },
-  small: { universities: 5, students: [200, 400], label: 'малый (мультивузовость)' },
-  full: { universities: 100, students: [700, 1700], label: 'полный' },
+  // small и full заполняют всё, включая личную галерею: карточки галереи — ссылки на объекты
+  // общего пула (см. 57-user-media.mjs), хранилище они не увеличивают, только строки File.
+  small: {
+    universities: 5,
+    students: [200, 400],
+    label: 'малый (мультивузовость)',
+    gallery: { photos: [20, 40], videos: [1, 3] },
+  },
+  full: {
+    universities: 100,
+    students: [700, 1700],
+    label: 'полный',
+    gallery: { photos: [20, 40], videos: [1, 3] },
+  },
   // kz: по одному вузу на каждую реальную организацию из реестра (universities-kz.mjs) —
   // 130 вузов с настоящими названиями, аббревиатурами и городами. Размер вуза зависит от
   // типа организации (национальный крупнее частного института, см. planUniversity), поэтому
@@ -194,18 +206,24 @@ export function loadConfig() {
     // потолок, а фактическое число зависит от доступности источников.
     photos: num('SEED_PHOTOS', fixed.photos ?? 1000),
     videos: num('SEED_VIDEOS', fixed.videos ?? 150),
-    // ── Личная галерея пользователя (профиль test) ────────────────────────────
-    // Сколько фото и видео получает КАЖДЫЙ пользователь в свои альбомы. Ноль —
-    // шаг выключен (demo/small/full: там альбомы наполняются срезом общего пула).
+    // ── Личная галерея пользователя ───────────────────────────────────────────
+    // Сколько фото и видео получает КАЖДЫЙ пользователь в свои альбомы. Ноль — шаг
+    // выключен. По умолчанию включена в small/full (profile.gallery), выключена в test
+    // (решение пользователя от 2026-09-16), kz и demo.
     //
-    // Цена здесь не в строках, а в хранилище: File уникален по (bucket, key), то есть
-    // одна карточка галереи = отдельный объект в MinIO. 100 фото × 1481 пользователь —
-    // это ~148 тыс. объектов и ~13 ГБ; видео тяжелее фото в 38 раз, поэтому их 3, а не
-    // 100 (20 видео на каждого дали бы ~107 ГБ — решение пользователя от 2026-09-16).
+    // Карточка галереи — строка File со ссылкой на объект общего пула: пара (bucket, key)
+    // больше не уникальна (миграция files_shared_object_pool), поэтому галерея стоит строк
+    // в БД, а не гигабайт в MinIO, как было до миграции.
     // Диапазоны, а не числа: «сколько фото у пользователя» задаётся как «100-500», и
     // каждый получает своё случайное число в этих границах. «0-0» — галереи нет вовсе.
-    photosPerUser: range('PHOTOS_PER_USER', [fixed.photosPerUser ?? 0, fixed.photosPerUser ?? 0]),
-    videosPerUser: range('VIDEOS_PER_USER', [fixed.videosPerUser ?? 0, fixed.videosPerUser ?? 0]),
+    photosPerUser: range(
+      'PHOTOS_PER_USER',
+      profile.gallery?.photos ?? [fixed.photosPerUser ?? 0, fixed.photosPerUser ?? 0],
+    ),
+    videosPerUser: range(
+      'VIDEOS_PER_USER',
+      profile.gallery?.videos ?? [fixed.videosPerUser ?? 0, fixed.videosPerUser ?? 0],
+    ),
     // Параллельных копий в MinIO. Выше, чем SEED_CONCURRENCY у вузов: copyObject — это
     // ожидание ответа хранилища, а не нагрузка на пул соединений Prisma.
     mediaConcurrency: num('SEED_MEDIA_CONCURRENCY', 16),
