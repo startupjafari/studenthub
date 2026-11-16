@@ -528,8 +528,11 @@ export async function seedCampus(prisma, writer, ctx) {
     }
   })
 
-  // Деканаты — по одному на факультет, вторые этажи корпусов по кругу.
-  for (const [fi, faculty] of faculties.entries()) {
+  // Деканаты — по одному на факультет, вторые этажи корпусов по кругу. Только если в вузе
+  // нет настоящих помещений DEAN_OFFICE (шаг 20 заводит их с 16.11.2026): те уже стоят на
+  // карте как аудитории, и второй, непривязанный «Деканат» на этаже был бы дублем.
+  const hasDeanRooms = rooms.some((r) => r.kind === 'DEAN_OFFICE')
+  for (const [fi, faculty] of hasDeanRooms ? [] : faculties.entries()) {
     const b = buildings[fi % buildings.length]
     const level = Math.min(2, b.floors.length)
     b.levels.set(level, [

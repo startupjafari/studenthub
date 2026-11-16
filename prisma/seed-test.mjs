@@ -35,6 +35,8 @@ import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 import { seedLibrary } from './seed/steps/45-library.mjs'
 import { assignAvatars, seedMedia } from './seed/steps/10-media.mjs'
+import { seedFormats } from './seed/steps/12-formats.mjs'
+import { formatPool } from './seed/lib/formats.mjs'
 import { seedStickers } from './seed/steps/95-stickers.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
@@ -222,6 +224,9 @@ async function main() {
   // ── Медиа-пул ───────────────────────────────────────────────────────────────
   // До вузов: аватары и обложки раздаются всем, включая уже созданных платформенных.
   const mediaPool = config.media ? await seedMedia(prisma, config) : null
+  // Образцы всех форматов (документы, аудио, архивы, GIF…) — источник вложений чатов,
+  // материалов, заданий, документов и сторис; см. steps/12-formats.mjs.
+  if (config.media) await seedFormats(prisma, createStorage())
 
   // ── Стикеры ─────────────────────────────────────────────────────────────────
   // Набор StudentHub — справочник платформы; без MinIO шаг пропускается (см. seed.mjs).
@@ -244,7 +249,7 @@ async function main() {
     storage,
     config,
     passwordHash,
-    pool: mediaPool,
+    pool: mediaPool && { ...mediaPool, formats: formatPool(storage) },
     companies,
   })
 

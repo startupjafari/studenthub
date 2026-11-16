@@ -136,6 +136,22 @@ export async function seedUserMedia(prisma, writer, { config, pool }) {
     }
 
     await writer.flush()
+
+    // Обложка фотоальбома — его первое фото: сервис принимает обложкой только файл ЭТОГО
+    // альбома (updateAlbum), а без обложки плитка альбома в профиле пустая. Альбом и файлы
+    // ссылаются друг на друга, поэтому обложка — отдельным проходом после файлов, одним
+    // запросом на пачку. Видеоальбом без обложки: её роль играет постер первого ролика.
+    // Выбранную пользователем обложку повторный прогон не трогает (cover_file_id IS NULL).
+    const photoAlbums = perUser.flatMap(({ albums }) =>
+      albums.filter((a) => a.title === 'Фотографии').map((a) => a.id),
+    )
+    if (photoAlbums.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE albums SET cover_file_id = albums.user_id || '-gph-0'
+        WHERE albums.id = ANY(${photoAlbums}::text[])
+          AND albums.cover_file_id IS NULL
+          AND EXISTS (SELECT 1 FROM files f WHERE f.id = albums.user_id || '-gph-0')`
+    }
     process.stdout.write(`\r  личная галерея: ${counts.users} польз., ${counts.files} файлов`)
   }
 
