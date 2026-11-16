@@ -19,7 +19,9 @@ import { planUniversity, seedStructure } from './steps/20-structure.mjs'
 import { seedPeople } from './steps/30-people.mjs'
 import { seedAcademics } from './steps/40-academics.mjs'
 import { seedLibrary } from './steps/45-library.mjs'
+import { seedSecurity } from './steps/47-security.mjs'
 import { seedSocial } from './steps/50-social.mjs'
+import { seedSocialExtras } from './steps/52-social-extras.mjs'
 import { seedProfileContent } from './steps/55-profile-content.mjs'
 import { seedChats } from './steps/60-chats.mjs'
 import { seedServices } from './steps/70-services.mjs'
@@ -192,11 +194,16 @@ export async function seedUniversities(prisma, { config, passwordHash, pool, com
       universityId: uniId,
       random: makeRandom(SEED_BASE + index * 7919 + 45),
     })
+    await seedSecurity(prisma, writer, { ...ctx, structure, people })
     await seedSocial(prisma, writer, { ...ctx, structure, people })
     await seedProfileContent(prisma, writer, { ...ctx, structure, people })
     await seedChats(prisma, writer, { ...ctx, structure, people })
     await seedServices(prisma, writer, { ...ctx, structure, people })
     await seedCareer(prisma, writer, { ...ctx, structure, people })
+    // Истории, лайки, закладки, комментарии к событиям, предупреждения — в самом конце:
+    // шаг читает из базы посты, статьи, события и жалобы всех предыдущих шагов.
+    await writer.flush()
+    await seedSocialExtras(prisma, writer, { ...ctx, structure, people })
     await writer.flush()
 
     await markUniversityDone(prisma, uniId, {
