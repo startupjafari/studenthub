@@ -28,3 +28,8 @@ delete process.env.TELEGRAM_BOT_TOKEN
 // Поиск GIF в e2e выключен: настоящий GIPHY тесты не вызывают никогда (ключ из .env
 // разработчика превратил бы прогон в сетевой и тратил бы его квоту).
 delete process.env.GIPHY_API_KEY
+// Медиа-задачи в e2e только ставятся в очередь, но не обрабатываются в процессе API.
+// Inline-обработчик дописывал варианты картинки уже после конца теста и сцеплялся
+// с TRUNCATE в beforeEach следующего — Postgres снимал TRUNCATE как дедлок (40P01).
+// Варианты медиа e2e не проверяют: их покрывают unit-тесты media/.
+process.env.MEDIA_PROCESSING = 'worker'
