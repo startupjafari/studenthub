@@ -14,7 +14,8 @@
 ## 1. Как проверялось
 
 Автоматическая часть — `scripts/security-audit.mjs` (Node, без зависимостей, приложение не
-запускает):
+запускает). Скрипт удалён 16.11.2026; для повторного аудита — из истории:
+`git show b6809d9a:scripts/security-audit.mjs > scripts/security-audit.mjs`.
 
 ```bash
 node scripts/security-audit.mjs          # markdown-отчёт
@@ -352,6 +353,8 @@ DIRECT_UPLOAD_THRESHOLD_BYTES` (`main.ts:109`); больше — только pr
 ---
 
 ## 5. Повторный аудит
+
+Скрипт удалён 16.11.2026, вернуть — из истории (раздел 1):
 
 ```bash
 node scripts/security-audit.mjs > /tmp/audit.md

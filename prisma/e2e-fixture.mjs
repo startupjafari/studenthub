@@ -133,7 +133,7 @@ await prisma.invite.upsert({
   },
 })
 
-// По одному аккаунту на роль: по ним ходит и UI-аудит, которому нужна каждая ролевая зона.
+// По одному аккаунту на роль: сценариям ролей нужна каждая ролевая зона.
 const uni = { universityId: UNIVERSITY_ID }
 const fac = { ...uni, facultyId: FACULTY_ID }
 const grp = { ...fac, groupId: GROUP_ID }
@@ -146,7 +146,7 @@ const USERS = [
   ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', grp],
   ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', grp],
   // Роли с запретом по умолчанию (RESTRICTED_ROLES): у каждой свой раздел — /security и
-  // /library. Сценариям они не нужны, но без них axe и UI-аудит не открывают эти экраны вовсе.
+  // /library — без этих аккаунтов экраны разделов не открыть вовсе.
   ['SECURITY_GUARD', 'security@studenthub.app', 'Ерлан', 'Жумабаев', uni],
   ['LIBRARIAN', 'librarian@studenthub.app', 'Гульнара', 'Сапарова', uni],
 ]
