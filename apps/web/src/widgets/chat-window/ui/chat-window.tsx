@@ -364,6 +364,9 @@ export function ChatWindow() {
   const deepChatId = safeParamId(searchParams.get('c'))
   const deepMsgId = safeParamId(searchParams.get('m'))
   const appliedDeeplink = useRef<string | null>(null)
+  // Переход из глобального поиска к найденному сообщению (Telegram): тот же путь, что у ссылки
+  // ?c=&m=, только без адресной строки — повторный выбор того же сообщения тоже срабатывает.
+  const [searchJump, setSearchJump] = useState<{ chatId: string; messageId: string } | null>(null)
   // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -639,6 +642,23 @@ export function ChatWindow() {
       appliedDeeplink.current = key
     }
   }, [deepChatId, deepMsgId, activeId, messages.isSuccess, jumpToMessage])
+
+  // Сообщение из глобального поиска: чат открыт и история на месте — едем к сообщению.
+  // Загруженное окно уже его содержит — просто прокрутка, иначе окно вокруг него (around).
+  useEffect(() => {
+    if (!searchJump || activeId !== searchJump.chatId || !messages.isSuccess) return
+    setSearchJump(null)
+    focusMessage(searchJump.messageId)
+  }, [searchJump, activeId, messages.isSuccess, focusMessage])
+
+  /** Открыть чат на сообщении из выдачи глобального поиска (прокрутить и подсветить). */
+  function openChatAtMessage(chatId: string, messageId: string): void {
+    // Цель — сразу: начальная прокрутка открываемого чата («к непрочитанным / вниз») её
+    // увидит и не уведёт ленту.
+    focusTargetRef.current = messageId
+    setSearchJump({ chatId, messageId })
+    setActiveId(chatId)
+  }
 
   /**
    * Открыли чат — курсор сразу в поле ввода: чат открывают, чтобы писать, и лишний клик
@@ -3506,6 +3526,7 @@ export function ChatWindow() {
       embedded={embedded}
       activeId={activeId}
       onOpenChat={setActiveId}
+      onOpenMessage={openChatAtMessage}
       onBack={() => router.back()}
       folders={folderList}
       onManageFolders={() => {

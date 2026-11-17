@@ -821,7 +821,9 @@ describe('ChatsService.searchMessages — область поиска', () => {
     await service.searchMessages(user('u1'), { limit: 20, q: 'привет', chatId: 'c1' })
     const where = prisma.message.findMany.mock.calls[0][0].where
     expect(where.chatId).toBe('c1')
-    expect(where.content).toEqual({ contains: 'привет', mode: 'insensitive' })
+    expect(where.AND[1]).toEqual({
+      AND: [{ content: { contains: 'привет', mode: 'insensitive' } }],
+    })
   })
 
   // F-F23: очищенное «у себя» не показывает лента — не должен находить и поиск. Страницы —
@@ -846,7 +848,12 @@ describe('ChatsService.searchMessages — область поиска', () => {
     })
     const args = prisma.message.findMany.mock.calls[0][0]
     expect(args.where).toMatchObject({ chatId: 'c1', seq: { lt: 42 } })
-    expect(args.where.AND).toEqual([{ createdAt: { gt: clearedAt } }])
+    // Очищенное «у себя» и скрытое — первым условием AND, поиск — вторым: ключ AND условий
+    // поиска не должен перетирать границу очистки.
+    expect(args.where.AND[0]).toEqual({
+      AND: [{ createdAt: { gt: clearedAt } }],
+      hiddenBy: { none: { userId: 'u1' } },
+    })
     expect(args.orderBy).toEqual({ seq: 'desc' })
     expect(args.cursor).toBeUndefined()
   })
@@ -904,6 +911,98 @@ describe('ChatsService.searchMessages — область поиска', () => {
     expect(page.meta).toMatchObject({ cursor: 'm-old', hasNext: true })
   })
 
+  it('без текста и без фильтров → пустая страница, без выборки', async () => {
+    const { service, prisma } = setup()
+    const page = await service.searchMessages(user('u1'), { limit: 20 })
+    expect(page.items).toEqual([])
+    expect(page.meta).toMatchObject({ hasNext: false })
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+
+  it('в чате без текста и фильтров → членство проверяется, ответ пустой с total 0', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    const page = await service.searchMessages(user('u1'), { limit: 20, chatId: 'c1' })
+    expect(prisma.chatMember.findUnique).toHaveBeenCalled()
+    expect(page.items).toEqual([])
+    expect(page.meta).toMatchObject({ hasNext: false, total: 0 })
+    expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+
+  it('в чате только автор, без текста → все сообщения автора, total по ним', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.count.mockResolvedValue(7)
+    const page = await service.searchMessages(user('u1'), {
+      limit: 20,
+      chatId: 'c1',
+      senderId: 'u2',
+    })
+    const where = prisma.message.findMany.mock.calls[0][0].where
+    expect(where.AND[1]).toEqual({ AND: [{ senderId: 'u2' }] })
+    expect(prisma.message.count.mock.calls[0][0].where.AND[1]).toEqual({
+      AND: [{ senderId: 'u2' }],
+    })
+    expect(page.meta.total).toBe(7)
+  })
+
+  it('период в чате → границы createdAt включительно', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    await service.searchMessages(user('u1'), {
+      limit: 20,
+      chatId: 'c1',
+      q: 'зачёт',
+      from: '2026-05-01T00:00:00.000Z',
+      to: '2026-05-31T23:59:59.999Z',
+    })
+    const where = prisma.message.findMany.mock.calls[0][0].where
+    expect(where.AND[1].AND).toContainEqual({
+      createdAt: {
+        gte: new Date('2026-05-01T00:00:00.000Z'),
+        lte: new Date('2026-05-31T23:59:59.999Z'),
+      },
+    })
+  })
+
+  it('по всем чатам: вид файла + текст → две ветки, страницы склеены по времени', async () => {
+    const { service, prisma } = setup()
+    const at = (d: string): Date => new Date(`2026-05-${d}T00:00:00Z`)
+    // Ветка подписи и ветка имени файла; m2 подходит под обе — в выдаче один раз.
+    prisma.message.findMany
+      .mockResolvedValueOnce([
+        { id: 'm3', chatId: 'c1', content: 'курсовая', createdAt: at('20') },
+        { id: 'm2', chatId: 'c1', content: 'курсовая', createdAt: at('10') },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'm4', chatId: 'c2', content: '', createdAt: at('25') },
+        { id: 'm2', chatId: 'c1', content: 'курсовая', createdAt: at('10') },
+        { id: 'm1', chatId: 'c2', content: '', createdAt: at('01') },
+      ])
+
+    const page = await service.searchMessages(user('u1'), {
+      limit: 3,
+      q: 'курсовая',
+      kind: 'file',
+    })
+
+    expect(prisma.message.findMany).toHaveBeenCalledTimes(2)
+    for (const [args] of prisma.message.findMany.mock.calls) {
+      expect(args.where.chat).toEqual({ members: { some: { userId: 'u1', bannedAt: null } } })
+      expect(args.take).toBe(4)
+    }
+    expect(page.items.map((m: { id: string }) => m.id)).toEqual(['m4', 'm3', 'm2'])
+    expect(page.meta).toMatchObject({ cursor: 'm2', hasNext: true })
+  })
+
+  it('по всем чатам: вид без текста → одна выборка «последние материалы вида»', async () => {
+    const { service, prisma } = setup()
+    await service.searchMessages(user('u1'), { limit: 20, kind: 'media' })
+    expect(prisma.message.findMany).toHaveBeenCalledTimes(1)
+    const where = prisma.message.findMany.mock.calls[0][0].where
+    expect(where.AND[0].AND[0]).toHaveProperty('media.some')
+  })
+
   it('забаненный в группе не ищет внутри неё → FORBIDDEN, выборки нет', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: new Date() })
@@ -913,6 +1012,66 @@ describe('ChatsService.searchMessages — область поиска', () => {
     expect(err).toBeInstanceOf(AppException)
     expect(err.code).toBe('FORBIDDEN')
     expect(prisma.message.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatsService.topPeers — «Часто пишете»', () => {
+  it('порядок — по рейтингу моих сообщений; удалённые, заблокированные и блоки отсеяны', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValueOnce([
+      { chatId: 'p1', score: 9.5 },
+      { chatId: 'p2', score: 4.25 },
+      { chatId: 'p3', score: 3 },
+      { chatId: 'p4', score: 1 },
+    ])
+    const peer = (id: string) => ({ id, firstName: id, lastName: 'Л', avatarUrl: null })
+    // p3 нет среди собеседников: собеседник удалён или заблокирован платформой.
+    prisma.chatMember.findMany.mockResolvedValueOnce([
+      { chatId: 'p2', user: peer('u2') },
+      { chatId: 'p1', user: peer('u1x') },
+      { chatId: 'p4', user: peer('u4') },
+    ])
+    // С u4 личная блокировка (он заблокировал меня).
+    prisma.userBlock.findMany.mockResolvedValueOnce([{ blockerId: 'u4', blockedId: 'me' }])
+
+    const items = await service.topPeers(user('me'), { limit: 12 })
+
+    expect(items.map((i) => i.chatId)).toEqual(['p1', 'p2'])
+    expect(items[0]).toEqual({ chatId: 'p1', user: peer('u1x'), score: 9.5 })
+    const where = prisma.chatMember.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({
+      chatId: { in: ['p1', 'p2', 'p3', 'p4'] },
+      userId: { not: 'me' },
+      user: { deletedAt: null, isBlocked: false },
+    })
+  })
+
+  it('не больше limit, рейтинг запрашивается с запасом', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValueOnce([
+      { chatId: 'p1', score: 3 },
+      { chatId: 'p2', score: 2 },
+      { chatId: 'p3', score: 1 },
+    ])
+    prisma.chatMember.findMany.mockResolvedValueOnce(
+      ['p1', 'p2', 'p3'].map((chatId) => ({
+        chatId,
+        user: { id: `u-${chatId}`, firstName: 'И', lastName: 'Ф', avatarUrl: null },
+      })),
+    )
+    const items = await service.topPeers(user('me'), { limit: 2 })
+    expect(items.map((i) => i.chatId)).toEqual(['p1', 'p2'])
+    // Последний параметр шаблона SQL — LIMIT: вдвое больше запрошенного.
+    const params = prisma.$queryRaw.mock.calls[0].slice(1)
+    expect(params[params.length - 1]).toBe(4)
+    expect(params).toContain('me')
+  })
+
+  it('своих сообщений нет → пусто, без лишних запросов', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValueOnce([])
+    expect(await service.topPeers(user('me'), { limit: 12 })).toEqual([])
+    expect(prisma.chatMember.findMany).not.toHaveBeenCalled()
   })
 })
 

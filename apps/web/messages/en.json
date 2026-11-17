@@ -2653,12 +2653,10 @@
       "searchFiles": "Files",
       "searchHint": "Find chats, people from your university and messages",
       "searchHintTitle": "Start typing",
-      "searchKindHint": "Type at least two characters — search looks through message text and attachment captions",
       "searchLinks": "Links",
       "searchMedia": "Media",
       "searchMore": "Show more",
-      "searchTabs": "Search sections",
-      "topPeers": "People"
+      "searchTabs": "Search sections"
     },
     "folderAll": "All",
     "folderUnread": "Unread",
@@ -2844,7 +2842,6 @@
       "searchFromLabel": "From:",
       "searchFromChip": "From: {name}",
       "searchFromClear": "Remove filter “From: {name}”",
-      "searchNeedQuery": "Type some text — messages from the selected member are searched by words",
       "searchFailed": "Search failed",
       "searching": "Searching…",
       "searchFound": "{count, plural, one {# result} other {# results}}",
@@ -3101,6 +3098,22 @@
       "resizeList": "Chat list width",
       "expandList": "Expand chat list",
       "collapseList": "Collapse list to avatars"
+    },
+    "tgSearch": {
+      "tabMusic": "Music",
+      "tabVoice": "Voice",
+      "topPeers": "Frequent contacts",
+      "emptyMedia": "Photos and videos from your chats will appear here",
+      "emptyLinks": "Links from your chats will appear here",
+      "emptyFiles": "Files from your chats will appear here",
+      "emptyMusic": "Music from your chats will appear here",
+      "emptyVoice": "Voice messages from your chats will appear here",
+      "rangeLabel": "Date range",
+      "rangeHint": "Messages from the selected days — with or without a query",
+      "rangeFrom": "from {date}",
+      "rangeTo": "until {date}",
+      "rangeChange": "Date range: {range}. Change",
+      "rangeClear": "Remove date range “{range}”"
     }
   },
   "Events": {

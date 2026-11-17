@@ -57,7 +57,7 @@ import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
 import { PollVoteDto } from './dto/poll-vote.dto'
 import { MuteDto } from './dto/mute.dto'
-import { MessageSearchQueryDto } from './dto/message-search-query.dto'
+import { MessageSearchQueryDto, TopPeersQueryDto } from './dto/message-search-query.dto'
 import { RecentChatFilesQueryDto } from './dto/recent-chat-files-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
@@ -112,10 +112,26 @@ export class ChatsController {
   }
 
   @Get('search')
-  @ApiOperation({ summary: 'Поиск сообщений (в чате при chatId, иначе по всем моим чатам)' })
+  @ApiOperation({
+    summary:
+      'Поиск сообщений (в чате при chatId, иначе по всем моим чатам): q — текст; kind — вид ' +
+      'материала (media|file|voice|music|link, с q — и по имени файла / адресу ссылки); ' +
+      'senderId; from/to — период. Без q — по фильтрам; без q и фильтров — пустая страница',
+  })
   @ApiResponse({ status: 200, description: 'Страница найденных сообщений (свежие первыми)' })
   search(@CurrentUser() user: CurrentUserData, @Query() query: MessageSearchQueryDto) {
     return this.chats.searchMessages(user, query)
+  }
+
+  @Get('top-peers')
+  @ApiOperation({
+    summary:
+      '«Часто пишете»: личные чаты, куда я пишу больше всего (рейтинг моих сообщений ' +
+      'за полгода с затуханием по давности)',
+  })
+  @ApiResponse({ status: 200, description: 'Список { chatId, user, score }, лучшие первыми' })
+  topPeers(@CurrentUser() user: CurrentUserData, @Query() query: TopPeersQueryDto) {
+    return this.chats.topPeers(user, query)
   }
 
   @Get('files/recent')

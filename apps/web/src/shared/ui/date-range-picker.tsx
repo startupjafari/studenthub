@@ -24,6 +24,8 @@ export interface DateRangePickerProps {
   className?: string
   placeholder?: string
   'aria-label'?: string
+  /** Календарь раскрыт сразу при появлении поля (поле показали ради выбора периода). */
+  defaultOpen?: boolean
 }
 
 // Кастомный выбор периода дат: два клика (начало → конец) на сетке месяца, подсветка диапазона
@@ -38,10 +40,11 @@ export function DateRangePicker({
   className,
   placeholder,
   'aria-label': ariaLabel,
+  defaultOpen = false,
 }: DateRangePickerProps & { size?: ControlSize }) {
   const t = useTranslations('DatePicker')
   const locale = useLocale()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [hover, setHover] = useState<Date | null>(null)
 
   const from = parseYmd(value.from)

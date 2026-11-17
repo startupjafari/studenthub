@@ -16,6 +16,7 @@ import type {
   ClearChatInput,
   EditChatInput,
   MessageSearchQueryInput,
+  TopPeersQueryInput,
   MessageSendInput,
   PollVoteInput,
   MessageForwardBatchInput,
@@ -61,6 +62,7 @@ import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { lastMessagesOf } from './last-message'
 import { mentionsName } from './chat-mentions'
 import type { ChatAttentionCounts, ChatAttentionHook } from './chat-attention.types'
+import { mergeSearchPages, messageSearchArms, messageSearchWhere } from './chat-search'
 import { CHECKLIST_SELECT, toChecklistDto, type ChecklistDto } from './checklist-dto'
 
 /** Проголосовавший в неанонимном опросе (§39). */
@@ -376,6 +378,15 @@ type ChatMediaRow = {
    * все медиа чата, показывает её и у кадров вне загруженной истории.
    */
   caption?: string | null
+}
+/** Окно «Часто пишете»: свои сообщения старше не считаются. */
+const TOP_PEERS_WINDOW_DAYS = 180
+/** За сколько дней вес сообщения в рейтинге «Часто пишете» падает в e раз. */
+const TOP_PEERS_DECAY_DAYS = 30
+type TopPeerRow = {
+  chatId: string
+  user: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  score: number
 }
 type ChatLinkRow = {
   messageId: string
@@ -4237,34 +4248,48 @@ export class ChatsService implements OnModuleInit {
   /**
    * Поиск по подстроке (регистронезависимо). chatId задан — внутри чата (searchInChat);
    * иначе — по всем чатам, где пользователь участник. Cursor-пагинация по [createdAt, id].
+   *
+   * Что совпадает — `messageSearchArms` (chat-search.ts): текст, вид материала с подписью
+   * и именем файла, автор, период. Без текста и без единого фильтра искать нечего — пустая
+   * страница (иначе «поиск» отдавал бы всю историю).
    */
   async searchMessages(
     viewer: JwtPayload,
     query: MessageSearchQueryInput,
   ): Promise<Paginated<MessageRow>> {
-    if (query.chatId) return this.searchInChat(viewer, query.chatId, query)
+    if (query.chatId) {
+      return this.searchInChat(viewer, query.chatId, query, messageSearchWhere(query))
+    }
+    const arms = messageSearchArms(query)
+    if (!arms) return new Paginated([], { hasNext: false })
     // По всем чатам пользователя. Забаненный строку членства сохраняет — без bannedAt: null
     // он читал бы через поиск и то, что в группе написали уже после бана (assertMembership
     // ему чат закрывает).
     const chatFilter: Prisma.MessageWhereInput = {
       chat: { members: { some: { userId: viewer.sub, bannedAt: null } } },
     }
-    const rows = await this.prisma.message.findMany({
-      where: {
-        deletedAt: null,
-        content: { contains: query.q, mode: 'insensitive' },
-        ...chatFilter,
-        // Скрытое «у себя» поиск не находит, как и лента.
-        hiddenBy: { none: { userId: viewer.sub } },
-        // Фильтры §4: по автору и по наличию вложений.
-        ...(query.senderId ? { senderId: query.senderId } : {}),
-        ...(query.hasFile ? { media: { some: {} } } : {}),
-      },
-      select: MESSAGE_SELECT,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-    })
+    // Ветка — отдельный запрос со своим планом (почему не OR — см. messageSearchArms); их
+    // страницы от одного курсора склеиваются по тому же порядку [createdAt, id]. Курсор Prisma
+    // находит позицию по самой строке-курсору, поэтому годится и курсор из другой ветки.
+    const pages = await Promise.all(
+      arms.map((arm) =>
+        this.prisma.message.findMany({
+          where: {
+            deletedAt: null,
+            ...chatFilter,
+            // Скрытое «у себя» поиск не находит, как и лента.
+            hiddenBy: { none: { userId: viewer.sub } },
+            // Текст, вид материала, автор, период (§4 и поиск как в Telegram).
+            AND: [arm],
+          },
+          select: MESSAGE_SELECT,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: query.limit + 1,
+          ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+        }),
+      ),
+    )
+    const rows = pages.length === 1 ? pages[0]! : mergeSearchPages(pages, query.limit + 1)
     const hasNext = rows.length > query.limit
     const page = hasNext ? rows.slice(0, query.limit) : rows
     // Курсор — по странице до фильтра очищенного, иначе отброшенные строки читались бы снова.
@@ -4306,8 +4331,11 @@ export class ChatsService implements OnModuleInit {
     viewer: JwtPayload,
     chatId: string,
     query: MessageSearchQueryInput,
+    match: Prisma.MessageWhereInput | null,
   ): Promise<Paginated<MessageRow>> {
     await this.assertMembership(viewer.sub, chatId)
+    // Членство проверено раньше: пустой ответ не должен подтверждать чужой чат.
+    if (!match) return new Paginated([], { hasNext: false, total: 0 })
     const mem = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: viewer.sub } },
       select: CLEARED_SELECT,
@@ -4322,10 +4350,9 @@ export class ChatsService implements OnModuleInit {
     const matchWhere: Prisma.MessageWhereInput = {
       chatId,
       deletedAt: null,
-      content: { contains: query.q, mode: 'insensitive' },
-      ...(query.senderId ? { senderId: query.senderId } : {}),
-      ...(query.hasFile ? { media: { some: {} } } : {}),
-      ...viewerWhere(mem, viewer.sub),
+      // Не разворачиваем viewerWhere в объект: его AND (очищенное «у себя») перетёрся бы
+      // ключом AND условий поиска.
+      AND: [viewerWhere(mem, viewer.sub), match],
     }
     const [rows, total] = await Promise.all([
       this.prisma.message.findMany({
@@ -4340,6 +4367,84 @@ export class ChatsService implements OnModuleInit {
     const items = (hasNext ? rows.slice(0, query.limit) : rows).map(toClientMessage)
     const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
     return new Paginated(items, { cursor: nextCursor, hasNext, total })
+  }
+
+  /**
+   * «Часто пишете» (`GET /chats/top-peers`, Telegram: top peers в пустом поиске) — личные
+   * чаты, куда смотрящий сам пишет больше всего. Не по свежести переписки: рейтинг — сумма
+   * весов МОИХ сообщений за `TOP_PEERS_WINDOW_DAYS`, вес затухает с возрастом сообщения
+   * (`exp(-возраст / TOP_PEERS_DECAY_DAYS)`), как рейтинг собеседников в Telegram: вчерашняя
+   * сотня сообщений весит больше прошлогодней, а один свежий «привет» не обгоняет того,
+   * с кем переписка идёт каждый день.
+   *
+   * SQL, а не groupBy Prisma: затухающий вес суммой в Prisma не выражается. План — от моих
+   * личных чатов (`chat_members.user_id`) к их сообщениям окна по `messages(chat_id,
+   * created_at)`; вес считается в float8 — в numeric (что отдаёт EXTRACT) экспонента на
+   * десятках тысяч строк стоила впятеро дороже самого чтения.
+   *
+   * В выдачу не попадают: чат, где я забанен или который скрыл «у себя», собеседник удалён
+   * или заблокирован платформой, личная блокировка в любую сторону.
+   */
+  async topPeers(viewer: JwtPayload, query: TopPeersQueryInput): Promise<TopPeerRow[]> {
+    const userId = viewer.sub
+    const since = new Date(Date.now() - TOP_PEERS_WINDOW_DAYS * 86_400_000)
+    const decaySeconds = TOP_PEERS_DECAY_DAYS * 86_400
+    // С запасом: часть рейтинга отсеется проверками собеседника ниже.
+    const take = query.limit * 2
+    const ranked = await this.prisma.$queryRaw<{ chatId: string; score: number }[]>`
+      SELECT m.chat_id AS "chatId",
+             SUM(EXP(-(EXTRACT(EPOCH FROM (now() - m.created_at)))::float8 / ${decaySeconds}::float8))
+               AS score
+        FROM messages m
+        JOIN chats c ON c.id = m.chat_id AND c.type = 'PRIVATE'
+        JOIN chat_members me ON me.chat_id = m.chat_id AND me.user_id = m.sender_id
+       WHERE m.sender_id = ${userId}
+         AND m.created_at >= ${since}
+         AND m.deleted_at IS NULL
+         AND m.system_type IS NULL
+         AND me.banned_at IS NULL
+         AND me.hidden_at IS NULL
+       GROUP BY m.chat_id
+       ORDER BY score DESC, m.chat_id
+       LIMIT ${take}`
+    if (ranked.length === 0) return []
+    const chatIds = ranked.map((r) => r.chatId)
+    const peers = await this.prisma.chatMember.findMany({
+      where: {
+        chatId: { in: chatIds },
+        userId: { not: userId },
+        user: { deletedAt: null, isBlocked: false },
+      },
+      take: chatIds.length,
+      select: {
+        chatId: true,
+        user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+      },
+    })
+    const peerIds = peers.map((p) => p.user.id)
+    const blocks =
+      peerIds.length > 0
+        ? await this.prisma.userBlock.findMany({
+            where: {
+              OR: [
+                { blockerId: userId, blockedId: { in: peerIds } },
+                { blockedId: userId, blockerId: { in: peerIds } },
+              ],
+            },
+            take: peerIds.length * 2,
+            select: { blockerId: true, blockedId: true },
+          })
+        : []
+    const blocked = new Set(blocks.map((b) => (b.blockerId === userId ? b.blockedId : b.blockerId)))
+    const peerByChat = new Map(peers.map((p) => [p.chatId, p.user]))
+    const items: TopPeerRow[] = []
+    for (const r of ranked) {
+      const user = peerByChat.get(r.chatId)
+      if (!user || blocked.has(user.id)) continue
+      items.push({ chatId: r.chatId, user, score: Math.round(Number(r.score) * 1000) / 1000 })
+      if (items.length >= query.limit) break
+    }
+    return items
   }
 
   // ── Реакции (Ф9+) ─────────────────────────────────────────────────────────
