@@ -34,6 +34,11 @@ export interface AudioTrack {
   duration?: number
   /** Перейти к сообщению, если очередь не знает, где оно (обсуждение события, поддержка). */
   onGoTo?: () => void
+  /**
+   * Очередь, из которой трек запустили, если это не история чата: список голосовых или
+   * музыки правой панели. «Следующее» идёт по ней, а не по загруженной переписке.
+   */
+  queueKey?: string
 }
 
 export interface AudioPlayerState {
@@ -89,9 +94,14 @@ function emit(next: Partial<AudioPlayerState>): void {
   for (const fn of listeners) fn()
 }
 
-/** Очередь, в которой лежит трек: его чат, а если чат неизвестен — любая, где он есть. */
+/**
+ * Очередь, в которой лежит трек: та, из которой его запустили (панель), затем его чат, а
+ * если чат неизвестен — любая, где он есть.
+ */
 function queueOf(track: AudioTrack | null): Queue | null {
   if (!track) return null
+  const started = track.queueKey ? queues.get(track.queueKey) : undefined
+  if (started?.tracks.some((t) => t.id === track.id)) return started
   const own = track.chatId ? queues.get(track.chatId) : undefined
   if (own?.tracks.some((t) => t.id === track.id)) return own
   for (const q of queues.values()) if (q.tracks.some((t) => t.id === track.id)) return q
@@ -300,18 +310,21 @@ export function closeAudio(): void {
   emit({ ...EMPTY })
 }
 
-/** Отдать плееру голосовые и музыку чата — для «следующего» и кнопок панели. */
+/**
+ * Отдать плееру голосовые и музыку — для «следующего» и кнопок панели. Ключ — id чата
+ * (загруженная история) или свой ключ списка (`AudioTrack.queueKey`, правая панель).
+ */
 export function setAudioQueue(
-  chatId: string,
+  key: string,
   tracks: AudioTrack[],
   resolve: (id: string) => Promise<string>,
 ): void {
-  queues.delete(chatId)
-  queues.set(chatId, { tracks, resolve })
-  // Самые давние чаты забываем — кроме того, где играет текущий трек.
+  queues.delete(key)
+  queues.set(key, { tracks, resolve })
+  // Самые давние очереди забываем — кроме тех, по которым играет текущий трек.
   for (const id of queues.keys()) {
     if (queues.size <= MAX_QUEUES) break
-    if (id !== state.track?.chatId) queues.delete(id)
+    if (id !== state.track?.chatId && id !== state.track?.queueKey) queues.delete(id)
   }
   if (state.track) emit({})
 }

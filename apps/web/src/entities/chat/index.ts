@@ -159,7 +159,7 @@ export {
   type AudioPlayerState,
   type AudioTrack,
 } from './lib/audio-player'
-export { useAudioQueue } from './lib/use-audio-queue'
+export { useAudioQueue, usePlaylistQueue } from './lib/use-audio-queue'
 export {
   composerKeys,
   fetchStickerSets,
