@@ -105,6 +105,7 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
       aria-label={label}
       title={label}
       onClick={onClick}
+      data-tile-control="remove"
       className="absolute right-1 top-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
     >
       <X className="size-3.5" aria-hidden />
@@ -127,7 +128,7 @@ function MediaTile({
 }: {
   file: File
   /** Обработчики перестановки на корне плитки (см. `reorderProps`). */
-  wrapperProps?: React.HTMLAttributes<HTMLDivElement>
+  wrapperProps?: React.HTMLAttributes<HTMLDivElement> & { 'data-attachment-key'?: string }
   onRemove: () => void
   removeLabel: string
   /** Снимок уйдёт скрытым: в диалоге он тоже размыт — видно, что получит собеседник. */
@@ -199,6 +200,7 @@ function MediaTile({
         title={spoiler ? spoilerOffLabel : spoilerOnLabel}
         aria-pressed={spoiler}
         onClick={onToggleSpoiler}
+        data-tile-control="spoiler"
         className={cn(
           'absolute bottom-1 right-1 z-10 flex size-6 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition-opacity hover:bg-black/75',
           // Скрытая плитка держит кнопку на виду и на ПК: иначе размытие выглядит сбоем
@@ -229,7 +231,7 @@ function FileRow({
   file: File
   onRemove: () => void
   removeLabel: string
-  wrapperProps?: React.HTMLAttributes<HTMLDivElement>
+  wrapperProps?: React.HTMLAttributes<HTMLDivElement> & { 'data-attachment-key'?: string }
 }) {
   const unit = useByteUnitLabel()
   return (
@@ -244,6 +246,7 @@ function FileRow({
         aria-label={removeLabel}
         title={removeLabel}
         onClick={onRemove}
+        data-tile-control="remove"
         className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
       >
         <Trash2 className="size-4" aria-hidden />
@@ -253,6 +256,30 @@ function FileRow({
 }
 
 type Indexed = { file: File; index: number }
+
+/**
+ * Ключ вложения, который переживает перестановку. Раньше ключом было «имя-номер»: Alt+стрелка
+ * меняла номер, плитка пересоздавалась, и фокус улетал на body — переставить снимок на две
+ * позиции подряд с клавиатуры было нельзя. Ключ по самому File живёт, пока живёт файл.
+ */
+const fileKeys = new WeakMap<File, string>()
+let nextFileKey = 0
+function keyOf(file: File): string {
+  let key = fileKeys.get(file)
+  if (!key) {
+    nextFileKey += 1
+    key = `a${nextFileKey}`
+    fileKeys.set(file, key)
+  }
+  return key
+}
+
+/** Какой контрол плитки держал фокус: на него же он вернётся после перестановки. */
+function focusedControl(root: HTMLElement): string | null {
+  const active = document.activeElement
+  if (!(active instanceof HTMLElement) || !root.contains(active)) return null
+  return active === root ? null : (active.dataset.tileControl ?? null)
+}
 
 /** Разрезать список на альбомы по {@link ALBUM_MAX_ITEMS}. */
 function toStacks<T>(items: T[]): T[][] {
@@ -288,12 +315,16 @@ interface ReorderHandlers {
   onMove: (from: number, to: number) => void
   count: number
   hint: string
+  /** Перестановка с клавиатуры: запомнить, куда вернуть фокус, когда плитка переедет. */
+  onKeyboardMove: (file: File, control: string | null) => void
 }
 
 /** Пропсы обёртки, которые делают плитку или строку переставляемой. */
-function reorderProps(index: number, reorder: ReorderHandlers | undefined) {
-  if (!reorder || reorder.count < 2) return {}
+function reorderProps(index: number, file: File, reorder: ReorderHandlers | undefined) {
+  const anchor = { 'data-attachment-key': keyOf(file) }
+  if (!reorder || reorder.count < 2) return anchor
   return {
+    ...anchor,
     draggable: true,
     title: reorder.hint,
     onDragStart: (e: React.DragEvent) => {
@@ -323,6 +354,7 @@ function reorderProps(index: number, reorder: ReorderHandlers | undefined) {
       const to = index + step
       if (step === 0 || to < 0 || to >= reorder.count) return
       e.preventDefault()
+      reorder.onKeyboardMove(file, focusedControl(e.currentTarget as HTMLElement))
       reorder.onMove(index, to)
     },
   }
@@ -344,7 +376,7 @@ function Tile({
 }) {
   return (
     <MediaTile
-      wrapperProps={reorderProps(item.index, common.reorder)}
+      wrapperProps={reorderProps(item.index, item.file, common.reorder)}
       file={item.file}
       removeLabel={common.removeLabel}
       onRemove={() => common.onRemove(item.index)}
@@ -381,12 +413,7 @@ function AlbumMosaic({ items, common }: { items: Indexed[]; common: TileCommon }
       <div className="grid h-56 grid-cols-2 grid-rows-2 gap-1">
         <Tile item={lead} common={common} className="row-span-2 size-full" />
         {rest.map((item) => (
-          <Tile
-            key={`${item.file.name}-${item.index}`}
-            item={item}
-            common={common}
-            className="size-full"
-          />
+          <Tile key={keyOf(item.file)} item={item} common={common} className="size-full" />
         ))}
       </div>
     )
@@ -395,12 +422,7 @@ function AlbumMosaic({ items, common }: { items: Indexed[]; common: TileCommon }
   return (
     <div className={cn('grid gap-1', n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3')}>
       {items.map((item) => (
-        <Tile
-          key={`${item.file.name}-${item.index}`}
-          item={item}
-          common={common}
-          className="aspect-square w-full"
-        />
+        <Tile key={keyOf(item.file)} item={item} common={common} className="aspect-square w-full" />
       ))}
     </div>
   )
@@ -445,6 +467,24 @@ export function AttachmentDialog({
   const [asFiles, setAsFiles] = useState(initialAsFiles)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const captionRef = useRef<HTMLInputElement>(null)
+  // Перестановка с клавиатуры (Alt+стрелка): фокус возвращается на тот же контрол той же
+  // плитки на новом месте. Ключи у плиток стабильные, но DOM-перенос узла всё равно снимает
+  // с него фокус, а у мозаики главный кадр рисуется отдельно от остальных — его переезд
+  // пересоздаёт плитку.
+  const listRef = useRef<HTMLDivElement>(null)
+  const refocus = useRef<{ key: string; control: string | null } | null>(null)
+  useEffect(() => {
+    const target = refocus.current
+    if (!target) return
+    refocus.current = null
+    const tile = listRef.current?.querySelector<HTMLElement>(
+      `[data-attachment-key="${target.key}"]`,
+    )
+    const control = target.control
+      ? tile?.querySelector<HTMLElement>(`[data-tile-control="${target.control}"]`)
+      : null
+    ;(control ?? tile)?.focus()
+  }, [files])
 
   /**
    * Вставка смайла в позицию курсора, а не в конец строки: подпись правят и в середине.
@@ -496,10 +536,17 @@ export function AttachmentDialog({
     onRemove,
     onToggleSpoiler: toggleSpoiler,
     reorder: onReorder
-      ? { onMove: onReorder, count: files.length, hint: t('tgComposer.reorderHint') }
+      ? {
+          onMove: onReorder,
+          count: files.length,
+          hint: t('tgComposer.reorderHint'),
+          onKeyboardMove: (file, control) => {
+            refocus.current = { key: keyOf(file), control }
+          },
+        }
       : undefined,
   }
-  const rowReorder = (index: number) => reorderProps(index, tileCommon.reorder)
+  const rowReorder = (index: number, file: File) => reorderProps(index, file, tileCommon.reorder)
 
   const title = showAsFiles
     ? t('sendFilesTitle', { count: files.length })
@@ -564,13 +611,13 @@ export function AttachmentDialog({
       }
     >
       <div className="flex flex-col gap-3">
-        <div className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto">
+        <div ref={listRef} className="flex max-h-[45vh] flex-col gap-3 overflow-y-auto">
           {showAsFiles ? (
             indexed.map(({ file, index }) => (
               <FileRow
-                key={`${file.name}-${index}`}
+                key={keyOf(file)}
                 file={file}
-                wrapperProps={rowReorder(index)}
+                wrapperProps={rowReorder(index, file)}
                 removeLabel={removeLabel}
                 onRemove={() => onRemove(index)}
               />
@@ -580,16 +627,14 @@ export function AttachmentDialog({
               {/* Альбом — мозаикой стопками; без группировки — колонкой, где каждый снимок
                   сам по себе, потому что каждый и уйдёт сам по себе. */}
               {grouped
-                ? toStacks(media).map((stack) => (
-                    <AlbumMosaic
-                      key={`stack-${stack[0]?.index ?? 0}`}
-                      items={stack}
-                      common={tileCommon}
-                    />
+                ? toStacks(media).map((stack, i) => (
+                    // Ключ стопки — её место: по первому файлу стопка пересоздавалась бы,
+                    // как только на первое место переставят другой снимок.
+                    <AlbumMosaic key={`stack-${i}`} items={stack} common={tileCommon} />
                   ))
                 : media.map((item) => (
                     <Tile
-                      key={`${item.file.name}-${item.index}`}
+                      key={keyOf(item.file)}
                       item={item}
                       common={tileCommon}
                       className="max-h-56 w-full"
@@ -600,9 +645,9 @@ export function AttachmentDialog({
                   узнаваемо как раз имя, а не превью. */}
               {docs.map(({ file, index }) => (
                 <FileRow
-                  key={`doc-${file.name}-${index}`}
+                  key={keyOf(file)}
                   file={file}
-                  wrapperProps={rowReorder(index)}
+                  wrapperProps={rowReorder(index, file)}
                   removeLabel={removeLabel}
                   onRemove={() => onRemove(index)}
                 />
