@@ -305,11 +305,10 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
       grabX: number
       decided: boolean
       ignored: boolean
-      /** Палец сдвинулся дальше порога — это жест, а не касание. */
-      moved: boolean
       /**
        * Куда ехал пойманный на лету экран. Касание без движения (второй тап по строке,
-       * пока чат ещё въезжает) не должно разворачивать экран — доводка продолжается.
+       * пока чат ещё въезжает) или вертикальная прокрутка не должны разворачивать экран —
+       * доводка продолжается туда же.
        */
       resume: { target: number; closing: boolean; fromHistory: boolean } | null
       history: { position: number; time: number }[]
@@ -334,6 +333,12 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
       s.closing = closing
       // Скорость пальца — начальная скорость пружины: шва между жестом и доводкой нет.
       s.spring.to(closing ? s.width : 0, velocity)
+    }
+
+    const resumeNow = (resume: NonNullable<Track['resume']>): void => {
+      s.closing = resume.closing
+      s.fromHistory = resume.fromHistory
+      s.spring.to(resume.target)
     }
 
     const onStart = (e: TouchEvent): void => {
@@ -363,9 +368,8 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
         startX: touch.clientX,
         startY: touch.clientY,
         grabX: s.spring.value,
-        decided: catching,
+        decided: false,
         ignored: false,
-        moved: false,
         resume,
         history: [{ position: touch.clientX, time: e.timeStamp }],
       }
@@ -378,12 +382,14 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
       if (!touch || track.ignored) return
       const dx = touch.clientX - track.startX
       const dy = touch.clientY - track.startY
-      if (Math.abs(dx) >= START_SLOP || Math.abs(dy) >= START_SLOP) track.moved = true
       if (!track.decided) {
         if (Math.abs(dx) < START_SLOP && Math.abs(dy) < START_SLOP) return
-        // Вертикальное движение или влево — это прокрутка, не «назад».
-        if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
+        // От края «назад» — только вправо; пойманный на лету экран можно вести в обе
+        // стороны. Вертикальное движение — прокрутка: отпускаем экран доезжать.
+        const horizontal = Math.abs(dx) > Math.abs(dy) && (dx > 0 || track.resume !== null)
+        if (!horizontal) {
           track.ignored = true
+          if (track.resume) resumeNow(track.resume)
           return
         }
         track.decided = true
@@ -406,14 +412,11 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
       const done = track
       track = null
       const { resume } = done
-      if (resume && (!done.moved || done.ignored)) {
+      if (!done.decided) {
         // Поймали и отпустили на месте — экран продолжает путь, куда ехал.
-        s.closing = resume.closing
-        s.fromHistory = resume.fromHistory
-        s.spring.to(resume.target)
+        if (resume && !done.ignored) resumeNow(resume)
         return
       }
-      if (!done.decided || done.ignored) return
       settle(e.type === 'touchcancel' ? 0 : velocityFrom(done.history))
       if (resume?.fromHistory && !s.closing) {
         // Закрытие системной «назад» развернули пальцем: запись в истории браузер уже
