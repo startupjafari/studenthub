@@ -3337,8 +3337,11 @@ export function ChatWindow() {
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
       // Открытое окно, диалог подтверждения или меню закрываются сами — это их Esc.
       if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
-      if (headerMenuOpen) {
+      // Свои выпадашки (меню шапки, меню списка, «От кого») — без роли меню, закрываем сами.
+      if (headerMenuOpen || newChatOpen || searchFromOpen) {
         setHeaderMenuOpen(false)
+        setNewChatOpen(false)
+        setSearchFromOpen(false)
         return
       }
       if (detailsOpen) {
@@ -3588,6 +3591,7 @@ export function ChatWindow() {
             onClose={closePanelsNow}
             handleRef={panelStackRef}
             backClose
+            topClassName={embedded ? 'bg-sidebar' : 'bg-background'}
             className={
               embedded ? 'min-h-0 w-full flex-1 flex-col' : 'w-full flex-col md:w-80 lg:hidden'
             }

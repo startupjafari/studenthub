@@ -459,6 +459,8 @@ export interface ScreenStackProps {
   /** Верхний экран — рисуется, пока `open`. */
   top: ReactNode
   className?: string
+  /** Подложка верхнего экрана: он непрозрачен, иначе сквозь него виден нижний. */
+  topClassName?: string
   /** Системная «назад» снимает верхний экран. */
   backClose?: boolean
   /** Ручка для кнопки «назад» внутри верхнего экрана: закрыть с уездом, а не мгновенно. */
@@ -476,6 +478,7 @@ export function ScreenStack({
   base,
   top,
   className,
+  topClassName = 'bg-background',
   backClose = false,
   handleRef,
 }: ScreenStackProps) {
@@ -492,7 +495,7 @@ export function ScreenStack({
         />
       </div>
       {open && (
-        <div ref={stack.topRef} className="absolute inset-0 z-20 flex min-h-0 bg-background">
+        <div ref={stack.topRef} className={cn('absolute inset-0 z-20 flex min-h-0', topClassName)}>
           {top}
         </div>
       )}
