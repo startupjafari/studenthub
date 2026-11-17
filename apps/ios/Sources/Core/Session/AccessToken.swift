@@ -35,6 +35,11 @@ struct AccessToken: Equatable {
         expiresAt.timeIntervalSince(moment) > Self.refreshMargin
     }
 
+    /// Роли 2FA обязательна, а в токене её нет: первым экраном — настройка 2FA.
+    var needsTwoFactorSetup: Bool {
+        role.requiresTwoFactor && !twoFactorEnabled
+    }
+
     init?(raw: String) {
         let parts = raw.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3, let payload = Self.decodeBase64URL(String(parts[1])) else {

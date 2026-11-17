@@ -16,6 +16,13 @@ protocol AuthorizationProvider: Sendable {
     /// существу (нет связи, 5xx) или связка ключей заперта до первой разблокировки.
     /// Запрос тогда — «нет связи», а не анонимный запрос с ответом «Unauthorized».
     var isSessionPending: Bool { get async }
+    /// Сервер ответил `TWO_FACTOR_SETUP_REQUIRED`: роли 2FA обязательна, а по токену её
+    /// нет (администратор сбросил её, пока человек был внутри).
+    func twoFactorSetupRequired() async
+}
+
+extension AuthorizationProvider {
+    func twoFactorSetupRequired() async {}
 }
 
 /// Единственная дверь в API.
@@ -132,6 +139,17 @@ actor APIClient {
     }
 
     private func performNetwork(_ endpoint: Endpoint) async throws -> Data {
+        do {
+            return try await performAuthorized(endpoint)
+        } catch let error as APIError where error.code == .twoFactorSetupRequired {
+            // Сессия жива, но без 2FA сервер дальше не пустит: интерфейс уходит на её
+            // настройку, а экран, который спрашивал, получает ошибку как есть.
+            await authorization?.twoFactorSetupRequired()
+            throw error
+        }
+    }
+
+    private func performAuthorized(_ endpoint: Endpoint) async throws -> Data {
         let token = endpoint.requiresAuthorization ? await authorization?.accessToken() : nil
         try await failIfSessionPending(endpoint, token: token)
 

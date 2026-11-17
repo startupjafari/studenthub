@@ -32,6 +32,19 @@ enum Role: String, Decodable, Equatable, CaseIterable, Sendable {
         self != .unknown
     }
 
+    /// Роли 2FA обязательна (`TWO_FACTOR_REQUIRED_ROLES` в shared-types): без неё сервер
+    /// отвечает `TWO_FACTOR_SETUP_REQUIRED` на всё, кроме настройки 2FA, поэтому сразу
+    /// после входа приложение ведёт на неё, а не в пустую оболочку.
+    var requiresTwoFactor: Bool {
+        switch self {
+        case .platformAdmin, .platformModerator, .universityAdmin, .universityModerator, .dean, .securityGuard,
+            .librarian:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Учебные роли: их «Разделы» начинаются с учёбы, «Главная» — их учебный день.
     var isAcademic: Bool {
         self == .student || self == .starosta || self == .teacher

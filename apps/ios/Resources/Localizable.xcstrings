@@ -101773,6 +101773,227 @@
           }
         }
       }
+    },
+    "auth.twoFactorSetup.codesHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый код одноразовый. Храните их в надёжном месте — они помогут войти без телефона."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Әр код бір рет жарамды. Оларды сенімді жерде сақтаңыз — олар телефонсыз кіруге көмектеседі."
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.codesTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохраните резервные коды"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервтік кодтарды сақтаңыз"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жалғастыру"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Көшірілді"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.copyKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ключ"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кілтті көшіру"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосу"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.finishFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть приложение. Проверьте связь и попробуйте ещё раз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосымшаны ашу мүмкін болмады. Байланысты тексеріп, қайталап көріңіз"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.keyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте ключ в приложение-аутентификатор (Google Authenticator, «Пароли» и т. п.) и введите код из него."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кілтті аутентификатор қосымшасына (Google Authenticator, «Құпиясөздер» т. б.) қосып, одан алынған кодты енгізіңіз."
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.keyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ для приложения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қосымшаға арналған кілт"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.showQR": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать QR-код для другого устройства"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Басқа құрылғы үшін QR-кодты көрсету"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.signOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выйти из аккаунта"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аккаунттан шығу"
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для роли «%@» она обязательна: без кода из приложения-аутентификатора войти в аккаунт нельзя."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» рөлі үшін ол міндетті: аутентификатор қосымшасының кодынсыз аккаунтқа кіру мүмкін емес."
+          }
+        }
+      }
+    },
+    "auth.twoFactorSetup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройте двухфакторную аутентификацию"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Екі факторлы аутентификацияны баптаңыз"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
