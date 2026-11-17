@@ -40,6 +40,7 @@ const TARGET_KEY = {
   POST: 'targetPost',
   STORY: 'targetStory',
   COMMENT: 'targetComment',
+  CHAT: 'targetChat',
 } as const
 
 const PRIORITY_KEY = {
@@ -217,7 +218,9 @@ export function ComplaintScreen({
   }
 
   const { complaint } = state
-  const isUser = complaint.targetType === 'USER'
+  // Снимать нечего: жалоба на человека или на группу целиком (её модерация не удаляет —
+  // меры к владельцу). Вместо «снять контент» на полосе — «Предупредить».
+  const noContent = complaint.targetType === 'USER' || complaint.targetType === 'CHAT'
 
   return (
     <div className="screen">
@@ -440,7 +443,7 @@ export function ComplaintScreen({
 
             У жалобы на человека «Предупредить» уже на полосе внизу — там оно занимает
             место «снять контент», которого у такой жалобы нет. */}
-          {!isUser && (
+          {!noContent && (
             <button
               type="button"
               className="fallback-submit secondary"
@@ -522,11 +525,11 @@ export function ComplaintScreen({
         <div className="decision-bar">
           <button
             type="button"
-            className={isUser ? 'fallback-submit secondary' : 'fallback-submit danger'}
+            className={noContent ? 'fallback-submit secondary' : 'fallback-submit danger'}
             disabled={busy}
-            onClick={isUser ? warn : deleteContent}
+            onClick={noContent ? warn : deleteContent}
           >
-            {isUser ? t('complaintWarnUser') : t('complaintDeleteContent')}
+            {noContent ? t('complaintWarnUser') : t('complaintDeleteContent')}
           </button>
           <button type="button" className="fallback-submit" disabled={busy} onClick={dismiss}>
             {t('complaintDismiss')}

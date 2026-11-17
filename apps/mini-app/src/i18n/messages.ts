@@ -62,6 +62,7 @@ const ru = {
   complaintsShowMore: 'Показать ещё',
 
   targetUser: 'На пользователя',
+  targetChat: 'На группу',
   targetMessage: 'На сообщение',
   targetPost: 'На пост',
   targetStory: 'На историю',
@@ -537,6 +538,7 @@ const kk: Record<MessageKey, string> = {
   complaintsShowMore: 'Тағы көрсету',
 
   targetUser: 'Пайдаланушыға',
+  targetChat: 'Топқа',
   targetMessage: 'Хабарламаға',
   targetPost: 'Жазбаға',
   targetStory: 'Оқиғаға',
@@ -1006,6 +1008,7 @@ const en: Record<MessageKey, string> = {
   complaintsShowMore: 'Show more',
 
   targetUser: 'About a person',
+  targetChat: 'About a group',
   targetMessage: 'About a message',
   targetPost: 'About a post',
   targetStory: 'About a story',

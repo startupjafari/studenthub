@@ -96,8 +96,11 @@ export function ChatHeaderMenu({
   const [reportOpen, setReportOpen] = useState(false)
   const isPrivate = chat.type === 'PRIVATE'
   const canBlock = isPrivate && !!peerId
-  // Жалоба — на человека: у схемы жалоб нет цели «чат», поэтому только в личном чате.
+  // Жалоба: в личном чате — на собеседника, в пользовательской группе — на группу целиком
+  // (цель CHAT, §11). Официальные чаты ведёт вуз — на них жалуются по сообщениям.
   const canReportPeer = canReport && isPrivate && !!peerId
+  const canReportGroup = canReport && chat.type === 'GROUP'
+
   const deletable = canDeleteChat(chat.type)
   // Группа не своя — это выход из неё (сервер на «удалить» выводит участника), своя —
   // удаление для всех, личный чат — скрыть у себя.
@@ -165,7 +168,7 @@ export function ChatHeaderMenu({
               {t('unblockUser')}
             </DropdownMenuItem>
           )}
-          {canReportPeer && (
+          {(canReportPeer || canReportGroup) && (
             <DropdownMenuItem onSelect={() => setReportOpen(true)}>
               <Flag aria-hidden />
               {t('report')}
@@ -224,10 +227,10 @@ export function ChatHeaderMenu({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {reportOpen && peerId && (
+      {reportOpen && (canReportPeer || canReportGroup) && (
         <ReportModal
-          targetType="USER"
-          targetId={peerId}
+          targetType={canReportGroup ? 'CHAT' : 'USER'}
+          targetId={canReportGroup ? chat.id : (peerId as string)}
           preview={title}
           onClose={() => setReportOpen(false)}
         />

@@ -361,6 +361,17 @@ export function IconTargetUser(props: IconProps) {
   )
 }
 
+/** Группа: двое рядом — сообщество, а не один человек. */
+export function IconTargetChat(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="9" cy="9" r="3" strokeWidth="1.9" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" strokeWidth="1.9" />
+      <path d="M15 6.5a3 3 0 0 1 0 5.5M17 14.5a5.5 5.5 0 0 1 3.5 4.5" strokeWidth="1.9" />
+    </Svg>
+  )
+}
+
 // ── Поле ввода поддержки и действия с обращением ─────────────────────────
 
 /** Отправить: стрелка вверх, как круглая кнопка отправки в Telegram. */
