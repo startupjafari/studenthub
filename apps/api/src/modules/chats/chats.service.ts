@@ -405,6 +405,8 @@ const LIVE_LOCATION_MIN_INTERVAL_MS = 3000
 const REPLY_MEDIA_SELECT = {
   id: true,
   mime: true,
+  // Имя — чтобы отличить голосовое (`voice-…`) от видео: mime у записи бывает video/webm.
+  name: true,
   placeholder: true,
   spoiler: true,
   asDocument: true,
