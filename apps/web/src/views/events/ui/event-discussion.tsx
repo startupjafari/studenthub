@@ -261,6 +261,7 @@ export function EventDiscussion({
         <MessageContextMenu
           message={menu.comment}
           mine={menu.comment.author.id === myId}
+          myId={myId}
           canDelete={menu.comment.canDelete ?? (menu.comment.author.id === myId || canModerate)}
           x={menu.x}
           y={menu.y}
