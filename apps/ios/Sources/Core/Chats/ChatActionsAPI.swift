@@ -202,9 +202,26 @@ struct ChatMediaPositionDTO: Decodable, Equatable {
 }
 
 /// Реакции: сервер принимает любой emoji, одну реакцию на человека.
+@MainActor
 enum ChatReactions {
-    /// Двойное нажатие на пузырь — как в вебе.
-    static let doubleTap = "🔥"
+    /// Общая по умолчанию (`DEFAULT_CHAT_REACTION`) — пока сервер не ответил ни разу.
+    static let fallback = "🔥"
+    private static let storeKey = "chats.quickReaction"
+
+    /// Двойное нажатие на пузырь — своя быстрая реакция из `GET /chats/settings`, как в
+    /// вебе. Последнее известное значение переживает перезапуск: двойной тап до ответа
+    /// сети ставит ту же реакцию, что и после.
+    static var doubleTap: String = UserDefaults.standard.string(forKey: storeKey) ?? fallback
+
+    /// Перечитать быструю реакцию. Ошибка сети не страшна — остаётся прежнее значение.
+    static func refresh(client: APIClient = AppServices.api) async {
+        struct Settings: Decodable { let defaultReaction: String? }
+        guard let settings = try? await client.send(.get("chats/settings"), as: Settings.self),
+            let emoji = settings.defaultReaction, !emoji.isEmpty
+        else { return }
+        doubleTap = emoji
+        UserDefaults.standard.set(emoji, forKey: storeKey)
+    }
 }
 
 protocol ChatActing: ChatMessaging, ChatThreadTooling {

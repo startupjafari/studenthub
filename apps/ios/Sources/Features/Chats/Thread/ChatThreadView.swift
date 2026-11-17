@@ -557,6 +557,8 @@ struct ChatThreadView: View {
             // Избранные стикеры — для пункта меню сообщения-стикера: без них «в избранном
             // ли» отвечало бы «нет» у каждого.
             Task { await StickerCatalog.shared.loadFavorites() }
+            // Быстрая реакция (двойной тап) — своя, из настроек чатов на сервере.
+            Task { await ChatReactions.refresh() }
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
             let created = ChatThreadModel(chatID: chatID, viewerID: viewerID, api: Self.messagesAPI(for: chatID))
             model = created
