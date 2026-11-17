@@ -365,6 +365,7 @@ function MessageItemInner({
                 onRetry={() => actions.retry(m)}
                 viewerMeta={{
                   senderName: senderNameText,
+                  senderAvatarUrl: m.sender.avatarUrl,
                   createdAt: m.createdAt,
                   mine,
                   caption: m.content,

@@ -517,6 +517,8 @@ function Single({
     const frame = frameProps(att)
     return (
       <span
+        // Рамка снимка в пузыре: из неё просмотрщик вырастает и в неё садится (MediaViewer).
+        data-media-origin={att.id}
         className={cn(
           // w-fit обязателен: вложения лежат в колоночном флексе, и без него обёртка
           // растягивается на ширину пузыря — заглушка оказалась бы шире самого снимка.
@@ -593,6 +595,7 @@ function Single({
     const shownDuration = att.durationMs ? att.durationMs / 1000 : duration
     return (
       <div
+        data-media-origin={att.id}
         className={cn(
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
@@ -822,7 +825,10 @@ function GridTile({
   // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а кнопка
   // скачивания — отдельная поверх него (вложить кнопку в кнопку нельзя).
   return (
-    <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
+    <div
+      data-media-origin={att.id}
+      className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
+    >
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
           {/* Не кнопка: нажатие ловит слой-кнопка во весь кадр (вложить кнопку в кнопку
@@ -1008,14 +1014,22 @@ export function MessageAttachments({
   viewerActions?: MediaViewerActions
 }) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   if (media.length === 0) return null
   // Изображения/видео (viewable) — альбомом-сеткой; голосовые и файлы — отдельными строками.
   const viewable = media.filter(isViewable)
   const others = media.filter((a) => !isViewable(a))
   const openViewer = (att: MessageAttachment): void =>
     setViewerIndex(viewable.findIndex((v) => v.id === att.id))
+  // Миниатюра кадра — в своём пузыре, а не первая попавшаяся на странице: тот же файл может
+  // лежать и в соседнем пересланном сообщении, и в панели «Медиа».
+  const originOf = (i: number): HTMLElement | null => {
+    const id = viewable[i]?.id
+    if (!id || !rootRef.current) return null
+    return rootRef.current.querySelector<HTMLElement>(`[data-media-origin="${CSS.escape(id)}"]`)
+  }
   return (
-    <div className="mt-1 flex flex-col gap-1.5">
+    <div ref={rootRef} className="mt-1 flex flex-col gap-1.5">
       {viewable.length >= 2 ? (
         <MediaGrid
           items={viewable}
@@ -1055,6 +1069,7 @@ export function MessageAttachments({
           onClose={() => setViewerIndex(null)}
           meta={viewerMeta}
           actions={viewerActions}
+          getOrigin={originOf}
         />
       )}
     </div>
