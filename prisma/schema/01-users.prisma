@@ -188,6 +188,12 @@ model User {
   checklistItemsDone ChatChecklistItem[] @relation("ChecklistItemDoneBy")
   // Наборы стикеров, заведённые платформенным администратором (StickerSet.createdById).
   stickerSets        StickerSet[]
+  // Группы (38-chat-groups.prisma): мои заявки на вступление, исключения из групп (меня и
+  // мной) и история моих фото профиля.
+  chatJoinRequests   ChatJoinRequest[]
+  chatRemovals       ChatRemovedMember[] @relation("ChatRemovedUser")
+  chatRemovalsMade   ChatRemovedMember[] @relation("ChatRemovedBy")
+  avatarPhotos       AvatarPhoto[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized       Event[]                @relation("EventOrganizer")
