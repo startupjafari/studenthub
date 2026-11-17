@@ -27,7 +27,6 @@ import {
   ShieldBan,
   Trash2,
   UserRoundSearch,
-  Users,
 } from 'lucide-react'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
 import type { DirectoryUser } from '../../../entities/user'
@@ -56,6 +55,7 @@ import { useListReorder } from '../lib/use-list-reorder'
 import { MessagePreview } from './chat-list-preview'
 import { ChatListRow, isChatUnread } from './chat-list-row'
 import { ChatListArchiveRow } from './chat-list-archive-row'
+import { ChatListFab } from './chat-list-fab'
 
 // Сроки «Без звука» в меню строки — те же, что в шапке чата (§17).
 const MUTE_OPTIONS: { key: string; minutes?: number }[] = [
@@ -287,6 +287,9 @@ export function ConversationList({
   const menuFolder = tabMenu ? folders.find((f) => f.id === tabMenu.id) : undefined
 
   const listActions = useChatListActions()
+  // Курсор над колонкой / фокус внутри — для плавающей кнопки на ПК.
+  const [peek, setPeek] = useState(false)
+  const [focusIn, setFocusIn] = useState(false)
   // Архив — не вкладка среди папок, а строка над «Все» и свой экран (Telegram-стиль).
   const [archiveOpen, setArchiveOpen] = useState(false)
   const allTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
@@ -469,7 +472,19 @@ export function ConversationList({
 
   return (
     <aside
+      // Курсор над колонкой или фокус в ней — выезжает плавающая кнопка «Новое сообщение».
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') setPeek(true)
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') setPeek(false)
+      }}
+      onFocus={() => setFocusIn(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIn(false)
+      }}
       className={cn(
+        'relative',
         embedded
           ? 'flex h-full w-full flex-col'
           : cn(
@@ -571,14 +586,6 @@ export function ConversationList({
               <div className="absolute right-0 top-full z-50 mt-1 w-52 origin-top-right overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
                 <button
                   type="button"
-                  onClick={onNewGroup}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                >
-                  <Users className="size-4 shrink-0 opacity-80" aria-hidden />
-                  {t('newGroup')}
-                </button>
-                <button
-                  type="button"
                   onClick={onOpenSaved}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
                 >
@@ -643,7 +650,9 @@ export function ConversationList({
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-y-auto',
           'duration-(--motion-page) animate-in fade-in slide-in-from-left-4',
-          !embedded && 'pb-[calc(6rem+env(safe-area-inset-bottom))]',
+          // Снизу — место под нижнюю навигацию и плавающую кнопку: последняя строка
+          // прокручивается из-под них, а не прячется.
+          embedded ? 'pb-20' : 'pb-[calc(9rem+env(safe-area-inset-bottom))]',
         )}
       >
         {searchTerm.length >= 2 ? (
@@ -985,6 +994,13 @@ export function ConversationList({
           items={rowMenuItems(menuChat)}
         />
       )}
+      <ChatListFab
+        hidden={searchExpanded || showArchive}
+        peek={peek || focusIn}
+        embedded={embedded}
+        onNewMessage={openSearch}
+        onNewGroup={onNewGroup}
+      />
     </aside>
   )
 }

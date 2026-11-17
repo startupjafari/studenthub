@@ -2569,7 +2569,10 @@
       "readAll": "Mark all as read",
       "sent": "Sent",
       "unreadCount": "{n, plural, one {# unread message} other {# unread messages}}",
-      "unreadShort": "Unread"
+      "unreadShort": "Unread",
+      "fabClose": "Close menu",
+      "fabNew": "New message",
+      "newMessage": "New message"
     },
     "folderAll": "All",
     "folderUnread": "Unread",

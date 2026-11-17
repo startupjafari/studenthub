@@ -2569,7 +2569,10 @@
       "readAll": "Барлығын оқу",
       "sent": "Жіберілді",
       "unreadCount": "{n, plural, one {# оқылмаған хабарлама} other {# оқылмаған хабарлама}}",
-      "unreadShort": "Оқылмаған"
+      "unreadShort": "Оқылмаған",
+      "fabClose": "Мәзірді жабу",
+      "fabNew": "Жаңа хабарлама",
+      "newMessage": "Жаңа хабарлама"
     },
     "folderAll": "Барлығы",
     "folderUnread": "Оқылмаған",
