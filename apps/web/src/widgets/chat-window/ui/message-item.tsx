@@ -5,6 +5,8 @@ import { useTranslations } from 'next-intl'
 import { Check, ChevronDown } from 'lucide-react'
 import {
   ChatPollView,
+  formatViews,
+  isVideoNote,
   isViewable,
   MessageAttachments,
   MessageChecklistView,
@@ -117,6 +119,8 @@ export type MessageItemProps = {
   menuActive: boolean
   readState: MessageReadState
   readCount: number
+  /** Просмотры (официальные чаты): глаз и число в мете. undefined — счётчика нет. */
+  views?: number
   locale: string
   senderNameText: string
   // Бейдж роли отправителя (§21): «Преподаватель/Староста/Декан/Админ» или null (студенты — без бейджа).
@@ -173,6 +177,7 @@ function MessageItemInner({
   menuActive,
   readState,
   readCount,
+  views,
   locale,
   senderNameText,
   senderBadge,
@@ -213,8 +218,18 @@ function MessageItemInner({
     !m.forwardedFrom
       ? emojiOnlyCount(m.content)
       : 0
-  // Стикер и крупные эмодзи живут без пузыря: подложка у них — только под временем.
-  const bare = bigEmoji > 0 || (!!m.sticker && m.media.length === 0)
+  // Кружок (видеосообщение) без подписи и карточек — круг без пузыря, как в Telegram.
+  const roundOnly =
+    m.media.length === 1 &&
+    !!m.media[0] &&
+    isVideoNote(m.media[0]) &&
+    !hasText &&
+    !special &&
+    !hasPreview &&
+    !m.sharedPost &&
+    !storyCard
+  // Стикер, крупные эмодзи и кружок живут без пузыря: подложка у них — только под временем.
+  const bare = bigEmoji > 0 || (!!m.sticker && m.media.length === 0) || roundOnly
   // Снимки и видео без файлов — от края до края пузыря, как в Telegram.
   const mediaOnly = m.media.length > 0 && m.media.every(isViewable)
   const hasBelowMedia = hasText || special || !!m.sharedPost || storyCard || hasPreview
@@ -251,6 +266,7 @@ function MessageItemInner({
       locale={locale}
       variant={variant}
       onRetry={() => actions.retry(m)}
+      views={views}
     />
   )
   const spacerStyle: CSSProperties | undefined =
@@ -262,6 +278,7 @@ function MessageItemInner({
           mine,
           readState,
           readCount,
+          viewsLabel: views !== undefined ? formatViews(views, locale) : null,
         })
       : undefined
 
@@ -355,6 +372,14 @@ function MessageItemInner({
         <p className={cn('pb-5 leading-none tracking-tight select-text', BIG_EMOJI_SIZE[bigEmoji])}>
           {m.content.replace(/\s+/g, '')}
         </p>
+      </>
+    )
+  } else if (roundOnly) {
+    // Кружок: шапка (имя, ответ, «переслано») — плашкой над кругом, сам круг без пузыря.
+    body = (
+      <>
+        {header}
+        {attachments}
       </>
     )
   } else if (bare && m.sticker) {

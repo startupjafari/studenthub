@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import {
   BarChart3,
   CircleDashed,
+  CirclePlay,
   FileText,
   ImageIcon,
   ListChecks,
@@ -34,12 +35,14 @@ import { SYSTEM_KEY } from './message-item'
 // снимок там, голосовое или архив, ещё до того как чат открыт.
 const PREVIEW_ICON: Record<AttachmentKind, LucideIcon> = {
   voice: Mic,
+  round: CirclePlay,
   photo: ImageIcon,
   video: Video,
   file: FileText,
 }
 const PREVIEW_KEY: Record<AttachmentKind, string> = {
   voice: 'previewVoice',
+  round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
   file: 'previewFile',
@@ -108,6 +111,8 @@ export function PreviewThumb({
       className={cn(
         'relative inline-flex size-5 shrink-0 overflow-hidden rounded-[0.25rem] bg-muted align-[-0.3rem]',
         className,
+        // Кружок и в списке — кружком, как в Telegram.
+        att.videoNote && 'rounded-full',
       )}
       aria-hidden
     >

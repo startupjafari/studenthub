@@ -14,6 +14,8 @@ export interface DirectSendFields {
   replyQuote?: string
   silent?: boolean
   asFiles?: boolean
+  /** Кружок: единственное вложение — видеосообщение. */
+  videoNote?: boolean
   /** Номера вложений под спойлером в порядке отправки. */
   spoilerIndexes?: number[]
 }
@@ -96,6 +98,7 @@ export async function sendMessageWithDirectUpload(
     replyQuote: fields.replyQuote,
     silent: fields.silent,
     asFiles: fields.asFiles,
+    ...(fields.videoNote ? { videoNote: true } : {}),
     attachments,
   })
 }

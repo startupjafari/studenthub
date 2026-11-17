@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ChatListItem, ChatMessage } from '../../../entities/chat'
 import {
   mergeChatHead,
+  withDraft,
   withEditedMessage,
   withNewMessage,
   withOthersRead,
@@ -132,5 +133,27 @@ describe('точечные правки строки по событию', () =>
     expect(withOwnRead(list, 'a', T(8))).toBeNull()
     expect(withOwnRead(list, 'x', T(10))).toBeNull()
     expect(withOwnRead(list, 'a', T(9))?.[0]).toMatchObject({ unreadCount: 0, unread: false })
+  })
+})
+
+describe('withDraft — черновик в строке списка', () => {
+  it('сохранённый черновик поднимает строку по своему времени', () => {
+    const list = [chat('a', T(9)), chat('b', T(5))]
+    const next = withDraft(list, 'b', 'привет', T(11))
+    expect(next.map((c) => c.id)).toEqual(['b', 'a'])
+    expect(next[0]).toMatchObject({ draft: 'привет', draftAt: T(11) })
+  })
+
+  it('снятый черновик возвращает строку на место по последнему событию', () => {
+    const list = [chat('b', T(5), { draft: 'x', draftAt: T(11) }), chat('a', T(9))]
+    const next = withDraft(list, 'b', null, null)
+    expect(next.map((c) => c.id)).toEqual(['a', 'b'])
+    expect(next[1]).toMatchObject({ draft: null, draftAt: null })
+  })
+
+  it('тот же черновик и чужой чат — тот же массив', () => {
+    const list = [chat('a', T(9), { draft: 'x', draftAt: T(10) })]
+    expect(withDraft(list, 'a', 'x', T(10))).toBe(list)
+    expect(withDraft(list, 'zzz', 'x', T(10))).toBe(list)
   })
 })

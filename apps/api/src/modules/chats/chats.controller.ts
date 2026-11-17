@@ -357,6 +357,10 @@ export class ChatsController {
         content: { type: 'string' },
         replyToId: { type: 'string' },
         nonce: { type: 'string', description: 'Ключ повтора отправки (≤ 64), 10 минут' },
+        videoNote: {
+          type: 'string',
+          description: '"true" — кружок: единственное вложение — видео с камеры',
+        },
         file: { type: 'string', format: 'binary' },
       },
     },
@@ -377,6 +381,7 @@ export class ChatsController {
       spoiler: fields.spoiler,
       spoilerIndexes: fields.spoilerIndexes,
       asFiles: fields.asFiles,
+      videoNote: fields.videoNote,
       silent: fields.silent,
       nonce: fields.nonce,
     })
@@ -470,6 +475,24 @@ export class ChatsController {
     @Body() dto: MessageIdsDto,
   ) {
     return this.chats.hideMessages(user.sub, id, dto.messageIds)
+  }
+
+  @Post(':id/messages/views')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Просмотры сообщений официального чата (уникальные; ≤ 100 id; только участник)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '{ views: [{ id, views }] } — пусто, если у типа чата просмотров нет',
+  })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  messageViews(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MessageIdsDto,
+  ) {
+    return this.chats.getMessageViews(user.sub, id, dto.messageIds)
   }
 
   @Post(':id/messages/delete')

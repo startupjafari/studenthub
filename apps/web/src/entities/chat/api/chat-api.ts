@@ -36,6 +36,8 @@ export const chatKeys = {
   presence: (id: string) => ['chats', id, 'presence'] as const,
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
+  // Просмотры сообщений официального чата: ключ — чат и набор видимых id.
+  views: (id: string, ids: string) => ['chats', id, 'views', ids] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
   // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору.
   searchInChat: (chatId: string, q: string, senderId?: string) =>
@@ -222,6 +224,8 @@ export async function sendMessageWithAttachments(
     spoilerIndexes?: number[]
     asFiles?: boolean
     silent?: boolean
+    /** Кружок: единственное вложение — видеосообщение. */
+    videoNote?: boolean
   },
   files: File[],
   onProgress?: (fraction: number) => void,
@@ -236,6 +240,7 @@ export async function sendMessageWithAttachments(
   if (input.spoiler) form.append('spoiler', 'true')
   if (input.spoilerIndexes?.length) form.append('spoilerIndexes', input.spoilerIndexes.join(','))
   if (input.asFiles) form.append('asFiles', 'true')
+  if (input.videoNote) form.append('videoNote', 'true')
   if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
@@ -621,9 +626,33 @@ export async function fetchReadReceipts(chatId: string): Promise<ChatReadReceipt
   return data
 }
 
+/** Ответ сохранения черновика: время сохранения — для строки списка (время и порядок). */
+export interface SavedChatDraft {
+  chatId: string
+  draft: string | null
+  // Старый сервер поля не отдаёт.
+  draftAt?: string | null
+}
+
 // Сохранить/очистить черновик сообщения на сервере (#3, синхронизация между устройствами).
-export async function saveChatDraft(chatId: string, text: string): Promise<void> {
-  await api.put(`/chats/${chatId}/draft`, { text })
+export async function saveChatDraft(chatId: string, text: string): Promise<SavedChatDraft> {
+  const { data } = await api.put<SavedChatDraft>(`/chats/${chatId}/draft`, { text })
+  return data
+}
+
+/**
+ * Просмотры сообщений официального чата (как у постов канала Telegram): уникальные, по
+ * отметкам прочтения. У чатов без просмотров сервер отдаёт пустой список.
+ */
+export async function fetchMessageViews(
+  chatId: string,
+  messageIds: string[],
+): Promise<{ id: string; views: number }[]> {
+  const { data } = await api.post<{ views: { id: string; views: number }[] }>(
+    `/chats/${chatId}/messages/views`,
+    { messageIds },
+  )
+  return data.views
 }
 
 export async function addChatMemberRequest(chatId: string, userId: string): Promise<void> {
@@ -744,6 +773,7 @@ export async function sendMessageWithUploaded(
     replyQuote?: string
     silent?: boolean
     asFiles?: boolean
+    videoNote?: boolean
     attachments: {
       key: string
       uploadId?: string

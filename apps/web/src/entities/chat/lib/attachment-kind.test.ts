@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageAttachment } from '../model/types'
-import { attachmentKind, mediaPreview } from './attachment-kind'
+import { attachmentKind, isVideoNote, isVoice, mediaPreview } from './attachment-kind'
 
 const att = (over: Partial<MessageAttachment>): MessageAttachment =>
   ({ id: 'a', mime: 'application/zip', size: 1, ...over }) as MessageAttachment
@@ -29,6 +29,20 @@ describe('attachmentKind', () => {
 
   it('всё остальное — файл', () => {
     expect(attachmentKind(att({ mime: 'application/pdf' }))).toBe('file')
+  })
+
+  // Кружок пишется тем же MediaRecorder, что голосовое, и тоже приходит как video/webm —
+  // запасная эвристика «webm — голосовое» не должна его перехватить.
+  it('кружок — отдельный вид, а не голосовое и не видео', () => {
+    const round = att({ name: 'round-1.webm', mime: 'video/webm', videoNote: true })
+    expect(isVoice(round)).toBe(false)
+    expect(isVideoNote(round)).toBe(true)
+    expect(attachmentKind(round)).toBe('round')
+    expect(mediaPreview([round])).toEqual({ kind: 'round', count: 1 })
+  })
+
+  it('флаг кружка на не-видео ничего не меняет', () => {
+    expect(attachmentKind(att({ mime: 'image/png', videoNote: true }))).toBe('photo')
   })
 })
 

@@ -44,4 +44,26 @@ describe('sortChats', () => {
     ]
     expect(ids(sortChats(list))).toEqual(['ordered', 'loose-new', 'loose-old'])
   })
+
+  // Telegram: чат, где начали писать, встаёт по времени черновика, если тот свежее сообщений.
+  it('черновик свежее последнего сообщения поднимает строку', () => {
+    const list = [
+      chat('fresh', '2025-03-01T00:00:00Z'),
+      {
+        ...chat('drafted', '2025-01-01T00:00:00Z'),
+        draft: 'привет',
+        draftAt: '2025-04-01T00:00:00Z',
+      },
+    ]
+    expect(ids(sortChats(list))).toEqual(['drafted', 'fresh'])
+  })
+
+  it('старый черновик и снятый черновик порядок не меняют', () => {
+    const list = [
+      { ...chat('old-draft', '2025-02-01T00:00:00Z'), draft: 'x', draftAt: '2025-01-15T00:00:00Z' },
+      { ...chat('no-draft', '2025-01-01T00:00:00Z'), draft: null, draftAt: '2025-05-01T00:00:00Z' },
+      chat('mid', '2025-01-20T00:00:00Z'),
+    ]
+    expect(ids(sortChats(list))).toEqual(['old-draft', 'mid', 'no-draft'])
+  })
 })

@@ -470,6 +470,10 @@ export const MessageSendRestSchema = z
     // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
     // одним способом, как и выбирают его в диалоге отправки — один раз на всю отправку.
     asFiles: queryBoolean.optional(),
+    // Кружок (видеосообщение, как в Telegram): единственное вложение — ролик с камеры, который
+    // показывается кругом без пузыря. Флаг отправителя: по байтам квадратное видео от кружка
+    // не отличить. Сервер принимает его только с одним видеофайлом и без `asFiles`.
+    videoNote: queryBoolean.optional(),
     // multipart отдаёт поля строками, поэтому queryBoolean (в отличие от WS-схемы ниже):
     // `z.coerce.boolean()` читал строку "false" как true.
     silent: queryBoolean.optional(),
@@ -629,6 +633,29 @@ export const MessageIdsSchema = z
   .object({ messageIds: z.array(entityId).min(1).max(MESSAGE_BULK_MAX) })
   .strict()
 export type MessageIdsInput = z.infer<typeof MessageIdsSchema>
+
+/**
+ * Типы чатов со счётчиком просмотров у сообщений (`POST /chats/:id/messages/views`).
+ *
+ * В Telegram просмотры видны в каналах — там, где пишет один, а читают многие, и автору
+ * важен охват. У нас роль каналов играют официальные чаты вуза: группы, предмета,
+ * факультета, деканата и события, — туда пишут объявления. В личном чате счётчик бессмыслен
+ * (прочтение и так видно галочками), в «Сохранённых» и поддержке — тоже, а в
+ * пользовательских группах, как и в группах Telegram, его нет: у своих сообщений там уже
+ * есть «прочитали N».
+ */
+export const CHAT_VIEW_COUNTED_TYPES: readonly ChatTypeValue[] = [
+  'GROUP_OFFICIAL',
+  'SUBJECT',
+  'FACULTY',
+  'DEAN',
+  'EVENT',
+]
+
+/** Показывать ли у сообщений этого чата счётчик просмотров. */
+export function chatCountsViews(type: string): boolean {
+  return CHAT_VIEW_COUNTED_TYPES.includes(type as ChatTypeValue)
+}
 
 /** Общие поля отправки особых сообщений (геопозиция, контакт, чек-лист, стикер, GIF). */
 const richMessageFields = {
@@ -1014,6 +1041,8 @@ export const MessageSendUploadedSchema = z
     silent: z.boolean().optional(),
     // §9: показывать вложения строками файлов, а не превью.
     asFiles: z.boolean().optional(),
+    // Кружок: единственное вложение — видеосообщение (см. MessageSendRestSchema.videoNote).
+    videoNote: z.boolean().optional(),
     nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
     attachments: z
       .array(

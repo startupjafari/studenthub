@@ -22,7 +22,7 @@ import { cn } from '../../../shared/lib/utils'
 import { useAttachmentLinkSource } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
-import { isViewable, isVoice } from '../lib/attachment-kind'
+import { isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
 import { albumLayout } from '../lib/album-layout'
 import type { ChatMediaItem, MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
@@ -30,6 +30,7 @@ import { VoiceMessage, type VoiceTrackMeta } from './voice-message'
 import { isVoiceRecording } from '../lib/audio-player'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 import { ChatMediaRailViewer, type ChatMediaRailContext } from './chat-media-rail-viewer'
+import { RoundVideo } from './round-video'
 
 // Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
 /** `0:55`, `1:02:30` — длительность ролика бейджем в углу кадра, как в Telegram. */
@@ -1046,7 +1047,9 @@ export function MessageAttachments({
   const rootRef = useRef<HTMLDivElement | null>(null)
   if (media.length === 0) return null
   // Изображения/видео (viewable) — альбомом-сеткой; голосовые и файлы — отдельными строками.
-  const viewable = media.filter(isViewable)
+  // Кружок — сам по себе: круг без пузыря, играет на месте, в просмотрщик не открывается.
+  const rounds = media.filter(isVideoNote)
+  const viewable = media.filter((a) => isViewable(a) && !isVideoNote(a))
   const others = media.filter((a) => !isViewable(a))
   const openViewer = (att: MessageAttachment): void =>
     setViewerIndex(viewable.findIndex((v) => v.id === att.id))
@@ -1106,6 +1109,15 @@ export function MessageAttachments({
   }
   return (
     <div ref={rootRef} className="mt-1 flex flex-col gap-1.5">
+      {rounds.map((att) => (
+        <RoundVideo
+          key={att.id}
+          att={att}
+          onCancel={onCancel}
+          sendFailed={sendFailed}
+          onRetry={onRetry}
+        />
+      ))}
       {viewable.length >= 2 ? (
         <MediaGrid
           items={viewable}

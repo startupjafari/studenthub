@@ -23,6 +23,7 @@ import {
 
 const PREVIEW_KEY: Record<AttachmentKind, string> = {
   voice: 'previewVoice',
+  round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
   file: 'previewFile',

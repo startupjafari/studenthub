@@ -9,6 +9,8 @@ import type { MessageAttachment } from '../model/types'
 // непредсказуем: webm → video/webm, iOS-запись → video/mp4. Для старых сообщений —
 // запасная эвристика по mime.
 export function isVoice(att: MessageAttachment): boolean {
+  // Кружок записан тем же MediaRecorder и тоже приходит как video/webm — но это видео.
+  if (att.videoNote) return false
   if (att.name && /^voice-/i.test(att.name)) return true
   return att.mime.startsWith('audio/') || att.mime === 'video/webm'
 }
@@ -24,11 +26,17 @@ export function isViewable(att: MessageAttachment): boolean {
   return att.mime.startsWith('image/') || att.mime.startsWith('video/')
 }
 
+/** Кружок (видеосообщение): рисуется кругом без пузыря, а не кадром в альбоме. */
+export function isVideoNote(att: MessageAttachment): boolean {
+  return !!att.videoNote && !att.asDocument && att.mime.startsWith('video/')
+}
+
 /** Как вложение называется в превью списка чатов. */
-export type AttachmentKind = 'voice' | 'photo' | 'video' | 'file'
+export type AttachmentKind = 'voice' | 'round' | 'photo' | 'video' | 'file'
 
 export function attachmentKind(att: MessageAttachment): AttachmentKind {
   if (isVoice(att)) return 'voice'
+  if (isVideoNote(att)) return 'round'
   if (!isViewable(att)) return 'file'
   return att.mime.startsWith('video/') ? 'video' : 'photo'
 }
