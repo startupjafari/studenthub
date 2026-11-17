@@ -270,10 +270,8 @@ export function ChatDetailsPanel({
       onKeyDown={(e) => {
         // Esc внутри управления — шаг назад, а не закрытие всей колонки.
         // Открытое меню или окно Esc закрывает само — шаг назад в этот момент был бы лишним.
-        const layerOpen = document.querySelector(
-          '[role="menu"],[role="dialog"],[role="alertdialog"]',
-        )
-        if (e.key === 'Escape' && screen !== null && !e.defaultPrevented && !layerOpen) {
+        if (e.key !== 'Escape' || screen === null || e.defaultPrevented) return
+        if (!document.querySelector('[role="menu"],[role="dialog"],[role="alertdialog"]')) {
           e.preventDefault()
           e.stopPropagation()
           back()
