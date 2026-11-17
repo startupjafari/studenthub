@@ -1174,6 +1174,12 @@
     "byteUnitGb": "ГБ",
     "breadcrumb": "Навигация тізбегі",
     "mediaViewer": "Файлды қарау",
+    "tgMedia": {
+      "counter": "{current} / {total}",
+      "zoomIn": "Үлкейту",
+      "zoomOut": "Кішірейту",
+      "more": "Тағы"
+    },
     "phoneIncomplete": "Нөмірді толық теріңіз: +7 (777) 777-77-77"
   },
   "Auth": {
@@ -2653,6 +2659,13 @@
     "emoji": "Эмодзи",
     "emojiSearch": "Эмодзи іздеу",
     "mediaFailed": "Жүктеу мүмкін болмады",
+    "tgMedia": {
+      "player": "Аудиоойнатқыш",
+      "previous": "Алдыңғы",
+      "next": "Келесі",
+      "closePlayer": "Ойнатқышты жабу",
+      "voiceMessage": "Дауыстық хабарлама"
+    },
     "spoiler": "Спойлер",
     "spoilerToggle": "Спойлер астына жасыру",
     "savedMessages": "Сақталған",

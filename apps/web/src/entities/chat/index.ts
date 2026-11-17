@@ -143,3 +143,18 @@ export {
   LIVE_LOCATION_TICK_MS,
 } from './lib/live-location'
 export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'
+export {
+  closeAudio,
+  getAudioElement,
+  isVoiceRecording,
+  nudgeAudio,
+  playAudioTrack,
+  playNeighbour,
+  retainAudioPlayer,
+  seekAudioRatio,
+  toggleAudio,
+  useAudioPlayer,
+  type AudioPlayerState,
+  type AudioTrack,
+} from './lib/audio-player'
+export { useAudioQueue } from './lib/use-audio-queue'

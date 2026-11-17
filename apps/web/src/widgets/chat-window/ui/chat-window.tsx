@@ -133,6 +133,7 @@ import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { messageRunPosition } from '../lib/message-run'
 import { ChatComposer } from './chat-composer'
+import { AudioPlayerBar } from './audio-player-bar'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersPanel } from './blocked-users-panel'
 import { CreateGroupPanel } from './create-group-panel'
@@ -4044,6 +4045,13 @@ export function ChatWindow() {
                 </div>
               </div>
             </header>
+
+            {/* Панель аудиоплеера (голосовые и музыка подряд) — под шапкой, как в Telegram. */}
+            <AudioPlayerBar
+              chatId={activeId}
+              messages={messages.data}
+              onFocusMessage={focusMessage}
+            />
 
             {/* Закреплённое сообщение (§2 карты): подпись, первая строка текста и шкала
                 закреплений слева. Крестик справа ПРЯЧЕТ полосу до следующего закрепления —

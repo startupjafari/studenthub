@@ -41,8 +41,14 @@ const HIDE_AFTER_MS = 2500
 const SEEK_STEP_SEC = 5
 /** Шаг громкости с клавиатуры. */
 const VOLUME_STEP = 0.1
-/** Скорости по кругу, как в Telegram: кнопка переключает на следующую. */
-const RATES = [1, 1.5, 2, 0.5] as const
+/** Скорости меню, как в Telegram: от замедленной до двойной. */
+const RATES = [0.5, 1, 1.5, 2] as const
+
+/**
+ * Скорость видео в просмотрщике держится от ролика к ролику (как в Telegram): выбрали 1,5× —
+ * следующее видео альбома играет так же. Только в памяти вкладки: это не настройка.
+ */
+let viewerRate = 1
 
 function mmss(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -91,6 +97,7 @@ export function VideoPlayer({
   videoClassName,
   videoStyle,
   controlsHidden = false,
+  inViewer = false,
   onVideoRef,
   onLoadedMetadata,
 }: {
@@ -110,6 +117,12 @@ export function VideoPlayer({
    * этом продолжает играть; на паузе остаётся только кнопка «играть» по центру.
    */
   controlsHidden?: boolean
+  /**
+   * Плеер полноэкранного просмотрщика: клавиши (пробел/K — пауза, M — звук, F — во весь
+   * экран, во весь экран стрелки перематывают) и скорость, которая держится между роликами.
+   * В ленте этого нет: там на странице свои клавиши.
+   */
+  inViewer?: boolean
   onVideoRef?: (el: HTMLVideoElement | null) => void
   onLoadedMetadata?: () => void
 }) {
@@ -128,6 +141,7 @@ export function VideoPlayer({
   const [fullscreen, setFullscreen] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [qualityOpen, setQualityOpen] = useState(false)
+  const [rateOpen, setRateOpen] = useState(false)
   const quality = useHls(video, hls, src)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const playedRef = useRef<HTMLDivElement | null>(null)
@@ -138,10 +152,15 @@ export function VideoPlayer({
 
   const attach = useCallback(
     (el: HTMLVideoElement | null): void => {
+      // Запомненная скорость — до первого кадра: смена посреди воспроизведения слышна.
+      if (el && inViewer) {
+        el.defaultPlaybackRate = viewerRate
+        el.playbackRate = viewerRate
+      }
       setVideo(el)
       onVideoRef?.(el)
     },
-    [onVideoRef],
+    [onVideoRef, inViewer],
   )
 
   useEffect(() => {
@@ -167,7 +186,10 @@ export function VideoPlayer({
       setMuted(video.muted)
       setVolume(video.volume)
     }
-    const onRate = (): void => setRate(video.playbackRate)
+    const onRate = (): void => {
+      setRate(video.playbackRate)
+      if (inViewer) viewerRate = video.playbackRate
+    }
     const onProgress = (): void => {
       const dur = video.duration
       const ranges = video.buffered
@@ -194,7 +216,7 @@ export function VideoPlayer({
       video.removeEventListener('ratechange', onRate)
       video.removeEventListener('progress', onProgress)
     }
-  }, [video, onLoadedMetadata])
+  }, [video, onLoadedMetadata, inViewer])
 
   // Полоса растёт каждый кадр, а не по `timeupdate`: тот приходит раз в четверть секунды,
   // и полоса дёргалась бы ступеньками. Пишем ширину прямо в DOM — без ререндера на кадр.
@@ -222,8 +244,8 @@ export function VideoPlayer({
   }, [])
 
   useEffect(() => {
-    // Открытое меню качества тоже держит панель: выбирающему не до таймера.
-    if (!playing || scrubbing || qualityOpen) {
+    // Открытое меню качества или скорости тоже держит панель: выбирающему не до таймера.
+    if (!playing || scrubbing || qualityOpen || rateOpen) {
       if (hideTimer.current) clearTimeout(hideTimer.current)
       setVisible(true)
       return
@@ -232,7 +254,7 @@ export function VideoPlayer({
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current)
     }
-  }, [playing, scrubbing, qualityOpen, keepVisible])
+  }, [playing, scrubbing, qualityOpen, rateOpen, keepVisible])
 
   const toggle = useCallback((): void => {
     if (!video) return
@@ -298,10 +320,46 @@ export function VideoPlayer({
     }
   }, [video])
 
-  // Панель спряталась — меню качества уходит вместе с ней, а не висит в пустоте.
+  // Панель спряталась — меню уходят вместе с ней, а не висят в пустоте.
   useEffect(() => {
-    if (!visible) setQualityOpen(false)
+    if (!visible) {
+      setQualityOpen(false)
+      setRateOpen(false)
+    }
   }, [visible])
+
+  // Клавиши просмотрщика (как в Telegram Web): пробел и K — пауза, M — звук, F — во весь
+  // экран; во весь экран стрелки перематывают (в обычном виде они листают альбом).
+  useEffect(() => {
+    if (!inViewer || !video) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, [contenteditable="true"]')) return
+      // На кнопке пробел и Enter — её собственное нажатие; ползунок перемотки свои клавиши
+      // разбирает сам.
+      const onControl = !!el?.closest('button, [role="slider"], [role="menuitemradio"]')
+      const key = e.key.toLowerCase()
+      if ((key === ' ' || key === 'k') && !(onControl && key === ' ')) {
+        e.preventDefault()
+        toggle()
+      } else if (key === 'm') {
+        video.muted = !video.muted
+        keepVisible()
+      } else if (key === 'f') {
+        toggleFullscreen()
+      } else if (
+        (key === 'arrowleft' || key === 'arrowright') &&
+        document.fullscreenElement &&
+        !onControl
+      ) {
+        e.preventDefault()
+        nudge(key === 'arrowleft' ? -SEEK_STEP_SEC : SEEK_STEP_SEC)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [inViewer, video, toggle, keepVisible, toggleFullscreen, nudge])
 
   const progress = duration > 0 ? Math.min(100, (current / duration) * 100) : 0
   const shown = visible && !controlsHidden
@@ -507,6 +565,7 @@ export function VideoPlayer({
                     aria-expanded={qualityOpen}
                     onClick={() => {
                       setQualityOpen((open) => !open)
+                      setRateOpen(false)
                       keepVisible()
                     }}
                     className={cn(
@@ -552,23 +611,52 @@ export function VideoPlayer({
                   )}
                 </div>
               )}
-              <button
-                type="button"
-                tabIndex={shown ? 0 : -1}
-                aria-label={t('speed')}
-                title={t('speed')}
-                onClick={() => {
-                  if (!video) return
-                  const i = RATES.indexOf(rate as (typeof RATES)[number])
-                  video.playbackRate = RATES[(i + 1) % RATES.length] ?? 1
-                  keepVisible()
-                }}
-                className={cn(iconButton, 'w-auto px-1')}
-              >
-                <span className="rounded border-[1.5px] border-current px-1 text-[11px] leading-4 font-bold tabular-nums">
-                  {rate}X
-                </span>
-              </button>
+              {/* Скорость — меню, как в Telegram: видно все варианты сразу, а не перебор по
+                  кругу вслепую. Меню внутри корня плеера — во весь экран видно только его. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  tabIndex={shown ? 0 : -1}
+                  aria-label={t('speed')}
+                  title={t('speed')}
+                  aria-haspopup="menu"
+                  aria-expanded={rateOpen}
+                  onClick={() => {
+                    setRateOpen((open) => !open)
+                    setQualityOpen(false)
+                    keepVisible()
+                  }}
+                  className={cn(iconButton, 'w-auto px-1')}
+                >
+                  <span className="rounded border-[1.5px] border-current px-1 text-[11px] leading-4 font-bold tabular-nums">
+                    {rate}X
+                  </span>
+                </button>
+                {rateOpen && (
+                  <div
+                    role="menu"
+                    aria-label={t('speed')}
+                    className="absolute right-0 bottom-full mb-2 min-w-24 overflow-hidden rounded-lg bg-black/85 py-1 text-sm backdrop-blur-sm"
+                  >
+                    {RATES.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={rate === r}
+                        onClick={() => {
+                          if (video) video.playbackRate = r
+                          setRateOpen(false)
+                          keepVisible()
+                        }}
+                        className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-white/90 tabular-nums hover:bg-white/10 hover:text-white"
+                      >
+                        {r}X{rate === r && <Check className="size-4" aria-hidden />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               {pipSupported && (
                 <button
                   type="button"
