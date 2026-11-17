@@ -33,6 +33,12 @@ const ARC_LIFT = 900
 /** Страховка: полёт не может длиться дольше, даже если пружина почему-то не села. */
 const FLIGHT_TIMEOUT_MS = 1200
 const SPARKS = 8
+/**
+ * Слой полёта — `z-50` шкалы (DESIGN_SYSTEM §5.3), как у меню сообщения и открытого чата:
+ * своего слоя между ними не заводим. Узел добавляется в body последним, поэтому при равном
+ * z лежит поверх уходящего меню; нажатий он не ловит.
+ */
+const FLIGHT_Z = '50'
 
 export const centerOf = (el: Element): FlightPoint => {
   const r = el.getBoundingClientRect()
@@ -73,7 +79,7 @@ function burst(at: FlightPoint, color: string): void {
     top: `${at.y}px`,
     width: '0',
     height: '0',
-    zIndex: '60',
+    zIndex: FLIGHT_Z,
     pointerEvents: 'none',
   })
   document.body.appendChild(layer)
@@ -130,7 +136,7 @@ function launch(chip: HTMLElement, emoji: string, from: FlightPoint): void {
     position: 'fixed',
     left: '0',
     top: '0',
-    zIndex: '60',
+    zIndex: FLIGHT_Z,
     pointerEvents: 'none',
     fontSize: `${FLYER_FONT_PX}px`,
     lineHeight: '1',
