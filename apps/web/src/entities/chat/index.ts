@@ -143,3 +143,28 @@ export {
   LIVE_LOCATION_TICK_MS,
 } from './lib/live-location'
 export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'
+export {
+  composerKeys,
+  fetchStickerSets,
+  fetchFavoriteStickers,
+  addFavoriteStickerRequest,
+  removeFavoriteStickerRequest,
+  sendStickerRequest,
+  fetchTrendingGifs,
+  searchGifs,
+  fetchRecentGifs,
+  sendCatalogGifRequest,
+  sendRecentGifRequest,
+  sendChecklistRequest,
+  fetchScheduledMessages,
+  scheduleMessageRequest,
+  cancelScheduledRequest,
+  sendScheduledNowRequest,
+  type CatalogSticker,
+  type StickerSet,
+  type CatalogGif,
+  type CatalogGifPage,
+  type RecentGif,
+  type RichSendFields,
+  type ScheduledMessage,
+} from './api/composer-api'
