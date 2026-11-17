@@ -23,6 +23,7 @@ import { useAttachmentLinkSource } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
+import { albumLayout } from '../lib/album-layout'
 import type { MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
 import { VoiceMessage } from './voice-message'
@@ -771,7 +772,9 @@ function Single({
   )
 }
 
-// Ширина ячейки альбома для `sizes`: сетка 260–300px на 2–3 колонки.
+// Ширина альбома-мозаики в пузыре, px (уже — по ширине пузыря на узком экране).
+const ALBUM_WIDTH = 320
+// Ширина ячейки альбома для `sizes`: мозаика 320px, ячейка — обычно от трети до половины.
 const TILE_SIZES = '150px'
 
 // Ячейка альбома-сетки (Telegram-стиль): квадратный кроп через object-cover, поверх — play у видео
@@ -943,14 +946,11 @@ function GridTile({
   )
 }
 
-// Альбом изображений/видео сеткой (Telegram-стиль): 2 и 4 — по два в ряд, 3 и 5+ — по три.
-// Клик по ячейке открывает полноэкранный просмотрщик.
-//
-// Все ячейки квадратные. Прежняя мозаика делала первую из трёх высокой (`row-span-2`), и
-// квадратный снимок в ней обрезался до вертикального прямоугольника — на превью от него
-// оставалась полоса посередине. Настоящая мозаика Telegram подбирает раскладку по
-// пропорциям самих снимков; выдавать за неё одну жёстко заданную форму — хуже, чем
-// честная ровная сетка.
+// Альбом изображений/видео мозаикой, как в Telegram: раскладка — по пропорциям самих кадров
+// (lib/album-layout): широкий первый снимок полосой сверху, узкий — колонкой слева, длинный
+// альбом — рядами одной высоты. Пропорции известны заранее (сервер отдаёт width/height), поэтому
+// место под альбом резервируется сразу и лента не прыгает, пока едут снимки. Кадр без размеров
+// (видео, вложения старше полей) считается квадратом. Клик по ячейке — полноэкранный просмотр.
 function MediaGrid({
   items,
   onOpen,
@@ -964,25 +964,40 @@ function MediaGrid({
   sendFailed?: boolean
   onRetry?: () => void
 }) {
-  const n = items.length
-  const cols = n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3'
-  const width = n === 2 || n === 4 ? 260 : 300
+  const layout = albumLayout(
+    items.map((a) => (a.width && a.height ? a.width / a.height : 1)),
+    ALBUM_WIDTH,
+  )
   return (
     <div
-      className={cn('grid gap-0.5 overflow-hidden rounded-lg', cols)}
-      style={{ width, maxWidth: '100%' }}
+      className="relative overflow-hidden rounded-lg"
+      style={{ width: ALBUM_WIDTH, maxWidth: '100%', aspectRatio: layout.aspect }}
     >
-      {items.map((att) => (
-        <GridTile
-          key={att.id}
-          att={att}
-          onOpen={() => onOpen(att)}
-          onCancel={onCancel}
-          sendFailed={sendFailed}
-          onRetry={onRetry}
-          className="aspect-square"
-        />
-      ))}
+      {items.map((att, i) => {
+        const tile = layout.tiles[i]
+        if (!tile) return null
+        return (
+          <div
+            key={att.id}
+            className="absolute"
+            style={{
+              left: `${tile.x * 100}%`,
+              top: `${tile.y * 100}%`,
+              width: `${tile.w * 100}%`,
+              height: `${tile.h * 100}%`,
+            }}
+          >
+            <GridTile
+              att={att}
+              onOpen={() => onOpen(att)}
+              onCancel={onCancel}
+              sendFailed={sendFailed}
+              onRetry={onRetry}
+              className="size-full"
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
