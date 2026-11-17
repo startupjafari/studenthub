@@ -1185,6 +1185,77 @@ summary {
   pointer-events: none;
 }
 
+/* Спойлер в поле ввода: текст виден (его пишут), но отмечен подложкой — как в Telegram. */
+.rte .tiptap [data-spoiler] {
+  border-radius: 4px;
+  background: color-mix(in oklch, currentColor 16%, transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Спойлер в сообщении (entities/chat/ui/message-content-markdown.tsx, PROJECT.md §3.6).
+   Скрытый — прозрачный текст под россыпью точек цвета текста: два слоя с разным шагом
+   дают неровный «шум», а сдвиг слоёв навстречу — мерцание частиц, как в Telegram. Точки
+   рисует фон, а не холст: ни скрипта на кадр, ни смены раскладки (фон раскладку не
+   двигает). Подложка режется по строкам (`box-decoration-break`), спойлер в две строки —
+   два скруглённых куска. Открытие — проявление текста по прозрачности. */
+.message-spoiler[data-hidden] {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  background-color: color-mix(in oklch, currentColor 10%, transparent);
+  background-image:
+    radial-gradient(circle, currentColor 0.7px, transparent 1.2px),
+    radial-gradient(
+      circle,
+      color-mix(in oklch, currentColor 60%, transparent) 0.6px,
+      transparent 1.1px
+    );
+  background-size:
+    5px 5px,
+    7px 6px;
+  animation: sh-spoiler-drift 2.4s linear infinite;
+}
+
+.message-spoiler[data-hidden]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.message-spoiler-text {
+  transition: opacity var(--motion-control) var(--motion-ease);
+}
+
+.message-spoiler[data-hidden] > .message-spoiler-text {
+  opacity: 0;
+}
+
+@keyframes sh-spoiler-drift {
+  from {
+    background-position:
+      0 0,
+      3px 2px;
+  }
+  to {
+    background-position:
+      10px -5px,
+      -11px 8px;
+  }
+}
+
+/* Частицы — украшение: при уменьшенном движении стоят на месте, текст открывается сразу. */
+@media (prefers-reduced-motion: reduce) {
+  .message-spoiler[data-hidden] {
+    animation: none;
+  }
+
+  .message-spoiler-text {
+    transition: none;
+  }
+}
+
 /* ─── Доступность движения и материалов (apple-design §14) ──────────────────
    Три независимых сигнала системы. Раньше уважался только первый, и то точечно:
    выключались четыре самописные анимации, а полсотни `animate-in`/`animate-out`

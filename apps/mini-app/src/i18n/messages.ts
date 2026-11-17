@@ -100,6 +100,7 @@ const ru = {
 
   // ── Поддержка ──────────────────────────────────────────────────────────
   supportTitle: 'Поддержка',
+  tgMarkupSpoiler: 'Спойлер — нажмите, чтобы показать',
   supportLoadError: 'Не удалось загрузить очередь',
   supportEmptyTitle: 'Пусто',
   supportEmptyText: 'Открытых обращений нет.',
@@ -573,6 +574,7 @@ const kk: Record<MessageKey, string> = {
   complaintOpenProfile: 'Бұзушының профилі',
 
   supportTitle: 'Қолдау',
+  tgMarkupSpoiler: 'Спойлер — көрсету үшін басыңыз',
   supportLoadError: 'Кезекті жүктеу мүмкін болмады',
   supportEmptyTitle: 'Бос',
   supportEmptyText: 'Ашық өтініш жоқ.',
@@ -1042,6 +1044,7 @@ const en: Record<MessageKey, string> = {
   complaintOpenProfile: 'Open the author’s profile',
 
   supportTitle: 'Support',
+  tgMarkupSpoiler: 'Spoiler — tap to reveal',
   supportLoadError: 'Could not load the queue',
   supportEmptyTitle: 'Empty',
   supportEmptyText: 'No open requests.',

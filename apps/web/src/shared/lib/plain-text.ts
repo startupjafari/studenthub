@@ -1,3 +1,5 @@
+import { replaceChatMarks, spoilerPlaceholder } from './chat-markup'
+
 /**
  * Markdown простой строкой — для однострочных и обрезанных превью: панели ответа и правки
  * в чате, подпись поста на плитке мозаики.
@@ -5,10 +7,19 @@
  * Рендерить markdown там по-настоящему нельзя: превью обязано остаться строкой с обрезкой,
  * а вложенные элементы её ломают. Поэтому разметка снимается — иначе «**срочно** по `ТЗ`»
  * уезжал в превью ровно с этими звёздочками и обратными кавычками.
+ *
+ * Маркеры чата (PROJECT.md §3.6) снимаются тоже: подчёркнутый `++…++` — до текста, спойлер
+ * `||…||` — до знаков Брайля, как в Telegram: превью видно в списке чатов и в шапке, и
+ * текст спойлера там не должен читаться. Посты этих маркеров не знают — им `chatMarkup: false`.
  */
-export function plainPreview(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
+export function plainPreview(text: string, { chatMarkup = true } = {}): string {
+  const withoutBlocks = text.replace(/```[\s\S]*?```/g, ' ')
+  const marked = chatMarkup
+    ? replaceChatMarks(withoutBlocks, (kind, inner) =>
+        kind === 'spoiler' ? spoilerPlaceholder(plainPreview(inner, { chatMarkup: false })) : inner,
+      )
+    : withoutBlocks
+  return marked
     .replace(/`([^`]*)`/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -18,7 +29,7 @@ export function plainPreview(text: string): string {
     .replace(/^\s{0,3}>\s?/gm, '')
     .replace(/^\s{0,3}[-*+]\s+/gm, '')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/\\([\\`*_{}[\]()#+\-.!~>])/g, '$1')
+    .replace(/\\([\\`*_{}[\]()#+\-.!~>|])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim()
 }

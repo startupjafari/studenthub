@@ -392,10 +392,13 @@ struct ChatInfoView: View {
                         Text(String(localized: "chats.group.description", defaultValue: "Описание"))
                             .font(.footnote)
                             .foregroundStyle(Palette.mutedForeground)
-                        Text(RichText.attributed(description))
-                            .font(Typography.body)
-                            .foregroundStyle(Palette.foreground)
-                            .tint(Palette.primary)
+                        // Описание — тот же контракт разметки, что у сообщения (PROJECT.md §3.6).
+                        ChatSpoilerReveal(hasSpoilers: ChatMarkup.containsSpoiler(description)) { revealed in
+                            Text(BubbleTextStyle(revealSpoilers: revealed).attributed(description))
+                                .font(Typography.body)
+                                .foregroundStyle(Palette.foreground)
+                                .tint(Palette.primary)
+                        }
                     }
                     .padding(.vertical, 2)
                 }

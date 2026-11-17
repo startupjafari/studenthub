@@ -1,13 +1,16 @@
 'use client'
 
-import { Children, useMemo, type ReactNode } from 'react'
+import { Children, createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useTranslations } from 'next-intl'
+import { applyChatMarks, type MdNode } from '../lib/remark-chat-marks'
 import { MD_CLASS } from './message-content-style'
 
 /**
  * Контракт разметки сообщения (PROJECT.md §3.6 «Разметка сообщения чата») — набор Telegram:
- * жирный, курсив, моно, зачёркнутый, ссылка, цитата, блок кода, списки. Его же рисуют iOS и
+ * жирный, курсив, подчёркнутый, зачёркнутый, моно, спойлер, ссылка, цитата, блок кода, списки.
+ * Подчёркнутый `++…++` и спойлер `||…||` разбираются поверх CommonMark (`applyChatMarks`). Его же рисуют iOS и
  * Android; всё, что сверх него, веб показывает исходным текстом, иначе одно сообщение выглядело
  * бы по-разному у собеседников на разных клиентах.
  *
@@ -37,6 +40,8 @@ const ALLOWED_ELEMENTS = [
   'br',
   'strong',
   'em',
+  'u', // ++подчёркнутый++
+  'span', // ||спойлер|| — других span разбор не даёт: сырой HTML выключен
   'del',
   'code',
   'pre',
@@ -46,13 +51,6 @@ const ALLOWED_ELEMENTS = [
   'ol',
   'li',
 ]
-
-interface MdNode {
-  type: string
-  value?: string
-  children?: MdNode[]
-  position?: { start: { offset?: number }; end: { offset?: number } }
-}
 
 /**
  * Картинку `![подпись](url)` возвращаем исходным текстом. Выключить её при разборе нельзя:
@@ -74,7 +72,11 @@ function imagesToText(node: MdNode, source: string) {
 function remarkChatContract(this: { data(): object }) {
   const data = this.data() as { micromarkExtensions?: object[] }
   ;(data.micromarkExtensions ??= []).push({ disable: { null: OFF_CONSTRUCTS } })
-  return (tree: MdNode, file: { value: unknown }) => imagesToText(tree, String(file.value))
+  return (tree: MdNode, file: { value: unknown }) => {
+    const source = String(file.value)
+    imagesToText(tree, source)
+    applyChatMarks(tree, source)
+  }
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkChatContract]
@@ -108,6 +110,65 @@ function highlightChildren(children: ReactNode, term: string): ReactNode {
   )
 }
 
+/**
+ * Спойлеры сообщения открываются вместе, одним касанием — как в Telegram: состояние на всё
+ * сообщение, а не на каждый спойлер.
+ */
+const SpoilerContext = createContext<{ revealed: boolean; reveal: () => void }>({
+  revealed: true,
+  reveal: () => {},
+})
+
+/**
+ * Спойлер `||…||`: до касания текст прозрачен, поверх — мерцающие точки (`.message-spoiler`
+ * в globals.css, без анимации при prefers-reduced-motion). Скрытый спойлер — кнопка: Enter и
+ * пробел открывают его так же, как щелчок, а скринридер не читает текст до открытия.
+ * Щелчок не уходит выше — ни в ссылку внутри спойлера, ни в пузырь (выбор, меню).
+ */
+function Spoiler({ children }: { children?: ReactNode }) {
+  const { revealed, reveal } = useContext(SpoilerContext)
+  const t = useTranslations('Chats')
+  if (revealed) {
+    return (
+      <span className="message-spoiler">
+        <span className="message-spoiler-text">{children}</span>
+      </span>
+    )
+  }
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={t('tgMarkup.spoiler')}
+      data-hidden=""
+      className="message-spoiler"
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        reveal()
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        event.stopPropagation()
+        reveal()
+      }}
+    >
+      {/* inert: скрытое не читается скринридером и не берёт фокус (ссылка внутри) —
+          щелчок и Tab достаются самой кнопке спойлера. */}
+      <span className="message-spoiler-text" inert>
+        {children}
+      </span>
+    </span>
+  )
+}
+
+/** Спойлер — единственный span, который даёт разбор (сырой HTML выключен). */
+function isSpoilerNode(node: unknown): boolean {
+  const properties = (node as { properties?: Record<string, unknown> } | undefined)?.properties
+  return properties !== undefined && 'dataSpoiler' in properties
+}
+
 const MD_COMPONENTS: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
   /**
@@ -120,6 +181,8 @@ const MD_COMPONENTS: Components = {
    * жёсткий перенос в markdown), поэтому гасим тег, а не символ.
    */
   br: () => null,
+  span: ({ node, children }) =>
+    isSpoilerNode(node) ? <Spoiler>{children}</Spoiler> : <span>{children}</span>,
 }
 
 export function MessageContentMarkdown({
@@ -140,21 +203,34 @@ export function MessageContentMarkdown({
       li: ({ node: _n, children, ...props }) => (
         <li {...props}>{highlightChildren(children, highlight)}</li>
       ),
+      u: ({ node: _n, children, ...props }) => (
+        <u {...props}>{highlightChildren(children, highlight)}</u>
+      ),
+      span: ({ node, children }) =>
+        isSpoilerNode(node) ? (
+          <Spoiler>{highlightChildren(children, highlight)}</Spoiler>
+        ) : (
+          <span>{highlightChildren(children, highlight)}</span>
+        ),
     }
   }, [highlight])
+  const [revealed, setRevealed] = useState(false)
+  const spoilers = useMemo(() => ({ revealed, reveal: () => setRevealed(true) }), [revealed])
 
   if (!content) return null
   return (
-    <div className={MD_CLASS}>
-      {/* Формулы `$…$` вне контракта — остаются текстом, katex чату не нужен. */}
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        allowedElements={ALLOWED_ELEMENTS}
-        unwrapDisallowed
-        components={components}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
+    <SpoilerContext.Provider value={spoilers}>
+      <div className={MD_CLASS}>
+        {/* Формулы `$…$` вне контракта — остаются текстом, katex чату не нужен. */}
+        <ReactMarkdown
+          remarkPlugins={REMARK_PLUGINS}
+          allowedElements={ALLOWED_ELEMENTS}
+          unwrapDisallowed
+          components={components}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    </SpoilerContext.Provider>
   )
 }

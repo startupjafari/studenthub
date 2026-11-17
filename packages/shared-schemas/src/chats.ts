@@ -669,7 +669,11 @@ export type MessageForwardBatchInput = z.infer<typeof MessageForwardBatchSchema>
  * видел бы над полем одну карточку, а под сообщением — другую.
  */
 export function firstLinkUrl(content?: string | null): string | undefined {
-  return content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+  // Маркер спойлера `||` (PROJECT.md §3.6) адресу не принадлежит: в `||https://x.kz||`
+  // адрес — `https://x.kz`.
+  return content
+    ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1]?.replace(/\|\|.*$/, '') || undefined
+    : undefined
 }
 
 /** Потолок длины ссылки для превью черновика: длиннее браузеры и сайты сами не держат. */

@@ -2765,6 +2765,9 @@
     "edit": "Edit",
     "delete": "Delete",
     "copyText": "Copy text",
+    "tgMarkup": {
+      "spoiler": "Spoiler — click to reveal"
+    },
     "copyImage": "Copy image",
     "copiedImage": "Image copied",
     "copy": "Copy",
@@ -5800,7 +5803,11 @@
     "linkUrl": "Link address",
     "imageUrl": "Image address",
     "insert": "Insert",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "tgMarkup": {
+      "underline": "Underline",
+      "spoiler": "Spoiler"
+    }
   },
   "Verify": {
     "enterTitle": "Verify a document",

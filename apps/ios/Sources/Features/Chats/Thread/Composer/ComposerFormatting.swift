@@ -2,17 +2,21 @@ import Foundation
 
 /// Форматирование текста сообщения — разметкой Markdown, которую уже понимают веб
 /// (react-markdown + GFM) и пузырь в приложении (`RichText`): поле ввода остаётся
-/// простым текстом, и черновик, правка и сервер видят ровно то, что уйдёт.
+/// простым текстом, и черновик, правка и сервер видят ровно то, что уйдёт. Подчёркнутый
+/// `++…++` и спойлер `||…||` — маркеры контракта чата сверх CommonMark (PROJECT.md §3.6,
+/// `ChatMarkup`); порядок пунктов — как в меню форматирования Telegram.
 ///
 /// Чистые функции над строкой и выделением (в UTF-16, как `NSRange` у `UITextView`):
 /// поле применяет результат одной заменой, и её можно отменить.
 enum ComposerFormat: CaseIterable, Hashable {
-    case bold, italic, monospace, strikethrough, link, quote, codeBlock
+    case bold, italic, underline, strikethrough, monospace, spoiler, link, quote, codeBlock
 
     var title: String {
         switch self {
         case .bold: String(localized: "chats.format.bold", defaultValue: "Жирный")
         case .italic: String(localized: "chats.format.italic", defaultValue: "Курсив")
+        case .underline: String(localized: "chats.format.underline", defaultValue: "Подчёркнутый")
+        case .spoiler: String(localized: "chats.format.spoiler", defaultValue: "Спойлер")
         case .monospace: String(localized: "chats.format.monospace", defaultValue: "Моноширинный")
         case .strikethrough: String(localized: "chats.format.strikethrough", defaultValue: "Зачёркнутый")
         case .link: String(localized: "chats.format.link", defaultValue: "Ссылка")
@@ -25,6 +29,8 @@ enum ComposerFormat: CaseIterable, Hashable {
         switch self {
         case .bold: "bold"
         case .italic: "italic"
+        case .underline: "underline"
+        case .spoiler: "eye.slash"
         case .monospace: "chevron.left.forwardslash.chevron.right"
         case .strikethrough: "strikethrough"
         case .link: "link"
@@ -38,6 +44,8 @@ enum ComposerFormat: CaseIterable, Hashable {
         switch self {
         case .bold: "**"
         case .italic: "_"
+        case .underline: "++"
+        case .spoiler: "||"
         case .monospace: "`"
         case .strikethrough: "~~"
         case .link, .quote, .codeBlock: nil
