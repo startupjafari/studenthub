@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Archive,
@@ -16,7 +16,6 @@ import {
   Folder,
   FolderCog,
   FolderPlus,
-  Loader2,
   MessageCircleDashed,
   MessagesSquare,
   Pin,
@@ -27,13 +26,11 @@ import {
   ShieldBan,
   Trash2,
   UserRoundSearch,
+  X,
 } from 'lucide-react'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
 import type { DirectoryUser } from '../../../entities/user'
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
   Button,
   EmptyState,
   RowContextMenu,
@@ -45,17 +42,28 @@ import {
 } from '../../../shared/ui'
 import { useBackClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { avatarColor, chatInitials, chatTitle, listTime, senderName } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel, type FolderTab } from '../lib/folders'
 import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
 import { canDeleteChat } from '../lib/chat-kind'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { useChatListActions } from '../lib/use-chat-list-actions'
 import { useListReorder } from '../lib/use-list-reorder'
-import { MessagePreview } from './chat-list-preview'
 import { ChatListRow, isChatUnread } from './chat-list-row'
 import { ChatListArchiveRow } from './chat-list-archive-row'
 import { ChatListFab } from './chat-list-fab'
+import {
+  ChatListSearch,
+  SEARCH_TAB_KEY,
+  SEARCH_TABS,
+  type MsgSearchItem,
+  type SearchTab,
+} from './chat-list-search'
+import {
+  clearRecentSearch,
+  pushRecentSearch,
+  readRecentSearch,
+  removeRecentSearch,
+} from '../lib/recent-search'
 
 // Сроки «Без звука» в меню строки — те же, что в шапке чата (§17).
 const MUTE_OPTIONS: { key: string; minutes?: number }[] = [
@@ -65,15 +73,6 @@ const MUTE_OPTIONS: { key: string; minutes?: number }[] = [
   { key: 'mute3d', minutes: 4320 },
   { key: 'muteForever' },
 ]
-
-// Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
-type MsgSearchItem = {
-  id: string
-  chatId: string
-  content: string
-  createdAt: string
-  sender: { firstName: string; lastName: string }
-}
 
 // Левая колонка (Telegram-стиль §2): заголовок с действиями, единый поиск (чаты + сообщения),
 // список диалогов со свайп-действиями. Презентационный виджет — состояние и мутации в родителе.
@@ -216,7 +215,6 @@ export function ConversationList({
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
   const actionLabelOf = useChatActionLabel()
-  const tRoles = useTranslations('Roles')
   const [folder, setFolder] = useState<string>('folderAll')
   // Единственный вход к человеку — это поле: пустое состояние не уводит в отдельное окно,
   // а ставит курсор сюда же, где ищут чаты.
@@ -224,6 +222,8 @@ export function ConversationList({
   // Поиск свёрнут в иконку, пока его не открыли; с введённым запросом он открыт всегда.
   const [searchOpen, setSearchOpen] = useState(false)
   const searchExpanded = searchOpen || !!searchRaw
+  // Вкладка глобального поиска (Telegram-стиль): чаты, медиа, ссылки, файлы.
+  const [searchTab, setSearchTab] = useState<SearchTab>('chats')
   // Если поле уже на экране — фокус сразу, иначе его даст autoFocus при появлении.
   const openSearch = (): void => {
     setSearchOpen(true)
@@ -232,6 +232,20 @@ export function ConversationList({
   const closeSearch = (): void => {
     onClearSearch()
     setSearchOpen(false)
+    setSearchTab('chats')
+  }
+  // «Недавние» поиска — свои у каждого человека и только в этом браузере (lib/recent-search).
+  const [recentIds, setRecentIds] = useState<string[]>([])
+  useEffect(() => {
+    setRecentIds(readRecentSearch(myId))
+  }, [myId])
+  // Нажатие внутри колонки (вкладка поиска, «недавний» чат) уводит фокус из пустого поля —
+  // сворачивать поиск от такого ухода нельзя: нажатие не дошло бы до цели.
+  const pressInsideRef = useRef(false)
+  const pickFromSearch = (chatId: string, opts?: { remember?: boolean }): void => {
+    if (opts?.remember) setRecentIds(pushRecentSearch(myId, chatId))
+    onOpenChat(chatId)
+    closeSearch()
   }
   // Открытое меню действий строки: id чата + точка нажатия. Одно на список — двух сразу
   // не бывает, и по id же подсвечивается строка, к которой меню относится.
@@ -479,6 +493,12 @@ export function ConversationList({
       onPointerLeave={(e) => {
         if (e.pointerType === 'mouse') setPeek(false)
       }}
+      onPointerDownCapture={() => {
+        pressInsideRef.current = true
+        window.setTimeout(() => {
+          pressInsideRef.current = false
+        }, 300)
+      }}
       onFocus={() => setFocusIn(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIn(false)
@@ -533,9 +553,10 @@ export function ConversationList({
                   closeSearch()
                 }
               }}
-              // Пустое поле, из которого ушли, сворачивается обратно в заголовок.
+              // Пустое поле, из которого ушли, сворачивается обратно в заголовок — если только
+              // уход не нажатие внутри самой колонки (вкладки поиска, «недавние»).
               onBlur={() => {
-                if (!searchRaw) setSearchOpen(false)
+                if (!searchRaw && !pressInsideRef.current) closeSearch()
               }}
               placeholder={t('searchAll')}
               className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-10 text-sm outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
@@ -625,25 +646,38 @@ export function ConversationList({
           у краёв, доводка активной вкладки) приходит вместе с ним. Свои чипы были
           отдельным языком: заливка `bg-primary` целиком и цель в 28px на десктопе. */}
       {showArchive && <ArchiveBackClose onClose={() => setArchiveOpen(false)} />}
-      {searchTerm.length < 2 && chats.length > 0 && !showArchive && (
+      {searchExpanded ? (
+        // Вкладки глобального поиска — на месте ряда папок, тем же SegmentedTabs.
         <div className="flex items-center border-b border-border px-2 py-1">
-          {/* Кнопки настройки рядом с рядом нет: «Настроить папки» живёт в меню шапки.
-              Ряд вкладок — навигация, и постоянная кнопка-шестерёнка на его краю отъедала
-              место у самих папок ровно там, где их и не хватает — на телефоне. */}
           <SegmentedTabs
             className="min-w-0 flex-1"
-            items={folderItems}
-            value={folder}
-            onChange={setFolder}
-            onItemContextMenu={openTabMenu}
-            // Полоса над списком чатов, а не шапка страницы: высоту забирает список.
+            items={SEARCH_TABS.map((tab) => ({ value: tab, label: t(SEARCH_TAB_KEY[tab]) }))}
+            value={searchTab}
+            onChange={setSearchTab}
             compact
-            // Сворачивать нечего: колонка чатов на узком экране занимает весь экран,
-            // и ряд папок — её единственная навигация.
             collapsible={false}
-            aria-label={t('foldersTitle')}
+            aria-label={t('tgList.searchTabs')}
           />
         </div>
+      ) : (
+        chats.length > 0 &&
+        !showArchive && (
+          <div className="flex items-center border-b border-border px-2 py-1">
+            <SegmentedTabs
+              className="min-w-0 flex-1"
+              items={folderItems}
+              value={folder}
+              onChange={setFolder}
+              onItemContextMenu={openTabMenu}
+              // Полоса над списком чатов, а не шапка страницы: высоту забирает список.
+              compact
+              // Сворачивать нечего: колонка чатов на узком экране занимает весь экран,
+              // и ряд папок — её единственная навигация.
+              collapsible={false}
+              aria-label={t('foldersTitle')}
+            />
+          </div>
+        )
       )}
       <div
         key={embedded ? 'list' : activeId ? 'list-hidden' : 'list-visible'}
@@ -655,181 +689,34 @@ export function ConversationList({
           embedded ? 'pb-20' : 'pb-[calc(9rem+env(safe-area-inset-bottom))]',
         )}
       >
-        {searchTerm.length >= 2 ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            {chatMatches.length === 0 &&
-            msgMatches.length === 0 &&
-            peopleMatches.length === 0 &&
-            !msgResultsLoading &&
-            !peopleLoading ? (
-              <div className="flex min-h-0 flex-1 flex-col p-3">
-                <EmptyState
-                  icon={<Search className="size-6" aria-hidden />}
-                  title={t('noResults')}
-                />
-              </div>
-            ) : (
-              <>
-                {chatMatches.length > 0 && (
-                  <div className="flex shrink-0 flex-col">
-                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('title')}
-                    </p>
-                    {chatMatches.map((c) => {
-                      const title = chatTitle(c, t)
-                      const lm = c.lastMessage
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            onOpenChat(c.id)
-                            onClearSearch()
-                          }}
-                          className={cn(
-                            'flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50',
-                            activeId === c.id ? 'bg-primary/10' : '',
-                          )}
-                        >
-                          <Avatar className="size-10 shrink-0">
-                            {c.avatarUrl && <AvatarImage src={c.avatarUrl} alt={title} />}
-                            <AvatarFallback
-                              className={cn('text-xs font-medium text-white', avatarColor(c.id))}
-                            >
-                              {chatInitials(title)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold">{title}</span>
-                            {lm && (
-                              <p className="truncate text-xs text-muted-foreground">
-                                <MessagePreview message={lm} />
-                              </p>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                {(peopleMatches.length > 0 || peopleLoading) && (
-                  <div className="flex shrink-0 flex-col">
-                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('peopleSection')}
-                    </p>
-                    {peopleLoading && peopleMatches.length === 0 ? (
-                      <div className="flex justify-center py-4 text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      </div>
-                    ) : (
-                      peopleMatches.map((u) => {
-                        const name = [u.lastName, u.firstName].filter(Boolean).join(' ')
-                        const busy = startingPersonId === u.id
-                        return (
-                          <button
-                            key={u.id}
-                            type="button"
-                            disabled={startingPersonId !== null}
-                            onClick={() => onOpenPerson(u)}
-                            className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50 disabled:cursor-default disabled:opacity-70"
-                          >
-                            <Avatar className="size-10 shrink-0">
-                              {u.avatarUrl && (
-                                <AvatarImage src={u.avatarThumbUrl ?? u.avatarUrl} alt="" />
-                              )}
-                              <AvatarFallback
-                                className={cn('text-xs font-medium text-white', avatarColor(u.id))}
-                              >
-                                {chatInitials(name)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-semibold">{name}</span>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {[u.headline || tRoles(u.role), u.groupName || u.facultyName]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </p>
-                            </div>
-                            {busy ? (
-                              <Loader2
-                                className="size-4 shrink-0 animate-spin text-muted-foreground"
-                                aria-hidden
-                              />
-                            ) : (
-                              // Другу сообщение уйдёт сразу — помечаем только тех, кому
-                              // сначала уйдёт запрос: об этом лучше знать до клика.
-                              !u.isFriend && (
-                                <span className="shrink-0 text-[0.7rem] text-muted-foreground">
-                                  {t('willRequest')}
-                                </span>
-                              )
-                            )}
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                )}
-                {(msgMatches.length > 0 || msgResultsLoading) && (
-                  <div className="flex shrink-0 flex-col">
-                    <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('messagesSection')}
-                    </p>
-                    {msgResultsLoading ? (
-                      <div className="flex justify-center py-4 text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      </div>
-                    ) : (
-                      msgMatches.map((m) => {
-                        const chat = chatById.get(m.chatId)
-                        const chatName = chat ? chatTitle(chat, t) : t('typePrivate')
-                        return (
-                          <button
-                            key={m.id}
-                            type="button"
-                            onClick={() => {
-                              onOpenChat(m.chatId)
-                              onClearSearch()
-                            }}
-                            className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-muted/50"
-                          >
-                            <Avatar className="size-10 shrink-0">
-                              {chat?.avatarUrl && (
-                                <AvatarImage src={chat.avatarUrl} alt={chatName} />
-                              )}
-                              <AvatarFallback
-                                className={cn(
-                                  'text-xs font-medium text-white',
-                                  avatarColor(m.chatId),
-                                )}
-                              >
-                                {chatInitials(chatName)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                                  {chatName}
-                                </span>
-                                <span className="shrink-0 text-[0.7rem] text-muted-foreground">
-                                  {listTime(m.createdAt, locale)}
-                                </span>
-                              </div>
-                              <p className="truncate text-xs text-muted-foreground">
-                                <span className="text-foreground/70">{senderName(m)}: </span>
-                                <MessagePreview message={m} />
-                              </p>
-                            </div>
-                          </button>
-                        )
-                      })
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+        {searchExpanded ? (
+          <ChatListSearch
+            tab={searchTab}
+            term={searchTerm}
+            activeId={activeId}
+            locale={locale}
+            chats={chats}
+            chatById={chatById}
+            chatMatches={chatMatches}
+            msgMatches={msgMatches}
+            msgResultsLoading={msgResultsLoading}
+            peopleMatches={peopleMatches}
+            peopleLoading={peopleLoading}
+            startingPersonId={startingPersonId}
+            onOpenPerson={(u) => {
+              // Поиск закроется сам, когда переписка заведётся и родитель очистит запрос.
+              setSearchOpen(false)
+              setSearchTab('chats')
+              onOpenPerson(u)
+            }}
+            onPickChat={pickFromSearch}
+            recentIds={recentIds}
+            onClearRecent={() => {
+              clearRecentSearch(myId)
+              setRecentIds([])
+            }}
+            onRemoveRecent={(id) => setRecentIds(removeRecentSearch(myId, id))}
+          />
         ) : chatsLoading ? (
           // Пока список едет — пусто. Скелетон-заглушка рисовала десять несуществующих
           // строк, которые тут же сменялись настоящими: мельтешение вместо ожидания.

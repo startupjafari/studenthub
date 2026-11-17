@@ -80,8 +80,17 @@ export function previewThumbOf(message: PreviewMessage | null): MessageAttachmen
  * каждом открытии. Кэш ссылки общий с перепиской: ключ тот же, что у вложений сообщений.
  * Спойлер в списке остаётся спойлером — размытым.
  */
-export function PreviewThumb({ att, className }: { att: MessageAttachment; className?: string }) {
-  const needLink = !att.placeholder
+export function PreviewThumb({
+  att,
+  large = false,
+  className,
+}: {
+  att: MessageAttachment
+  /** Плитка сетки (поиск по медиа), а не значок в строке: ссылку грузим всегда, копию по ширине. */
+  large?: boolean
+  className?: string
+}) {
+  const needLink = large || !att.placeholder
   const link = useQuery({
     queryKey: ['chat-attachment', att.id],
     queryFn: () => fetchAttachmentLink(att.id),
@@ -90,8 +99,10 @@ export function PreviewThumb({ att, className }: { att: MessageAttachment; class
     gcTime: 15 * 60 * 1000,
   })
   const isVideo = att.mime.startsWith('video/')
-  const small = isVideo ? link.data?.poster[0] : link.data?.sources[0]
-  const src = needLink ? (small?.url ?? (isVideo ? undefined : link.data?.url)) : undefined
+  const data = needLink ? link.data : undefined
+  const variants = (isVideo ? data?.poster : data?.sources) ?? []
+  // Оригинал — запасной кандидат srcset; у видео оригинал — ролик, картинкой он не станет.
+  const src = isVideo ? variants[variants.length - 1]?.url : data?.url
   return (
     <span
       className={cn(
@@ -102,14 +113,18 @@ export function PreviewThumb({ att, className }: { att: MessageAttachment; class
     >
       <MediaImage
         src={src}
-        media={{ placeholder: att.placeholder }}
+        media={{
+          placeholder: att.placeholder,
+          sources: variants,
+          width: isVideo ? null : att.width,
+        }}
         alt=""
-        sizes="20px"
-        className={cn('size-full', att.spoiler && 'blur-[2px]')}
+        sizes={large ? '(max-width: 640px) 33vw, 120px' : '20px'}
+        className={cn('size-full', att.spoiler && (large ? 'blur-xl' : 'blur-[2px]'))}
       />
       {isVideo && (
         <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
-          <Play className="size-2.5 fill-current" />
+          <Play className={cn('fill-current', large ? 'size-6' : 'size-2.5')} />
         </span>
       )}
     </span>
