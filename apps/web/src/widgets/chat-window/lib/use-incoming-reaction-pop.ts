@@ -2,9 +2,21 @@
 
 import { useRef } from 'react'
 import { useRealtimeEvent } from '../../../shared/realtime'
-import type { ChatMessage } from '../../../entities/chat'
-import { newForeignReactions } from './message-list-unread'
+import type { ChatMessage, MessageReaction } from '../../../entities/chat'
 import { popReactionChips } from './reaction-flight'
+
+const reactionKey = (r: Pick<MessageReaction, 'userId' | 'emoji'>): string =>
+  `${r.userId}:${r.emoji}`
+
+/** Чужие реакции, которых не было в прошлой версии сообщения. */
+export function newForeignReactions(
+  before: readonly MessageReaction[] | undefined,
+  after: readonly MessageReaction[],
+  myId: string | undefined,
+): MessageReaction[] {
+  const known = new Set((before ?? []).map(reactionKey))
+  return after.filter((r) => r.userId !== myId && !known.has(reactionKey(r)))
+}
 
 /**
  * Пришедшая чужая реакция на моё сообщение — короткое подпрыгивание её чипа (Telegram).

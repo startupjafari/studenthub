@@ -48,7 +48,7 @@ describe('useForwardDraft — пересылка над полем ввода (�
     const { result, rerender } = setup('c2')
     act(() => result.current.start('c2', [later, earlier]))
     expect(result.current.active?.messages.map((m) => m.id)).toEqual(['m1', 'm2'])
-    rerender({ activeId: 'c3' })
+    rerender({ activeId: 'c3', replyToId: undefined })
     expect(result.current.active).toBeNull()
     expect(result.current.draft).not.toBeNull()
   })
