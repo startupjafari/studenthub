@@ -57,6 +57,8 @@ import { ExportRegistryService } from '../../common/export/export-registry.servi
 import type { ExportContext } from '../../common/export/export-branding.types'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { lastMessagesOf } from './last-message'
+import { mentionsName } from './chat-mentions'
+import type { ChatAttentionCounts, ChatAttentionHook } from './chat-attention.types'
 import { CHECKLIST_SELECT, toChecklistDto, type ChecklistDto } from './checklist-dto'
 
 /** Проголосовавший в неанонимном опросе (§39). */
@@ -865,6 +867,41 @@ export class ChatsService implements OnModuleInit {
   }
 
   /**
+   * Непрочитанные упоминания и реакции (ChatAttentionService). Регистрируется при старте
+   * модуля, как правила поддержки: тот сервис сам зависит от этого.
+   */
+  private attentionHook: ChatAttentionHook | null = null
+
+  registerAttentionHook(hook: ChatAttentionHook): void {
+    this.attentionHook = hook
+  }
+
+  /** Вызвать хук непрочитанных упоминаний: его сбой основное действие не роняет. */
+  private async withAttention(
+    what: string,
+    run: (hook: ChatAttentionHook) => Promise<void>,
+  ): Promise<void> {
+    const hook = this.attentionHook
+    if (!hook) return
+    await run(hook).catch((error: unknown) => {
+      this.logger.warn({ err: error }, `Непрочитанные упоминания и реакции: ${what} не применилось`)
+    })
+  }
+
+  /**
+   * Какие сообщения чата видит участник (очистка «у себя», скрытые по одному) — для выдач
+   * вне истории: «к следующему упоминанию» и т.п. Не участник — WRONG_SCOPE, как у истории.
+   */
+  async visibleMessagesWhere(userId: string, chatId: string): Promise<Prisma.MessageWhereInput> {
+    await this.assertMembership(userId, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId } },
+      select: CLEARED_SELECT,
+    })
+    return { chatId, deletedAt: null, ...viewerWhere(mem, userId) }
+  }
+
+  /**
    * Кому сообщать о присутствии, решает домен чатов: транспорт про собеседников и комнаты
    * ничего не знает, а обратная зависимость шлюза от этого сервиса замкнула бы кольцо.
    */
@@ -1161,9 +1198,41 @@ export class ChatsService implements OnModuleInit {
               OR: countBranches,
             },
             _count: { _all: true },
+            // Первое непрочитанное (P.8): клиент открывает чат на нём, даже если до него
+            // больше страницы истории, — без отдельного запроса на чат.
+            _min: { seq: true },
           })
         : []
     const countMap = new Map(grouped.map((g) => [g.chatId, g._count._all]))
+    const firstUnreadSeqs = grouped.flatMap((g) =>
+      g._min.seq != null ? [{ chatId: g.chatId, seq: g._min.seq }] : [],
+    )
+    const [firstUnreadRows, attention] = await Promise.all([
+      firstUnreadSeqs.length > 0
+        ? this.prisma.message.findMany({
+            // По уникальному индексу [chatId, seq] — одна строка на чат.
+            where: { OR: firstUnreadSeqs },
+            select: { id: true, chatId: true },
+            take: firstUnreadSeqs.length,
+          })
+        : [],
+      // Непрочитанные упоминания и реакции — одним запросом на страницу.
+      this.attentionHook
+        ? this.attentionHook
+            .countsFor(
+              viewer.sub,
+              chats.map((c) => ({
+                chatId: c.id,
+                messageWhere: clearedWhere(c.members[0] ?? null),
+              })),
+            )
+            .catch((error: unknown) => {
+              this.logger.warn({ err: error }, 'Счётчики упоминаний и реакций не посчитались')
+              return new Map<string, ChatAttentionCounts>()
+            })
+        : new Map<string, ChatAttentionCounts>(),
+    ])
+    const firstUnreadMap = new Map(firstUnreadRows.map((r) => [r.chatId, r.id]))
 
     return chats.map((c) => {
       const mem = c.members[0]
@@ -1190,6 +1259,13 @@ export class ChatsService implements OnModuleInit {
         lastMessage,
         unread,
         unreadCount,
+        // Первое непрочитанное сообщение (чужое, новее отметки прочтения) — чат открывается
+        // на нём (GET /chats/:id/messages?around=…). null — непрочитанного нет.
+        firstUnreadId: unreadCount > 0 ? (firstUnreadMap.get(c.id) ?? null) : null,
+        // Непрочитанные упоминания меня (и ответы мне) и чужие реакции на мои сообщения —
+        // значки «@» и «♥» в списке, кнопки-переходы в ленте (Telegram).
+        unreadMentionsCount: attention.get(c.id)?.unreadMentionsCount ?? 0,
+        unreadReactionsCount: attention.get(c.id)?.unreadReactionsCount ?? 0,
         muted: mem ? isMemberMuted(mem) : false,
         // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
         mutedImportantOnly: mem?.muteImportantOnly ?? false,
@@ -2626,10 +2702,10 @@ export class ChatsService implements OnModuleInit {
    * Кому из заглушённых с режимом «только важные» (§17) сообщение всё равно адресовано:
    * ответ на его сообщение или упоминание его по имени.
    *
-   * Упоминания в чате — обычный текст, отдельной сущности у них нет: композер вставляет
-   * «@Фамилия Имя», поэтому по этой же строке и ищем (плюс обратный порядок — набрать руками
-   * можно как угодно). Имена подтягиваем только для тех, у кого включён режим, и только если
-   * в сообщении вообще есть «@»: на каждое сообщение в чате лишний join не нужен.
+   * Упоминания в чате — обычный текст, отдельной сущности у них нет; правило совпадения —
+   * `mentionsName` (chat-mentions.ts), общее с непрочитанными упоминаниями. Имена подтягиваем
+   * только для тех, у кого включён режим, и только если в сообщении вообще есть «@»: на каждое
+   * сообщение в чате лишний join не нужен.
    */
   private async importantRecipients(
     members: ChatMemberNotifyRow[],
@@ -2654,11 +2730,8 @@ export class ChatsService implements OnModuleInit {
       select: { id: true, firstName: true, lastName: true },
       take: candidates.length,
     })
-    const text = message.content.toLowerCase()
     for (const u of users) {
-      const asComposed = `@${u.lastName} ${u.firstName}`.toLowerCase()
-      const reversed = `@${u.firstName} ${u.lastName}`.toLowerCase()
-      if (text.includes(asComposed) || text.includes(reversed)) out.add(u.id)
+      if (mentionsName(message.content, u)) out.add(u.id)
     }
     return out
   }
@@ -3408,6 +3481,11 @@ export class ChatsService implements OnModuleInit {
       where: { id: chatId },
       select: { type: true, requestPendingForId: true },
     })
+    // Упоминания и ответы — непрочитанные «@» адресатов, в том числе у «без звука» и у тех,
+    // кто сейчас смотрит чат: у них упоминание погасит показ сообщения в ленте.
+    await this.withAttention('отправка', (h) =>
+      h.onMessageSent({ chatId, chatType: chat?.type ?? null, message }),
+    )
     const pendingFor = await this.resolveChatRequest(
       chatId,
       senderId,
@@ -3531,8 +3609,12 @@ export class ChatsService implements OnModuleInit {
     if (linkChanged) {
       await this.enqueueLinkPreview(messageId, updated.chatId, content, editedAt.getTime())
     }
+    const edited = toClientMessage(updated)
+    await this.withAttention('правка', (h) =>
+      h.onMessageEdited({ chatId: updated.chatId, message: edited, previousContent: msg.content }),
+    )
     await this.pingListsIfLatest(updated.chatId, updated.seq)
-    return toClientMessage(updated)
+    return edited
   }
 
   /**
@@ -3551,6 +3633,9 @@ export class ChatsService implements OnModuleInit {
       throw new AppException('WRONG_SCOPE', 'Можно удалять только свои сообщения')
     await this.assertMembership(senderId, msg.chatId)
     await this.prisma.message.update({ where: { id: messageId }, data: { deletedAt: new Date() } })
+    await this.withAttention('удаление', (h) =>
+      h.onMessagesGone({ chatId: msg.chatId, messageIds: [messageId] }),
+    )
     await this.pingListsIfLatest(msg.chatId, msg.seq)
     return { chatId: msg.chatId }
   }
@@ -3594,6 +3679,9 @@ export class ChatsService implements OnModuleInit {
       for (const messageId of deletedIds) {
         this.realtime.emitToRoom(`chat:${chatId}`, 'message:deleted', { messageId, chatId })
       }
+      await this.withAttention('удаление', (h) =>
+        h.onMessagesGone({ chatId, messageIds: deletedIds }),
+      )
       await this.pingListsIfLatest(chatId, Math.max(...own.map((m) => m.seq)))
     }
     const deleted = new Set(deletedIds)
@@ -3625,6 +3713,9 @@ export class ChatsService implements OnModuleInit {
         skipDuplicates: true,
       })
       this.realtime.emitToUser(userId, 'message:hidden', { chatId, messageIds: hiddenIds })
+      await this.withAttention('скрытие', (h) =>
+        h.onMessagesGone({ chatId, messageIds: hiddenIds, userId }),
+      )
       // Скрыли последнее — превью в списке сменится; сигнал только себе.
       this.realtime.emitToUser(userId, 'chat:activity', { chatId })
     }
@@ -3748,6 +3839,8 @@ export class ChatsService implements OnModuleInit {
     for (const { last: lm } of advance) {
       this.realtime.emitToUser(userId, 'chat:read', { chatId: lm.chatId, readAt: lm.createdAt })
     }
+    // «Прочитать» чат целиком — как в Telegram: упоминания и реакции в нём тоже прочитаны.
+    await this.withAttention('прочтение', (h) => h.onChatsRead({ userId, chatIds: memberChatIds }))
     const moved = new Set(advance.map((a) => a.member.chatId))
     this.emitListChanged(
       userId,
@@ -4128,7 +4221,7 @@ export class ChatsService implements OnModuleInit {
     // Без него двойной клик гнал два запроса: оба видели «реакции нет», второй create
     // падал на @@unique([messageId, userId, emoji]) — 500, а снятие той же реакции
     // дважды роняло delete по уже удалённой строке.
-    await this.prisma.$transaction(async (tx) => {
+    const added = await this.prisma.$transaction(async (tx) => {
       await advisoryXactLock(tx, `chat-reaction:${messageId}:${userId}`)
       const existing = await tx.messageReaction.findMany({
         where: { messageId, userId },
@@ -4139,7 +4232,7 @@ export class ChatsService implements OnModuleInit {
       if (same) {
         // Повтор той же реакции — снять.
         await tx.messageReaction.deleteMany({ where: { id: same.id } })
-        return
+        return false
       }
       // Поставить можно любой ОДИН эмодзи (Telegram-стиль), но не текст: схема это уже
       // проверила, здесь — страховка для вызова мимо неё. Снять свою прежнюю (выше) — любую.
@@ -4151,7 +4244,11 @@ export class ChatsService implements OnModuleInit {
         await tx.messageReaction.deleteMany({ where: { messageId, userId } })
       }
       await tx.messageReaction.create({ data: { messageId, userId, emoji } })
+      return true
     })
+    await this.withAttention('реакция', (h) =>
+      h.onReactionChanged({ chatId: msg.chatId, messageId, reactorId: userId, added }),
+    )
     const message = toClientMessage(
       await this.prisma.message.findUniqueOrThrow({
         where: { id: messageId },
@@ -5722,6 +5819,7 @@ export class ChatsService implements OnModuleInit {
         where: { chatId, userId: actor.sub },
         data: { clearedAt: new Date(), clearedRanges: Prisma.DbNull },
       })
+      await this.withAttention('очистка', (h) => h.onHistoryCleared({ chatId, userId: actor.sub }))
       return { chatId, cleared: true }
     }
     const mem = await this.prisma.chatMember.findUnique({
@@ -5746,6 +5844,7 @@ export class ChatsService implements OnModuleInit {
         clearedRanges: kept.map((r) => ({ from: r.from.toISOString(), to: r.to.toISOString() })),
       },
     })
+    await this.withAttention('очистка', (h) => h.onHistoryCleared({ chatId, userId: actor.sub }))
     return { chatId, cleared: true }
   }
 

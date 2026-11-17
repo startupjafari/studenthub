@@ -19,6 +19,8 @@ import { ChatStickersController } from './chat-stickers.controller'
 import { StickerSetsAdminController } from './sticker-sets-admin.controller'
 import { ChatGifsService } from './chat-gifs.service'
 import { ChatGifsController } from './chat-gifs.controller'
+import { ChatAttentionService } from './chat-attention.service'
+import { ChatAttentionController } from './chat-attention.controller'
 
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
@@ -32,6 +34,7 @@ import { ChatGifsController } from './chat-gifs.controller'
     ChatChecklistsController,
     ChatStickersController,
     ChatGifsController,
+    ChatAttentionController,
     ChatsController,
     SupportController,
     StickerSetsAdminController,
@@ -46,6 +49,7 @@ import { ChatGifsController } from './chat-gifs.controller'
     ChatChecklistsService,
     ChatStickersService,
     ChatGifsService,
+    ChatAttentionService,
   ],
   exports: [ChatsService, SupportService],
 })
