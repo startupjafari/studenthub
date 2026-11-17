@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { PromptDialog } from './prompt-dialog'
 import { useScrollRow } from '../lib/use-scroll-row'
+import { lastGraphemeLength } from '../lib/grapheme'
 import { cn } from '../lib/utils'
 import {
   MARKDOWN_ACTIONS_TEXT,
@@ -282,6 +283,27 @@ export function RichTextEditor({
         editor.chain().focus().insertContentAt({ from, to }, { type: 'text', text }).run()
       },
       textBefore: () => editor.state.doc.textBetween(0, editor.state.selection.from, '\n', '\n'),
+      deleteBackward: () => {
+        const { selection } = editor.state
+        if (!selection.empty) {
+          editor.chain().focus().deleteSelection().run()
+          return
+        }
+        const { $from } = selection
+        // Текст абзаца до курсора; неотекстовый узел (перенос строки) — одним знаком, как
+        // и в позициях редактора, чтобы длина графемы совпала с диапазоном удаления.
+        const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+        if (!before) {
+          editor.chain().focus().joinBackward().run()
+          return
+        }
+        const length = lastGraphemeLength(before)
+        editor
+          .chain()
+          .focus()
+          .deleteRange({ from: selection.from - length, to: selection.from })
+          .run()
+      },
     }
     return () => {
       handle.current = null
