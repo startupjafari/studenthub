@@ -1174,6 +1174,12 @@
     "byteUnitGb": "ГБ",
     "breadcrumb": "Навигационная цепочка",
     "mediaViewer": "Просмотр файла",
+    "tgMedia": {
+      "counter": "{current} из {total}",
+      "zoomIn": "Увеличить",
+      "zoomOut": "Уменьшить",
+      "more": "Ещё"
+    },
     "phoneIncomplete": "Наберите номер полностью: +7 (777) 777-77-77"
   },
   "Auth": {

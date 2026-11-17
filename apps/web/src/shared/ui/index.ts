@@ -99,6 +99,7 @@ export { AppSplash } from './app-splash'
 export {
   MediaViewer,
   VIEWER_ICON_BUTTON,
+  type MediaViewerAction,
   type MediaViewerItem,
   type MediaViewerMedia,
 } from './media-viewer'

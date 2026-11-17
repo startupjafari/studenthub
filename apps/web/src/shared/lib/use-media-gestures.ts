@@ -24,8 +24,9 @@ import {
 //  · любую доводку можно поймать пальцем и продолжить жест оттуда.
 //
 // Какой это жест, решается один раз в начале: два пальца — зум; один палец по увеличенному
-// снимку — панорамирование; один палец поперёк по вписанному — листание. Вертикаль
-// просмотрщику не принадлежит.
+// снимку — панорамирование; один палец поперёк по вписанному — листание; один палец вдоль
+// по вписанному — смахивание (закрыть, как в Telegram), если просмотрщик его попросил
+// (`onDismiss`). Без него вертикаль просмотрщику не принадлежит.
 //
 // Два элемента: `surfaceRef` — область, которая ловит касания и задаёт видимое окно;
 // `layerRef` — слой внутри неё, к которому применяется `translate + scale`. Слой обёрнут
@@ -68,11 +69,19 @@ const PAN_RESPONSE = 0.4
  */
 const PAGE_DAMPING = 1
 const PAGE_RESPONSE = 0.22
+/**
+ * Доля высоты окна, за которой отпускание смахиванием закрывает просмотрщик. Решает
+ * спроецированная точка (§6): короткий резкий флик закрывает, вялое перетаскивание на ту же
+ * дистанцию — возвращает кадр на место.
+ */
+const DISMISS_FRACTION = 0.2
+/** Шаг кнопок «приблизить / отдалить» — заметный, но не прыжок через весь диапазон. */
+const ZOOM_STEP = 1.6
 
 /** Жест не начинается на этой разметке: у контролов плеера свои касания. */
 const SKIP_ATTR = 'data-gesture-skip'
 
-type Mode = 'idle' | 'zoom' | 'page' | 'none'
+type Mode = 'idle' | 'zoom' | 'page' | 'dismiss' | 'none'
 
 interface Point {
   x: number
@@ -89,6 +98,17 @@ export interface MediaGesturesOptions {
   canPage?: (direction: 1 | -1) => boolean
   /** Пролистать. Вызывается, когда уходящий кадр доехал до края. */
   onPage?: (direction: 1 | -1) => void
+  /**
+   * Смахнули кадр вверх или вниз — закрыть. Слой остаётся там, куда его дотащили: доводку
+   * (полёт обратно в миниатюру или за край) делает просмотрщик, начиная с этого места.
+   * Нет колбэка — вертикальный жест не наш, как раньше.
+   */
+  onDismiss?: (direction: 1 | -1, velocity: number) => void
+  /**
+   * Насколько кадр утащен смахиванием, 0…1 (доля высоты окна). Зовётся на каждом кадре
+   * жеста и возврата — по ней просмотрщик гасит фон и панели, без ререндера.
+   */
+  onDismissProgress?: (progress: number) => void
 }
 
 export interface MediaGesturesController {
@@ -98,6 +118,12 @@ export interface MediaGesturesController {
   layerRef: RefObject<HTMLDivElement | null>
   /** Вернуть 1:1 — при смене снимка и повороте. */
   reset: () => void
+  /** Приблизить (`1`) или отдалить (`-1`) на шаг от центра окна — кнопки в шапке. */
+  zoomStep: (direction: 1 | -1) => void
+  /** Текущий масштаб: стрелки клавиатуры не листают увеличенный снимок (как в Telegram). */
+  getScale: () => number
+  /** Погасить все доводки — перед анимацией закрытия, чтобы пружина не перетёрла её. */
+  stop: () => void
 }
 
 const distance = (a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y)
@@ -108,18 +134,27 @@ export function useMediaGestures({
   maxScale = MAX_SCALE,
   canPage,
   onPage,
+  onDismiss,
+  onDismissProgress,
 }: MediaGesturesOptions): MediaGesturesController {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const layerRef = useRef<HTMLDivElement | null>(null)
   // Сброс приходит из эффекта, но вызывают его снаружи — прокладка, чтобы возвращаемая
   // функция не менялась между рендерами.
   const resetRef = useRef<() => void>(() => {})
+  const zoomStepRef = useRef<(direction: 1 | -1) => void>(() => {})
+  const scaleRef = useRef<() => number>(() => 1)
+  const stopRef = useRef<() => void>(() => {})
   // Листание через ref, а не через зависимости эффекта: колбэки меняются на каждой смене
   // кадра, а пересоздание слушателей посреди жеста обрывало бы доводку.
   const canPageRef = useRef(canPage)
   const onPageRef = useRef(onPage)
+  const onDismissRef = useRef(onDismiss)
+  const onDismissProgressRef = useRef(onDismissProgress)
   canPageRef.current = canPage
   onPageRef.current = onPage
+  onDismissRef.current = onDismiss
+  onDismissProgressRef.current = onDismissProgress
 
   useEffect(() => {
     const surface = surfaceRef.current
@@ -135,6 +170,11 @@ export function useMediaGestures({
       if (!layer) return
       layer.style.transform =
         sc === 1 && px === 0 && py === 0 ? '' : `translate3d(${px}px, ${py}px, 0) scale(${sc})`
+      // Вертикальный сдвиг вписанного кадра — это смахивание (или возврат после него):
+      // сообщаем, насколько он утащен. У увеличенного снимка вертикаль — панорама, не наша.
+      if (sc === 1) {
+        onDismissProgressRef.current?.(Math.min(1, Math.abs(py) / (surface.clientHeight || 1)))
+      }
     }
 
     // Три независимые пружины, а не одна на «расстояние»: по осям разные скорости, и общая
@@ -340,9 +380,21 @@ export function useMediaGestures({
         const dx = Math.abs(p.x - startPoint.x)
         const dy = Math.abs(p.y - startPoint.y)
         if (dx < MOVE_SLOP && dy < MOVE_SLOP) return
-        mode = dx > dy * PAGE_BIAS ? 'page' : 'none'
+        mode =
+          dx > dy * PAGE_BIAS
+            ? 'page'
+            : onDismissRef.current && list.length === 1 && dy > dx
+              ? 'dismiss'
+              : 'none'
       }
       if (mode === 'none') return
+
+      if (mode === 'dismiss') {
+        // Кадр идёт ровно за пальцем по вертикали (1:1, §2): закрыть можно в обе стороны,
+        // как в Telegram, — границы у этого хода нет, резина не нужна.
+        apply(1, 0, p.y - startPoint.y)
+        return
+      }
 
       if (mode === 'page') {
         const dx = p.x - startPoint.x
@@ -408,6 +460,23 @@ export function useMediaGestures({
       // Не долистали — кадр возвращается на место своим обычным, мягким ходом.
       tunePan(false)
       panX.to(0, v)
+    }
+
+    const settleDismiss = (): void => {
+      const h = surface.clientHeight || 1
+      const v = velocityFrom(historyY)
+      const projected = py + projectMomentum(v)
+      if (Math.abs(projected) >= h * DISMISS_FRACTION && onDismissRef.current) {
+        // Слой не трогаем: просмотрщик уводит кадр отсюда, со скоростью пальца.
+        onDismissRef.current(projected < 0 ? -1 : 1, v)
+        return
+      }
+      if (prefersReducedMotion()) {
+        apply(1, 0, 0)
+        return
+      }
+      // Не дотянули — кадр возвращается с той скоростью, с какой его отпустили (§5).
+      panY.to(0, v)
     }
 
     const settleZoom = (): void => {
@@ -511,6 +580,7 @@ export function useMediaGestures({
         return
       }
       if (mode === 'page') settlePage()
+      else if (mode === 'dismiss') settleDismiss()
       else if (mode === 'zoom') settleZoom()
     }
 
@@ -546,6 +616,24 @@ export function useMediaGestures({
       apply(1, 0, 0)
     }
     resetRef.current = reset
+    zoomStepRef.current = (direction) => {
+      if (zoomDisabled) return
+      const r = surface.getBoundingClientRect()
+      const target = Math.min(
+        maxScale,
+        Math.max(1, direction === 1 ? sc * ZOOM_STEP : sc / ZOOM_STEP),
+      )
+      // Почти 1 — это 1: иначе после трёх шагов туда и обратно снимок застревал бы на 1.02.
+      zoomTo(target < 1.05 ? 1 : target, r.left + r.width / 2, r.top + r.height / 2)
+    }
+    scaleRef.current = () => sc
+    stopRef.current = () => {
+      points.clear()
+      pendingPage = null
+      scale.stop()
+      panX.stop()
+      panY.stop()
+    }
 
     surface.addEventListener('pointerdown', onPointerDown)
     surface.addEventListener('pointermove', onPointerMove)
@@ -559,6 +647,9 @@ export function useMediaGestures({
     surface.addEventListener('gesturechange', blockNativeZoom)
     return () => {
       resetRef.current = () => {}
+      zoomStepRef.current = () => {}
+      scaleRef.current = () => 1
+      stopRef.current = () => {}
       scale.stop()
       panX.stop()
       panY.stop()
@@ -575,6 +666,12 @@ export function useMediaGestures({
   }, [content, zoomDisabled, maxScale])
 
   const reset = useCallback((): void => resetRef.current(), [])
+  const zoomStep = useCallback((direction: 1 | -1): void => zoomStepRef.current(direction), [])
+  const getScale = useCallback((): number => scaleRef.current(), [])
+  const stop = useCallback((): void => stopRef.current(), [])
 
-  return useMemo(() => ({ surfaceRef, layerRef, reset }), [reset])
+  return useMemo(
+    () => ({ surfaceRef, layerRef, reset, zoomStep, getScale, stop }),
+    [reset, zoomStep, getScale, stop],
+  )
 }
