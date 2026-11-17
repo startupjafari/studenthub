@@ -2259,8 +2259,8 @@ textarea.field {
 }
 
 /* Спойлер (PROJECT.md §3.6): до касания текст прозрачен, поверх — точки цвета реплики,
-   сдвигающиеся навстречу друг другу, как частицы спойлера в Telegram. Содержимое не
-   принимает касаний — ссылка внутри скрытого спойлера не откроется раньше него самого. */
+   сдвигающиеся навстречу друг другу, как частицы спойлера в Telegram. Содержимое — inert
+   (ui/message-text.tsx): ссылка внутри скрытого спойлера не откроется раньше него самого. */
 .msg-spoiler[data-hidden] {
   cursor: pointer;
   user-select: none;
@@ -2276,6 +2276,7 @@ textarea.field {
   animation: msg-spoiler-drift 2.4s linear infinite;
 }
 
+/* pointer-events — запас для WebView без inert (iOS до 15.5). */
 .msg-spoiler[data-hidden] > span {
   opacity: 0;
   pointer-events: none;

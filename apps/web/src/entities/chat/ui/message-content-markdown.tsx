@@ -154,7 +154,9 @@ function Spoiler({ children }: { children?: ReactNode }) {
         reveal()
       }}
     >
-      <span className="message-spoiler-text" aria-hidden>
+      {/* inert: скрытое не читается скринридером и не берёт фокус (ссылка внутри) —
+          щелчок и Tab достаются самой кнопке спойлера. */}
+      <span className="message-spoiler-text" inert>
         {children}
       </span>
     </span>

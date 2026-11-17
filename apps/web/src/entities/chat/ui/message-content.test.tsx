@@ -129,7 +129,7 @@ describe('MessageContent — подчёркнутый и спойлер', () => 
     // Скринридер не читает текст до открытия: внутренность скрыта, у кнопки — подпись.
     const first = c.querySelector('[data-hidden]') as HTMLElement
     expect(first.getAttribute('role')).toBe('button')
-    expect(first.querySelector('[aria-hidden]')?.textContent).toBe('42')
+    expect(first.querySelector('[inert]')?.textContent).toBe('42')
     fireEvent.click(first)
     expect(c.querySelectorAll('[data-hidden]')).toHaveLength(0)
     expect(c.textContent).toBe('ответ 42 и 43')

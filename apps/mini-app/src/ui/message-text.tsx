@@ -63,7 +63,6 @@ export function MessageText({ content }: { content: string }) {
               className="msg-spoiler"
               data-hidden=""
               onClick={(event) => {
-                // Ссылка внутри скрытого спойлера не открывается: первое касание — открыть.
                 event.preventDefault()
                 event.stopPropagation()
                 setRevealed(true)
@@ -74,7 +73,9 @@ export function MessageText({ content }: { content: string }) {
                 setRevealed(true)
               }}
             >
-              <span aria-hidden>{render(parseMessage(token.text))}</span>
+              {/* inert: скрытое не читается скринридером, не берёт фокус и касания —
+                  ссылка внутри не откроется раньше самого спойлера. */}
+              <span inert>{render(parseMessage(token.text))}</span>
             </span>
           )
         default:
