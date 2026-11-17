@@ -32,6 +32,7 @@ import type {
 import {
   CHAT_CHECKLIST_LIMITS,
   CLEARED_RANGES_MAX,
+  chatCountsViews,
   isSingleEmoji,
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
@@ -294,6 +295,7 @@ function chatListSelect(viewerId: string) {
         clearedAt: true,
         clearedRanges: true,
         draft: true,
+        draftAt: true,
         pinnedAt: true,
         pinnedOrder: true,
         markedUnreadAt: true,
@@ -399,6 +401,16 @@ export type LocationDto = Prisma.ChatLocationGetPayload<{ select: typeof LOCATIO
 /** Как часто сервер принимает новую точку трансляции (чаще — ответ без изменений). */
 const LIVE_LOCATION_MIN_INTERVAL_MS = 3000
 
+/** Первое вложение оригинала в цитате ответа — только то, что нужно миниатюре. */
+const REPLY_MEDIA_SELECT = {
+  id: true,
+  mime: true,
+  placeholder: true,
+  spoiler: true,
+  asDocument: true,
+  videoNote: true,
+} satisfies Prisma.FileSelect
+
 const MESSAGE_SELECT = {
   id: true,
   chatId: true,
@@ -426,6 +438,8 @@ const MESSAGE_SELECT = {
       name: true,
       spoiler: true,
       asDocument: true,
+      // Кружок: клиент рисует ролик кругом без пузыря (превью без звука, по нажатию — со звуком).
+      videoNote: true,
       width: true,
       height: true,
       ...MEDIA_PREVIEW_SELECT,
@@ -437,8 +451,19 @@ const MESSAGE_SELECT = {
   silent: true,
   // deletedAt — чтобы цитату удалённого оригинала вычистить перед отдачей (см. toClientMessage)
   // и показать клиенту «сообщение удалено» вместо пустого блока.
+  // media — первое вложение оригинала для миниатюры в цитате (как в Telegram): id для ссылки
+  // (GET /chats/attachments/:id/url — оригинал в том же чате, членство то же), mime для вида,
+  // placeholder (LQIP) — чтобы миниатюра была видна ещё до запроса ссылки. Одно, а не все:
+  // в цитате помещается один квадратик.
   replyTo: {
-    select: { id: true, content: true, senderId: true, deletedAt: true, sender: SENDER_SELECT },
+    select: {
+      id: true,
+      content: true,
+      senderId: true,
+      deletedAt: true,
+      sender: SENDER_SELECT,
+      media: { select: REPLY_MEDIA_SELECT, orderBy: { createdAt: 'asc' }, take: 1 },
+    },
   },
   forwardedFrom: {
     select: { id: true, senderId: true, sender: SENDER_SELECT },
@@ -522,7 +547,7 @@ function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
   let out = row as MessageRow
   if (row.checklist) out = { ...out, checklist: toChecklistDto(row.checklist) }
   if (row.replyTo?.deletedAt) {
-    out = { ...out, replyQuote: null, replyTo: { ...row.replyTo, content: '' } }
+    out = { ...out, replyQuote: null, replyTo: { ...row.replyTo, content: '', media: [] } }
   }
   // Истёкшая сторис ещё не убрана кроном — содержимое не отдаём: для продукта её уже нет,
   // клиент по expiresAt пишет «сторис недоступна» (как после удаления, когда связь пуста).
@@ -597,6 +622,7 @@ const FORWARD_SOURCE_SELECT = {
       height: true,
       spoiler: true,
       asDocument: true,
+      videoNote: true,
     },
   },
 } satisfies Prisma.MessageSelect
@@ -677,10 +703,34 @@ export interface ForwardBatchResponse {
   results: ForwardBatchResult[]
 }
 
+/**
+ * Кружок (видеосообщение) — ровно одно вложение и не «без сжатия»: кругом рисуется один ролик,
+ * а строка файла и круг друг другу противоречат. Проверка до загрузки — байты не тратятся зря.
+ */
+function assertVideoNoteShape(
+  videoNote: boolean | undefined,
+  attachments: number,
+  asFiles: boolean | undefined,
+): void {
+  if (!videoNote) return
+  if (attachments !== 1 || asFiles) {
+    throw new AppException('BAD_REQUEST', 'Кружок — это одно видео без режима «файлом»')
+  }
+}
+
+/** Тип кружка проверяется по содержимому (как у всех вложений), а не по заявленному. */
+function assertVideoNoteMime(mime: string): void {
+  if (!mime.startsWith('video/')) {
+    throw new AppException('BAD_REQUEST', 'Кружком можно отправить только видео')
+  }
+}
+
 /** Вложение, принятое до создания сообщения: запись File есть, к сообщению ещё не привязана. */
 interface PendingAttachment {
   id: string
   spoiler?: boolean
+  /** Кружок (видеосообщение): ставится только единственному видео сообщения. */
+  videoNote?: boolean
 }
 
 /**
@@ -1194,6 +1244,9 @@ export class ChatsService implements OnModuleInit {
         // §17: заглушено, но важное (ответы мне и упоминания) всё равно уведомляет.
         mutedImportantOnly: mem?.muteImportantOnly ?? false,
         draft: mem?.draft ?? null,
+        // Когда сохранён черновик (как в Telegram): строка с черновиком показывает его время и
+        // встаёт в списке по нему, если он свежее последнего сообщения. null — черновика нет.
+        draftAt: mem?.draft ? (mem.draftAt ?? null) : null,
         // Закреплён «у себя» (Telegram-стиль): показывается сверху списка. Время нужно
         // клиенту: страницы приходят по updatedAt, и «закреплённые сверху» он собирает
         // сам поверх всех загруженных страниц.
@@ -2536,16 +2589,64 @@ export class ChatsService implements OnModuleInit {
     return members.map((m) => ({ ...m.user, lastReadAt: m.lastReadAt }))
   }
 
-  /** Сохранить/очистить черновик сообщения участника в чате (Ф9+, синхронизация между устройствами). */
+  /**
+   * Просмотры сообщений официального чата — как у постов канала в Telegram.
+   *
+   * Уникальные просмотры выводятся из отметок прочтения, а не копятся отдельной таблицей:
+   * сообщение просмотрено участником, если его `lastReadAt` дошёл до времени сообщения. Так
+   * каждый человек считается один раз по построению, а хранить ничего не нужно — таблица
+   * «кто что видел» в чате факультета на тысячи человек росла бы на миллионы строк в день
+   * ради одного числа. Автор в своих просмотрах не считается. Вступивший позже получает
+   * отметку на момент вступления (история ему открыта) — и считается видевшим старые
+   * сообщения, как и в Telegram, где новый подписчик канала листает ленту назад.
+   *
+   * Тип чата без просмотров (личный, группа, «Сохранённые», поддержка) — пустой ответ, а не
+   * ошибка: клиент спрашивает по общему правилу `chatCountsViews` и ошибкой его не накажешь.
+   * Чужие чату, удалённые и служебные сообщения просто не попадают в ответ.
+   */
+  async getMessageViews(
+    userId: string,
+    chatId: string,
+    messageIds: string[],
+  ): Promise<{ views: { id: string; views: number }[] }> {
+    await this.assertMembership(userId, chatId)
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { type: true },
+    })
+    const ids = [...new Set(messageIds)]
+    if (!chat || !chatCountsViews(chat.type) || ids.length === 0) return { views: [] }
+    // LEFT JOIN — чтобы сообщение без единого просмотра пришло с нулём, а не пропало.
+    const rows = await this.prisma.$queryRaw<{ id: string; views: bigint | number }[]>`
+      SELECT m.id, COUNT(cm.user_id) AS views
+      FROM messages m
+      LEFT JOIN chat_members cm
+        ON cm.chat_id = m.chat_id
+       AND cm.user_id <> m.sender_id
+       AND cm.last_read_at >= m.created_at
+      WHERE m.chat_id = ${chatId}
+        AND m.id IN (${Prisma.join(ids)})
+        AND m.deleted_at IS NULL
+        AND m.system_type IS NULL
+      GROUP BY m.id`
+    return { views: rows.map((row) => ({ id: row.id, views: Number(row.views) })) }
+  }
+
+  /**
+   * Сохранить/очистить черновик сообщения участника в чате (Ф9+, синхронизация между
+   * устройствами). Вместе с текстом — время сохранения (`draftAt`): по нему строка чата в
+   * списке показывает время черновика и поднимается, как в Telegram. Пустой текст снимает оба.
+   */
   async saveDraft(
     userId: string,
     chatId: string,
     text: string,
-  ): Promise<{ chatId: string; draft: string | null }> {
+  ): Promise<{ chatId: string; draft: string | null; draftAt: Date | null }> {
     await this.assertMembership(userId, chatId)
     const draft = text.trim().slice(0, 4000) || null
-    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { draft } })
-    return { chatId, draft }
+    const draftAt = draft ? new Date() : null
+    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { draft, draftAt } })
+    return { chatId, draft, draftAt }
   }
 
   async addMember(actor: JwtPayload, chatId: string, userId: string) {
@@ -2991,6 +3092,7 @@ export class ChatsService implements OnModuleInit {
       replyQuote?: string
       silent?: boolean
       asFiles?: boolean
+      videoNote?: boolean
       attachments: {
         key: string
         uploadId?: string
@@ -3021,6 +3123,7 @@ export class ChatsService implements OnModuleInit {
     if (input.attachments.length === 0 && content.length === 0) {
       throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
     }
+    assertVideoNoteShape(input.videoNote, input.attachments.length, input.asFiles)
 
     const confirmed: PendingAttachment[] = []
     let created: { id: string }
@@ -3048,7 +3151,9 @@ export class ChatsService implements OnModuleInit {
                 allowArchives: true,
               })
         confirmed.push({ id: file.id, spoiler: attachment.spoiler === true })
+        if (input.videoNote) assertVideoNoteMime(file.mime)
       }
+      if (input.videoNote && confirmed[0]) confirmed[0].videoNote = true
       created = await this.createWithAttachments(
         {
           chatId,
@@ -3101,6 +3206,7 @@ export class ChatsService implements OnModuleInit {
       spoiler?: boolean
       spoilerIndexes?: string
       asFiles?: boolean
+      videoNote?: boolean
       silent?: boolean
       nonce?: string
     },
@@ -3126,6 +3232,7 @@ export class ChatsService implements OnModuleInit {
     if (content.length === 0 && files.length === 0) {
       throw new AppException('BAD_REQUEST', 'Сообщение не может быть пустым')
     }
+    assertVideoNoteShape(input.videoNote, files.length, input.asFiles)
     const bucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
     // §34: спойлер — свойство отдельного вложения. `spoiler: true` скрывает всё сообщение,
     // `spoilerIndexes` — перечисленные номера; номера вне диапазона просто игнорируются.
@@ -3145,7 +3252,9 @@ export class ChatsService implements OnModuleInit {
           allowArchives: true,
         })
         uploaded.push({ id: row.id, spoiler: input.spoiler === true || spoilerAt.has(index) })
+        if (input.videoNote) assertVideoNoteMime(row.mime)
       }
+      if (input.videoNote && uploaded[0]) uploaded[0].videoNote = true
       created = await this.createWithAttachments(
         {
           chatId: input.chatId,
@@ -3216,6 +3325,10 @@ export class ChatsService implements OnModuleInit {
       const spoilerIds = attachments.filter((file) => file.spoiler).map((file) => file.id)
       if (spoilerIds.length > 0) {
         await tx.file.updateMany({ where: { id: { in: spoilerIds } }, data: { spoiler: true } })
+      }
+      const noteIds = attachments.filter((file) => file.videoNote).map((file) => file.id)
+      if (noteIds.length > 0) {
+        await tx.file.updateMany({ where: { id: { in: noteIds } }, data: { videoNote: true } })
       }
       return created
     })
@@ -4385,7 +4498,7 @@ export class ChatsService implements OnModuleInit {
       for (const f of source.media) {
         const copy = await this.files.copyToMessage(f, userId)
         // Спойлер — свойство вложения: пересланный снимок скрыт так же, как в оригинале.
-        copies.push({ id: copy.id, spoiler: f.spoiler })
+        copies.push({ id: copy.id, spoiler: f.spoiler, videoNote: f.videoNote })
       }
       created = await this.createWithAttachments(
         {
