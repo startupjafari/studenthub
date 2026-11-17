@@ -104,3 +104,19 @@ export function withOwnRead(
   if (row.unreadCount === 0 && !row.unread) return list
   return patchRow(list, chatId, (r) => ({ ...r, unreadCount: 0, unread: false }))
 }
+
+/**
+ * Черновик сохранён (или снят) — в строку списка сразу, с временем: строка показывает время
+ * черновика и встаёт по нему (sortChats), как в Telegram, не дожидаясь перезапроса списка.
+ */
+export function withDraft(
+  list: ChatListItem[],
+  chatId: string,
+  draft: string | null,
+  draftAt: string | null,
+): ChatListItem[] {
+  const next = patchRow(list, chatId, (row) =>
+    row.draft === draft && (row.draftAt ?? null) === draftAt ? row : { ...row, draft, draftAt },
+  )
+  return next === list ? list : sortChats(next)
+}

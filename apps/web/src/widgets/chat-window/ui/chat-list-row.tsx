@@ -100,6 +100,13 @@ export function ChatListRow({
     new Date(c.othersReadAt).getTime() >= new Date(lm?.createdAt ?? 0).getTime()
   // Черновик показываем у всех, кроме открытого чата: там он и так в поле ввода.
   const draft = !active && c.draft ? plainPreview(c.draft) : ''
+  // Время черновика (Telegram): строка с черновиком свежее последнего сообщения показывает
+  // время черновика, а галочки прочтения своего сообщения прячет — последним стало не оно.
+  const draftAt =
+    draft && c.draftAt && (!lm || new Date(c.draftAt).getTime() > new Date(lm.createdAt).getTime())
+      ? c.draftAt
+      : null
+  const shownAt = draftAt ?? lm?.createdAt ?? null
   // Имя отправителя — только в группах: в личном чате оно очевидно, а «Вы:» там лишнее.
   const previewWho =
     lm && c.type !== 'PRIVATE' && !isSaved && !lm.systemType
@@ -263,6 +270,7 @@ export function ChatListRow({
             <span className="flex-1" aria-hidden />
             {lastMine &&
               !isSaved &&
+              !draftAt &&
               (lastRead ? (
                 <CheckCheck
                   className={cn(
@@ -280,15 +288,15 @@ export function ChatListRow({
                   aria-label={t('tgList.sent')}
                 />
               ))}
-            {lm && (
+            {shownAt && (
               <time
-                dateTime={lm.createdAt}
+                dateTime={shownAt}
                 className={cn(
                   'shrink-0 text-xs tabular-nums text-muted-foreground',
                   sel && 'md:text-primary-foreground/80',
                 )}
               >
-                {chatListTime(lm.createdAt, locale)}
+                {chatListTime(shownAt, locale)}
               </time>
             )}
           </div>
