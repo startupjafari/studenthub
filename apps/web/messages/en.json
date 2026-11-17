@@ -2611,6 +2611,13 @@
     "emoji": "Emoji",
     "emojiSearch": "Search emoji",
     "mediaFailed": "Couldn't load",
+    "tgMedia": {
+      "player": "Audio player",
+      "previous": "Previous",
+      "next": "Next",
+      "closePlayer": "Close player",
+      "voiceMessage": "Voice message"
+    },
     "spoiler": "Spoiler",
     "spoilerToggle": "Hide as spoiler",
     "savedMessages": "Saved Messages",

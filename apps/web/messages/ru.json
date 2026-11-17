@@ -2611,6 +2611,13 @@
     "emoji": "Эмодзи",
     "emojiSearch": "Поиск эмодзи",
     "mediaFailed": "Не удалось загрузить",
+    "tgMedia": {
+      "player": "Аудиоплеер",
+      "previous": "Предыдущее",
+      "next": "Следующее",
+      "closePlayer": "Закрыть плеер",
+      "voiceMessage": "Голосовое сообщение"
+    },
     "spoiler": "Спойлер",
     "spoilerToggle": "Скрыть под спойлер",
     "savedMessages": "Сохранённые",

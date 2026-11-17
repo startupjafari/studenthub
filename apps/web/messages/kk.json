@@ -2611,6 +2611,13 @@
     "emoji": "Эмодзи",
     "emojiSearch": "Эмодзи іздеу",
     "mediaFailed": "Жүктеу мүмкін болмады",
+    "tgMedia": {
+      "player": "Аудиоойнатқыш",
+      "previous": "Алдыңғы",
+      "next": "Келесі",
+      "closePlayer": "Ойнатқышты жабу",
+      "voiceMessage": "Дауыстық хабарлама"
+    },
     "spoiler": "Спойлер",
     "spoilerToggle": "Спойлер астына жасыру",
     "savedMessages": "Сақталған",
