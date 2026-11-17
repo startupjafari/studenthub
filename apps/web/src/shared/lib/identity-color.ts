@@ -41,47 +41,48 @@ export function identityColor(id: string): string {
 /**
  * Акцент личности для текста и полос — имя автора в группе, цитата ответа, «Переслано от»
  * (Telegram красит их цветом человека). Порядок совпадает с IDENTITY_COLORS: у человека один
- * цвет и на кружке, и в имени. Текст ложится на серый пузырь, поэтому в тёмной теме оттенок
- * на ступень светлее, иначе тёмно-янтарное имя тонет в тёмно-сером.
+ * цвет и на кружке, и в имени. Текст мелкий (13px) и ложится на серый пузырь, да ещё на
+ * подложку цитаты, поэтому он на ступень темнее заливки кружка (в тёмной теме — светлее):
+ * у оттенков кружка контраст с серым пузырём проседал до 4.3 — ниже AA.
  */
 export const IDENTITY_ACCENTS = [
   {
-    text: 'text-rose-600 dark:text-rose-400',
+    text: 'text-rose-700 dark:text-rose-300',
     bar: 'bg-rose-600 dark:bg-rose-400',
     tint: 'bg-rose-600/10 dark:bg-rose-400/15',
   },
   {
-    text: 'text-orange-700 dark:text-orange-400',
+    text: 'text-orange-800 dark:text-orange-300',
     bar: 'bg-orange-700 dark:bg-orange-400',
     tint: 'bg-orange-700/10 dark:bg-orange-400/15',
   },
   {
-    text: 'text-amber-700 dark:text-amber-400',
+    text: 'text-amber-800 dark:text-amber-300',
     bar: 'bg-amber-700 dark:bg-amber-400',
     tint: 'bg-amber-700/10 dark:bg-amber-400/15',
   },
   {
-    text: 'text-emerald-700 dark:text-emerald-400',
+    text: 'text-emerald-800 dark:text-emerald-300',
     bar: 'bg-emerald-700 dark:bg-emerald-400',
     tint: 'bg-emerald-700/10 dark:bg-emerald-400/15',
   },
   {
-    text: 'text-teal-700 dark:text-teal-400',
+    text: 'text-teal-800 dark:text-teal-300',
     bar: 'bg-teal-700 dark:bg-teal-400',
     tint: 'bg-teal-700/10 dark:bg-teal-400/15',
   },
   {
-    text: 'text-sky-700 dark:text-sky-400',
+    text: 'text-sky-800 dark:text-sky-300',
     bar: 'bg-sky-700 dark:bg-sky-400',
     tint: 'bg-sky-700/10 dark:bg-sky-400/15',
   },
   {
-    text: 'text-indigo-600 dark:text-indigo-400',
+    text: 'text-indigo-700 dark:text-indigo-300',
     bar: 'bg-indigo-600 dark:bg-indigo-400',
     tint: 'bg-indigo-600/10 dark:bg-indigo-400/15',
   },
   {
-    text: 'text-fuchsia-600 dark:text-fuchsia-400',
+    text: 'text-fuchsia-700 dark:text-fuchsia-300',
     bar: 'bg-fuchsia-600 dark:bg-fuchsia-400',
     tint: 'bg-fuchsia-600/10 dark:bg-fuchsia-400/15',
   },
