@@ -564,6 +564,7 @@ describe('FileService.deleteDetached', () => {
     highlightItem: null,
     documentTemplateVersion: null,
     sticker: null,
+    avatarPhoto: null,
     _count: { stories: 0, albumsCovered: 0 },
   }
 

@@ -8,6 +8,7 @@ import type {
   AcceptConsentInput,
   AccountDeletionBlocker,
   AccountDeletionCheck,
+  AvatarPhotoDto,
   UserListQueryInput,
   UpdateProfileInput,
   UserDirectoryQueryInput,
@@ -42,6 +43,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
+import { AvatarHistoryService } from '../files/avatar-history.service'
 import { LibraryReservationsService } from '../library/library-reservations.service'
 import { LibraryDebtsService } from '../library/library-debts.service'
 import { LibraryAccountService, type ForgottenReader } from '../library/library-account.service'
@@ -1078,26 +1080,114 @@ export class UserService {
       data: { avatarUrl, avatarThumbUrl: null },
       select: PROFILE_SELECT,
     })
+    // Прежние фото остаются в истории (§8.3, листание в шапке профиля, как в Telegram);
+    // сносятся только старые превью — они есть лишь у текущего аватара.
+    await this.avatarHistory.add({ userId }, file.id, avatarUrl)
     await this.deleteExistingAvatars(userId, bucket, file.id)
-    // Тяжёлый ресайз — в очередь (§9.1). Идемпотентность по jobId (один thumb на файл).
-    await this.queue.enqueue(
-      QUEUES.FILE_PROCESSING,
-      FILE_JOBS.GENERATE_THUMBNAIL,
-      { fileId: file.id, bucket, key: file.key, userId },
-      { jobId: `thumb_${file.id}` },
-    )
+    await this.enqueueAvatarThumb(userId, bucket, file.id, file.key)
     return updated
   }
 
-  /** Удаление аватара: снимает объект(ы) в MinIO и обнуляет avatarUrl + превью. */
-  async removeAvatar(userId: string): Promise<UserProfile> {
-    const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
-    await this.deleteExistingAvatars(userId, bucket)
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { avatarUrl: null, avatarThumbUrl: null },
+  /** Тяжёлый ресайз — в очередь (§9.1). Идемпотентность по jobId (один thumb на файл). */
+  private async enqueueAvatarThumb(
+    userId: string,
+    bucket: string,
+    fileId: string,
+    key: string,
+    // Фото вернулось текущим из истории: его прошлая задача могла остаться в очереди
+    // выполненной, и тот же jobId отсёкся бы как повтор — превью бы не появилось.
+    restoredAt?: number,
+  ): Promise<void> {
+    await this.queue.enqueue(
+      QUEUES.FILE_PROCESSING,
+      FILE_JOBS.GENERATE_THUMBNAIL,
+      { fileId, bucket, key, userId },
+      { jobId: restoredAt ? `thumb_${fileId}_${restoredAt}` : `thumb_${fileId}` },
+    )
+  }
+
+  /** История фото — помощник поверх уже внедрённых prisma и files (см. AvatarHistoryService). */
+  private get avatarHistory(): AvatarHistoryService {
+    return new AvatarHistoryService(this.prisma, this.files)
+  }
+
+  /**
+   * История фото профиля (`GET /users/:id/avatars`), свежие первыми, текущее — первым.
+   * Видна тем, кому виден полный профиль; закрытый профиль («визитка») показывает только
+   * текущее фото — то же, что и без истории. Работодателю чужие — как несуществующий id.
+   */
+  async listAvatars(viewer: JwtPayload, targetId: string): Promise<AvatarPhotoDto[]> {
+    if (viewer.role === Role.EMPLOYER && viewer.sub !== targetId) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const target = await this.prisma.user.findFirst({
+      where: { id: targetId, deletedAt: null },
       select: PROFILE_SELECT,
     })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    const photos = await this.avatarHistory.list({ userId: targetId }, target.avatarUrl)
+    if (viewer.sub === targetId) return photos
+    const access = await this.resolveAccessWithFriendship(viewer, target)
+    return access.level === 'limited' ? photos.filter((p) => p.current) : photos
+  }
+
+  /**
+   * Удалить фото из своей истории (`DELETE /users/me/avatars/:photoId`). Текущее — как
+   * `DELETE /users/me/avatar`: текущим становится предыдущее.
+   */
+  async deleteAvatarPhoto(userId: string, photoId: string): Promise<UserProfile> {
+    const photo = await this.avatarHistory.find({ userId }, photoId)
+    if (!photo) throw new AppException('NOT_FOUND', 'Фото не найдено')
+    return this.dropAvatarPhoto(userId, photo)
+  }
+
+  /**
+   * Снять фото профиля из истории вместе с файлом. Текущее (photo = null — «удалить
+   * аватар») — как в Telegram: текущим становится самое свежее из оставшихся, ему заново
+   * считается превью. Аватар старше истории (строки нет) снимается по-старому, целиком.
+   */
+  private async dropAvatarPhoto(
+    userId: string,
+    photo: { id: string; url: string } | null,
+  ): Promise<UserProfile> {
+    const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarUrl: true },
+    })
+    const currentUrl = user?.avatarUrl ?? null
+    const target =
+      photo ?? (currentUrl ? await this.avatarHistory.findByUrl({ userId }, currentUrl) : null)
+    const isCurrent = photo == null || photo.url === currentUrl
+    if (target) await this.avatarHistory.remove(target.id)
+    if (!isCurrent) {
+      return this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: PROFILE_SELECT })
+    }
+    const next = await this.avatarHistory.latest({ userId })
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl: next?.url ?? null, avatarThumbUrl: null },
+      select: PROFILE_SELECT,
+    })
+    // Превью было только у снятого аватара — сносим, у нового текущего строим заново.
+    await this.deleteExistingAvatars(userId, bucket)
+    if (next?.fileId) {
+      const file = await this.prisma.file.findUnique({
+        where: { id: next.fileId },
+        select: { id: true, key: true },
+      })
+      if (file) await this.enqueueAvatarThumb(userId, bucket, file.id, file.key, Date.now())
+    }
+    return updated
+  }
+
+  /**
+   * Удаление текущего аватара (`DELETE /users/me/avatar`). Как в Telegram: фото уходит из
+   * истории, а текущим становится предыдущее, если оно есть (§8.3). Без истории — как
+   * раньше: аватара больше нет.
+   */
+  async removeAvatar(userId: string): Promise<UserProfile> {
+    return this.dropAvatarPhoto(userId, null)
   }
 
   /**
@@ -1206,6 +1296,9 @@ export class UserService {
       take: OLD_AVATARS_LIMIT,
     })
     if (existing.length === 0) return
+    // Файлы истории фото (AvatarPhoto) — свои и групп — не трогаем: их снимает только
+    // удаление фото из истории. Удаление аккаунта сносит свою историю отдельно, до этого.
+    const held = await this.avatarHistory.heldFileIds(existing.map((f) => f.id))
     const groupAvatars = await this.prisma.chat.findMany({
       where: { OR: existing.map((f) => ({ avatarUrl: { endsWith: `/${bucket}/${f.key}` } })) },
       select: { avatarUrl: true },
@@ -1213,7 +1306,7 @@ export class UserService {
     })
     const keep = new Set(groupAvatars.map((c) => c.avatarUrl?.split('/').pop()))
     for (const f of existing) {
-      if (!keep.has(f.key)) await this.files.delete(f.id)
+      if (!keep.has(f.key) && !held.has(f.id)) await this.files.delete(f.id)
     }
   }
 
@@ -2479,6 +2572,8 @@ export class UserService {
   /** Best-effort снос объектов аватара (+превью) и обложки в MinIO при удалении аккаунта. */
   private async deleteUserMedia(userId: string): Promise<void> {
     try {
+      // История фото — персональные данные, уходит целиком вместе с файлами.
+      await this.avatarHistory.removeAll({ userId })
       await this.deleteExistingAvatars(
         userId,
         this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),

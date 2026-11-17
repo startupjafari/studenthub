@@ -94,6 +94,8 @@ export const DETACHED_WHERE = {
   documentTemplateVersion: { is: null },
   // Картинка стикера каталога: снимает только админка стикеров.
   sticker: { is: null },
+  // Фото из истории аватаров (§8.3): снимает только удаление фото из истории.
+  avatarPhoto: { is: null },
 } satisfies Prisma.FileWhereInput
 
 const ATTACHMENT_SELECT = {
@@ -109,6 +111,7 @@ const ATTACHMENT_SELECT = {
   highlightItem: { select: { id: true } },
   documentTemplateVersion: { select: { id: true } },
   sticker: { select: { id: true } },
+  avatarPhoto: { select: { id: true } },
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
@@ -129,7 +132,8 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file._count.albumsCovered > 0 ||
     file._count.bookCovers > 0 ||
     file.documentTemplateVersion !== null ||
-    file.sticker !== null
+    file.sticker !== null ||
+    file.avatarPhoto !== null
   )
 }
 

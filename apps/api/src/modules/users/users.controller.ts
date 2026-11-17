@@ -144,9 +144,20 @@ export class UsersController {
 
   @RestrictedAllowed(...RESTRICTED_ROLES)
   @Delete('me/avatar')
-  @ApiOperation({ summary: 'Удалить аватар' })
+  @ApiOperation({
+    summary: 'Удалить текущий аватар (текущим становится предыдущее фото из истории)',
+  })
   removeAvatar(@CurrentUser() user: CurrentUserData) {
     return this.users.removeAvatar(user.sub)
+  }
+
+  @RestrictedAllowed(...RESTRICTED_ROLES)
+  @Delete('me/avatars/:photoId')
+  @ApiOperation({ summary: 'Удалить фото из своей истории аватаров' })
+  @ApiResponse({ status: 200, description: 'Профиль после удаления (avatarUrl — текущее фото)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — такого фото в истории нет' })
+  deleteAvatarPhoto(@CurrentUser() user: CurrentUserData, @Param('photoId') photoId: string) {
+    return this.users.deleteAvatarPhoto(user.sub, photoId)
   }
 
   @RestrictedAllowed(...RESTRICTED_ROLES)
@@ -330,6 +341,15 @@ export class UsersController {
   @ApiOperation({ summary: 'Профиль пользователя (email — по правам смотрящего)' })
   getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.users.getProfileForViewer(id, user)
+  }
+
+  @Get(':id/avatars')
+  @ApiOperation({
+    summary: 'История фото профиля (текущее первым; закрытый профиль — только текущее)',
+  })
+  @ApiResponse({ status: 200, description: '[{ id, url, createdAt, current }]' })
+  avatars(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.users.listAvatars(user, id)
   }
 
   /**
