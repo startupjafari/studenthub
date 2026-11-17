@@ -71,6 +71,11 @@ export interface ScreenStackOptions {
   enabled?: boolean
   /** Ширина зоны у левого края, откуда тянут «назад», px. */
   edgeZone?: number
+  /**
+   * Что сейчас в верхнем экране (id чата). Сменилось, пока экран уезжает, — человек успел
+   * выбрать другое под ним: уход отменяется, и экран возвращается уже с новым содержимым.
+   */
+  openKey?: unknown
 }
 
 export interface ScreenStackController<TTop extends HTMLElement = HTMLDivElement> {
@@ -111,6 +116,7 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
   onClose,
   enabled = true,
   edgeZone = EDGE_ZONE,
+  openKey,
 }: ScreenStackOptions): ScreenStackController<TTop> {
   const baseRef = useRef<HTMLDivElement | null>(null)
   const topRef = useRef<TTop | null>(null)
@@ -201,11 +207,15 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
   // до первого кадра: иначе экран мелькнул бы на месте и только потом уехал вправо.
   // Стартовое «было закрыто»: экран, открытый уже при монтаже, проходит ту же ветку
   // открытия и встаёт на место без въезда (грейс монтажа).
-  const prevRef = useRef({ open: false, enabled })
+  const prevRef = useRef<{ open: boolean; enabled: boolean; key: unknown }>({
+    open: false,
+    enabled,
+    key: openKey,
+  })
   useLayoutEffect(() => {
     if (mountedAtRef.current === null) mountedAtRef.current = performance.now()
     const prev = prevRef.current
-    prevRef.current = { open, enabled }
+    prevRef.current = { open, enabled, key: openKey }
     const s = machine()
     if (!enabled) {
       s.spring.stop()
@@ -225,7 +235,17 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
       }
       return
     }
-    if (prev.open && prev.enabled) return
+    if (prev.open && prev.enabled) {
+      if (prev.key !== openKey && s.closing) {
+        // Пока экран уезжал, под ним выбрали другое — возвращаем экран с новым содержимым.
+        // Уход по системной «назад» уже снял запись в истории — кладём новую.
+        if (s.fromHistory) setHistoryKey((k) => k + 1)
+        s.closing = false
+        s.fromHistory = false
+        s.spring.to(0)
+      }
+      return
+    }
     // Открыли (или включили стек при уже открытом экране — поворот телефона).
     s.closing = false
     s.width = widthOf()
@@ -244,7 +264,7 @@ export function useScreenStack<TTop extends HTMLElement = HTMLDivElement>({
     s.spring.set(s.width)
     render(s.width)
     s.spring.to(0)
-  }, [open, enabled, machine, render, reset, cover])
+  }, [open, enabled, openKey, machine, render, reset, cover])
 
   const close = useCallback(
     (options?: { instant?: boolean }): void => {
@@ -462,7 +482,7 @@ export function ScreenStack({
   const stack = useScreenStack({ open, onClose })
   useImperativeHandle(handleRef, () => ({ close: stack.close }), [stack.close])
   return (
-    <div className={cn('relative flex min-h-0 overflow-hidden', className)}>
+    <div className={cn('relative isolate flex min-h-0 overflow-hidden', className)}>
       <div ref={stack.baseRef} className="relative flex min-h-0 min-w-0 flex-1">
         {base}
         <div

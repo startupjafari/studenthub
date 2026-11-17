@@ -465,8 +465,9 @@ export function ConversationList({
           : cn(
               // lg:hidden — на десктопе список всегда живёт в сайдбаре (портал); эта
               // inline-панель нужна только для мобильного/планшета (<lg).
-              'w-full shrink-0 flex-col border-r border-border md:flex md:w-80 lg:hidden',
-              activeId ? 'hidden md:flex' : 'flex',
+              // Под открытой перепиской список не прячется: на телефоне его закрывает
+              // верхний экран стека, и при свайпе назад он должен быть виден под ним.
+              'flex w-full shrink-0 flex-col border-r border-border md:w-80 lg:hidden',
             ),
         // Возврат из чата: список въезжает слева — обратный ход тому, как чат выезжал справа.
         // Только на узких экранах: на десктопе список и так на месте, ему ехать неоткуда.
@@ -625,7 +626,9 @@ export function ConversationList({
         </div>
       )}
       <div
-        key={embedded ? 'list' : activeId ? 'list-hidden' : 'list-visible'}
+        // Ключ постоянный: под открытой перепиской список остаётся в дереве (стек экранов),
+        // и при возврате к нему сохраняется прокрутка, а не проигрывается появление заново.
+        key="list"
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-y-auto',
           'duration-(--motion-page) animate-in fade-in slide-in-from-left-4',
