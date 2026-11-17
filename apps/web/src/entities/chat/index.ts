@@ -110,6 +110,12 @@ export { MessageAttachments } from './ui/message-attachments'
 export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
+export {
+  ChatMediaRailViewer,
+  type ChatMediaRailActions,
+  type ChatMediaRailContext,
+  type ChatMediaRailStart,
+} from './ui/chat-media-rail-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
 export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'

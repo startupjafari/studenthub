@@ -109,6 +109,7 @@ export function MediaViewer({
   downloadKey,
   getOrigin,
   onContextMenuCapture,
+  itemKey,
 }: {
   items: MediaViewerItem[]
   index: number
@@ -142,6 +143,12 @@ export function MediaViewer({
    */
   getOrigin?: (index: number) => HTMLElement | null
   onContextMenuCapture?: (e: React.MouseEvent) => void
+  /**
+   * Ключ текущего элемента, если список растёт с начала (лента всех медиа чата подгружает
+   * более старые слева): индекс того же кадра сдвигается, и сброс поворота и зума по индексу
+   * сбросил бы их посреди просмотра. Нет — сброс по индексу, как раньше.
+   */
+  itemKey?: string
 }) {
   const t = useTranslations('Common')
   // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
@@ -274,12 +281,13 @@ export function MediaViewer({
   const boxRef = gestures.surfaceRef
   const resetGestures = gestures.reset
 
-  useEffect(() => setRotation(0), [index])
+  const current = itemKey ?? index
+  useEffect(() => setRotation(0), [current])
 
   // Новый кадр и поворот показываем в исходном масштабе: границы хода у них свои. `src` в
   // зависимостях не нужен — от подгрузки URL масштаб не меняется, а сброс посреди въезда
   // нового кадра оборвал бы его.
-  useEffect(() => resetGestures(), [resetGestures, index, rotation])
+  useEffect(() => resetGestures(), [resetGestures, current, rotation])
 
   // Полёт из миниатюры — один раз, в первый кадр, когда медиа уже в разметке. Ссылка могла
   // ещё ехать: тогда к её приезду фон давно проявился, и вырастать поверх него было бы

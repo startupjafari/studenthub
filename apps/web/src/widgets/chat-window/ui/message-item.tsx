@@ -333,6 +333,9 @@ function MessageItemInner({
         onForward: () => actions.forward(m),
         onDelete: () => actions.del(m),
       }}
+      // Просмотрщик листает все фото и видео чата, а не только вложения этого сообщения.
+      messageId={m.id}
+      mediaRail={{ chatId: m.chatId, myId, actions }}
     />
   )
 

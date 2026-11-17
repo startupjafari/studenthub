@@ -387,7 +387,7 @@ export function ChatDetailsPanel({
                 </TabsContent>
               )}
               <TabsContent value="media" className={TAB_PANE}>
-                <MediaTab chatId={chat.id} />
+                <MediaTab chatId={chat.id} onJump={onJump} />
               </TabsContent>
               <TabsContent value="files" className={TAB_PANE}>
                 <FileTab chatId={chat.id} type="file" onJump={onJump} />

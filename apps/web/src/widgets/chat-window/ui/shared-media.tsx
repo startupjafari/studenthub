@@ -26,9 +26,9 @@ import {
   fetchChatLinks,
   fetchChatMedia,
   fetchChatPolls,
+  ChatMediaRailViewer,
   fileKind,
   getAudioElement,
-  MediaViewer,
   type ChatLinkItem,
   type ChatMediaItem,
   type ChatMessage,
@@ -204,6 +204,8 @@ function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void 
       type="button"
       onClick={onOpen}
       aria-label={t('tgRight.openMedia')}
+      // Плитка — точка, из которой просмотрщик вырастает и в которую садится.
+      data-media-origin={item.id}
       className="relative aspect-square cursor-zoom-in overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {link.data ? (
@@ -239,32 +241,24 @@ function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void 
   )
 }
 
-export function MediaTab({ chatId }: { chatId: string }) {
+export function MediaTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
-  const [viewer, setViewer] = useState<number | null>(null)
+  const [viewer, setViewer] = useState<string | null>(null)
+  const gridRef = useRef<HTMLDivElement | null>(null)
   const q = useMediaPages(chatId, 'media')
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <GridSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0)
     return <TabEmpty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  // Для просмотрщика маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
-  const attachments = items.map((it) => ({
-    id: it.id,
-    mime: it.mime,
-    size: it.size,
-    name: it.name,
-    // Заглушка и размеры — чтобы просмотрщик показал силуэт снимка, не дожидаясь ссылки.
-    width: it.width,
-    height: it.height,
-    placeholder: it.placeholder,
-    durationMs: it.durationMs,
-  }))
+  // Просмотрщик листает все медиа чата по времени (старые слева), как из ленты: сетка идёт
+  // от свежих, поэтому кадры открытия — в обратном порядке. Шапка ведёт к сообщению кадра.
+  const byTime = [...items].reverse()
   return (
     <>
-      <div className="grid grid-cols-3 gap-px">
-        {items.map((it, i) => (
-          <MediaThumb key={it.id} item={it} onOpen={() => setViewer(i)} />
+      <div ref={gridRef} className="grid grid-cols-3 gap-px">
+        {items.map((it) => (
+          <MediaThumb key={it.id} item={it} onOpen={() => setViewer(it.id)} />
         ))}
       </div>
       <PageSentinel
@@ -274,10 +268,20 @@ export function MediaTab({ chatId }: { chatId: string }) {
         onLoad={() => void q.fetchNextPage()}
       />
       {viewer !== null && (
-        <MediaViewer
-          items={attachments}
-          index={viewer}
-          onIndexChange={setViewer}
+        <ChatMediaRailViewer
+          rail={{ chatId, actions: { focus: onJump } }}
+          start={{
+            items: byTime,
+            index: Math.max(
+              0,
+              byTime.findIndex((it) => it.id === viewer),
+            ),
+          }}
+          originOf={(id) =>
+            gridRef.current?.querySelector<HTMLElement>(
+              `[data-media-origin="${CSS.escape(id)}"]`,
+            ) ?? null
+          }
           onClose={() => setViewer(null)}
         />
       )}
