@@ -1,69 +1,69 @@
-import type { ChatMessage, MessageReaction } from '../../../entities/chat'
+import type { ChatAttentionCounts, ChatAttentionQueue, ChatListItem } from '../../../entities/chat'
 
 // Что в ленте ждёт внимания помимо обычных непрочитанных — кнопки «к упоминанию» и
-// «к реакции» над кнопкой «вниз», как в Telegram. Чистые функции: ленту они не трогают,
-// а тестировать их без рендера окна чата дёшево.
+// «к реакции» над кнопкой «вниз», значки «@» и «♥» в списке чатов, как в Telegram.
+//
+// Источник — сервер: счётчики приходят в элементе списка (unreadMentionsCount /
+// unreadReactionsCount) и событием `chat:attention`, очередь целей — отдельным запросом.
+// Здесь — чистые функции над этими данными: ленту они не трогают, тестировать их дёшево.
 
-export interface MentionTarget {
-  id: string
-  firstName: string
-  lastName: string
-}
-
-type MentionRow = Pick<ChatMessage, 'id' | 'senderId' | 'content' | 'createdAt' | 'systemType'> & {
-  replyTo: Pick<NonNullable<ChatMessage['replyTo']>, 'senderId'> | null
-}
+export type AttentionKey = keyof ChatAttentionCounts
 
 /**
- * Обращено ли сообщение ко мне: ответ на моё сообщение или упоминание по имени.
- *
- * Отдельной сущности «упоминание» у сервера нет — композер вставляет «@Имя Фамилия»
- * обычным текстом, а сервер для режима «только важные» (§17) ищет ровно эту строку в обоих
- * порядках. Здесь — то же правило, чтобы кнопка «@» и уведомление не расходились.
+ * Цели очереди, которые ещё не прочитаны на этом устройстве, — по порядку ленты (старые
+ * первыми: кнопка ведёт к самому раннему). Прочитанные уходят на сервер пачкой с задержкой,
+ * и до ответа очередь их уже не показывает.
  */
-export function mentionsMe(m: MentionRow, me: MentionTarget): boolean {
-  if (m.senderId === me.id || m.systemType) return false
-  if (m.replyTo?.senderId === me.id) return true
-  if (!m.content.includes('@')) return false
-  const text = m.content.toLowerCase()
-  const asComposed = `@${me.firstName} ${me.lastName}`.trim().toLowerCase()
-  const reversed = `@${me.lastName} ${me.firstName}`.trim().toLowerCase()
-  return text.includes(asComposed) || text.includes(reversed)
-}
-
-/**
- * Непрочитанные упоминания меня в загруженной ленте — по порядку ленты (старые первыми:
- * кнопка ведёт к самому раннему, как в Telegram). Прочитанность — та же отметка
- * «прочитано до», что и у счётчика на кнопке «вниз»: упоминание гаснет, когда проехало
- * через экран. `readUpTo === null` — лента ещё не открыта, считать нечего.
- */
-export function unreadMentionIds(
-  list: readonly MentionRow[],
-  readUpTo: string | null,
-  me: MentionTarget | null | undefined,
-  dismissed: ReadonlySet<string> = new Set(),
+export function pendingTargets(
+  queue: ChatAttentionQueue | undefined,
+  read: ReadonlySet<string>,
 ): string[] {
-  if (readUpTo === null || !me) return []
-  const out: string[] = []
-  for (const m of list) {
-    if (m.createdAt <= readUpTo || dismissed.has(m.id)) continue
-    if (mentionsMe(m, me)) out.push(m.id)
-  }
-  return out
+  if (!queue) return []
+  return queue.items.map((i) => i.messageId).filter((id) => !read.has(id))
 }
 
-const reactionKey = (r: Pick<MessageReaction, 'userId' | 'emoji'>): string =>
-  `${r.userId}:${r.emoji}`
-
 /**
- * Чужие реакции, которых не было в прошлой версии сообщения. Свои не в счёт — их человек
- * поставил сам и видел. Пусто — сообщение не новое для «к реакции».
+ * Устарела ли очередь: сервер насчитал не столько, сколько ожидается после локальных
+ * прочтений. Пришло новое упоминание, реакцию сняли или прочитали на другом устройстве —
+ * очередь надо перезапросить. Совпало (эхо собственного прочтения) — запрос лишний.
  */
-export function newForeignReactions(
-  before: readonly MessageReaction[] | undefined,
-  after: readonly MessageReaction[],
-  myId: string | undefined,
-): MessageReaction[] {
-  const known = new Set((before ?? []).map(reactionKey))
-  return after.filter((r) => r.userId !== myId && !known.has(reactionKey(r)))
+export function isQueueStale(
+  serverCount: number,
+  queue: ChatAttentionQueue | undefined,
+  read: ReadonlySet<string>,
+): boolean {
+  if (!queue) return serverCount > 0
+  const readHere = queue.items.reduce((n, i) => (read.has(i.messageId) ? n + 1 : n), 0)
+  return serverCount !== Math.max(0, queue.count - readHere)
+}
+
+/** Записать счётчики чата в список (событие `chat:attention`, ответ на прочтение). */
+export function withAttentionCounts(
+  list: ChatListItem[],
+  chatId: string,
+  counts: Partial<ChatAttentionCounts>,
+): ChatListItem[] {
+  let changed = false
+  const next = list.map((c) => {
+    if (c.id !== chatId) return c
+    const m = counts.unreadMentionsCount ?? c.unreadMentionsCount ?? 0
+    const r = counts.unreadReactionsCount ?? c.unreadReactionsCount ?? 0
+    if (m === (c.unreadMentionsCount ?? 0) && r === (c.unreadReactionsCount ?? 0)) return c
+    changed = true
+    return { ...c, unreadMentionsCount: m, unreadReactionsCount: r }
+  })
+  return changed ? next : list
+}
+
+/** Оптимистично уменьшить счётчик чата на `by` (не ниже нуля) — до ответа сервера. */
+export function withAttentionRead(
+  list: ChatListItem[],
+  chatId: string,
+  key: AttentionKey,
+  by: number | 'all',
+): ChatListItem[] {
+  const chat = list.find((c) => c.id === chatId)
+  if (!chat) return list
+  const cur = chat[key] ?? 0
+  return withAttentionCounts(list, chatId, { [key]: by === 'all' ? 0 : Math.max(0, cur - by) })
 }

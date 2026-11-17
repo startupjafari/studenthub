@@ -2609,6 +2609,10 @@
     "tabVoice": "Voice",
     "sharedEmpty": "Nothing here yet",
     "sharedComingSoon": "Shared media, files and links from this chat will show up here.",
+    "tgUnread": {
+      "mentions": "{n, plural, one {# unread mention} other {# unread mentions}}",
+      "reactions": "{n, plural, one {# unread reaction} other {# unread reactions}}"
+    },
     "tgList": {
       "archiveTitle": "Archive",
       "archiveUnread": "{n, plural, one {# archived chat with unread messages} other {# archived chats with unread messages}}",

@@ -2609,6 +2609,10 @@
     "tabVoice": "Дауыстық",
     "sharedEmpty": "Мұнда әзірге бос",
     "sharedComingSoon": "Мұнда осы чаттың медиасы, файлдары мен сілтемелері көрінеді.",
+    "tgUnread": {
+      "mentions": "{n, plural, one {# оқылмаған атап өту} other {# оқылмаған атап өту}}",
+      "reactions": "{n, plural, one {# оқылмаған реакция} other {# оқылмаған реакция}}"
+    },
     "tgList": {
       "archiveTitle": "Мұрағат",
       "archiveUnread": "{n, plural, one {Оқылмағаны бар # мұрағат чаты} other {Оқылмағаны бар # мұрағат чаты}}",

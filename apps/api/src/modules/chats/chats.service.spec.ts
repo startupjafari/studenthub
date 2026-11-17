@@ -1248,6 +1248,68 @@ describe('ChatsService.toggleReaction (одна реакция на сообще
   })
 })
 
+describe('ChatsService — хук непрочитанных упоминаний и реакций', () => {
+  function hook() {
+    return {
+      onMessageSent: jest.fn().mockResolvedValue(undefined),
+      onMessageEdited: jest.fn().mockResolvedValue(undefined),
+      onReactionChanged: jest.fn().mockResolvedValue(undefined),
+      onMessagesGone: jest.fn().mockResolvedValue(undefined),
+      onHistoryCleared: jest.fn().mockResolvedValue(undefined),
+      onChatsRead: jest.fn().mockResolvedValue(undefined),
+      countsFor: jest.fn().mockResolvedValue(new Map()),
+    }
+  }
+
+  it('реакция сообщает хуку, поставлена она или снята', async () => {
+    const { service, prisma } = setup()
+    const h = hook()
+    service.registerAttentionHook(h)
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'm1', chatId: 'c1', reactions: [] })
+    prisma.messageReaction.findMany.mockResolvedValueOnce([])
+    await service.toggleReaction('u1', 'm1', '👍')
+    expect(h.onReactionChanged).toHaveBeenLastCalledWith({
+      chatId: 'c1',
+      messageId: 'm1',
+      reactorId: 'u1',
+      added: true,
+    })
+    prisma.messageReaction.findMany.mockResolvedValueOnce([{ id: 'r1', emoji: '👍' }])
+    await service.toggleReaction('u1', 'm1', '👍')
+    expect(h.onReactionChanged).toHaveBeenLastCalledWith(expect.objectContaining({ added: false }))
+  })
+
+  it('сбой хука не роняет действие', async () => {
+    const { service, prisma, realtime } = setup()
+    const h = hook()
+    h.onReactionChanged.mockRejectedValue(new Error('db down'))
+    service.registerAttentionHook(h)
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.messageReaction.findMany.mockResolvedValue([])
+    prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'm1', chatId: 'c1', reactions: [] })
+    await expect(service.toggleReaction('u1', 'm1', '👍')).resolves.toBeDefined()
+    expect(realtime.emitToRoom).toHaveBeenCalledWith(
+      'chat:c1',
+      'message:reaction',
+      expect.anything(),
+    )
+  })
+
+  it('удаление своего сообщения снимает его упоминания и реакции', async () => {
+    const { service, prisma } = setup()
+    const h = hook()
+    service.registerAttentionHook(h)
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', senderId: 'u1', chatId: 'c1', seq: 3 })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: null })
+    prisma.chat.findUnique.mockResolvedValue({ lastSeq: 9 })
+    await service.deleteMessage('u1', 'm1')
+    expect(h.onMessagesGone).toHaveBeenCalledWith({ chatId: 'c1', messageIds: ['m1'] })
+  })
+})
+
 describe('ChatsService.forwardMessage', () => {
   it('требует членства в целевом и исходном чате; копирует вложения и эмитит message:new', async () => {
     const { service, prisma, realtime, files } = setup()
@@ -1708,7 +1770,9 @@ describe('ChatsService.listChats — последнее сообщение', () 
     prisma.message.findMany.mockResolvedValue([
       { id: 'm1', chatId: 'c1', senderId: 'u2', content: 'привет', createdAt: at },
     ])
-    const messageGroupBy = jest.fn().mockResolvedValue([{ chatId: 'c1', _count: { _all: 2 } }])
+    const messageGroupBy = jest
+      .fn()
+      .mockResolvedValue([{ chatId: 'c1', _count: { _all: 2 }, _min: { seq: 7 } }])
     Object.assign(prisma.message, { groupBy: messageGroupBy })
     Object.assign(prisma.chatMember, { groupBy: jest.fn().mockResolvedValue([]) })
 
@@ -1730,6 +1794,18 @@ describe('ChatsService.listChats — последнее сообщение', () 
       expect.objectContaining({ id: 'c2', lastMessage: null, unreadCount: 0 }),
     ])
     expect(page.items[0]).toMatchObject({ unreadCount: 2, unread: true })
+    // Первое непрочитанное (P.8) — по наименьшему seq непрочитанных, одним запросом на страницу.
+    expect(messageGroupBy.mock.calls[0]?.[0]._min).toEqual({ seq: true })
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { OR: [{ chatId: 'c1', seq: 7 }] }, take: 1 }),
+    )
+    expect(page.items[0]).toMatchObject({ firstUnreadId: 'm1' })
+    expect(page.items[1]).toMatchObject({
+      firstUnreadId: null,
+      // Хук упоминаний не зарегистрирован (юнит без модуля) — счётчики нулевые.
+      unreadMentionsCount: 0,
+      unreadReactionsCount: 0,
+    })
   })
 })
 

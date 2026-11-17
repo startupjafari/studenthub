@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import {
   Archive,
   ArchiveRestore,
+  AtSign,
   BadgeCheck,
   Bell,
   BellOff,
@@ -11,6 +12,7 @@ import {
   CheckCheck,
   Eraser,
   Forward,
+  Heart,
   MessageCircleDashed,
   Pin,
   PinOff,
@@ -71,8 +73,8 @@ const SWIPE_BTN =
  *
  * Верх — название, знак подлинности, «без звука», справа галочки прочтения и время. Низ —
  * «печатает…», черновик красным или превью последнего сообщения с именем отправителя и
- * миниатюрой медиа; справа счётчик непрочитанного (серый у заглушённых), точка «как новое»
- * или скрепка закреплённого.
+ * миниатюрой медиа; справа значки «♥» и «@» (непрочитанные реакции и упоминания), счётчик
+ * непрочитанного (серый у заглушённых), точка «как новое» или скрепка закреплённого.
  *
  * На ПК выбранная строка залита основным цветом, как в Telegram Web: в длинном списке
  * открытый чат находится глазом сразу. На телефоне выбранной строки не видно — список
@@ -335,33 +337,20 @@ export function ChatListRow({
 }
 
 /**
- * Значок справа во второй строке: счётчик непрочитанного, точка «как новое» или скрепка
- * закреплённого — один из них, по важности. У заглушённого чата счётчик серый: он про
- * сообщения, ради которых человек сам попросил не беспокоить.
- *
- * Счётчика упоминаний (@) и реакций здесь нет: `GET /chats` их не отдаёт (см. отчёт).
+ * Значки справа во второй строке, как в Telegram: «♥» — непрочитанные реакции на мои
+ * сообщения, «@» — непрочитанные упоминания меня, затем счётчик непрочитанного или точка
+ * «как новое». Если ничего из этого нет — скрепка закреплённого. У заглушённого чата
+ * счётчик и «♥» серые: они про то, ради чего человек сам попросил не беспокоить; «@» — нет,
+ * упоминание адресовано лично ему.
  */
 export function ChatListBadge({ chat: c, selected }: { chat: ChatListItem; selected: boolean }) {
   const t = useTranslations('Chats')
   const count = c.unreadCount
-  if (count > 0 || c.markedUnread) {
-    return (
-      <span
-        className={cn(
-          'flex h-[1.375rem] min-w-[1.375rem] shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums motion-safe:animate-in motion-safe:zoom-in-50',
-          c.muted ? 'bg-muted-foreground/60 text-white' : 'bg-primary text-primary-foreground',
-          selected &&
-            (c.muted
-              ? 'md:bg-primary-foreground/30 md:text-primary-foreground'
-              : 'md:bg-primary-foreground md:text-primary'),
-        )}
-        aria-label={count > 0 ? t('tgList.unreadCount', { n: count }) : t('tgList.markedUnread')}
-      >
-        {count > 0 ? (count > 999 ? `${Math.floor(count / 1000)}K` : count) : null}
-      </span>
-    )
-  }
-  if (c.pinned) {
+  const mentions = c.unreadMentionsCount ?? 0
+  const reactions = c.unreadReactionsCount ?? 0
+  const unread = count > 0 || !!c.markedUnread
+  if (!unread && mentions === 0 && reactions === 0) {
+    if (!c.pinned) return null
     return (
       <Pin
         className={cn(
@@ -372,5 +361,46 @@ export function ChatListBadge({ chat: c, selected }: { chat: ChatListItem; selec
       />
     )
   }
-  return null
+  const pill =
+    'flex h-[1.375rem] min-w-[1.375rem] shrink-0 items-center justify-center rounded-full text-xs font-medium tabular-nums motion-safe:animate-in motion-safe:zoom-in-50'
+  const loud = cn(
+    'bg-primary text-primary-foreground',
+    selected && 'md:bg-primary-foreground md:text-primary',
+  )
+  const quiet = cn(
+    'bg-muted-foreground/60 text-white',
+    selected && 'md:bg-primary-foreground/30 md:text-primary-foreground',
+  )
+  return (
+    <>
+      {reactions > 0 && (
+        <span
+          className={cn(pill, c.muted ? quiet : loud)}
+          role="img"
+          aria-label={t('tgUnread.reactions', { n: reactions })}
+          title={t('tgUnread.reactions', { n: reactions })}
+        >
+          <Heart className="size-3 fill-current" aria-hidden />
+        </span>
+      )}
+      {mentions > 0 && (
+        <span
+          className={cn(pill, loud)}
+          role="img"
+          aria-label={t('tgUnread.mentions', { n: mentions })}
+          title={t('tgUnread.mentions', { n: mentions })}
+        >
+          <AtSign className="size-3.5" aria-hidden />
+        </span>
+      )}
+      {unread && (
+        <span
+          className={cn(pill, 'px-1.5', c.muted ? quiet : loud)}
+          aria-label={count > 0 ? t('tgList.unreadCount', { n: count }) : t('tgList.markedUnread')}
+        >
+          {count > 0 ? (count > 999 ? `${Math.floor(count / 1000)}K` : count) : null}
+        </span>
+      )}
+    </>
+  )
 }

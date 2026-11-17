@@ -1,73 +1,84 @@
 import { describe, expect, it } from 'vitest'
-import { mentionsMe, newForeignReactions, unreadMentionIds } from './message-list-unread'
+import type { ChatAttentionQueue, ChatListItem } from '../../../entities/chat'
+import {
+  isQueueStale,
+  pendingTargets,
+  withAttentionCounts,
+  withAttentionRead,
+} from './message-list-unread'
 
-const ME = { id: 'me', firstName: 'Айгерим', lastName: 'Сапарова' }
-const at = (minute: number): string => `2026-11-17T10:${String(minute).padStart(2, '0')}:00.000Z`
-const row = (
-  id: string,
-  minute: number,
-  content: string,
-  extra: { senderId?: string; replyTo?: string; system?: string } = {},
-) => ({
-  id,
-  senderId: extra.senderId ?? 'other',
-  content,
-  createdAt: at(minute),
-  systemType: extra.system ?? null,
-  replyTo: extra.replyTo ? { senderId: extra.replyTo } : null,
-})
-const reaction = (userId: string, emoji: string) => ({
-  userId,
-  emoji,
-  user: { id: userId, firstName: 'И', lastName: 'Ф', avatarUrl: null },
+const queue = (ids: string[], count = ids.length): ChatAttentionQueue => ({
+  items: ids.map((messageId, i) => ({
+    messageId,
+    seq: i + 1,
+    createdAt: `2026-11-17T10:0${i}:00.000Z`,
+  })),
+  count,
 })
 
-describe('mentionsMe', () => {
-  it('находит «@Имя Фамилия» и обратный порядок без учёта регистра', () => {
-    expect(mentionsMe(row('1', 1, 'привет @Айгерим Сапарова!'), ME)).toBe(true)
-    expect(mentionsMe(row('2', 1, '@сапарова айгерим глянь'), ME)).toBe(true)
+const chat = (id: string, m?: number, r?: number) =>
+  ({ id, unreadMentionsCount: m, unreadReactionsCount: r }) as unknown as ChatListItem
+
+describe('pendingTargets', () => {
+  it('отдаёт очередь по порядку без прочитанного здесь', () => {
+    expect(pendingTargets(queue(['a', 'b', 'c']), new Set(['b']))).toEqual(['a', 'c'])
   })
 
-  it('ответ на моё сообщение — тоже обращение ко мне', () => {
-    expect(mentionsMe(row('1', 1, 'да', { replyTo: 'me' }), ME)).toBe(true)
-  })
-
-  it('своё, служебное и чужое имя — не упоминание', () => {
-    expect(mentionsMe(row('1', 1, '@Айгерим Сапарова', { senderId: 'me' }), ME)).toBe(false)
-    expect(mentionsMe(row('2', 1, '@Айгерим Сапарова', { system: 'member_added' }), ME)).toBe(false)
-    expect(mentionsMe(row('3', 1, '@Данияр Ахметов'), ME)).toBe(false)
+  it('без очереди целей нет', () => {
+    expect(pendingTargets(undefined, new Set())).toEqual([])
   })
 })
 
-describe('unreadMentionIds', () => {
-  const list = [
-    row('a', 1, '@Айгерим Сапарова старое'),
-    row('b', 2, 'просто текст'),
-    row('c', 3, '@Айгерим Сапарова новое'),
-    row('d', 4, 'ответ', { replyTo: 'me' }),
-  ]
-
-  it('только новее отметки «прочитано до», по порядку ленты', () => {
-    expect(unreadMentionIds(list, at(1), ME)).toEqual(['c', 'd'])
+describe('isQueueStale', () => {
+  it('эхо своего прочтения — очередь свежая', () => {
+    expect(isQueueStale(1, queue(['a', 'b']), new Set(['a']))).toBe(false)
   })
 
-  it('лента не открыта — считать нечего', () => {
-    expect(unreadMentionIds(list, null, ME)).toEqual([])
+  it('пришло новое или прочитали на другом устройстве — устарела', () => {
+    expect(isQueueStale(3, queue(['a', 'b']), new Set())).toBe(true)
+    expect(isQueueStale(0, queue(['a', 'b']), new Set())).toBe(true)
   })
 
-  it('отмеченные «прочитать всё» не возвращаются', () => {
-    expect(unreadMentionIds(list, '', ME, new Set(['a', 'd']))).toEqual(['c'])
+  it('очередь обрезана сервером — сверяем по count, а не по длине', () => {
+    expect(isQueueStale(150, queue(['a', 'b'], 150), new Set())).toBe(false)
+  })
+
+  it('очереди ещё нет — нужна, только если есть что показать', () => {
+    expect(isQueueStale(2, undefined, new Set())).toBe(true)
+    expect(isQueueStale(0, undefined, new Set())).toBe(false)
   })
 })
 
-describe('newForeignReactions', () => {
-  it('возвращает только появившиеся чужие реакции', () => {
-    const before = [reaction('u1', '🔥')]
-    const after = [reaction('u1', '🔥'), reaction('u2', '❤️'), reaction('me', '👍')]
-    expect(newForeignReactions(before, after, 'me').map((r) => r.userId)).toEqual(['u2'])
+describe('withAttentionCounts / withAttentionRead', () => {
+  it('пишет счётчики только нужному чату и не пересоздаёт список без изменений', () => {
+    const list = [chat('c1', 1, 0), chat('c2', 2, 3)]
+    const next = withAttentionCounts(list, 'c2', { unreadMentionsCount: 0 })
+    expect(next[1]).toMatchObject({ unreadMentionsCount: 0, unreadReactionsCount: 3 })
+    expect(next[0]).toBe(list[0])
+    expect(withAttentionCounts(list, 'c1', { unreadMentionsCount: 1 })).toBe(list)
   })
 
-  it('снятая реакция ничего нового не даёт', () => {
-    expect(newForeignReactions([reaction('u1', '🔥')], [], 'me')).toEqual([])
+  it('старый сервер без полей — считаем нулями', () => {
+    const list = [chat('c1')]
+    expect(withAttentionCounts(list, 'c1', { unreadReactionsCount: 0 })).toBe(list)
+    expect(withAttentionCounts(list, 'c1', { unreadReactionsCount: 2 })[0]).toMatchObject({
+      unreadMentionsCount: 0,
+      unreadReactionsCount: 2,
+    })
+  })
+
+  it('оптимистичное прочтение уменьшает счётчик, но не ниже нуля', () => {
+    const list = [chat('c1', 2, 1)]
+    expect(withAttentionRead(list, 'c1', 'unreadMentionsCount', 1)[0]).toMatchObject({
+      unreadMentionsCount: 1,
+    })
+    expect(withAttentionRead(list, 'c1', 'unreadReactionsCount', 5)[0]).toMatchObject({
+      unreadReactionsCount: 0,
+    })
+    expect(withAttentionRead(list, 'c1', 'unreadMentionsCount', 'all')[0]).toMatchObject({
+      unreadMentionsCount: 0,
+      unreadReactionsCount: 1,
+    })
+    expect(withAttentionRead(list, 'nope', 'unreadMentionsCount', 1)).toBe(list)
   })
 })

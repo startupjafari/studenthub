@@ -73,6 +73,11 @@ export {
   type ChatMediaType,
   type ChatPollsPage,
   type ChatLinksPage,
+  fetchChatAttention,
+  readChatAttentionRequest,
+  type ChatAttentionKind,
+  type ChatAttentionCounts,
+  type ChatAttentionQueue,
 } from './api/chat-api'
 export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
 export {

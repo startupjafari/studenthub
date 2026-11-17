@@ -1020,3 +1020,17 @@ export const MessageSendUploadedSchema = z
     message: vm('validation.chats.quoteWithoutReply'),
   })
 export type MessageSendUploadedInput = z.infer<typeof MessageSendUploadedSchema>
+
+// Непрочитанные упоминания и реакции (Telegram: unreadMentionsCount / unreadReactionsCount).
+
+/** Сколько непрочитанных упоминаний (реакций) отдаёт `GET /chats/:id/{mentions|reactions}/unread`. */
+export const CHAT_ATTENTION_PAGE_MAX = 100
+
+/**
+ * «Прочитать» упоминания или реакции чата: `messageIds` — показанные сообщения (по одному
+ * при показе в ленте), без поля — все сразу («Прочитать всё» на кнопке ленты).
+ */
+export const ChatAttentionReadSchema = z
+  .object({ messageIds: z.array(entityId).min(1).max(MESSAGE_BULK_MAX).optional() })
+  .strict()
+export type ChatAttentionReadInput = z.infer<typeof ChatAttentionReadSchema>

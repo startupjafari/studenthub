@@ -54,6 +54,8 @@ export const chatKeys = {
   blocked: () => ['chats', 'blocked'] as const,
   unread: () => ['chats', 'unread'] as const,
   folders: () => ['chats', 'folders'] as const,
+  // Очередь непрочитанных упоминаний / реакций чата — цели кнопок «@» и «♥» в ленте.
+  attention: (id: string, kind: ChatAttentionKind) => ['chats', id, 'attention', kind] as const,
 }
 
 // Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
@@ -530,6 +532,42 @@ export async function setChatMarkedUnreadRequest(chatId: string, marked: boolean
 // меню папки. Пометку «как новое» снимает тоже.
 export async function markChatsReadRequest(chatIds: string[]): Promise<{ updated: number }> {
   const { data } = await api.post<{ updated: number }>('/chats/read', { chatIds })
+  return data
+}
+
+// Непрочитанные упоминания и реакции (Telegram: unreadMentionsCount / unreadReactionsCount).
+export type ChatAttentionKind = 'mentions' | 'reactions'
+
+/** Счётчики «@» и «♥» чата — ответ на прочтение и событие `chat:attention`. */
+export interface ChatAttentionCounts {
+  unreadMentionsCount: number
+  unreadReactionsCount: number
+}
+
+/** Очередь непрочитанных: сообщения по порядку ленты (старые первыми) и сколько их всего. */
+export interface ChatAttentionQueue {
+  items: { messageId: string; seq: number; createdAt: string }[]
+  count: number
+}
+
+export async function fetchChatAttention(
+  chatId: string,
+  kind: ChatAttentionKind,
+): Promise<ChatAttentionQueue> {
+  const { data } = await api.get<ChatAttentionQueue>(`/chats/${chatId}/${kind}/unread`)
+  return data
+}
+
+/** Прочитать показанные сообщения (`messageIds`) или все упоминания / реакции чата. */
+export async function readChatAttentionRequest(
+  chatId: string,
+  kind: ChatAttentionKind,
+  messageIds?: string[],
+): Promise<ChatAttentionCounts> {
+  const { data } = await api.post<ChatAttentionCounts>(
+    `/chats/${chatId}/${kind}/read`,
+    messageIds ? { messageIds } : {},
+  )
   return data
 }
 

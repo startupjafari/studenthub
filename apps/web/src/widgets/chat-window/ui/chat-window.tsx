@@ -76,7 +76,14 @@ import {
   type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { needsDirectUpload } from '../../../shared/api'
-import { firstUnreadIndex, unreadAfter, withReceipt } from '../lib/read-tracking'
+import {
+  OPEN_PAGE,
+  firstUnreadPosition,
+  needsWindow,
+  openAnchor,
+  unreadAfter,
+  withReceipt,
+} from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
   mergeChatHead,
@@ -544,7 +551,33 @@ export function ChatWindow() {
     refetchOnReconnect: false,
     queryFn: async () => {
       const chatId = activeId as string
-      const page = await fetchMessages(chatId, { limit: 30 })
+      // Первое открытие чата с непрочитанным, до которого больше страницы, — сразу окно вокруг
+      // первого непрочитанного (Telegram), а не низ истории с плашкой на самом раннем из
+      // загруженного. Повторные загрузки (кнопка «вниз», перезапрос) — как раньше, у низа.
+      const listItem = chatsRef.current?.find((c) => c.id === chatId)
+      const opening = !pagerByChatRef.current.has(chatId)
+      const anchor = opening ? openAnchor(listItem, OPEN_PAGE) : { kind: 'bottom' as const }
+      const atAnchor =
+        anchor.kind === 'around'
+          ? await fetchMessages(chatId, { limit: OPEN_PAGE, around: anchor.messageId })
+          : null
+      const page = atAnchor ?? (await fetchMessages(chatId, { limit: OPEN_PAGE }))
+      // Непрочитанных меньше страницы, но первое из них в неё не попало (между ними много
+      // своих сообщений) — тоже окно вокруг него.
+      const around =
+        atAnchor ??
+        (opening && needsWindow(page, listItem?.firstUnreadId)
+          ? await fetchMessages(chatId, { limit: OPEN_PAGE, around: listItem?.firstUnreadId ?? '' })
+          : null)
+      if (around) {
+        setPager(chatId, {
+          older: around.cursor,
+          canOlder: around.hasNext,
+          newer: around.prevCursor,
+          canNewer: around.hasPrev,
+        })
+        return [...around.items].reverse()
+      }
       // Первичная загрузка — у низа истории: более новых нет.
       setPager(chatId, {
         older: page.cursor,
@@ -1947,8 +1980,10 @@ export function ChatWindow() {
       // Как в Telegram: чат с непрочитанным открывается на первом непрочитанном, а не в самом
       // низу. Раньше лента сразу уезжала вниз и тут же отправляла «прочитано» по последнему
       // сообщению — двадцать непрочитанных гасли, хотя человек их не видел.
-      const unreadAtOpen = chatsRef.current?.find((c) => c.id === activeId)?.unreadCount ?? 0
-      const firstUnread = firstUnreadIndex(list, unreadAtOpen, myId)
+      const atOpen = chatsRef.current?.find((c) => c.id === activeId)
+      // Сервер знает первое непрочитанное по id — по нему плашка встаёт точно, в том числе
+      // в окне вокруг него; старый сервер — отсчёт чужих сообщений с конца, как раньше.
+      const firstUnread = firstUnreadPosition(list, atOpen, myId)
       setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
       // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
       // непрочитанным оказалось всё загруженное.
@@ -2279,10 +2314,13 @@ export function ChatWindow() {
   // Непрочитанных ниже того, что видно, — число на кнопке «вниз», как в Telegram. Считается
   // от отметки «прочитано до», поэтому тает вместе с прокруткой, а новые чужие сообщения,
   // пришедшие, пока человек читает выше, его увеличивают.
-  const unreadBelow = useMemo(
-    () => unreadAfter(messages.data ?? [], readUpTo, myId),
-    [messages.data, readUpTo, myId],
-  )
+  // В «прыгнутом» окне (открыли на первом непрочитанном, перешли к сообщению) ниже
+  // загруженного есть ещё сообщения — там число берём у сервера, как Telegram.
+  const unreadBelow = useMemo(() => {
+    const local = unreadAfter(messages.data ?? [], readUpTo, myId)
+    if (!canLoadNewer) return local
+    return Math.max(local, chats.data?.find((c) => c.id === activeId)?.unreadCount ?? 0)
+  }, [messages.data, readUpTo, myId, canLoadNewer, chats.data, activeId])
 
   function markChatRead(chatId: string): void {
     const chat = (qc.getQueryData<ChatListItem[]>(chatKeys.list()) ?? []).find(
@@ -3115,10 +3153,11 @@ export function ChatWindow() {
   // только во время прокрутки, двойной клик — реакция, протягивание мышью — выбор.
   const listAttention = useMessageListAttention({
     chatId: activeId,
-    me,
+    chat: activeChat,
     messages: messages.data,
-    readUpTo,
     scrollRef: messagesScrollRef,
+    // Как у отметки «прочитано до»: не в скрытой вкладке и не в «открыть без прочтения».
+    canRead: () => !document.hidden && peekChatIdRef.current !== activeId,
   })
   useNewMessageAppear(messagesScrollRef, activeId, messages.data)
   const listScrolling = useListScrolling(messagesScrollRef, activeId)
@@ -3819,16 +3858,14 @@ export function ChatWindow() {
                 bottom={composerH + 12}
                 showDown={showScrollDown}
                 unreadBelow={unreadBelow}
-                mentionCount={listAttention.mentionIds.length}
-                reactionCount={listAttention.reactionIds.length}
+                mentionCount={listAttention.mentionCount}
+                reactionCount={listAttention.reactionCount}
                 onDown={scrollToBottom}
                 onMention={() => {
-                  const id = listAttention.mentionIds[0]
-                  if (id) focusMessage(id)
+                  void listAttention.nextMention().then((id) => id && focusMessage(id))
                 }}
                 onReaction={() => {
-                  const id = listAttention.takeNextReaction()
-                  if (id) focusMessage(id)
+                  void listAttention.nextReaction().then((id) => id && focusMessage(id))
                 }}
                 onReadAllMentions={listAttention.readAllMentions}
                 onReadAllReactions={listAttention.readAllReactions}
