@@ -2,6 +2,7 @@ import type {
   ChatMessagesQueryInput,
   CreateChatInput,
   CreateChatPollInput,
+  MessageSearchKind,
 } from '@studenthub/shared-schemas'
 import {
   api,
@@ -37,9 +38,15 @@ export const chatKeys = {
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
-  // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору.
-  searchInChat: (chatId: string, q: string, senderId?: string) =>
-    ['chats', chatId, 'search', q, senderId ?? 'any'] as const,
+  // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору и периоду.
+  searchInChat: (chatId: string, q: string, senderId?: string, from?: string, to?: string) =>
+    ['chats', chatId, 'search', q, senderId ?? 'any', from ?? '', to ?? ''] as const,
+  // Глобальный поиск по виду материала (вкладки «Медиа», «Файлы», …): страницами; пустой
+  // запрос — последние материалы вида.
+  searchKind: (kind: MessageSearchKind, q: string) =>
+    ['chats', 'search', 'all', 'kind', kind, q] as const,
+  // «Часто пишете» в пустом поиске.
+  topPeers: () => ['chats', 'top-peers'] as const,
   media: (id: string, type: string) => ['chats', id, 'media', type] as const,
   // Ключ по месяцу: календарь листают туда-сюда, и уже виденный месяц не должен
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
@@ -245,17 +252,34 @@ export async function sendMessageWithAttachments(
   return data
 }
 
+/** Фильтры поиска сообщений: автор, «с вложениями», вид материала и период (ISO, включительно). */
+export interface MessageSearchFilters {
+  senderId?: string
+  hasFile?: boolean
+  kind?: MessageSearchKind
+  from?: string
+  to?: string
+}
+
+/**
+ * Поиск сообщений (`GET /chats/search`). Пустой `q` не отправляется: сервер тогда ищет по
+ * одним фильтрам — «последние материалы вида», «все сообщения автора», «за период».
+ */
 export async function searchMessages(
   q: string,
   chatId?: string,
   cursor?: string,
-  filters?: { senderId?: string; hasFile?: boolean },
+  filters?: MessageSearchFilters,
 ): Promise<MessagesPage> {
-  const params: Record<string, string | number | boolean> = { q, limit: 30 }
+  const params: Record<string, string | number | boolean> = { limit: 30 }
+  if (q) params.q = q
   if (chatId) params.chatId = chatId
   if (cursor) params.cursor = cursor
   if (filters?.senderId) params.senderId = filters.senderId
   if (filters?.hasFile) params.hasFile = true
+  if (filters?.kind) params.kind = filters.kind
+  if (filters?.from) params.from = filters.from
+  if (filters?.to) params.to = filters.to
   const res = (await api.get<ChatMessage[]>('/chats/search', { params })) as ResponseWithMeta & {
     data: ChatMessage[]
   }
@@ -266,6 +290,19 @@ export async function searchMessages(
     hasPrev: false,
     total: res.meta?.total,
   }
+}
+
+/** Собеседник из «Часто пишете»: личный чат и его второй участник. */
+export interface TopPeer {
+  chatId: string
+  user: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  score: number
+}
+
+/** «Часто пишете» — личные чаты, куда я пишу больше всего (рейтинг считает сервер). */
+export async function fetchTopPeers(limit = 12): Promise<TopPeer[]> {
+  const { data } = await api.get<TopPeer[]>('/chats/top-peers', { params: { limit } })
+  return data
 }
 
 export async function fetchPinned(chatId: string): Promise<ChatMessage[]> {
