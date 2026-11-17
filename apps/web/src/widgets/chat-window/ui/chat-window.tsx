@@ -132,6 +132,8 @@ import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
+import { ComposerDropArea, dropModeOf } from './composer-drop-area'
+import { lastEditableMessage } from '../lib/composer-last-editable'
 import { BlockedUsersPanel } from './blocked-users-panel'
 import { CreateGroupPanel } from './create-group-panel'
 import {
@@ -434,6 +436,8 @@ export function ChatWindow() {
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Файлы брошены в зону «без сжатия» — окно отправки открывается сразу в этом режиме.
+  const [attachAsFiles, setAttachAsFiles] = useState(false)
   // Перетаскивание файлов в переписку: подсветка зоны и счётчик вложенных dragenter/dragleave.
   const [dropActive, setDropActive] = useState(false)
   const dragDepth = useRef(0)
@@ -2467,7 +2471,7 @@ export function ChatWindow() {
     })
   }
 
-  function send(): void {
+  function send(opts: { silent?: boolean } = {}): void {
     const content = text.trim()
     if (!activeId) return
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
@@ -2498,7 +2502,7 @@ export function ChatWindow() {
       content,
       replyToId: replyTo?.id ?? null,
       replyQuote: replyQuote,
-      silent: false,
+      silent: !!opts.silent,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -2530,6 +2534,7 @@ export function ChatWindow() {
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
     emitSend(activeId, nonce, content, replyTo?.id, {
       replyQuote: replyQuote ?? undefined,
+      silent: opts.silent,
     })
     chatActions.end()
     setText('')
@@ -2869,7 +2874,7 @@ export function ChatWindow() {
     return Array.from(e.dataTransfer?.types ?? []).includes('Files')
   }
 
-  function addFiles(list: FileList | null): void {
+  function addFiles(list: FileList | null, asFiles = false): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
     // Отсекаем неподъёмное сразу при выборе: иначе файл сначала уезжал на сервер целиком и
@@ -2880,6 +2885,7 @@ export function ChatWindow() {
       return false
     })
     if (accepted.length === 0) return
+    if (!attachOpen) setAttachAsFiles(asFiles)
     setAttachFiles((prev) => (attachOpen ? [...prev, ...accepted] : accepted))
     setAttachOpen(true)
   }
@@ -3512,16 +3518,10 @@ export function ChatWindow() {
           e.preventDefault()
           dragDepth.current = 0
           setDropActive(false)
-          addFiles(e.dataTransfer.files)
+          addFiles(e.dataTransfer.files, dropModeOf(e.target) === 'file')
         }}
       >
-        {dropActive && (
-          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
-            <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
-              {t('dropHint')}
-            </span>
-          </div>
-        )}
+        {dropActive && <ComposerDropArea />}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-(--motion-page) animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
@@ -4326,7 +4326,14 @@ export function ChatWindow() {
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}
                     onType={onType}
-                    onSend={send}
+                    onSend={() => send()}
+                    onSendSilent={() => send({ silent: true })}
+                    onEditLast={() => {
+                      const last = lastEditableMessage(messages.data, myId)
+                      if (last) startEdit(last)
+                      return !!last
+                    }}
+                    chatId={activeId}
                     showSend={showSend}
                     connected={connected}
                     composerRef={composerRef}
@@ -4635,6 +4642,7 @@ export function ChatWindow() {
       {attachOpen && (
         <AttachmentDialog
           files={attachFiles}
+          initialAsFiles={attachAsFiles}
           sending={false}
           onSend={(caption, options) => sendAttachments(caption, options)}
           onAddMore={() => fileInputRef.current?.click()}
@@ -4642,6 +4650,14 @@ export function ChatWindow() {
             setAttachFiles((prev) => {
               const next = prev.filter((_, j) => j !== i)
               if (next.length === 0) setAttachOpen(false)
+              return next
+            })
+          }
+          onReorder={(from, to) =>
+            setAttachFiles((prev) => {
+              const next = [...prev]
+              const [moved] = next.splice(from, 1)
+              if (moved) next.splice(to, 0, moved)
               return next
             })
           }

@@ -1,36 +1,48 @@
 'use client'
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type RefObject } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import {
   Ban,
   BarChart3,
+  BellOff,
+  CalendarClock,
   Camera,
+  ChevronLeft,
+  ChevronUp,
   Clock,
   FileText,
   ImageIcon,
-  Mic,
+  ListChecks,
+  Lock,
   Paperclip,
   Pause,
   Pencil,
   Play,
   Eye,
   Reply,
-  Send,
   Smile,
   Trash2,
   X,
 } from 'lucide-react'
+import type { ChatChecklistCreateInput } from '@studenthub/shared-schemas'
 import {
   VoiceWaveform,
+  composerKeys,
+  fetchScheduledMessages,
+  scheduleMessageRequest,
+  sendCatalogGifRequest,
+  sendChecklistRequest,
+  sendRecentGifRequest,
+  sendStickerRequest,
+  type CatalogSticker,
   type ChatMemberInfo,
   type ChatMessage,
   type VoiceRecorderController,
 } from '../../../entities/chat'
 import {
-  Avatar,
-  AvatarFallback,
-  EmojiPicker,
   MARKDOWN_ACTIONS_INLINE,
   RichTextField,
   RowContextMenu,
@@ -39,6 +51,14 @@ import {
 import { cn } from '../../../shared/lib/utils'
 import { plainPreview } from '../lib/format'
 import { useMediaQuery } from '../../../shared/lib'
+import { useRealtimeEvent } from '../../../shared/realtime'
+import { useComposerVoiceHold } from '../lib/composer-voice-hold'
+import { ComposerMainButton, type MainButtonMode } from './composer-main-button'
+import { ComposerMentionList } from './composer-mention-list'
+import { ComposerSymbolMenu, type PickedGif, type SymbolTab } from './composer-symbol-menu'
+import { ComposerScheduleDialog } from './composer-schedule-dialog'
+import { ComposerScheduledPanel } from './composer-scheduled-panel'
+import { ComposerChecklistCreator } from './composer-checklist-creator'
 
 // Сколько курсор может быть «мимо» до закрытия поповера. Ноль означал бы, что панель
 // захлопывается на любом дрожании руки по дороге к ней; полсекунды — что она висит уже
@@ -180,6 +200,18 @@ export type ChatComposerProps = {
   myId: string | undefined
   voice: VoiceRecorderController
   recMMSS: string
+  /**
+   * Открытый чат: по нему поле ввода само шлёт стикеры, GIF и чек-листы и ставит
+   * отложенные. Нет чата — этих действий нет.
+   */
+  chatId?: string | null
+  /** «Отправить без звука» из меню кнопки отправки. Нет обработчика — пункта нет. */
+  onSendSilent?: () => void
+  /**
+   * ↑ в пустом поле — правка последнего своего сообщения (Telegram). `true` — нашлось и
+   * правка началась; `false` — стрелка остаётся стрелкой.
+   */
+  onEditLast?: () => boolean
 }
 
 export function ChatComposer({
@@ -210,12 +242,35 @@ export function ChatComposer({
   myId,
   voice,
   recMMSS,
+  chatId = null,
+  onSendSilent,
+  onEditLast,
 }: ChatComposerProps) {
   const t = useTranslations('Chats')
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
   const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
+  const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
   const attachMenu = useHoverMenu()
   const emoji = useHoverMenu()
+  // Последняя вкладка панели символов (эмодзи · стикеры · GIF) переживает закрытие панели —
+  // как в Telegram: кто отправляет стикеры, открывает панель сразу на них.
+  const [symbolTab, setSymbolTab] = useState<SymbolTab>('emoji')
+  // Меню кнопки «Отправить» (без звука · позже): точка вызова, а не флаг.
+  const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduledOpen, setScheduledOpen] = useState(false)
+  const [checklistOpen, setChecklistOpen] = useState(false)
+  // Выбранная строка подсказки упоминаний. Привязана к составу списка: сменился список
+  // (дописали букву) — выбор снова на первой строке, без эффекта со сбросом.
+  const mentionKey = mentionCandidates.map((u) => u.id).join(',')
+  const [mentionPick, setMentionPick] = useState({ key: '', index: 0 })
+  const mentionIndex = mentionPick.key === mentionKey ? mentionPick.index : 0
+  const setMentionIndex = (index: number): void => setMentionPick({ key: mentionKey, index })
+  const mentionListId = useId()
+  const hold = useComposerVoiceHold(voice, {
+    onTapHint: () => toast(t('tgComposer.voiceHoldHint')),
+  })
   // Наведение открывает меню только на ПК. На узком экране (в том числе в узком окне
   // браузера с мышью) панель смайлов доковано под полем ввода и занимает пол-экрана:
   // раскрывать её проездом курсора — то же самое, что открывать клавиатуру наведением.
@@ -248,6 +303,138 @@ export function ChatComposer({
   function insertEmoji(emoji: string): void {
     composerRef.current?.insertText(emoji)
   }
+
+  const onApiError = (e: unknown): void => {
+    toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+  }
+  // Стикер, GIF и чек-лист уходят REST-запросом и приезжают в ленту событием message:new —
+  // оптимистичного пузыря у них нет, как и у опроса. Ответ, если он был, на них и уходит.
+  const replyFields = (): { replyToId?: string } => (replyTo ? { replyToId: replyTo.id } : {})
+  const afterRichSend = (): void => {
+    if (replyTo) onCancelReply()
+  }
+  const sendSticker = useMutation({
+    mutationFn: (sticker: CatalogSticker) =>
+      sendStickerRequest(chatId as string, sticker.id, replyFields()),
+    onSuccess: afterRichSend,
+    onError: onApiError,
+  })
+  const sendGif = useMutation({
+    mutationFn: (gif: PickedGif) =>
+      gif.kind === 'catalog'
+        ? sendCatalogGifRequest(chatId as string, gif.id, replyFields())
+        : sendRecentGifRequest(chatId as string, gif.fileId, replyFields()),
+    onSuccess: () => {
+      afterRichSend()
+      void qc.invalidateQueries({ queryKey: composerKeys.gifsRecent() })
+    },
+    onError: onApiError,
+  })
+  // Стикер и GIF закрывают панель: выбор сделан, дальше человек смотрит в ленту.
+  const pickSticker = (sticker: CatalogSticker): void => {
+    emoji.close()
+    sendSticker.mutate(sticker)
+  }
+  const pickGif = (gif: PickedGif): void => {
+    emoji.close()
+    sendGif.mutate(gif)
+  }
+  const sendChecklist = useMutation({
+    mutationFn: (
+      input: Pick<ChatChecklistCreateInput, 'title' | 'items' | 'othersCanAdd' | 'othersCanMark'>,
+    ) => sendChecklistRequest(chatId as string, { ...input, ...replyFields() }),
+    onSuccess: () => {
+      setChecklistOpen(false)
+      afterRichSend()
+    },
+    onError: onApiError,
+  })
+
+  // Отложенные этого чата: значок часов в поле ввода виден, пока они есть (Telegram).
+  // Список меняется и с других устройств — сервер шлёт об этом событие только автору.
+  const scheduled = useQuery({
+    queryKey: composerKeys.scheduled(chatId ?? ''),
+    queryFn: () => fetchScheduledMessages(chatId as string),
+    enabled: !!chatId,
+  })
+  useRealtimeEvent<{ chatId: string }>('chat:scheduled-changed', (p) => {
+    void qc.invalidateQueries({ queryKey: composerKeys.scheduled(p.chatId) })
+  })
+  const scheduledCount = scheduled.data?.length ?? 0
+  const schedule = useMutation({
+    mutationFn: (scheduledAt: string) =>
+      scheduleMessageRequest(chatId as string, {
+        content: text.trim(),
+        ...replyFields(),
+        ...(replyTo && replyQuote ? { replyQuote } : {}),
+        scheduledAt,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: composerKeys.scheduled(chatId ?? '') })
+      setScheduleOpen(false)
+      onType('')
+      afterRichSend()
+      toast.success(t('tgComposer.scheduleDone'))
+    },
+    onError: onApiError,
+  })
+
+  /** Перехват клавиш поля ввода. `true` — клавиша обработана, редактору её не отдаём. */
+  function onFieldKey(e: KeyboardEvent): boolean {
+    // Открыта подсказка упоминаний: стрелки ходят по ней, Enter/Tab выбирают, Esc закрывает.
+    if (mentionCandidates.length > 0) {
+      const n = mentionCandidates.length
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        setMentionIndex((mentionIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+        return true
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        const picked = mentionCandidates[Math.min(mentionIndex, n - 1)]
+        if (picked) onInsertMention(picked)
+        return true
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onCloseMentions()
+        return true
+      }
+    }
+    const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+    // ↑ в пустом поле — править последнее своё (Telegram).
+    // Текст правки приходит в поле следующим рендером — курсор ставим в конец уже после него.
+    if (e.key === 'ArrowUp' && plain && !editing && !text.trim() && onEditLast?.()) {
+      requestAnimationFrame(() => composerRef.current?.focus())
+      return true
+    }
+    // Esc снимает правку, затем ответ — но не раньше, чем закроется открытая панель символов.
+    if (e.key === 'Escape' && !emoji.open && !attachMenu.open) {
+      if (editing) {
+        onCancelEdit()
+        return true
+      }
+      if (replyTo) {
+        onCancelReply()
+        return true
+      }
+    }
+    // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
+    if (e.key === 'Enter' && !e.shiftKey) {
+      onSend()
+      return true
+    }
+    return false
+  }
+
+  // Главная кнопка: запись голосового (удержанием или кликом), отправка, подтверждение правки.
+  // Пока запись зафиксирована (замок или клик мышью), кнопка отправляет голосовое.
+  const voiceLocked = voice.recording && !hold.holding
+  const mainMode: MainButtonMode = voiceLocked
+    ? 'send'
+    : editing
+      ? 'edit'
+      : showSend
+        ? 'send'
+        : 'record'
 
   // Плавающий остров панели: полупрозрачный материал, граница и тень (уровень 3).
   // На ПК тени нет: панель там лежит в сплошной плашке и ни над чем не парит, а тень
@@ -348,23 +535,29 @@ export function ChatComposer({
         >
           <Reply className="size-4 shrink-0 text-primary" aria-hidden />
           <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
-          <div className="min-w-0 flex-1">
+          {/* Нажатие по плашке ведёт к оригиналу в ленте — как в Telegram. */}
+          <button
+            type="button"
+            onClick={onViewReplyTarget}
+            title={t('goToMessage')}
+            className="min-w-0 flex-1 cursor-pointer rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
             <span className="block text-xs font-medium text-primary">
               {replyQuote
                 ? t('quotingFrom', { name: replyToName })
                 : t('replyingTo', { name: replyToName })}
             </span>
-            <p
+            <span
               className={cn(
-                'truncate text-xs text-muted-foreground',
+                'block truncate text-xs text-muted-foreground',
                 // Курсив отличает выделенный фрагмент от превью всего сообщения: полосу
                 // для этого больше не занимаем — она теперь общая метка панели.
                 replyQuote && 'italic',
               )}
             >
               {plainPreview(replyQuote || replyTo.content) || t('attachment')}
-            </p>
-          </div>
+            </span>
+          </button>
           <button
             type="button"
             aria-label={t('cancelReply')}
@@ -432,28 +625,16 @@ export function ChatComposer({
         // items-end, а не items-center: поле растёт вверх под многострочный текст, а
         // круглые кнопки остаются внизу, на своей линии.
         <div className="relative flex items-end gap-2">
-          {/* Попап @-упоминаний участников */}
+          {/* Подсказка @-упоминаний: ↑/↓ — выбор, Enter/Tab — вставить, Esc — закрыть. */}
           {mentionCandidates.length > 0 && !voice.recording && (
-            <div className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-xl border border-border bg-popover py-1 shadow-lg">
-              {mentionCandidates.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => onInsertMention(u)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
-                >
-                  <Avatar className="size-7 shrink-0">
-                    <AvatarFallback className="text-xs">
-                      {(u.lastName[0] ?? '') + (u.firstName[0] ?? '')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="min-w-0 flex-1 truncate">
-                    {u.lastName} {u.firstName}
-                    {u.id === myId ? ` (${t('you')})` : ''}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <ComposerMentionList
+              id={mentionListId}
+              candidates={mentionCandidates}
+              activeIndex={Math.min(mentionIndex, mentionCandidates.length - 1)}
+              myId={myId}
+              onPick={onInsertMention}
+              onHover={setMentionIndex}
+            />
           )}
           <input
             ref={fileInputRef}
@@ -489,8 +670,33 @@ export function ChatComposer({
               e.target.value = ''
             }}
           />
-          {voice.recording ? (
-            // Строка записи: отмена · таймер + волны · пауза/продолжить · отправить
+          {hold.holding ? (
+            // Запись удержанием (телефон): таймер и подсказка «влево — отмена», над кнопкой —
+            // замок. Палец ведёт кнопку; положение пишет хук прямо в transform.
+            <div
+              className={cn(
+                island,
+                'relative flex h-12 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full px-4 lg:h-11 lg:rounded-md',
+              )}
+            >
+              <span
+                className="size-2 shrink-0 animate-pulse rounded-full bg-destructive"
+                aria-hidden
+              />
+              <span className="w-10 shrink-0 tabular-nums text-sm text-muted-foreground">
+                {recMMSS}
+              </span>
+              <div
+                ref={hold.hintRef}
+                className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm text-muted-foreground"
+              >
+                <ChevronLeft className="size-4 shrink-0" aria-hidden />
+                <span className="truncate">{t('tgComposer.voiceSlideToCancel')}</span>
+              </div>
+            </div>
+          ) : voice.recording ? (
+            // Зафиксированная запись: отмена · таймер + волны · пауза/продолжить. Отправка —
+            // главной кнопкой справа (она же была микрофоном).
             <>
               <button
                 type="button"
@@ -530,14 +736,6 @@ export function ChatComposer({
                   )}
                 </button>
               </div>
-              <button
-                type="button"
-                aria-label={t('send')}
-                onClick={voice.finish}
-                className={sendBtn}
-              >
-                <Send className="size-6 lg:size-5" aria-hidden />
-              </button>
             </>
           ) : (
             <>
@@ -558,14 +756,18 @@ export function ChatComposer({
                 >
                   <Paperclip className="size-6 lg:size-5" aria-hidden />
                 </button>
-                {/* Attachment-меню (§37): Фото/видео · Камера · Файл · Опрос. Фото отдельным
-                    пунктом, а не «файлом», — иначе галерея открывается на всех документах.
-                    Раскрывается наведением, как смайлы и опции отправки: три соседние
-                    кнопки одного ряда не могут вести себя по-разному. Отступ — padding
-                    контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
+                {/* Attachment-меню (§37, Telegram AttachMenu): Фото или видео · Камера · Файл ·
+                    Опрос · Чек-лист. Фото отдельным пунктом, а не «файлом», — иначе галерея
+                    открывается на всех документах. Раскрывается наведением, как смайлы:
+                    соседние кнопки одного ряда не могут вести себя по-разному. Отступ —
+                    padding контейнера, а не margin меню: иначе на пути курсора мёртвая зона. */}
                 {attachMenu.open && (
                   <div className="absolute bottom-full left-0 z-50 pb-2">
-                    <div className="w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-bottom-1">
+                    <div
+                      role="menu"
+                      aria-label={t('attach')}
+                      className="w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-(--motion-menu) animate-in fade-in zoom-in-95 slide-in-from-bottom-1"
+                    >
                       {(
                         [
                           {
@@ -594,6 +796,13 @@ export function ChatComposer({
                             run: () => onCreatePoll?.(),
                             hidden: !onCreatePoll,
                           },
+                          {
+                            key: 'checklist',
+                            icon: ListChecks,
+                            label: t('tgComposer.attachChecklist'),
+                            run: () => setChecklistOpen(true),
+                            hidden: !chatId,
+                          },
                         ] as const
                       )
                         .filter((a) => !('hidden' in a && a.hidden))
@@ -601,14 +810,15 @@ export function ChatComposer({
                           <button
                             key={a.key}
                             type="button"
+                            role="menuitem"
                             onClick={() => {
                               attachMenu.close()
                               a.run()
                             }}
                             // Строка выше и значок крупнее, чем в обычном меню: сюда
-                            // целятся пальцем на телефоне, а пунктов всего три-четыре —
+                            // целятся пальцем на телефоне, а пунктов всего четыре-пять —
                             // место на них есть.
-                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted"
+                            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm outline-none hover:bg-muted focus-visible:bg-muted"
                           >
                             <a.icon className="size-5 shrink-0 opacity-80" aria-hidden />
                             {a.label}
@@ -639,34 +849,28 @@ export function ChatComposer({
                   className="max-h-32 overflow-y-auto py-2.5 pl-4 pr-1 lg:py-2 lg:pl-3.5"
                   aria-label={t('messagePlaceholder')}
                   placeholder={t('messagePlaceholder')}
-                  onKeyDown={(e) => {
-                    // Открыт попап упоминаний: Enter — выбрать первого, Escape — закрыть.
-                    if (mentionCandidates.length > 0) {
-                      if (e.key === 'Enter') {
-                        const first = mentionCandidates[0]
-                        if (first) onInsertMention(first)
-                        return true
-                      }
-                      if (e.key === 'Escape') {
-                        e.preventDefault()
-                        onCloseMentions()
-                        return true
-                      }
-                    }
-                    // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      onSend()
-                      return true
-                    }
-                    return false
-                  }}
+                  onKeyDown={onFieldKey}
                 />
-                {/* Emoji-пикер (§12): вставка в позицию курсора; попап остаётся открытым для
-                    нескольких. Раскрывается наведением — смайл выбирают глазами, и клик
-                    «чтобы посмотреть» тут лишний шаг. Кнопка живёт внутри капсулы поля
-                    (референс Telegram), поэтому её диаметр — высота капсулы минус её же
-                    скругление: круг во все 56 px вылез бы за кромку. Иконка и отклик на
-                    нажатие — те же, что у круглых кнопок ряда. */}
+                {/* Отложенные этого чата (Telegram: значок календаря в поле) — только пока
+                    они есть. Открывает список: отправить сейчас или отменить. */}
+                {scheduledCount > 0 && (
+                  <div className="shrink-0 self-end p-1 pr-0">
+                    <button
+                      type="button"
+                      aria-label={t('tgComposer.scheduledOpen', { count: scheduledCount })}
+                      title={t('tgComposer.scheduledOpen', { count: scheduledCount })}
+                      onClick={() => setScheduledOpen(true)}
+                      className="flex size-10 cursor-pointer items-center justify-center rounded-full text-primary outline-none hover:bg-foreground/[0.06] focus-visible:ring-4 focus-visible:ring-ring/20 lg:size-8 lg:rounded-md"
+                    >
+                      <CalendarClock className="size-6 lg:size-5" aria-hidden />
+                    </button>
+                  </div>
+                )}
+                {/* Панель символов (Telegram SymbolMenu): эмодзи · стикеры · GIF. Эмодзи
+                    встают в позицию курсора, и панель остаётся открытой для нескольких;
+                    стикер и GIF уходят сразу. Раскрывается наведением — смайл выбирают
+                    глазами, и клик «чтобы посмотреть» тут лишний шаг. Кнопка живёт внутри
+                    капсулы поля, поэтому её диаметр — высота капсулы минус скругление. */}
                 <div
                   ref={emoji.ref}
                   className="relative shrink-0 self-end p-1"
@@ -687,58 +891,132 @@ export function ChatComposer({
                     // место под окном есть. Отступ — внутренним padding, а не margin: между
                     // кнопкой и панелью не должно быть мёртвой зоны, иначе курсор до панели
                     // не доходит. На телефоне вместо неё панель под полем (ниже).
-                    <div className="absolute bottom-full right-0 z-50 hidden pb-2 lg:block">
-                      <EmojiPicker
-                        size="lg"
-                        searchPlaceholder={t('emojiSearch')}
-                        onPick={insertEmoji}
+                    <div className="absolute bottom-full right-0 z-50 hidden pb-2 duration-(--motion-menu) animate-in fade-in-0 zoom-in-95 lg:block">
+                      <ComposerSymbolMenu
+                        variant="popover"
+                        tab={symbolTab}
+                        onTabChange={setSymbolTab}
+                        allowMedia={!!chatId && !editing}
+                        onEmoji={insertEmoji}
+                        onSticker={pickSticker}
+                        onGif={pickGif}
                       />
                     </div>
                   )}
                 </div>
               </div>
-              {showSend ? (
-                <button
-                  type="button"
-                  aria-label={t('send')}
-                  disabled={!connected}
-                  onClick={onSend}
-                  className={sendBtn}
-                >
-                  <Send className="size-6 lg:size-5" aria-hidden />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  aria-label={t('recordVoice')}
-                  disabled={!connected}
-                  onClick={() => void voice.start()}
-                  className={roundBtn}
-                >
-                  <Mic className="size-6 lg:size-5" aria-hidden />
-                </button>
-              )}
             </>
+          )}
+          {/* Главная кнопка — один и тот же элемент во всех состояниях ряда: значок меняется
+              анимацией, а не подменой узла, и палец, держащий запись, не теряет цель. */}
+          <div className="relative shrink-0">
+            {hold.holding && (
+              <div
+                ref={hold.lockRef}
+                aria-hidden
+                className="pointer-events-none absolute bottom-full left-1/2 mb-8 flex -translate-x-1/2 flex-col items-center gap-0.5 rounded-full border border-border bg-popover px-2 py-2 text-muted-foreground shadow-lg duration-(--motion-menu) animate-in fade-in-0 slide-in-from-bottom-2"
+              >
+                <Lock className="size-4" />
+                <ChevronUp className="size-4 motion-safe:animate-bounce" />
+              </div>
+            )}
+            <ComposerMainButton
+              buttonRef={hold.buttonRef}
+              mode={mainMode}
+              holding={hold.holding}
+              ariaLabel={
+                mainMode === 'record'
+                  ? t('recordVoice')
+                  : mainMode === 'edit'
+                    ? t('tgComposer.saveEdit')
+                    : t('send')
+              }
+              disabled={!connected && !voiceLocked}
+              className={mainMode === 'record' && !hold.holding ? roundBtn : sendBtn}
+              onClick={() => {
+                if (voiceLocked) voice.finish()
+                else if (mainMode === 'record') void voice.start()
+                else onSend()
+              }}
+              onMenu={
+                mainMode === 'send' && !voiceLocked && !editing
+                  ? (x, y) => setSendMenu({ x, y })
+                  : undefined
+              }
+              onRecordPointerDown={hold.onPointerDown}
+            />
+          </div>
+          {sendMenu && (
+            <RowContextMenu
+              x={sendMenu.x}
+              y={sendMenu.y}
+              ariaLabel={t('sendOptions')}
+              onClose={() => setSendMenu(null)}
+              items={[
+                ...(onSendSilent
+                  ? [
+                      {
+                        key: 'silent',
+                        icon: BellOff,
+                        label: t('tgComposer.sendSilent'),
+                        onClick: onSendSilent,
+                      },
+                    ]
+                  : []),
+                ...(chatId
+                  ? [
+                      {
+                        key: 'schedule',
+                        icon: CalendarClock,
+                        label: t('tgComposer.sendLater'),
+                        onClick: () => setScheduleOpen(true),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           )}
         </div>
       )}
 
-      {/* Смайлы на телефоне — панелью ПОД полем ввода, на месте клавиатуры, как в Telegram.
+      {/* Панель символов на телефоне — ПОД полем ввода, на месте клавиатуры, как в Telegram.
           Всплывающее окно у кнопки здесь не работает: оно шириной в половину экрана, висит
           над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
           и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
-      {emoji.open && (
+      {emoji.open && !voice.recording && (
         // Во всю ширину экрана: отрицательные поля гасят отступы плавающего острова, а
         // скругления и рамка остаются только сверху — панель встаёт на место клавиатуры и
         // с трёх сторон уходит за кромку, как в Telegram.
         <div className="-mx-3 -mb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))] overflow-hidden rounded-t-2xl border-t border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
-          <EmojiPicker
-            size="dock"
-            searchPlaceholder={t('emojiSearch')}
-            onPick={insertEmoji}
-            className="rounded-none border-0 shadow-none"
+          <ComposerSymbolMenu
+            variant="dock"
+            tab={symbolTab}
+            onTabChange={setSymbolTab}
+            allowMedia={!!chatId && !editing}
+            onEmoji={insertEmoji}
+            onSticker={pickSticker}
+            onGif={pickGif}
           />
         </div>
+      )}
+
+      {scheduleOpen && chatId && (
+        <ComposerScheduleDialog
+          preview={text.trim()}
+          pending={schedule.isPending}
+          onClose={() => setScheduleOpen(false)}
+          onConfirm={(at) => schedule.mutate(at)}
+        />
+      )}
+      {scheduledOpen && chatId && (
+        <ComposerScheduledPanel chatId={chatId} onClose={() => setScheduledOpen(false)} />
+      )}
+      {checklistOpen && chatId && (
+        <ComposerChecklistCreator
+          pending={sendChecklist.isPending}
+          onClose={() => setChecklistOpen(false)}
+          onCreate={(input) => sendChecklist.mutate(input)}
+        />
       )}
     </div>
   )
