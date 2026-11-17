@@ -178,11 +178,14 @@ import {
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { canDeleteChat } from '../lib/chat-kind'
-// Лента сообщений в духе Telegram: плавающие кнопки, въезд новых, реакции.
+// Лента сообщений в духе Telegram: плавающие кнопки, жесты, въезд новых, реакции.
 import { useMessageListAttention } from '../lib/use-message-list-attention'
+import { useMessageListGestures } from '../lib/use-message-list-gestures'
 import { useListScrolling, useNewMessageAppear } from '../lib/use-message-list-motion'
 import { MessageListFab } from './message-list-fab'
+import { MessageListSwipeHint, type SwipeReplyHintHandle } from './message-list-swipe-hint'
 import { ReactionsListModal } from './reactions-list-modal'
+import { DEFAULT_REACTION } from './reactions-strip'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -2644,11 +2647,12 @@ export function ChatWindow() {
   }
 
   // ── Тач-жесты по сообщению (мобильный) ──────────────────────────────────────
-  // Долгое нажатие → меню действий; свайп вправо → ответ. На десктопе жесты не мешают
+  // Долгое нажатие → меню действий; свайп влево → ответ (Telegram). На десктопе жесты не мешают
   // (нет touch), контекстное меню/hover-кнопки остаются. touch-action:pan-y на строке
   // отдаёт вертикальный скролл браузеру, а горизонтальный жест — нам.
   const LONG_PRESS_MS = 450
   const SWIPE_REPLY_PX = 64
+  const swipeHintRef = useRef<SwipeReplyHintHandle>(null)
   const msgTouch = useRef<{
     m: ChatMessage
     startX: number
@@ -2695,6 +2699,7 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
+      swipeHintRef.current?.hide()
       // Геометрию снимаем ПОСЛЕ сброса сдвига: меню строится вокруг пузыря на его законном
       // месте, а не там, куда его успел утащить начатый свайп.
       const r = s.bubble?.getBoundingClientRect()
@@ -2736,29 +2741,32 @@ export function ChatWindow() {
       clearTimeout(s.timer)
       s.timer = null
     }
-    // Свайп вправо (преимущественно горизонтальный) → сдвигаем пузырь как визуальную подсказку.
-    if (dx > 0 && Math.abs(dy) < 24) {
+    // Свайп влево (преимущественно горизонтальный), как в Telegram, → сдвигаем пузырь, а
+    // справа проступает значок «Ответить» (ui/message-list-swipe-hint).
+    const pull = -dx
+    if (pull > 0 && Math.abs(dy) < 24) {
       s.swiping = true
       // За порогом ответа пузырь не встаёт колом (было `Math.min(dx, 72)` — палец едет,
       // пузырь стоит, и жест читается как «заело»), а сопротивляется всё сильнее: §9.
-      const shift =
-        dx <= SWIPE_REPLY_PX
-          ? dx
-          : SWIPE_REPLY_PX + rubberband(dx - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240)
+      const shift = -(pull <= SWIPE_REPLY_PX
+        ? pull
+        : SWIPE_REPLY_PX + rubberband(pull - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240))
       if (s.bubble) {
         s.bubble.style.transition = 'none'
         s.bubble.style.transform = `translateX(${shift}px)`
+        swipeHintRef.current?.update(s.bubble, shift, SWIPE_REPLY_PX)
       }
       // Один тик ровно в момент пересечения порога — палец узнаёт, что отпускать уже можно,
       // не глядя на экран (§13: обратная связь на причинном событии, а не в конце).
-      if (!s.reachedReply && dx > SWIPE_REPLY_PX) {
+      if (!s.reachedReply && pull > SWIPE_REPLY_PX) {
         s.reachedReply = true
         hapticTick()
-      } else if (s.reachedReply && dx <= SWIPE_REPLY_PX) {
+      } else if (s.reachedReply && pull <= SWIPE_REPLY_PX) {
         s.reachedReply = false
       }
-    } else if (s.swiping && dx <= 0) {
+    } else if (s.swiping && pull <= 0) {
       resetBubble(s.bubble, false)
+      swipeHintRef.current?.hide()
     }
   }
 
@@ -2771,8 +2779,9 @@ export function ChatWindow() {
     }
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
     resetBubble(s.bubble, true)
-    // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
-    if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
+    swipeHintRef.current?.hide()
+    // Свайп влево дальше порога (и это не было долгим нажатием) → ответ на сообщение.
+    if (!s.longFired && s.swiping && -dx > SWIPE_REPLY_PX) setReplyTo(s.m)
     msgTouch.current = null
   }
 
@@ -3241,7 +3250,7 @@ export function ChatWindow() {
 
   // ── Лента в духе Telegram (lib/use-message-list-*, ui/message-list-*) ─────────
   // Кнопки «к упоминанию» и «к реакции» над «вниз», въезд нового сообщения, прилипшая дата
-  // только во время прокрутки.
+  // только во время прокрутки, двойной клик — реакция, протягивание мышью — выбор.
   const listAttention = useMessageListAttention({
     chatId: activeId,
     me,
@@ -3251,6 +3260,18 @@ export function ChatWindow() {
   })
   useNewMessageAppear(messagesScrollRef, activeId, messages.data)
   const listScrolling = useListScrolling(messagesScrollRef, activeId)
+  const listGestures = useMessageListGestures({
+    scrollRef: messagesScrollRef,
+    messages: messages.data,
+    selecting: selectMode,
+    selectedIds,
+    disabled: chatSearchOpen || !!activeChat?.requestIncoming,
+    onDefaultReaction: (id) => react.mutate({ messageId: id, emoji: DEFAULT_REACTION }),
+    onSelectionChange: (ids) => {
+      setSelectedIds(ids)
+      setSelectMode(ids.size > 0)
+    },
+  })
   // Окно «кто отреагировал»: id, а не снимок сообщения — живые реакции обновляют его на месте.
   const [reactorsFor, setReactorsFor] = useState<{
     chatId: string
@@ -4143,6 +4164,11 @@ export function ChatWindow() {
               <div
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
+                onMouseDown={listGestures.onMouseDown}
+                onClickCapture={listGestures.onClickCapture}
+                onClick={listGestures.onClick}
+                onDoubleClick={listGestures.onDoubleClick}
+                onPointerDown={listGestures.onPointerDown}
                 className="flex-1 overflow-y-auto p-4"
                 // Плавающий композер перекрывает низ ленты — держим под ним пустоту ровно
                 // по его высоте, иначе последнее сообщение уезжает под панель.
@@ -4504,6 +4530,8 @@ export function ChatWindow() {
           onClose={() => setReactorsFor(null)}
         />
       )}
+      {/* Значок «Ответить» при свайпе сообщения влево (тач). */}
+      <MessageListSwipeHint ref={swipeHintRef} />
 
       {reportMsg && (
         <ReportModal
