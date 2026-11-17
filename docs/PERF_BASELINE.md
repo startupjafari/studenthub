@@ -19,7 +19,7 @@
 
 | | |
 |---|---|
-| Стенд | `pnpm db:seed:test` — 1 вуз, 2 факультета, 58 групп, 1450 учащихся |
+| Стенд | 1 вуз, 2 факультета, 58 групп, 1450 учащихся (собран удалённым 16.11.2026 `pnpm db:seed:test`; ближайшая замена — `SEED_UNIVERSITIES=1 SEED_STUDENTS=1450 SEED_DEMO_UNIVERSITY=0 pnpm db:seed`, состав факультетов у неё по формуле) |
 | База | отдельная `studenthub_perf`, не рабочая: сид затирает данные |
 | API | `node dist/main.js` на :3101, `THROTTLE_DISABLED=true` |
 | Машина | 4 ядра, локальный Postgres 16 в контейнере, всё на одном хосте |
@@ -40,7 +40,7 @@
 # 1. Отдельная база (рабочую не трогаем: сид затирает данные)
 docker exec <pg> psql -U <user> -d <any> -c 'CREATE DATABASE studenthub_perf'
 DATABASE_URL=...studenthub_perf npx prisma migrate deploy
-DATABASE_URL=...studenthub_perf SEED_PASSWORD='Seed1234!' pnpm db:seed:test
+DATABASE_URL=...studenthub_perf SEED_PASSWORD='Seed1234!' SEED_UNIVERSITIES=1 SEED_STUDENTS=1450 SEED_DEMO_UNIVERSITY=0 pnpm db:seed
 
 # 2. API против неё, на своём порту
 cd apps/api && DATABASE_URL=...studenthub_perf PORT=3101 \
@@ -222,7 +222,7 @@ btree даёт `DESC NULLS FIRST` — порядок не совпадает, и
 
 ## Прогон 2026-10-12: что добавилось
 
-Стенд тот же (`pnpm db:seed:test`, отдельная база `studenthub_perf`): 1509 пользователей,
+Стенд тот же (тогдашний `pnpm db:seed:test`, отдельная база `studenthub_perf`): 1509 пользователей,
 89 960 постов, по 52 200 оценок и отметок посещаемости. Сторисов сид не делает, поэтому в
 таблицу `stories` добавлены 30 000 синтетических строк — иначе план запроса снимался бы с
 пустой таблицы и ничего не значил.

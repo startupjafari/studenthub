@@ -40,16 +40,29 @@ final class DatabaseHolder: @unchecked Sendable {
     /// проверяют `isAvailable`). Отдаём пустую временную базу в памяти, но не
     /// запоминаем: следующий запрос после разблокировки получит настоящую, а файл на
     /// диске никто не тронет.
+    ///
+    /// Счётчик неудачных открытий пишется в `UserDefaults` только после того, как замок
+    /// отпущен. Запись рассылает уведомление, и `@AppStorage` ловит его под замком
+    /// обновления SwiftUI — а главный поток в это время мог строить экран под тем же
+    /// замком и ждать базу (`AppServices.realtime` в теле оболочки). Под замком базы это
+    /// была взаимная блокировка: система убивала запуск по 0x8BADF00D, чаще всего первый
+    /// после установки, когда открытие с миграциями идёт дольше.
     var database: AppDatabase {
+        let (database, streak) = openedOrOpen()
+        streak?.save(to: .standard)
+        return database
+    }
+
+    private func openedOrOpen() -> (AppDatabase, DamagedStreak?) {
         lock.lock()
         defer { lock.unlock() }
-        if let opened { return opened }
+        if let opened { return (opened, nil) }
         if isLocked {
             log.fault("База запрошена до первой разблокировки — временная пустая база в памяти")
-            return Self.temporary()
+            return (Self.temporary(), nil)
         }
-        let made = Self.open(log: log)
-        opened = made
+        let made = Self.open(log: log, previousStreak: UserDefaults.standard.integer(forKey: Self.damagedStreakKey))
+        opened = made.0
         return made
     }
 
@@ -68,37 +81,57 @@ final class DatabaseHolder: @unchecked Sendable {
     ///
     /// Приложение без базы бесполезно, но падение на старте бесполезно вдвойне: человек
     /// не увидит даже причины.
-    private static func open(log: Logger, defaults: UserDefaults = .standard) -> AppDatabase {
+    ///
+    /// `UserDefaults` здесь не пишется — только читается `previousStreak`: новое значение
+    /// возвращается и сохраняется вызывающим вне замка (`database`).
+    private static func open(log: Logger, previousStreak: Int) -> (AppDatabase, DamagedStreak?) {
+        // Сбрасывать нечего — не пишем вовсе: каждая запись — уведомление на весь процесс.
+        let reset: DamagedStreak? = previousStreak > 0 ? .reset : nil
         let failure: StoreOpenFailure
         do {
-            let database = try AppDatabase.onDisk()
-            defaults.removeObject(forKey: damagedStreakKey)
-            return database
+            return (try AppDatabase.onDisk(), reset)
         } catch {
             failure = StoreOpenFailure(error)
             log.error("Не открылась база чатов (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
         }
-        guard failure == .damaged else { return temporary() }
+        guard failure == .damaged else { return (temporary(), nil) }
 
-        let streak = defaults.integer(forKey: damagedStreakKey) + 1
+        let streak = previousStreak + 1
         guard streak >= damagedLaunchesBeforeReset else {
-            defaults.set(streak, forKey: damagedStreakKey)
-            return temporary()
+            return (temporary(), .count(streak))
         }
         do {
             try AppDatabase.moveStoreAside()
-            defaults.removeObject(forKey: damagedStreakKey)
-            return try AppDatabase.onDisk()
+        } catch {
+            // Файл не отложился — счётчик остаётся, следующий запуск попробует снова.
+            log.error("База чатов недоступна, работаем в памяти: \(error.localizedDescription, privacy: .public)")
+            return (temporary(), .count(streak))
+        }
+        do {
+            return (try AppDatabase.onDisk(), reset)
         } catch {
             log.error("База чатов недоступна, работаем в памяти: \(error.localizedDescription, privacy: .public)")
         }
-        return temporary()
+        return (temporary(), reset)
     }
 
     /// Сколько запусков подряд база должна не открыться как повреждённая, прежде чем
     /// её отложить, — как у Telegram: третий подряд уже не случайность.
     static let damagedLaunchesBeforeReset = 3
     private static let damagedStreakKey = "storage.damagedOpenStreak"
+
+    /// Что записать в счётчик неудачных открытий — вне замка (`database`).
+    private enum DamagedStreak {
+        case reset
+        case count(Int)
+
+        func save(to defaults: UserDefaults) {
+            switch self {
+            case .reset: defaults.removeObject(forKey: DatabaseHolder.damagedStreakKey)
+            case .count(let streak): defaults.set(streak, forKey: DatabaseHolder.damagedStreakKey)
+            }
+        }
+    }
 
     private static func temporary() -> AppDatabase {
         do {

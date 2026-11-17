@@ -68,18 +68,8 @@ on:
         description: 'Студентов на вуз: «1000-1500» или число. Меньше 400 не бывает: 4 факультета × 4 курса × 25'
         type: string
         default: '1000-1500'
-      posts:
-        description: 'Постов на пользователя: «A-B» или число («0» — без постов)'
-        type: string
-        default: '5-20'
-      articles:
-        description: 'Статей на пользователя: «A-B» или число'
-        type: string
-        default: '1-5'
-      polls:
-        description: 'Опросов на пользователя: «A-B» или число'
-        type: string
-        default: '1-5'
+      # Посты, статьи, опросы и галерея считаются по роли и активности каждого человека
+      # (prisma/seed/lib/activity.mjs) — отдельных полей формы у них больше нет.
 
 # Прогон пишет в БД Railway, а с кодом только читает: токену хватает contents: read.
 permissions:
@@ -117,9 +107,6 @@ jobs:
           SEED_PASSWORD_SET: ${{ secrets.SEED_PASSWORD != '' }}
           UNIS: ${{ inputs.universities }}
           STUDENTS: ${{ inputs.students }}
-          POSTS: ${{ inputs.posts }}
-          ARTICLES: ${{ inputs.articles }}
-          POLLS: ${{ inputs.polls }}
         run: |
           set -euo pipefail
 
@@ -163,25 +150,19 @@ jobs:
               echo "::error::$name: ожидалось «A-B» или число, получено «$value»." >&2; exit 1; }
           }
           check_range students "$STUDENTS"
-          check_range posts "$POSTS"
-          check_range articles "$ARTICLES"
-          check_range polls "$POLLS"
 
           {
             echo "SEED_MODE=seed"
             echo "SEED_TAG=$RUN_TAG"
             echo "SEED_UNIVERSITIES=$UNIS"
             echo "SEED_STUDENTS=$STUDENTS"
-            echo "SEED_POSTS=$POSTS"
-            echo "SEED_ARTICLES=$ARTICLES"
-            echo "SEED_POLLS=$POLLS"
           } >> "$GITHUB_ENV"
 
           # Осознанное согласие на большой объём. Потолок считает сид; жёсткий не снимается.
           if [ "$CONFIRM" = "BIG" ]; then echo "SEED_CONFIRM_BIG=1" >> "$GITHUB_ENV"; fi
 
           echo "Метка: $RUN_TAG · вузов: $UNIS · студентов на вуз: $STUDENTS"
-          echo "На пользователя — посты $POSTS, статьи $ARTICLES, опросы $POLLS. Фото и видео: нет."
+          echo "Контент — по ролям и активности людей. Фото и видео: нет."
 
       - name: Схема прогона — в сводку запуска
         env:
@@ -280,17 +261,14 @@ jobs:
 
       # Демо-вуз «Алатау» выключен: сотни аккаунтов под одним паролем и dev-инвайт с
       # известным токеном на общей базе — это готовый вход, а не демонстрация.
-      # Медиа выключены всеми переключателями сразу, MINIO_* не передаются.
+      # Медиа выключены (SEED_MEDIA=0 гасит пул, образцы форматов и галерею), MINIO_* не
+      # передаются.
       - name: Налить данные — или убрать прогон по метке
         env:
           SEED_ALLOW_REMOTE: '1'
           SEED_DEMO_UNIVERSITY: '0'
-          SEED_SCALE: full
           SEED_CONCURRENCY: '4'
           SEED_MEDIA: '0'
-          SEED_PHOTOS_PER_USER: '0'
-          SEED_VIDEOS_PER_USER: '0'
-          SEED_POST_IMAGES_PER_USER: '0'
           SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
         run: node --max-old-space-size=4096 prisma/seed.mjs
 

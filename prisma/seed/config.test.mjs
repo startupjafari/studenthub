@@ -1,8 +1,9 @@
-// Конфигурация и гарды. Главный из них — запрет большого масштаба на нелокальной БД:
-// 80 млн строк, случайно залитые в Railway, стоят денег и часов.
+// Конфигурация и гарды. Главный из них — запрет вузов генератора на нелокальной БД:
+// миллионы строк, случайно залитые в Railway, стоят денег и часов.
 
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
+import { activityLevel, activityOf, averageOf, pollTurnout } from './lib/activity.mjs'
 import { loadConfig } from './config.mjs'
 
 const LOCAL = 'postgresql://u:p@localhost:5432/studenthub'
@@ -20,69 +21,76 @@ function withEnv(vars, fn) {
 }
 
 afterEach(() => {
-  delete process.env.SEED_SCALE
   delete process.env.SEED_ONLY
 })
 
 describe('конфигурация сида', () => {
-  it('по умолчанию профиль demo и генератор вузов выключен', () => {
+  it('по умолчанию — только демо-вуз, без медиа', () => {
     const config = withEnv({ DATABASE_URL: LOCAL }, loadConfig)
-    assert.equal(config.scale, 'demo')
     assert.equal(config.universities, 0)
-    assert.equal(config.media, false, 'demo не должен тянуть медиа из сети')
+    assert.equal(config.demoUniversity, true)
+    assert.equal(config.media, false, 'один демо-вуз не должен тянуть медиа из сети')
   })
 
-  it('профиль full — 100 вузов по 700–1700 студентов и медиа включено', () => {
-    const config = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'full' }, loadConfig)
-    assert.equal(config.universities, 100)
-    assert.deepEqual([config.studentsMin, config.studentsMax], [700, 1700])
+  it('объём — число вузов и студентов; медиа включается вместе с вузами', () => {
+    const config = withEnv(
+      { DATABASE_URL: LOCAL, SEED_UNIVERSITIES: '4', SEED_STUDENTS: '500-1000' },
+      loadConfig,
+    )
+    assert.equal(config.universities, 4)
+    assert.deepEqual([config.studentsMin, config.studentsMax], [500, 1000])
     assert.equal(config.media, true)
+    assert.equal(config.to, 4)
   })
 
-  it('объёмы контента на пользователя — как заказано', () => {
-    const config = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'full' }, loadConfig)
-    assert.deepEqual(config.postsPerUser, [20, 100])
-    assert.deepEqual(config.articlesPerUser, [20, 50])
-    assert.deepEqual(config.pollsPerUser, [10, 100])
+  it('студентов по умолчанию — средний вуз, одно число — ровно столько', () => {
+    const def = withEnv({ DATABASE_URL: LOCAL, SEED_UNIVERSITIES: '1' }, loadConfig)
+    assert.deepEqual([def.studentsMin, def.studentsMax], [500, 1000])
+    const exact = withEnv(
+      { DATABASE_URL: LOCAL, SEED_UNIVERSITIES: '1', SEED_STUDENTS: '1450' },
+      loadConfig,
+    )
+    assert.deepEqual([exact.studentsMin, exact.studentsMax], [1450, 1450])
   })
 
-  it('большой масштаб на нелокальной БД заблокирован', () => {
+  it('удалённые ручки и профили не игнорируются молча', () => {
+    for (const name of ['SEED_SCALE', 'SEED_POSTS', 'SEED_PHOTOS_PER_USER', 'SEED_FACULTIES']) {
+      assert.throws(
+        () => withEnv({ DATABASE_URL: LOCAL, [name]: '1' }, loadConfig),
+        new RegExp(name),
+        `${name} должен отвергаться`,
+      )
+    }
+  })
+
+  it('вузы генератора на нелокальной БД заблокированы', () => {
     assert.throws(
-      () => withEnv({ DATABASE_URL: REMOTE, SEED_SCALE: 'full' }, loadConfig),
-      /нелокальной БД заблокирован/,
+      () => withEnv({ DATABASE_URL: REMOTE, SEED_UNIVERSITIES: '2' }, loadConfig),
+      /нелокальной БД заблокировано/,
     )
   })
 
   it('SEED_ALLOW_REMOTE снимает блокировку осознанно', () => {
     const config = withEnv(
-      { DATABASE_URL: REMOTE, SEED_SCALE: 'full', SEED_ALLOW_REMOTE: '1' },
+      { DATABASE_URL: REMOTE, SEED_UNIVERSITIES: '2', SEED_ALLOW_REMOTE: '1' },
       loadConfig,
     )
-    assert.equal(config.universities, 100)
+    assert.equal(config.universities, 2)
   })
 
-  it('demo на нелокальной БД разрешён — им разворачивают прод', () => {
+  it('один демо-вуз на нелокальной БД разрешён — им разворачивают прод', () => {
     const config = withEnv({ DATABASE_URL: REMOTE }, loadConfig)
-    assert.equal(config.scale, 'demo')
+    assert.equal(config.universities, 0)
   })
 
-  it('неизвестный профиль и неизвестный этап отвергаются с подсказкой', () => {
-    assert.throws(
-      () => withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'nope' }, loadConfig),
-      /Доступно/,
-    )
+  it('неизвестный этап отвергается с подсказкой', () => {
     assert.throws(
       () => withEnv({ DATABASE_URL: LOCAL, SEED_ONLY: 'chats' }, loadConfig),
       /неизвестные этапы/,
     )
   })
 
-  it('перевёрнутые диапазоны отвергаются', () => {
-    assert.throws(
-      () =>
-        withEnv({ DATABASE_URL: LOCAL, SEED_POSTS_MIN: '50', SEED_POSTS_MAX: '10' }, loadConfig),
-      /SEED_POSTS: минимум 50 больше максимума 10/,
-    )
+  it('перевёрнутый и мусорный диапазон студентов отвергается', () => {
     assert.throws(
       () =>
         withEnv(
@@ -90,6 +98,10 @@ describe('конфигурация сида', () => {
           loadConfig,
         ),
       /SEED_STUDENTS: минимум 900 больше максимума 100/,
+    )
+    assert.throws(
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_STUDENTS: '10..20' }, loadConfig),
+      /SEED_STUDENTS: ожидалось «A-B» или число/,
     )
   })
 
@@ -103,118 +115,52 @@ describe('конфигурация сида', () => {
 
   it('диапазон вузов вне 1..N отвергается', () => {
     assert.throws(
-      () => withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'full', SEED_TO: '200' }, loadConfig),
-      /вне 1\.\.100/,
+      () => withEnv({ DATABASE_URL: LOCAL, SEED_UNIVERSITIES: '4', SEED_TO: '200' }, loadConfig),
+      /вне 1\.\.4/,
     )
   })
 })
 
-describe('профиль test (стенд по ТЗ)', () => {
-  it('задаёт состав поимённо и выключает демо-вуз', () => {
-    const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'test' }, loadConfig)
-    assert.equal(c.universities, 1)
-    assert.equal(c.studentsMin, 1450)
-    assert.equal(c.studentsMax, 1450)
-    assert.equal(c.faculties, 2)
-    assert.equal(c.teachers, 24)
-    assert.equal(c.groupSize, 25)
-    assert.equal(c.platformModerators, 2)
-    // Демо-вуз «Алатау» здесь не заливается: требование ТЗ — ровно один университет.
-    assert.equal(c.demoUniversity, false)
-    // Пул нужен и при пустой галерее: из него идут аватары, обложки и картинки постов.
-    assert.equal(c.photos, 200)
-    assert.equal(c.videos, 50)
-    // Личная галерея пустая — решение пользователя от 2026-09-16 (тогда она стоила
-    // ~29 ГБ в MinIO; теперь это ссылки на пул, но решение по стенду не пересматривалось).
-    assert.deepEqual(c.photosPerUser, [0, 0])
-    assert.deepEqual(c.videosPerUser, [0, 0])
+// Объём контента — от роли и активности человека, а не от ручек «на пользователя».
+describe('нормы активности (lib/activity.mjs)', () => {
+  const ids = Array.from({ length: 2000 }, (_, i) => `u001-st-${i}`)
+
+  it('активность детерминирована: тот же id — те же числа', () => {
+    assert.deepEqual(activityOf('u001-st-7', 'STUDENT'), activityOf('u001-st-7', 'STUDENT'))
   })
 
-  it('галерею можно включить ручкой, не трогая остальной состав', () => {
-    const c = withEnv(
-      { DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_PHOTOS_PER_USER: '30', SEED_VIDEOS_PER_USER: '1' }, // prettier-ignore
-      loadConfig,
-    )
-    assert.deepEqual(c.photosPerUser, [30, 30])
-    assert.deepEqual(c.videosPerUser, [1, 1])
-    assert.equal(c.studentsMin, 1450)
+  it('уровни распределяются примерно 30 / 50 / 20', () => {
+    const counts = { passive: 0, regular: 0, active: 0 }
+    for (const id of ids) counts[activityLevel(id).name] += 1
+    assert.ok(Math.abs(counts.passive / ids.length - 0.3) < 0.05)
+    assert.ok(Math.abs(counts.regular / ids.length - 0.5) < 0.05)
+    assert.ok(Math.abs(counts.active / ids.length - 0.2) < 0.05)
   })
 
-  it('остальные профили состав не задают и демо-вуз оставляют', () => {
-    for (const scale of ['demo', 'small', 'full']) {
-      const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: scale }, loadConfig)
-      assert.equal(c.faculties, null, `${scale}: факультеты должны считаться формулой`)
-      assert.equal(c.teachers, null, `${scale}: преподаватели — по нагрузке`)
-      assert.equal(c.demoUniversity, true, `${scale}: демо-вуз остаётся`)
+  it('официальные аккаунты пишут больше студентов, охрана — почти ничего', () => {
+    assert.ok(averageOf('UNIVERSITY_ADMIN', 'posts') > averageOf('STAROSTA', 'posts'))
+    assert.ok(averageOf('STAROSTA', 'posts') > averageOf('STUDENT', 'posts'))
+    assert.equal(averageOf('SECURITY_GUARD', 'posts'), 0)
+  })
+
+  it('средний студент близок к норме роли', () => {
+    const mean = ids.reduce((sum, id) => sum + activityOf(id, 'STUDENT').posts, 0) / ids.length
+    assert.ok(Math.abs(mean - averageOf('STUDENT', 'posts')) < 0.5, `среднее ${mean}`)
+  })
+
+  it('у пишущего хотя бы один пост с медиа, у молчащего — ни одного', () => {
+    for (const id of ids) {
+      const a = activityOf(id, 'STUDENT')
+      assert.equal(a.postMedia === 0, a.posts === 0)
+      assert.ok(a.postMedia <= a.posts)
     }
   })
 
-  it('личная галерея включена в small и full и выключена в demo', () => {
-    for (const scale of ['small', 'full']) {
-      const c = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: scale }, loadConfig)
-      assert.deepEqual(c.photosPerUser, [20, 40], `${scale}: фото галереи`)
-      assert.deepEqual(c.videosPerUser, [1, 3], `${scale}: видео галереи`)
+  it('явка в опросе — от 20 до 60 % аудитории', () => {
+    for (const id of ids.slice(0, 200)) {
+      const votes = pollTurnout(id, 24)
+      assert.ok(votes >= Math.round(24 * 0.2) && votes <= Math.round(24 * 0.6))
     }
-    const demo = withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'demo' }, loadConfig)
-    assert.deepEqual(demo.photosPerUser, [0, 0])
-  })
-
-  it('факультет без единой группы отвергается до записи в БД', () => {
-    assert.throws(
-      () =>
-        withEnv(
-          { DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_STUDENTS_MIN: '25', SEED_STUDENTS_MAX: '25' }, // prettier-ignore
-          loadConfig,
-        ),
-      /Факультет без групп недопустим/,
-    )
-  })
-
-  it('преподавателей не может быть меньше, чем факультетов', () => {
-    assert.throws(
-      () => withEnv({ DATABASE_URL: LOCAL, SEED_SCALE: 'test', SEED_TEACHERS: '1' }, loadConfig),
-      /меньше числа факультетов/,
-    )
-  })
-})
-
-// Диапазоны одной строкой — то, как их задаёт workflow SEED: десять входов формы
-// не позволяют завести по два поля на каждую сущность (максимум у workflow_dispatch).
-describe('loadConfig: диапазоны «A-B»', () => {
-  it('строка разбирается в пару границ', () => {
-    const c = withEnv(
-      { DATABASE_URL: LOCAL, SEED_POSTS: '100-500', SEED_STUDENTS: '1000-1500' },
-      loadConfig,
-    )
-    assert.deepEqual(c.postsPerUser, [100, 500])
-    assert.equal(c.studentsMin, 1000)
-    assert.equal(c.studentsMax, 1500)
-  })
-
-  it('«0-0» означает «ни одной записи», а не «значение не задано»', () => {
-    const c = withEnv({ DATABASE_URL: LOCAL, SEED_POSTS: '0-0', SEED_POLLS: '0-0' }, loadConfig)
-    assert.deepEqual(c.postsPerUser, [0, 0])
-    assert.deepEqual(c.pollsPerUser, [0, 0])
-  })
-
-  it('одно число — вырожденный диапазон', () => {
-    const c = withEnv({ DATABASE_URL: LOCAL, SEED_ARTICLES: '7' }, loadConfig)
-    assert.deepEqual(c.articlesPerUser, [7, 7])
-  })
-
-  it('пара MIN/MAX сильнее строки: старые вызовы продолжают работать', () => {
-    const c = withEnv(
-      { DATABASE_URL: LOCAL, SEED_POSTS: '100-500', SEED_POSTS_MAX: '150' },
-      loadConfig,
-    )
-    assert.deepEqual(c.postsPerUser, [100, 150])
-  })
-
-  it('мусор в диапазоне отвергается до первой записи', () => {
-    assert.throws(
-      () => withEnv({ DATABASE_URL: LOCAL, SEED_POSTS: '10..20' }, loadConfig),
-      /SEED_POSTS: ожидалось «A-B» или число/,
-    )
   })
 })
 
