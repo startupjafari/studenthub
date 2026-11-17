@@ -106,6 +106,10 @@ model File {
   @@index([submissionId])
   @@index([eventCommentId])
   @@index([createdAt])
+  // Поиск по имени файла (вкладки «Файлы», «Музыка» глобального поиска чатов, недавние файлы):
+  // подстрока без регистра (ILIKE '%…%') обычным B-tree не ищется. Триграммы (pg_trgm) —
+  // расширение заводит миграция 20261117130200_chat_search_file_name_trgm.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "files_name_trgm_idx")
   // Догонялка обработки и backfill читают файлы по статусу.
   @@index([mediaStatus, createdAt])
   @@map("files")
