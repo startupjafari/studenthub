@@ -2445,6 +2445,18 @@
     "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
+    "tgBehavior": {
+      "nextMention": "Келесі атап өту",
+      "nextReaction": "Келесі реакция",
+      "markAllRead": "Барлығын оқылды деп белгілеу",
+      "scrollDownUnread": "Төмен, {count, plural, one {# оқылмаған} other {# оқылмаған}}",
+      "reactionChip": "{emoji} реакциясы: {count}",
+      "reactorsTitle": "{count, plural, one {# реакция} other {# реакция}}",
+      "reactorsAll": "Барлығы",
+      "reactorsFilter": "Реакция бойынша сүзгі",
+      "moreReactions": "Барлық реакциялар",
+      "unreadDivider": "Оқылмаған хабарламалар"
+    },
     "tabMusic": "Музыка",
     "tabGif": "GIF",
     "tabPolls": "Сауалнамалар",

@@ -2445,6 +2445,18 @@
     "uploadingPercent": "Загружаем медиа… {percent}%"
   },
   "Chats": {
+    "tgBehavior": {
+      "nextMention": "Следующее упоминание",
+      "nextReaction": "Следующая реакция",
+      "markAllRead": "Отметить всё прочитанным",
+      "scrollDownUnread": "Вниз, {count, plural, one {# непрочитанное} few {# непрочитанных} many {# непрочитанных} other {# непрочитанного}}",
+      "reactionChip": "Реакция {emoji}: {count}",
+      "reactorsTitle": "{count, plural, one {# реакция} few {# реакции} many {# реакций} other {# реакции}}",
+      "reactorsAll": "Все",
+      "reactorsFilter": "Фильтр по реакции",
+      "moreReactions": "Все реакции",
+      "unreadDivider": "Непрочитанные сообщения"
+    },
     "tabMusic": "Музыка",
     "tabGif": "GIF",
     "tabPolls": "Опросы",

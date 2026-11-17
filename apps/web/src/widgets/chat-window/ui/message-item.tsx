@@ -12,7 +12,6 @@ import {
   MessageContent,
   MessageLocationCard,
   MessageStickerView,
-  ReactionBar,
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
@@ -23,6 +22,8 @@ import {
   parseProfileShare,
 } from './shared-cards'
 import { identityAccent } from '../../../shared/lib'
+import { ReactionsStrip } from './reactions-strip'
+import { UnreadDivider } from './message-list-divider'
 import { cn } from '../../../shared/lib/utils'
 import { emojiOnlyCount } from '../lib/message-emoji'
 import { MessageForwarded } from './message-forwarded'
@@ -84,6 +85,8 @@ export type MessageActions = {
   /** Снимок лёг в буфер обмена (или не лёг) — сообщить об этом умеет только приложение. */
   copiedImage: (ok: boolean) => void
   react: (id: string, emoji: string) => void
+  /** Кто отреагировал (правый клик по чипу реакции) — окно со списком, с вкладкой эмодзи. */
+  showReactors?: (m: ChatMessage, emoji?: string) => void
   touchStart: (e: React.TouchEvent<HTMLDivElement>, m: ChatMessage) => void
   touchMove: (e: React.TouchEvent<HTMLDivElement>) => void
   touchEnd: (e: React.TouchEvent<HTMLDivElement>) => void
@@ -470,13 +473,7 @@ function MessageItemInner({
           </button>
         </div>
       )}
-      {isUnreadDivider && (
-        <div className="my-2 flex items-center gap-2 px-1">
-          <span className="h-px flex-1 bg-primary/40" aria-hidden />
-          <span className="text-xs font-medium text-primary">{t('unreadMessages')}</span>
-          <span className="h-px flex-1 bg-primary/40" aria-hidden />
-        </div>
-      )}
+      {isUnreadDivider && <UnreadDivider />}
       {m.systemType ? (
         // Служебное сообщение (Telegram): капсула по центру ленты, без автора и времени.
         // Скругление не «full»: длинный текст переносится, и у двухстрочной капсулы-таблетки
@@ -626,11 +623,14 @@ function MessageItemInner({
                 Много реакций переносятся, время остаётся в последней строке. */}
             {hasReactions ? (
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <ReactionBar
+                <ReactionsStrip
                   reactions={m.reactions}
                   myId={myId}
                   ownBubble={mine && !bare}
                   onToggle={(emoji) => actions.react(m.id, emoji)}
+                  onShowReactors={
+                    actions.showReactors ? (emoji) => actions.showReactors?.(m, emoji) : undefined
+                  }
                 />
                 {metaVariant === 'flow' && meta('flow')}
               </div>

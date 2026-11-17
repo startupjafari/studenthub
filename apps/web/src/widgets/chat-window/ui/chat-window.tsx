@@ -179,6 +179,14 @@ import {
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { canDeleteChat } from '../lib/chat-kind'
+// Лента сообщений в духе Telegram: плавающие кнопки, жесты, въезд новых, реакции.
+import { useMessageListAttention } from '../lib/use-message-list-attention'
+import { useMessageListGestures } from '../lib/use-message-list-gestures'
+import { useListScrolling, useNewMessageAppear } from '../lib/use-message-list-motion'
+import { MessageListFab } from './message-list-fab'
+import { MessageListSwipeHint, type SwipeReplyHintHandle } from './message-list-swipe-hint'
+import { ReactionsListModal } from './reactions-list-modal'
+import { DEFAULT_REACTION } from './reactions-strip'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -2640,11 +2648,12 @@ export function ChatWindow() {
   }
 
   // ── Тач-жесты по сообщению (мобильный) ──────────────────────────────────────
-  // Долгое нажатие → меню действий; свайп вправо → ответ. На десктопе жесты не мешают
+  // Долгое нажатие → меню действий; свайп влево → ответ (Telegram). На десктопе жесты не мешают
   // (нет touch), контекстное меню/hover-кнопки остаются. touch-action:pan-y на строке
   // отдаёт вертикальный скролл браузеру, а горизонтальный жест — нам.
   const LONG_PRESS_MS = 450
   const SWIPE_REPLY_PX = 64
+  const swipeHintRef = useRef<SwipeReplyHintHandle>(null)
   const msgTouch = useRef<{
     m: ChatMessage
     startX: number
@@ -2691,6 +2700,7 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
+      swipeHintRef.current?.hide()
       // Геометрию снимаем ПОСЛЕ сброса сдвига: меню строится вокруг пузыря на его законном
       // месте, а не там, куда его успел утащить начатый свайп.
       const r = s.bubble?.getBoundingClientRect()
@@ -2732,29 +2742,32 @@ export function ChatWindow() {
       clearTimeout(s.timer)
       s.timer = null
     }
-    // Свайп вправо (преимущественно горизонтальный) → сдвигаем пузырь как визуальную подсказку.
-    if (dx > 0 && Math.abs(dy) < 24) {
+    // Свайп влево (преимущественно горизонтальный), как в Telegram, → сдвигаем пузырь, а
+    // справа проступает значок «Ответить» (ui/message-list-swipe-hint).
+    const pull = -dx
+    if (pull > 0 && Math.abs(dy) < 24) {
       s.swiping = true
       // За порогом ответа пузырь не встаёт колом (было `Math.min(dx, 72)` — палец едет,
       // пузырь стоит, и жест читается как «заело»), а сопротивляется всё сильнее: §9.
-      const shift =
-        dx <= SWIPE_REPLY_PX
-          ? dx
-          : SWIPE_REPLY_PX + rubberband(dx - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240)
+      const shift = -(pull <= SWIPE_REPLY_PX
+        ? pull
+        : SWIPE_REPLY_PX + rubberband(pull - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240))
       if (s.bubble) {
         s.bubble.style.transition = 'none'
         s.bubble.style.transform = `translateX(${shift}px)`
+        swipeHintRef.current?.update(s.bubble, shift, SWIPE_REPLY_PX)
       }
       // Один тик ровно в момент пересечения порога — палец узнаёт, что отпускать уже можно,
       // не глядя на экран (§13: обратная связь на причинном событии, а не в конце).
-      if (!s.reachedReply && dx > SWIPE_REPLY_PX) {
+      if (!s.reachedReply && pull > SWIPE_REPLY_PX) {
         s.reachedReply = true
         hapticTick()
-      } else if (s.reachedReply && dx <= SWIPE_REPLY_PX) {
+      } else if (s.reachedReply && pull <= SWIPE_REPLY_PX) {
         s.reachedReply = false
       }
-    } else if (s.swiping && dx <= 0) {
+    } else if (s.swiping && pull <= 0) {
       resetBubble(s.bubble, false)
+      swipeHintRef.current?.hide()
     }
   }
 
@@ -2767,8 +2780,9 @@ export function ChatWindow() {
     }
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
     resetBubble(s.bubble, true)
-    // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
-    if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
+    swipeHintRef.current?.hide()
+    // Свайп влево дальше порога (и это не было долгим нажатием) → ответ на сообщение.
+    if (!s.longFired && s.swiping && -dx > SWIPE_REPLY_PX) setReplyTo(s.m)
     msgTouch.current = null
   }
 
@@ -3235,6 +3249,41 @@ export function ChatWindow() {
       }
     : null
 
+  // ── Лента в духе Telegram (lib/use-message-list-*, ui/message-list-*) ─────────
+  // Кнопки «к упоминанию» и «к реакции» над «вниз», въезд нового сообщения, прилипшая дата
+  // только во время прокрутки, двойной клик — реакция, протягивание мышью — выбор.
+  const listAttention = useMessageListAttention({
+    chatId: activeId,
+    me,
+    messages: messages.data,
+    readUpTo,
+    scrollRef: messagesScrollRef,
+  })
+  useNewMessageAppear(messagesScrollRef, activeId, messages.data)
+  const listScrolling = useListScrolling(messagesScrollRef, activeId)
+  const listGestures = useMessageListGestures({
+    scrollRef: messagesScrollRef,
+    messages: messages.data,
+    selecting: selectMode,
+    selectedIds,
+    disabled: chatSearchOpen || !!activeChat?.requestIncoming,
+    onDefaultReaction: (id) => react.mutate({ messageId: id, emoji: DEFAULT_REACTION }),
+    onSelectionChange: (ids) => {
+      setSelectedIds(ids)
+      setSelectMode(ids.size > 0)
+    },
+  })
+  // Окно «кто отреагировал»: id, а не снимок сообщения — живые реакции обновляют его на месте.
+  const [reactorsFor, setReactorsFor] = useState<{
+    chatId: string
+    id: string
+    emoji?: string
+  } | null>(null)
+  const reactorsMessage =
+    reactorsFor && reactorsFor.chatId === activeId
+      ? messages.data?.find((m) => m.id === reactorsFor.id)
+      : undefined
+
   // Стабильный диспетчер действий над сообщением (см. MessageItem). Всегда зовёт свежие
   // обработчики через ref — идентичность объекта не меняется между рендерами, поэтому memo
   // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
@@ -3296,6 +3345,7 @@ export function ChatWindow() {
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
       openCalendar: (ymd) => setCalendarDay(ymd),
+      showReactors: (m, emoji) => setReactorsFor({ chatId: m.chatId, id: m.id, emoji }),
     }),
     [],
   )
@@ -4095,14 +4145,17 @@ export function ChatWindow() {
                   {/* Нажатие на дату — календарь переписки (Telegram). */}
                   <button
                     type="button"
-                    tabIndex={floatingDayShown ? 0 : -1}
+                    tabIndex={floatingDayShown && listScrolling ? 0 : -1}
                     aria-label={t('openCalendar', { date: floatingDay })}
                     onClick={() =>
                       floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
                     }
                     className={cn(
                       'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
-                      floatingDayShown ? 'pointer-events-auto opacity-100' : 'opacity-0',
+                      // Telegram: видна, пока ленту листают, и гаснет через секунду покоя.
+                      floatingDayShown && listScrolling
+                        ? 'pointer-events-auto opacity-100'
+                        : 'opacity-0',
                     )}
                   >
                     {floatingDay}
@@ -4112,6 +4165,11 @@ export function ChatWindow() {
               <div
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
+                onMouseDown={listGestures.onMouseDown}
+                onClickCapture={listGestures.onClickCapture}
+                onClick={listGestures.onClick}
+                onDoubleClick={listGestures.onDoubleClick}
+                onPointerDown={listGestures.onPointerDown}
                 className="flex-1 overflow-y-auto p-4"
                 // Плавающий композер перекрывает низ ленты — держим под ним пустоту ровно
                 // по его высоте, иначе последнее сообщение уезжает под панель.
@@ -4192,23 +4250,26 @@ export function ChatWindow() {
                   </Virtualizer>
                 )}
               </div>
-              {/* Кнопка «вниз» со счётчиком непрочитанных ниже — появляется, когда пролистано вверх (Telegram-стиль). */}
-              {showScrollDown && (
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  aria-label={t('scrollToBottom')}
-                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 animate-in fade-in zoom-in-90 hover:bg-muted active:scale-95"
-                  style={{ bottom: composerH + 12 }}
-                >
-                  <ChevronDown className="size-5" aria-hidden />
-                  {unreadBelow > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
-                      {unreadBelow > 99 ? '99+' : unreadBelow}
-                    </span>
-                  )}
-                </button>
-              )}
+              {/* Кнопки справа над панелью ввода (Telegram): «к реакции», «к упоминанию» и
+                  «вниз» со счётчиком непрочитанных ниже — ui/message-list-fab. */}
+              <MessageListFab
+                bottom={composerH + 12}
+                showDown={showScrollDown}
+                unreadBelow={unreadBelow}
+                mentionCount={listAttention.mentionIds.length}
+                reactionCount={listAttention.reactionIds.length}
+                onDown={scrollToBottom}
+                onMention={() => {
+                  const id = listAttention.mentionIds[0]
+                  if (id) focusMessage(id)
+                }}
+                onReaction={() => {
+                  const id = listAttention.takeNextReaction()
+                  if (id) focusMessage(id)
+                }}
+                onReadAllMentions={listAttention.readAllMentions}
+                onReadAllReactions={listAttention.readAllReactions}
+              />
               {/* Панель ввода. На телефоне — плавающий остров поверх ленты (Telegram-стиль):
                 он не прибит к краю, лента прокручивается под ним, а место под последним
                 сообщением держит padding по измеренной высоте панели.
@@ -4429,6 +4490,7 @@ export function ChatWindow() {
         <MessageContextMenu
           message={menu.message}
           mine={menu.message.senderId === myId}
+          myId={myId}
           x={menu.x}
           y={menu.y}
           anchor={menu.anchor}
@@ -4459,9 +4521,22 @@ export function ChatWindow() {
               canReport && !menu.message.systemType && !menu.message.id.startsWith('tmp:')
                 ? () => setReportMsg(menu.message)
                 : undefined,
+            onShowReactors: () =>
+              setReactorsFor({ chatId: menu.message.chatId, id: menu.message.id }),
           }}
         />
       )}
+
+      {reactorsFor && reactorsMessage && reactorsMessage.reactions.length > 0 && (
+        <ReactionsListModal
+          reactions={reactorsMessage.reactions}
+          myId={myId}
+          initialEmoji={reactorsFor.emoji}
+          onClose={() => setReactorsFor(null)}
+        />
+      )}
+      {/* Значок «Ответить» при свайпе сообщения влево (тач). */}
+      <MessageListSwipeHint ref={swipeHintRef} />
 
       {reportMsg && (
         <ReportModal
