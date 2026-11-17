@@ -152,12 +152,17 @@ fun MessageBubble(
                 if (!deleted) item.attachments.forEach { AttachmentView(it, item.isOwn) }
                 // Подпись к вложению может быть пустой — тогда и строки нет.
                 if (message.content.isNotEmpty() || item.attachments.isEmpty() || deleted) {
-                    Text(
-                        if (deleted) stringResource(R.string.chats_deletedMessage) else message.content,
-                        style = AppType.body,
-                        color = textColor,
-                        fontStyle = if (deleted) FontStyle.Italic else FontStyle.Normal,
-                    )
+                    if (deleted || message.content.isEmpty()) {
+                        Text(
+                            if (deleted) stringResource(R.string.chats_deletedMessage) else message.content,
+                            style = AppType.body,
+                            color = textColor,
+                            fontStyle = if (deleted) FontStyle.Italic else FontStyle.Normal,
+                        )
+                    } else {
+                        // Разметка — по контракту чата (PROJECT.md §3.6), как на вебе и iOS.
+                        MessageMarkupText(message.content, key = message.id, isOwn = item.isOwn, textColor = textColor)
+                    }
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -233,7 +238,8 @@ private fun ReplyQuote(text: String, isOwn: Boolean) {
                 .background(if (isOwn) colors.primaryForeground.copy(alpha = 0.6f) else colors.primary),
         )
         Text(
-            text,
+            // Без разметки, спойлер — знаками Брайля (PROJECT.md §3.6).
+            ChatMarkup.preview(text, code = stringResource(R.string.chats_preview_code)),
             style = AppType.meta,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

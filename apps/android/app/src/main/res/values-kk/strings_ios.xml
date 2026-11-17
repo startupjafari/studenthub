@@ -1409,7 +1409,9 @@
     <string name="chats_format_menu">Пішімдеу</string>
     <string name="chats_format_monospace">Бірдей енді</string>
     <string name="chats_format_quote">Дәйексөз</string>
+    <string name="chats_format_spoiler">Спойлер</string>
     <string name="chats_format_strikethrough">Сызылған</string>
+    <string name="chats_format_underline">Асты сызылған</string>
     <string name="chats_forward">Қайта жіберу</string>
     <string name="chats_forward_attachment">Тіркеме</string>
     <string name="chats_forward_comment">Пікір қосу…</string>
@@ -1663,6 +1665,8 @@
     <string name="chats_share_system">Басқа қолданба арқылы бөлісу…</string>
     <string name="chats_share_title">Бөлісу</string>
     <string name="chats_spoiler">Спойлер</string>
+    <string name="chats_spoiler_hidden">жасырын мәтін</string>
+    <string name="chats_spoiler_reveal">Спойлерді көрсету</string>
     <string name="chats_sticker_a11y">Стикер %1$s</string>
     <string name="chats_stickers_empty">Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады</string>
     <string name="chats_stickers_favorite">Таңдаулыларға қосу</string>

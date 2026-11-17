@@ -187,7 +187,11 @@ fun ChatRow(
                 when {
                     action != null -> Text(actionCaption(action), style = AppType.meta, color = colors.primary, maxLines = 1)
                     row.preview != null -> Text(
-                        row.preview!!,
+                        // Без разметки, спойлер — знаками Брайля (PROJECT.md §3.6). Разбор — один
+                        // раз на текст: строки списка перерисовываются часто.
+                        stringResource(R.string.chats_preview_code).let { code ->
+                            remember(row.preview, code) { ChatMarkup.preview(row.preview!!, code) }
+                        },
                         style = AppType.meta,
                         // Черновик — красным, как в вебе: он важнее чужого сообщения.
                         color = if (row.draftText.isNullOrEmpty()) colors.mutedForeground else colors.destructive,
