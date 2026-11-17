@@ -123,8 +123,11 @@ function MediaTile({
   spoilerOffLabel,
   className,
   fit = 'cover',
+  wrapperProps,
 }: {
   file: File
+  /** Обработчики перестановки на корне плитки (см. `reorderProps`). */
+  wrapperProps?: React.HTMLAttributes<HTMLDivElement>
   onRemove: () => void
   removeLabel: string
   /** Снимок уйдёт скрытым: в диалоге он тоже размыт — видно, что получит собеседник. */
@@ -145,6 +148,7 @@ function MediaTile({
 
   return (
     <div
+      {...wrapperProps}
       className={cn(
         'group relative overflow-hidden rounded-lg bg-muted',
         // Размытие на самой плитке, а не только пометка уголком: спойлер выбирают, чтобы
@@ -157,6 +161,7 @@ function MediaTile({
         (isVideo ? (
           <video
             src={url}
+            draggable={false}
             muted
             preload="metadata"
             onLoadedMetadata={(e) => {
@@ -168,6 +173,7 @@ function MediaTile({
         ) : (
           <img
             src={url}
+            draggable={false}
             alt=""
             className={cn('size-full', fit === 'cover' ? 'object-cover' : 'object-contain')}
           />
@@ -218,14 +224,16 @@ function FileRow({
   file,
   onRemove,
   removeLabel,
+  wrapperProps,
 }: {
   file: File
   onRemove: () => void
   removeLabel: string
+  wrapperProps?: React.HTMLAttributes<HTMLDivElement>
 }) {
   const unit = useByteUnitLabel()
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border p-2">
+    <div {...wrapperProps} className="flex items-center gap-3 rounded-xl border border-border p-2">
       <ExtensionIcon name={file.name} mime={file.type} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{file.name}</span>
@@ -268,7 +276,60 @@ interface TileCommon {
   spoilered: Set<File>
   onRemove: (index: number) => void
   onToggleSpoiler: (file: File) => void
+  /** Перетаскивание и Alt+стрелки меняют порядок; без обработчика порядок не меняется. */
+  reorder?: ReorderHandlers
 }
+
+/**
+ * Порядок вложений (как в Telegram): плитку перетаскивают на место другой, с клавиатуры —
+ * Alt+стрелка, пока фокус внутри плитки. Номера — позиции в исходном списке файлов.
+ */
+interface ReorderHandlers {
+  onMove: (from: number, to: number) => void
+  count: number
+  hint: string
+}
+
+/** Пропсы обёртки, которые делают плитку или строку переставляемой. */
+function reorderProps(index: number, reorder: ReorderHandlers | undefined) {
+  if (!reorder || reorder.count < 2) return {}
+  return {
+    draggable: true,
+    title: reorder.hint,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData(REORDER_MIME, String(index))
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(REORDER_MIME)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+    },
+    onDrop: (e: React.DragEvent) => {
+      const from = Number(e.dataTransfer.getData(REORDER_MIME))
+      if (!e.dataTransfer.types.includes(REORDER_MIME) || !Number.isInteger(from)) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (from !== index) reorder.onMove(from, index)
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (!e.altKey) return
+      const step =
+        e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : e.key === 'ArrowRight' || e.key === 'ArrowDown'
+            ? 1
+            : 0
+      const to = index + step
+      if (step === 0 || to < 0 || to >= reorder.count) return
+      e.preventDefault()
+      reorder.onMove(index, to)
+    },
+  }
+}
+
+/** Свой тип данных перетаскивания: файл извне (`Files`) и перестановку не спутать. */
+const REORDER_MIME = 'application/x-studenthub-attachment-index'
 
 function Tile({
   item,
@@ -283,6 +344,7 @@ function Tile({
 }) {
   return (
     <MediaTile
+      wrapperProps={reorderProps(item.index, common.reorder)}
       file={item.file}
       removeLabel={common.removeLabel}
       onRemove={() => common.onRemove(item.index)}
@@ -357,24 +419,30 @@ function AlbumMosaic({ items, common }: { items: Indexed[]; common: TileCommon }
  */
 export function AttachmentDialog({
   files,
+  initialAsFiles = false,
   sending,
   onSend,
   onAddMore,
   onRemove,
+  onReorder,
   onClose,
 }: {
   files: File[]
+  /** Открыть сразу в режиме «без сжатия» (файлы брошены в такую зону переписки). */
+  initialAsFiles?: boolean
   sending: boolean
   onSend: (caption: string, options: AttachmentSendOptions) => void
   onAddMore: () => void
   onRemove: (index: number) => void
+  /** Переставить вложение: номера — позиции в `files`. Нет обработчика — порядок фиксирован. */
+  onReorder?: (from: number, to: number) => void
   onClose: () => void
 }) {
   const t = useTranslations('Chats')
   const [caption, setCaption] = useState('')
   const [spoilered, setSpoilered] = useState<Set<File>>(() => new Set())
   const [grouped, setGrouped] = useState(true)
-  const [asFiles, setAsFiles] = useState(false)
+  const [asFiles, setAsFiles] = useState(initialAsFiles)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const captionRef = useRef<HTMLInputElement>(null)
 
@@ -427,7 +495,11 @@ export function AttachmentDialog({
     spoilered,
     onRemove,
     onToggleSpoiler: toggleSpoiler,
+    reorder: onReorder
+      ? { onMove: onReorder, count: files.length, hint: t('tgComposer.reorderHint') }
+      : undefined,
   }
+  const rowReorder = (index: number) => reorderProps(index, tileCommon.reorder)
 
   const title = showAsFiles
     ? t('sendFilesTitle', { count: files.length })
@@ -498,6 +570,7 @@ export function AttachmentDialog({
               <FileRow
                 key={`${file.name}-${index}`}
                 file={file}
+                wrapperProps={rowReorder(index)}
                 removeLabel={removeLabel}
                 onRemove={() => onRemove(index)}
               />
@@ -529,6 +602,7 @@ export function AttachmentDialog({
                 <FileRow
                   key={`doc-${file.name}-${index}`}
                   file={file}
+                  wrapperProps={rowReorder(index)}
                   removeLabel={removeLabel}
                   onRemove={() => onRemove(index)}
                 />
