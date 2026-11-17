@@ -36,7 +36,7 @@ import {
   type MessageMetaVariant,
 } from './message-meta'
 import { MessageReplyQuote } from './message-reply-quote'
-import { MessageTail } from './message-tail'
+import { MessageTail, mediaTailStyle } from './message-tail'
 import { MessageWebPage } from './message-web-page'
 import { centerOf, type FlightPoint } from '../lib/reaction-flight'
 
@@ -226,6 +226,9 @@ function MessageItemInner({
   // торчащий из фотографии, читался бы как ошибка вёрстки.
   const tail = lastOfRun && !bare && !mediaLast
   const corners = bubbleCorners(mine, firstOfRun, lastOfRun, tail)
+  // Снимок совсем без пузыря — другое дело: хвостик у него есть, но не цветной фигурой, а
+  // маской самого кадра (mediaTailStyle) — угол фотографии вытягивается в хвостик.
+  const mediaTail = lastOfRun && mediaBare
 
   // Где время: в последней строке текста, плашкой на кадре, капсулой под стикером или
   // отдельной строкой (под карточкой, превью ссылки, рядом с реакциями).
@@ -387,7 +390,7 @@ function MessageItemInner({
           ) : mediaBare ? (
             <div
               className="overflow-hidden [&_.rounded-lg]:rounded-none [&>div]:mt-0"
-              style={{ borderRadius: radius(corners) }}
+              style={mediaTail ? mediaTailStyle(mine, corners) : { borderRadius: radius(corners) }}
             >
               {attachments}
             </div>
