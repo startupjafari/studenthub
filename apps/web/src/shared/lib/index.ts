@@ -97,6 +97,7 @@ export {
 export {
   useFileDownload,
   saveBlob,
+  downloadAndSaveFiles,
   downloadKeyOf,
   downloadedUrl,
   type DownloadState,

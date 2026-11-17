@@ -5,7 +5,7 @@ import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import type { ComplaintTargetTypeValue } from '@studenthub/shared-schemas'
-import { createComplaintRequest } from '../../../entities/complaint'
+import { createComplaintRequest, createMessageComplaintsRequest } from '../../../entities/complaint'
 import { Button, Label, Modal, Textarea } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -23,11 +23,17 @@ const REASONS = ['SPAM', 'FORBIDDEN', 'FRAUD', 'HATE', 'EXPLICIT', 'OTHER'] as c
 export function ReportModal({
   targetType,
   targetId,
+  messageIds,
   preview,
   onClose,
 }: {
   targetType: ComplaintTargetTypeValue
   targetId: string
+  /**
+   * Несколько сообщений одного чата (режим выбора): уходят одним запросом
+   * `POST /complaints/messages`, по жалобе на каждое. `targetId` тогда не используется.
+   */
+  messageIds?: readonly string[]
   /** Что именно обжалуется — показываем цитатой, чтобы не ошибиться объектом. */
   preview?: string
   onClose: () => void
@@ -38,15 +44,22 @@ export function ReportModal({
   const [reason, setReason] = useState<(typeof REASONS)[number] | null>(null)
   const [details, setDetails] = useState('')
 
+  const many = targetType === 'MESSAGE' && !!messageIds && messageIds.length > 1
   const send = useMutation({
-    mutationFn: () =>
-      createComplaintRequest({
+    mutationFn: async (): Promise<{ skipped: number }> => {
+      const text = [t(`reason_${reason}`), details.trim()].filter(Boolean).join('. ')
+      if (many) {
+        return createMessageComplaintsRequest({ messageIds: [...(messageIds ?? [])], reason: text })
+      }
+      await createComplaintRequest({
         targetType,
-        targetId,
-        reason: [t(`reason_${reason}`), details.trim()].filter(Boolean).join('. '),
-      }),
-    onSuccess: () => {
-      toast.success(t('sent'))
+        targetId: messageIds?.[0] ?? targetId,
+        reason: text,
+      })
+      return { skipped: 0 }
+    },
+    onSuccess: ({ skipped }) => {
+      toast.success(skipped > 0 ? t('sentPartial') : t('sent'))
       onClose()
     },
     onError: (e) => show(e),
@@ -61,10 +74,16 @@ export function ReportModal({
         }}
         className="flex flex-col gap-4"
       >
-        {preview && (
-          <p className="line-clamp-3 rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
-            {preview}
+        {many ? (
+          <p className="rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
+            {t('selectedMessages', { count: messageIds?.length ?? 0 })}
           </p>
+        ) : (
+          preview && (
+            <p className="line-clamp-3 rounded-xl bg-muted/50 p-3 text-sm text-muted-foreground">
+              {preview}
+            </p>
+          )
         )}
 
         <div className="flex flex-col gap-1.5">
