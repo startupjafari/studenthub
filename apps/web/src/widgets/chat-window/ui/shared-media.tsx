@@ -29,6 +29,7 @@ import {
   ChatMediaRailViewer,
   fileKind,
   getAudioElement,
+  LONG_AUDIO_SEC,
   type ChatLinkItem,
   type ChatMediaItem,
   type ChatMessage,
@@ -442,7 +443,8 @@ function VoicePlaylist({
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
               {active && <PlaylistProgress playing={player.playing} duration={player.duration} />}
             </button>
-            {active && !music && <VoiceRateButton />}
+            {/* Скорость — у голосовых и длинных записей; песня играет на обычной. */}
+            {active && (!music || player.duration >= LONG_AUDIO_SEC) && <VoiceRateButton />}
           </div>
         )
       })}

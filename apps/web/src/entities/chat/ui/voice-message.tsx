@@ -8,6 +8,7 @@ import { cn } from '../../../shared/lib/utils'
 import { BAR_FLOOR, resampleEnvelope, useVoiceProfile, voiceBarCount } from '../lib/voice-profile'
 import {
   getAudioElement,
+  LONG_AUDIO_SEC,
   playAudioTrack,
   retainAudioPlayer,
   seekAudioRatio,
@@ -302,10 +303,13 @@ export function VoiceMessage({
           {mmss(playing || current > 0 ? current : duration)}
         </span>
       </div>
-      {/* Скорость — только у начатого голосового, справа, как в Telegram. */}
-      {isCurrent && (playing || current > 0) && (
-        <VoiceRateButton tone={mine ? 'onPrimary' : 'default'} className="self-start" />
-      )}
+      {/* Скорость — только у начатого голосового (и длинной записи), справа, как в Telegram:
+          короткая песня играет на обычной скорости (lib/audio-player). */}
+      {isCurrent &&
+        (playing || current > 0) &&
+        ((meta?.voice ?? true) || (player.duration || duration) >= LONG_AUDIO_SEC) && (
+          <VoiceRateButton tone={mine ? 'onPrimary' : 'default'} className="self-start" />
+        )}
     </div>
   )
 }
