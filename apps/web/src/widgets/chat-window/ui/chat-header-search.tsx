@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
+  CalendarRange,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -20,11 +21,14 @@ import {
   AvatarFallback,
   AvatarImage,
   Button,
+  DateRangePicker,
   Skeleton,
+  formatYmd,
   useListboxKeys,
 } from '../../../shared/ui'
 import { avatarColor, chatInitials, listTime, senderName } from '../lib/format'
 import type { ChatHeaderSearchState } from '../lib/use-chat-header-search'
+import { formatDayRange } from '../lib/search-range'
 import { ChatHeaderIconButton } from './chat-header-button'
 
 /** До конца выдачи осталось меньше — подтягиваем следующую страницу. */
@@ -38,7 +42,10 @@ const LOAD_MORE_EDGE_PX = 80
  * сообщению и прячет выдачу, чтобы было видно переписку вокруг. Возврат в поле снова её
  * показывает.
  *
- * На ПК счётчик «3 из 57», стрелки, фильтр по автору и календарь стоят в шапке справа.
+ * Фильтры как в Telegram: «От: …» (автор) и период — каждый ищет и без слов; оба стоят
+ * метками перед полем и снимаются крестиком.
+ *
+ * На ПК счётчик «3 из 57», стрелки, фильтры автора и периода и календарь стоят в шапке справа.
  * На телефоне им там тесно — они уезжают в нижнюю панель ({@link ChatHeaderSearchFooter}),
  * которая на время поиска заменяет поле ввода, как в Telegram.
  */
@@ -77,7 +84,8 @@ export function ChatHeaderSearch({
   const memberOptions = search.pickingSender
     ? members.filter((m) => !memberQuery || fullName(m).toLowerCase().includes(memberQuery))
     : []
-  const results = search.active && !search.pickingSender ? search.results : []
+  const results =
+    search.active && !search.pickingSender && !search.pickingRange ? search.results : []
   const options = search.pickingSender ? memberOptions.length : results.length
   const listbox = useListboxKeys({
     count: search.listOpen ? options : 0,
@@ -112,8 +120,7 @@ export function ChatHeaderSearch({
   }, [listOpen, setListOpen])
 
   const showDropdown =
-    search.listOpen &&
-    (search.pickingSender || search.active || (!!search.sender && !search.active))
+    search.listOpen && (search.pickingSender || search.pickingRange || search.active)
 
   return (
     <div ref={boxRef} className="relative z-30 shrink-0">
@@ -144,6 +151,7 @@ export function ChatHeaderSearch({
               </button>
             </span>
           )}
+          {search.hasRange && !search.pickingSender && <RangeChip search={search} />}
           <input
             ref={inputRef}
             value={search.input}
@@ -213,6 +221,7 @@ export function ChatHeaderSearch({
             <SearchCounter search={search} />
             <SearchArrows search={search} />
             {isGroup && <SenderFilterButton search={search} />}
+            <RangeFilterButton search={search} />
             {calendar}
           </>
         )}
@@ -254,13 +263,21 @@ export function ChatHeaderSearch({
             ) : (
               <p className="px-4 py-3 text-sm text-muted-foreground">{t('noResults')}</p>
             )
-          ) : !search.active ? (
-            // Автор выбран, а слов нет: сервер ищет по тексту, «все сообщения автора»
-            // одним запросом не отдаёт.
-            <p className="px-4 py-3 text-sm text-muted-foreground">
-              {t('tgHeader.searchNeedQuery')}
-            </p>
-          ) : search.loading ? (
+          ) : search.pickingRange ? (
+            // Период — тем же выбором дат, что и в остальном продукте; календарь раскрыт сразу:
+            // поле показали ради него. Будущих дней в переписке нет — они недоступны.
+            <div className="flex flex-col gap-2 px-3 py-3">
+              <p className="text-sm text-muted-foreground">{t('tgSearch.rangeHint')}</p>
+              <DateRangePicker
+                size="md"
+                defaultOpen
+                value={search.range}
+                onChange={search.setRange}
+                max={formatYmd(new Date())}
+                aria-label={t('tgSearch.rangeLabel')}
+              />
+            </div>
+          ) : !search.active ? null : search.loading ? (
             <div className="flex flex-col gap-3 px-3 py-3" aria-busy>
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex items-center gap-3">
@@ -360,6 +377,7 @@ export function ChatHeaderSearchFooter({
     <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
       <div className="flex h-11 items-center gap-1">
         {isGroup && <SenderFilterButton search={search} />}
+        <RangeFilterButton search={search} />
         {calendar}
         <span className="flex min-w-0 flex-1 justify-center">
           <SearchCounter search={search} />
@@ -388,7 +406,7 @@ export function ChatHeaderSearchFooter({
 /** «3 из 57» — после первого перехода; до него — сколько нашлось. */
 function SearchCounter({ search }: { search: ChatHeaderSearchState }) {
   const t = useTranslations('Chats')
-  if (!search.active || search.pickingSender) return null
+  if (!search.active || search.pickingSender || search.pickingRange) return null
   if (search.loading)
     return (
       <Loader2
@@ -451,6 +469,60 @@ function SenderFilterButton({ search }: { search: ChatHeaderSearchState }) {
     >
       <UserSearch aria-hidden />
     </ChatHeaderIconButton>
+  )
+}
+
+/** Фильтр по периоду (Telegram-стиль поиска по переписке): открыть выбор или снять период. */
+function RangeFilterButton({ search }: { search: ChatHeaderSearchState }) {
+  const t = useTranslations('Chats')
+  const on = search.pickingRange || search.hasRange
+  return (
+    <ChatHeaderIconButton
+      aria-label={t('tgSearch.rangeLabel')}
+      title={t('tgSearch.rangeLabel')}
+      aria-pressed={on}
+      aria-expanded={search.pickingRange}
+      onClick={() =>
+        search.hasRange && !search.pickingRange ? search.clearRange() : search.toggleRangePicker()
+      }
+      className={cn(on && 'bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary')}
+    >
+      <CalendarRange aria-hidden />
+    </ChatHeaderIconButton>
+  )
+}
+
+/** Метка периода перед полем: «12 мая — 3 июн.», нажатие — сменить, крестик — снять. */
+function RangeChip({ search }: { search: ChatHeaderSearchState }) {
+  const t = useTranslations('Chats')
+  const locale = useLocale()
+  const label = formatDayRange(search.range, locale)
+  const text =
+    label.kind === 'from'
+      ? t('tgSearch.rangeFrom', { date: label.text })
+      : label.kind === 'to'
+        ? t('tgSearch.rangeTo', { date: label.text })
+        : label.text
+  return (
+    <span className="flex h-7 max-w-[45%] shrink-0 items-center gap-1 rounded-full bg-primary/10 pr-0.5 pl-2.5 text-sm text-primary">
+      <button
+        type="button"
+        onClick={search.toggleRangePicker}
+        aria-label={t('tgSearch.rangeChange', { range: text })}
+        className="flex min-w-0 items-center gap-1 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <CalendarRange className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{text}</span>
+      </button>
+      <button
+        type="button"
+        aria-label={t('tgSearch.rangeClear', { range: text })}
+        onClick={search.clearRange}
+        className="flex size-6 shrink-0 items-center justify-center rounded-full outline-none hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
+    </span>
   )
 }
 

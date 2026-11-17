@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { chatKeys, searchMessages, type ChatMessage } from '../../../entities/chat'
+import { EMPTY_DAY_RANGE, dayRangeToIso, hasDayRange, type SearchDayRange } from './search-range'
 
-/** Короче сервер не ищет (`MessageSearchQuerySchema.q.min(2)`). */
+/** Короче сервер текст не ищет (`MessageSearchQuerySchema.q.min(2)`). */
 export const CHAT_SEARCH_MIN_CHARS = 2
 const SEARCH_DEBOUNCE_MS = 300
 /**
@@ -30,6 +31,10 @@ export interface ChatSearchSender {
  * «ещё ни к одному не переходили». «Старее» (↑) — следующее по выдаче, «новее» (↓) —
  * предыдущее. Сразу после ответа сервера лента никуда не прыгает: человек сначала видит
  * список и сам выбирает, куда идти.
+ *
+ * Искать можно и без слов, как в Telegram: выбранный автор («От: …») сам по себе показывает
+ * все его сообщения, выбранный период — все сообщения за эти дни. Слова, автор и период
+ * сужают выдачу вместе.
  */
 export function useChatHeaderSearch({
   chatId,
@@ -42,6 +47,9 @@ export function useChatHeaderSearch({
   const [raw, setRaw] = useState('')
   const [term, setTerm] = useState('')
   const [sender, setSender] = useState<ChatSearchSender | null>(null)
+  // Период (дни в поясе смотрящего) и открыт ли выбор периода под шапкой.
+  const [range, setRangeState] = useState<SearchDayRange>(EMPTY_DAY_RANGE)
+  const [pickingRange, setPickingRange] = useState(false)
   // Выбор автора (Telegram «От: …»): поле ввода фильтрует участников, а запрос по
   // сообщениям тем временем лежит нетронутым и вернётся, когда автора выберут.
   const [pickingSender, setPickingSender] = useState(false)
@@ -63,11 +71,11 @@ export function useChatHeaderSearch({
     return () => window.clearTimeout(id)
   }, [raw])
 
-  // Новый запрос или автор — выдача другая: номер сбрасывается, список снова раскрыт.
+  // Новый запрос, автор или период — выдача другая: номер сбрасывается, список снова раскрыт.
   useEffect(() => {
     setIndex(-1)
     setListOpen(true)
-  }, [term, sender?.id])
+  }, [term, sender?.id, range.from, range.to])
 
   const close = useCallback(() => {
     setOpen(false)
@@ -76,6 +84,8 @@ export function useChatHeaderSearch({
     setSender(null)
     setPickingSender(false)
     setMemberQuery('')
+    setRangeState(EMPTY_DAY_RANGE)
+    setPickingRange(false)
     setIndex(-1)
     setListOpen(true)
   }, [])
@@ -112,13 +122,23 @@ export function useChatHeaderSearch({
     return () => window.removeEventListener('keydown', onKey)
   }, [chatId, open, openSearch])
 
+  const bounds = useMemo(() => dayRangeToIso(range), [range])
+  const hasRange = hasDayRange(range)
+  // Есть что искать: слова, автор или период — каждое само по себе (Telegram: «От: Анна»
+  // без слов показывает все её сообщения).
+  const active = term.length >= CHAT_SEARCH_MIN_CHARS || !!sender || hasRange
+
   const query = useInfiniteQuery({
-    queryKey: chatKeys.searchInChat(chatId ?? '', term, sender?.id),
+    queryKey: chatKeys.searchInChat(chatId ?? '', term, sender?.id, bounds.from, bounds.to),
     queryFn: ({ pageParam }) =>
-      searchMessages(term, chatId as string, pageParam, { senderId: sender?.id }),
+      searchMessages(term, chatId as string, pageParam, {
+        senderId: sender?.id,
+        from: bounds.from,
+        to: bounds.to,
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-    enabled: open && !!chatId && term.length >= CHAT_SEARCH_MIN_CHARS,
+    enabled: open && !!chatId && active,
     // Повторный проход по тем же словам (закрыл, открыл) не должен ждать сеть.
     staleTime: 30_000,
   })
@@ -130,7 +150,6 @@ export function useChatHeaderSearch({
   const lastPage = query.data?.pages[query.data.pages.length - 1]
   // Сервер считает все совпадения; без его числа (старый сервер) — сколько уже пришло.
   const total = Math.max(lastPage?.total ?? 0, results.length)
-  const active = term.length >= CHAT_SEARCH_MIN_CHARS
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = query
 
   useEffect(() => {
@@ -176,6 +195,7 @@ export function useChatHeaderSearch({
   )
 
   const startPickSender = useCallback(() => {
+    setPickingRange(false)
     setPickingSender(true)
     setMemberQuery('')
     setListOpen(true)
@@ -197,9 +217,30 @@ export function useChatHeaderSearch({
     setFocusTick((n) => n + 1)
   }, [])
 
+  /** Открыть или спрятать выбор периода под шапкой. */
+  const toggleRangePicker = useCallback(() => {
+    setPickingSender(false)
+    setMemberQuery('')
+    setPickingRange((v) => !v)
+    setListOpen(true)
+  }, [])
+
+  /** Новый период. Обе границы выбраны — выбор прячется, под шапкой снова выдача. */
+  const setRange = useCallback((next: SearchDayRange) => {
+    setRangeState(next)
+    if (next.from && next.to) setPickingRange(false)
+  }, [])
+
+  /** Снять период (крестик на метке). */
+  const clearRange = useCallback(() => {
+    setRangeState(EMPTY_DAY_RANGE)
+    setPickingRange(false)
+    setFocusTick((n) => n + 1)
+  }, [])
+
   /**
-   * Escape и «назад» в поле — по ступеням, как в Telegram: сперва выход из выбора автора,
-   * потом очистка запроса и фильтра, и только с пустым полем — закрыть поиск.
+   * Escape и «назад» в поле — по ступеням, как в Telegram: сперва выход из выбора автора или
+   * периода, потом очистка запроса и фильтров, и только с пустым полем — закрыть поиск.
    */
   const escape = useCallback(() => {
     if (pickingSender) {
@@ -207,14 +248,19 @@ export function useChatHeaderSearch({
       setMemberQuery('')
       return
     }
-    if (raw || sender) {
+    if (pickingRange) {
+      setPickingRange(false)
+      return
+    }
+    if (raw || sender || hasRange) {
       setRaw('')
       setTerm('')
       setSender(null)
+      setRangeState(EMPTY_DAY_RANGE)
       return
     }
     close()
-  }, [pickingSender, raw, sender, close])
+  }, [pickingSender, pickingRange, raw, sender, hasRange, close])
 
   return {
     open,
@@ -225,6 +271,9 @@ export function useChatHeaderSearch({
     input: pickingSender ? memberQuery : raw,
     sender,
     pickingSender,
+    range,
+    hasRange,
+    pickingRange,
     memberQuery,
     results,
     total,
@@ -255,6 +304,9 @@ export function useChatHeaderSearch({
     startPickSender,
     chooseSender,
     clearSender,
+    toggleRangePicker,
+    setRange,
+    clearRange,
   }
 }
 
