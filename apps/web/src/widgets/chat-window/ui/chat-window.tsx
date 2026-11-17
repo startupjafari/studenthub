@@ -178,7 +178,10 @@ import {
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { canDeleteChat } from '../lib/chat-kind'
-// Лента сообщений в духе Telegram: реакции и список отреагировавших.
+// Лента сообщений в духе Telegram: плавающие кнопки, въезд новых, реакции.
+import { useMessageListAttention } from '../lib/use-message-list-attention'
+import { useListScrolling, useNewMessageAppear } from '../lib/use-message-list-motion'
+import { MessageListFab } from './message-list-fab'
 import { ReactionsListModal } from './reactions-list-modal'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
@@ -3237,6 +3240,17 @@ export function ChatWindow() {
     : null
 
   // ── Лента в духе Telegram (lib/use-message-list-*, ui/message-list-*) ─────────
+  // Кнопки «к упоминанию» и «к реакции» над «вниз», въезд нового сообщения, прилипшая дата
+  // только во время прокрутки.
+  const listAttention = useMessageListAttention({
+    chatId: activeId,
+    me,
+    messages: messages.data,
+    readUpTo,
+    scrollRef: messagesScrollRef,
+  })
+  useNewMessageAppear(messagesScrollRef, activeId, messages.data)
+  const listScrolling = useListScrolling(messagesScrollRef, activeId)
   // Окно «кто отреагировал»: id, а не снимок сообщения — живые реакции обновляют его на месте.
   const [reactorsFor, setReactorsFor] = useState<{
     chatId: string
@@ -4109,14 +4123,17 @@ export function ChatWindow() {
                   {/* Нажатие на дату — календарь переписки (Telegram). */}
                   <button
                     type="button"
-                    tabIndex={floatingDayShown ? 0 : -1}
+                    tabIndex={floatingDayShown && listScrolling ? 0 : -1}
                     aria-label={t('openCalendar', { date: floatingDay })}
                     onClick={() =>
                       floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
                     }
                     className={cn(
                       'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
-                      floatingDayShown ? 'pointer-events-auto opacity-100' : 'opacity-0',
+                      // Telegram: видна, пока ленту листают, и гаснет через секунду покоя.
+                      floatingDayShown && listScrolling
+                        ? 'pointer-events-auto opacity-100'
+                        : 'opacity-0',
                     )}
                   >
                     {floatingDay}
@@ -4202,23 +4219,26 @@ export function ChatWindow() {
                   </Virtualizer>
                 )}
               </div>
-              {/* Кнопка «вниз» со счётчиком непрочитанных ниже — появляется, когда пролистано вверх (Telegram-стиль). */}
-              {showScrollDown && (
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  aria-label={t('scrollToBottom')}
-                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 animate-in fade-in zoom-in-90 hover:bg-muted active:scale-95"
-                  style={{ bottom: composerH + 12 }}
-                >
-                  <ChevronDown className="size-5" aria-hidden />
-                  {unreadBelow > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
-                      {unreadBelow > 99 ? '99+' : unreadBelow}
-                    </span>
-                  )}
-                </button>
-              )}
+              {/* Кнопки справа над панелью ввода (Telegram): «к реакции», «к упоминанию» и
+                  «вниз» со счётчиком непрочитанных ниже — ui/message-list-fab. */}
+              <MessageListFab
+                bottom={composerH + 12}
+                showDown={showScrollDown}
+                unreadBelow={unreadBelow}
+                mentionCount={listAttention.mentionIds.length}
+                reactionCount={listAttention.reactionIds.length}
+                onDown={scrollToBottom}
+                onMention={() => {
+                  const id = listAttention.mentionIds[0]
+                  if (id) focusMessage(id)
+                }}
+                onReaction={() => {
+                  const id = listAttention.takeNextReaction()
+                  if (id) focusMessage(id)
+                }}
+                onReadAllMentions={listAttention.readAllMentions}
+                onReadAllReactions={listAttention.readAllReactions}
+              />
               {/* Панель ввода. На телефоне — плавающий остров поверх ленты (Telegram-стиль):
                 он не прибит к краю, лента прокручивается под ним, а место под последним
                 сообщением держит padding по измеренной высоте панели.

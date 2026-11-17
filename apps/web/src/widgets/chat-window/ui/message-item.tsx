@@ -22,6 +22,7 @@ import {
   parseProfileShare,
 } from './shared-cards'
 import { ReactionsStrip } from './reactions-strip'
+import { UnreadDivider } from './message-list-divider'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -174,13 +175,7 @@ function MessageItemInner({
           </button>
         </div>
       )}
-      {isUnreadDivider && (
-        <div className="my-2 flex items-center gap-2 px-1">
-          <span className="h-px flex-1 bg-primary/40" aria-hidden />
-          <span className="text-xs font-medium text-primary">{t('unreadMessages')}</span>
-          <span className="h-px flex-1 bg-primary/40" aria-hidden />
-        </div>
-      )}
+      {isUnreadDivider && <UnreadDivider />}
       {m.systemType ? (
         <div className="my-1.5 flex justify-center px-4">
           <span className="max-w-[85%] rounded-full bg-muted/70 px-3 py-1 text-center text-xs text-muted-foreground">
