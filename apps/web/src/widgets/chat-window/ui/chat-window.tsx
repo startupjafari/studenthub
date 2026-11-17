@@ -147,7 +147,18 @@ import {
 } from '../../../shared/lib'
 
 import { ChatCalendarModal } from './chat-calendar-modal'
+import {
+  BackCloseWhileOpen,
+  ScreenStack,
+  useScreenStack,
+  type ScreenStackHandle,
+} from '../../../shared/ui'
 import { ConversationList } from './conversation-list'
+import { ChatWallpaper } from './chat-wallpaper'
+import { ConnectionStatusTitle } from './connection-status'
+import { useConnectionStatus } from '../lib/use-connection-status'
+import { ChatListRail, ChatListResizeHandle } from './chat-list-rail'
+import { useChatListWidth } from '../lib/use-list-width'
 import { chatTitle, senderName } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 // Лента сообщений в духе Telegram: плавающие кнопки, жесты, въезд новых, реакции.
@@ -467,21 +478,6 @@ export function ChatWindow() {
     rightWidth: 3 * ROW_BTN_W, // Без звука + Архив + Удалить
     onLongPress: (id, el) => rowLongPressRef.current?.(id, el),
   })
-
-  // Возврат из чата к списку: панель списка не монтируется заново (она всегда в дереве),
-  // поэтому «появление» ей даём флагом — на время анимации, а потом снимаем, иначе список
-  // въезжал бы при каждой перерисовке.
-  const [listReturning, setListReturning] = useState(false)
-  const prevActiveId = useRef(activeId)
-  useEffect(() => {
-    const had = prevActiveId.current
-    prevActiveId.current = activeId
-    // Только переход «чат был → чата нет»: при первом открытии экрана списку ехать неоткуда.
-    if (activeId || !had) return
-    setListReturning(true)
-    const timer = window.setTimeout(() => setListReturning(false), 320)
-    return () => window.clearTimeout(timer)
-  }, [activeId])
 
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -3215,6 +3211,119 @@ export function ChatWindow() {
     [],
   )
 
+  // Каркас как в Telegram (стек экранов). Телефон: открытая переписка — верхний экран поверх
+  // списка: въезжает справа, список отступает влево и темнеет; назад — свайпом от левого края,
+  // кнопкой «назад» шапки или системной «назад». На планшете и ПК колонки стоят рядом, стек
+  // выключен. Состояние «чат открыт» снимается, когда уход доехал, — до этого уезжает живая
+  // переписка, а не пустой экран.
+  const chatStack = useScreenStack<HTMLElement>({
+    open: !!activeId,
+    onClose: () => setActiveId(null),
+    enabled: isPhone,
+    openKey: activeId,
+  })
+  const closeChat = chatStack.close
+  // Панели колонки (папки, чёрный список, новая группа) — тот же стек внутри колонки: панель
+  // ложится поверх списка и уходит вправо по «назад» в своей шапке.
+  const panelOpen = foldersOpen || blockedOpen || createGroupOpen
+  const panelStackRef = useRef<ScreenStackHandle | null>(null)
+  const closePanelsNow = (): void => {
+    setFoldersOpen(false)
+    setBlockedOpen(false)
+    setCreateGroupOpen(false)
+  }
+  const closePanel = (): void => {
+    if (panelStackRef.current) panelStackRef.current.close()
+    else closePanelsNow()
+  }
+  // Статус связи вместо заголовка списка: «Ожидание сети…», «Соединение…», «Обновление…».
+  const connectionStatus = useConnectionStatus(connected)
+  // ПК: ширина колонки списка тянется за край и запоминается; совсем узкая — одни аватары.
+  const listWidth = useChatListWidth(embedded)
+
+  // Горячие клавиши каркаса (как в Telegram Web). Esc снимает верхний слой: меню шапки,
+  // панель деталей, режим выбора, поиск по переписке — и только потом саму переписку или
+  // панель колонки. Alt+↑/↓ и Ctrl+Tab / Ctrl+Shift+Tab — соседний чат в том порядке, в
+  // каком он виден в списке (с учётом выбранной папки). Ctrl/⌘+F — выше, у поиска по чату.
+  // Обработчик читает свежее состояние через ref: подписка одна на всё время жизни окна.
+  const shellKeysRef = useRef<(e: KeyboardEvent) => void>(() => undefined)
+  shellKeysRef.current = (e) => {
+    if (e.defaultPrevented || e.isComposing) return
+    if (e.key === 'Escape') {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+      // Открытое окно, диалог подтверждения или меню закрываются сами — это их Esc.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
+      // Своя выпадашка списка — без роли меню, закрываем сами. Меню шапки — Radix (role=menu),
+      // выбор «От кого» живёт в поиске и снимается его ступенчатым Esc.
+      if (newChatOpen) {
+        setNewChatOpen(false)
+        return
+      }
+      if (detailsOpen) {
+        // Экранную панель деталей (не колонку) закрывает её собственный обработчик выше.
+        if (isWide) setDetailsOpen(false)
+        return
+      }
+      if (selectMode) {
+        exitSelect()
+        return
+      }
+      if (chatSearchOpen) {
+        chatSearch.escape()
+        return
+      }
+      if (activeId) {
+        // Ответ или правку в поле ввода снимает сам композер, а не закрытие переписки.
+        if (editing || replyTo) return
+        e.preventDefault()
+        closeChat()
+        return
+      }
+      if (panelOpen) {
+        e.preventDefault()
+        closePanel()
+      }
+      return
+    }
+    const altStep =
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+    const tabStep = e.key === 'Tab' && e.ctrlKey && !e.altKey && !e.metaKey
+    if (!altStep && !tabStep) return
+    // Порядок — как на экране: строки списка в порядке документа (папка, закреплённые
+    // сверху). Список свёрнут или в нём выдача поиска — порядок открытых чатов из данных.
+    const rows = [...chatRows.rowElsRef.current.entries()]
+      .filter(([, el]) => el.isConnected)
+      .sort(([, a], [, b]) =>
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+      )
+      .map(([id]) => id)
+    const ids = rows.length > 0 ? rows : filterChatsByTab(list, undefined).map((c) => c.id)
+    if (ids.length === 0) return
+    e.preventDefault()
+    const dir = altStep ? (e.key === 'ArrowUp' ? -1 : 1) : e.shiftKey ? -1 : 1
+    const at = activeId ? ids.indexOf(activeId) : -1
+    // Alt упирается в края списка, Ctrl+Tab идёт по кругу — как вкладки.
+    const nextIndex =
+      at < 0
+        ? dir > 0
+          ? 0
+          : ids.length - 1
+        : tabStep
+          ? (at + dir + ids.length) % ids.length
+          : at + dir
+    const next = ids[nextIndex]
+    if (next && next !== activeId) setActiveId(next)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => shellKeysRef.current(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // Список чатов — на мобильном во весь экран; на десктопе порталится в сайдбар (embedded).
   const chatList = (
     <ConversationList
@@ -3278,7 +3387,13 @@ export function ChatWindow() {
       onRetryChats={() => void chats.refetch()}
       myId={myId}
       locale={locale}
-      returning={listReturning}
+      // Возврат к списку ведёт стек экранов (useScreenStack) — своё «появление» списку не нужно.
+      returning={false}
+      titleSlot={
+        connectionStatus === 'online' ? undefined : (
+          <ConnectionStatusTitle status={connectionStatus} />
+        )
+      }
       swiped={chatRows.swiped}
       swipedFlagRef={chatRows.swipedFlagRef}
       longPressedRef={chatRows.longPressedRef}
@@ -3323,12 +3438,12 @@ export function ChatWindow() {
   const foldersPanel = (
     <ChatFoldersPanel
       embedded={embedded}
-      hidden={!!activeId}
+      hidden={false}
       folders={folderList}
       chats={chats.data ?? []}
       busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
       editId={foldersEditId}
-      onClose={() => setFoldersOpen(false)}
+      onClose={closePanel}
       onCreate={(input) => createFolder.mutate(input)}
       onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
       onDelete={(id) => {
@@ -3345,19 +3460,13 @@ export function ChatWindow() {
     />
   )
 
-  const blockedPanel = (
-    <BlockedUsersPanel
-      embedded={embedded}
-      hidden={!!activeId}
-      onClose={() => setBlockedOpen(false)}
-    />
-  )
+  const blockedPanel = <BlockedUsersPanel embedded={embedded} hidden={false} onClose={closePanel} />
 
   const createGroupPanel = (
     <CreateGroupPanel
       embedded={embedded}
-      hidden={!!activeId}
-      onClose={() => setCreateGroupOpen(false)}
+      hidden={false}
+      onClose={closePanel}
       onCreated={(chatId) => {
         setCreateGroupOpen(false)
         setActiveId(chatId)
@@ -3366,26 +3475,82 @@ export function ChatWindow() {
   )
 
   return (
-    <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, список
-          чатов уступает ему место — и на телефоне во весь экран, и в сайдбаре десктопа. */}
+    <div className="relative -mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
+      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, он ложится
+          поверх списка чатов (стек экранов) — и на телефоне во весь экран, и в сайдбаре десктопа. */}
       {(() => {
-        const column = foldersOpen
-          ? foldersPanel
-          : blockedOpen
-            ? blockedPanel
-            : createGroupOpen
-              ? createGroupPanel
-              : chatList
-        return embedded && listSlot ? createPortal(column, listSlot) : column
+        const column = (
+          <ScreenStack
+            open={panelOpen}
+            onClose={closePanelsNow}
+            handleRef={panelStackRef}
+            backClose
+            topClassName={embedded ? 'bg-sidebar' : 'bg-background'}
+            className={
+              embedded ? 'min-h-0 w-full flex-1 flex-col' : 'w-full flex-col md:w-80 lg:hidden'
+            }
+            base={chatList}
+            top={
+              foldersOpen
+                ? foldersPanel
+                : blockedOpen
+                  ? blockedPanel
+                  : createGroupOpen
+                    ? createGroupPanel
+                    : null
+            }
+          />
+        )
+        if (embedded && listSlot) {
+          return createPortal(
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {listWidth.compact ? (
+                <ChatListRail
+                  chats={filterChatsByTab(list, undefined)}
+                  activeId={activeId}
+                  onOpenChat={setActiveId}
+                  onExpand={listWidth.expand}
+                />
+              ) : (
+                column
+              )}
+              <ChatListResizeHandle listWidth={listWidth} />
+            </div>,
+            listSlot,
+          )
+        }
+        // Телефон: колонка — нижний экран под открытой перепиской (отступает и темнеет).
+        return (
+          <div
+            ref={chatStack.baseRef}
+            className="relative isolate flex shrink-0 max-md:w-full lg:hidden"
+          >
+            {column}
+            <div
+              ref={chatStack.dimRef}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-30 bg-overlay opacity-0 md:hidden"
+            />
+          </div>
+        )
       })()}
+      {activeId && isPhone && (
+        <BackCloseWhileOpen key={chatStack.historyKey} onBack={chatStack.closeFromHistory} />
+      )}
 
       {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран.
           Она же зона перетаскивания: файл роняют в переписку целиком, а не точно в поле
           ввода. Счётчик dragDepth — чтобы подсветка не мигала, когда курсор проходит над
           вложенными элементами: dragleave прилетает на каждый из них. */}
       <section
-        className={cn('relative min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        ref={chatStack.topRef}
+        className={cn(
+          // isolate — фон переписки (ChatWallpaper, -z-10) остаётся внутри секции.
+          'relative isolate min-w-0 flex-1 flex-col',
+          // Телефон: переписка — верхний экран стека, лежит поверх списка во всю площадь.
+          'max-md:absolute max-md:inset-0 max-md:z-10 max-md:bg-background',
+          activeId ? 'flex' : 'hidden md:flex',
+        )}
         onDragEnter={(e) => {
           if (!canDropFiles(e)) return
           dragDepth.current += 1
@@ -3410,6 +3575,9 @@ export function ChatWindow() {
           addFiles(e.dataTransfer.files, dropModeOf(e.target) === 'file')
         }}
       >
+        {/* Обои переписки — на всю колонку и неподвижны: при смене чата меняется лента
+            поверх них, а не фон. Шапки над ними — сплошные (см. ниже). */}
+        <ChatWallpaper />
         {dropActive && <ComposerDropArea />}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-(--motion-page) animate-in fade-in zoom-in-95">
@@ -3421,7 +3589,13 @@ export function ChatWindow() {
           // key={activeId} — контент разговора заново проигрывает анимацию при открытии/смене чата.
           <div
             key={activeId}
-            className="flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4"
+            className={cn(
+              'flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4',
+              // Телефон: экран въезжает целиком (стек), второй сдвиг содержимого внутри лишний.
+              'max-md:animate-none',
+              // Шапки (обычная, выбора, поиска) лежат сплошной плоскостью над обоями.
+              '[&>div>header]:bg-background [&>header]:bg-background',
+            )}
           >
             {/* Шапка переписки (Telegram): в режиме выбора её место занимает панель выбора,
                 в режиме поиска — строка поиска. Сама шапка остаётся смонтированной. */}
@@ -3499,7 +3673,7 @@ export function ChatWindow() {
                   />
                 )
               }
-              onBack={() => setActiveId(null)}
+              onBack={() => closeChat()}
               onOpenDetails={() => setDetailsOpen((v) => !v)}
               onSearch={chatSearch.openSearch}
             />

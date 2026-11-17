@@ -153,7 +153,13 @@ export function AppSidebar({
   const profileActive = pathname === '/profile'
 
   return (
-    <aside className="hidden w-72 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
+    <aside
+      className={cn(
+        'hidden shrink-0 flex-col border-r border-border bg-sidebar lg:flex',
+        // На экране чатов ширину задаёт сам список (тянется за край, см. use-list-width).
+        listMode ? 'w-[var(--chat-list-w,18rem)]' : 'w-72',
+      )}
+    >
       {notifOpen ? (
         // Оверлей уведомлений: список поверх тела сайдбара; основная область не меняется.
         <NotificationsPanel onClose={() => onToggleNotif?.()} />
@@ -283,7 +289,7 @@ export function AppSidebar({
                 {me.data.avatarUrl && <AvatarImage src={me.data.avatarUrl} alt="" />}
                 <AvatarFallback>{initials(me.data.firstName, me.data.lastName)}</AvatarFallback>
               </Avatar>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 [[data-chat-list-compact]_&]:hidden">
                 <p className="truncate text-sm font-medium">
                   {me.data.firstName} {me.data.lastName}
                 </p>
@@ -298,7 +304,7 @@ export function AppSidebar({
             title={tNav('scan')}
             aria-current={pathname === '/scan' ? 'page' : undefined}
             className={cn(
-              'flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors',
+              'flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors [[data-chat-list-compact]_&]:hidden',
               pathname === '/scan'
                 ? 'bg-primary/10 text-primary'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -310,7 +316,7 @@ export function AppSidebar({
             type="button"
             onClick={logout}
             aria-label={tShell('logout')}
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [[data-chat-list-compact]_&]:hidden"
           >
             <LogOut className="size-4" aria-hidden />
           </button>
