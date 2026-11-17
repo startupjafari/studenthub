@@ -325,6 +325,9 @@ export function usePinnedDrag({
     const onMove = (ev: TouchEvent): void => {
       const tch = ev.touches[0]
       if (!tch) return
+      // Меню уже открыто долгим нажатием — список под ним не прокручиваем ни на пиксель: иначе
+      // браузер успел бы начать прокрутку до порога, и строку уже было бы не взять.
+      if (ev.cancelable) ev.preventDefault()
       if (!started) {
         if (Math.abs(tch.clientY - startY) < TOUCH_SLOP) return
         started = begin(id, startY)
@@ -334,8 +337,6 @@ export function usePinnedDrag({
         }
         live.current.onTouchDragStart?.()
       }
-      // Иначе браузер прокрутит список вместе со строкой.
-      if (ev.cancelable) ev.preventDefault()
       move(tch.clientY)
     }
     const onEnd = (ev: TouchEvent): void => {
