@@ -149,6 +149,8 @@ model ChatMember {
 
   chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // Непрочитанные упоминания и реакции участника в этом чате (06-chat-attention.prisma).
+  attention ChatAttention[]
 
   @@unique([chatId, userId])
   @@index([userId])
@@ -222,6 +224,8 @@ model Message {
   sticker       Sticker?          @relation(fields: [stickerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // «Удалить у себя»: у кого это сообщение скрыто (HiddenMessage).
   hiddenBy      HiddenMessage[]
+  // Кого это сообщение ждёт как непрочитанное упоминание или реакция (ChatAttention).
+  attention     ChatAttention[]
 
   // Дельта-догон: range-скан `chatId + seq > since`. Уникальность заодно защищает от дублей
   // при гонке аллокатора.

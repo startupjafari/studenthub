@@ -1,0 +1,38 @@
+// Непрочитанные упоминания и реакции (Telegram: unreadMentionsCount / unreadReactionsCount).
+//
+// Строка — «это сообщение ждёт внимания этого участника»: упоминание его (или ответ ему) либо
+// чужая реакция на его сообщение, которых он ещё не видел. Строки живут только пока
+// непрочитаны: показ сообщения в ленте или «Прочитать всё» их удаляет. Поэтому таблица
+// маленькая, а счётчик в списке чатов — COUNT по индексу (userId, chatId, kind).
+//
+// От отметки «прочитано до» (ChatMember.lastReadAt) не зависит: как в Telegram, упоминание,
+// пролистанное кнопкой «вниз», остаётся непрочитанным, пока сообщение не покажут.
+
+enum ChatAttentionKind {
+  /// Упоминание участника по имени («@Фамилия Имя») или ответ на его сообщение.
+  MENTION
+  /// Чужая реакция на сообщение участника.
+  REACTION
+}
+
+model ChatAttention {
+  id        String            @id @default(uuid())
+  chatId    String            @map("chat_id")
+  // Чьё внимание ждёт: упомянутый участник или автор сообщения с реакцией.
+  userId    String            @map("user_id")
+  messageId String            @map("message_id")
+  kind      ChatAttentionKind
+  // Когда сообщение стало ждать внимания (упоминание отправлено, последняя чужая реакция).
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  // Через членство, а не отдельно на чат и пользователя: вышел из чата — его непрочитанные
+  // упоминания там уходят вместе с членством.
+  member  ChatMember @relation(fields: [chatId, userId], references: [chatId, userId], onDelete: Cascade, onUpdate: Cascade)
+  message Message    @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, messageId, kind])
+  // Счётчики списка чатов и выдача «к следующему упоминанию» внутри чата.
+  @@index([userId, chatId, kind])
+  @@index([messageId])
+  @@map("chat_attention")
+}
