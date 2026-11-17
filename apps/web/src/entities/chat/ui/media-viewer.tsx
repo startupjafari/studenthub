@@ -57,11 +57,13 @@ export interface MediaViewerMeta {
 
 export interface MediaViewerActions {
   onGoTo: () => void
-  onCopy: () => void
+  /** Нет — пункта «копировать текст» нет (кадр из сообщения вне загруженной истории). */
+  onCopy?: () => void
   /** Сообщить об исходе копирования снимка: тост принадлежит приложению, а не просмотрщику. */
   onCopiedImage?: (ok: boolean) => void
-  onForward: () => void
-  onDelete: () => void
+  /** Нет — пересылать отсюда нечем (правая панель, сообщение вне истории). */
+  onForward?: () => void
+  onDelete?: () => void
 }
 
 // Просмотр медиа сообщений (Ф9+). Тонкая обёртка над общим shared/ui MediaViewer:
@@ -74,6 +76,8 @@ export function MediaViewer({
   meta,
   actions,
   getOrigin,
+  counter: counterOverride,
+  itemKey,
 }: {
   items: MessageAttachment[]
   index: number
@@ -83,6 +87,13 @@ export function MediaViewer({
   actions?: MediaViewerActions
   /** Миниатюра кадра в пузыре — из неё просмотрщик вырастает и в неё же садится. */
   getOrigin?: (index: number) => HTMLElement | null
+  /**
+   * «N из M» по всему чату, когда `items` — лишь загруженный кусок ленты всех медиа. Нет —
+   * счёт по `items`.
+   */
+  counter?: { current: number; total: number }
+  /** Ключ текущего кадра, если `items` растёт с начала (см. shared/ui MediaViewer). */
+  itemKey?: string
 }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
@@ -153,8 +164,11 @@ export function MediaViewer({
   // Оптимистичное вложение играет из локального файла; у отправленного — подписанная ссылка.
   const url = cur.localUrl ?? local ?? link?.url
 
-  const counter =
-    items.length > 1
+  const counter = counterOverride
+    ? counterOverride.total > 1
+      ? tCommon('tgMedia.counter', counterOverride)
+      : null
+    : items.length > 1
       ? tCommon('tgMedia.counter', { current: index + 1, total: items.length })
       : null
   const when = meta
@@ -212,7 +226,7 @@ export function MediaViewer({
           closes: true,
         },
         // Копировать подпись — только если она есть: пустая строка в буфере — не действие.
-        ...(meta?.caption
+        ...(meta?.caption && actions.onCopy
           ? [{ key: 'copy', label: t('copyText'), icon: Copy, onSelect: actions.onCopy }]
           : []),
         // Копировать сам снимок — отдельно от «копировать текст»: в буфер кладут либо
@@ -232,8 +246,10 @@ export function MediaViewer({
               },
             ]
           : []),
-        { key: 'forward', label: t('forward'), icon: Forward, onSelect: actions.onForward },
-        ...(meta?.mine
+        ...(actions.onForward
+          ? [{ key: 'forward', label: t('forward'), icon: Forward, onSelect: actions.onForward }]
+          : []),
+        ...(meta?.mine && actions.onDelete
           ? [
               {
                 key: 'delete',
@@ -270,6 +286,7 @@ export function MediaViewer({
       downloadName={cur.name}
       downloadKey={cur.id ? `file:${cur.id}` : undefined}
       getOrigin={getOrigin}
+      itemKey={itemKey}
     />
   )
 }

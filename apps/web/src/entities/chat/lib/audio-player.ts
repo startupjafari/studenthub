@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { getVoiceRate, subscribeVoiceRate } from './voice-rate'
+import { getAudioSettings, subscribeAudioSettings } from './audio-settings'
 import type { MessageAttachment } from '../model/types'
 
 // Общий аудиоплеер чатов (как в Telegram): один звук на всё приложение, панель под шапкой
@@ -34,6 +35,11 @@ export interface AudioTrack {
   duration?: number
   /** Перейти к сообщению, если очередь не знает, где оно (обсуждение события, поддержка). */
   onGoTo?: () => void
+  /**
+   * Очередь, из которой трек запустили, если это не история чата: список голосовых или
+   * музыки правой панели. «Следующее» идёт по ней, а не по загруженной переписке.
+   */
+  queueKey?: string
 }
 
 export interface AudioPlayerState {
@@ -51,6 +57,12 @@ interface Queue {
   tracks: AudioTrack[]
   resolve: (id: string) => Promise<string>
 }
+
+/**
+ * С какой длины у музыки появляется скорость (подкасты, лекции): короткую песню на 1,5×
+ * не слушают, а часовую запись — да. Как в Telegram.
+ */
+export const LONG_AUDIO_SEC = 8 * 60
 
 /** Сколько очередей чатов держим: недавно открытые, остальные забываются. */
 const MAX_QUEUES = 8
@@ -83,15 +95,23 @@ let resumeAfterForce = false
 let pendingRatio: number | null = null
 let holders = 0
 let orphanTimer: ReturnType<typeof setTimeout> | null = null
+/** Перемешивание: откуда пришли (для ◀) и что уже сыграно в этом круге. */
+let shuffleBack: string[] = []
+const shufflePlayed = new Set<string>()
 
 function emit(next: Partial<AudioPlayerState>): void {
   state = { ...state, ...next, ...neighbours(next.track === undefined ? state.track : next.track) }
   for (const fn of listeners) fn()
 }
 
-/** Очередь, в которой лежит трек: его чат, а если чат неизвестен — любая, где он есть. */
+/**
+ * Очередь, в которой лежит трек: та, из которой его запустили (панель), затем его чат, а
+ * если чат неизвестен — любая, где он есть.
+ */
 function queueOf(track: AudioTrack | null): Queue | null {
   if (!track) return null
+  const started = track.queueKey ? queues.get(track.queueKey) : undefined
+  if (started?.tracks.some((t) => t.id === track.id)) return started
   const own = track.chatId ? queues.get(track.chatId) : undefined
   if (own?.tracks.some((t) => t.id === track.id)) return own
   for (const q of queues.values()) if (q.tracks.some((t) => t.id === track.id)) return q
@@ -107,7 +127,35 @@ function neighbours(track: AudioTrack | null): Pick<AudioPlayerState, 'hasPrev' 
   if (!track) return { hasPrev: false, hasNext: false }
   const list = sameKind(track)
   const i = list.findIndex((t) => t.id === track.id)
+  if (!track.voice && list.length > 1) {
+    const { repeat, shuffle } = getAudioSettings()
+    if (shuffle) return { hasPrev: shuffleBack.length > 0 || i > 0, hasNext: true }
+    if (repeat === 'all') return { hasPrev: true, hasNext: true }
+  }
   return { hasPrev: i > 0, hasNext: i >= 0 && i < list.length - 1 }
+}
+
+/** Скорость трека: у голосовых и длинных записей — запомненная, у песен — обычная. */
+function rateOf(track: AudioTrack | null, a: HTMLAudioElement): number {
+  if (!track || track.voice) return getVoiceRate()
+  const d = knownDuration(a) ?? track.duration ?? 0
+  return d >= LONG_AUDIO_SEC ? getVoiceRate() : 1
+}
+
+/**
+ * Громкость, повтор и скорость — на элемент под текущий трек. Громкость и повтор — только у
+ * музыки: голосовое всегда на полной громкости и не зацикливается (у него только скорость).
+ */
+function applyOutput(a: HTMLAudioElement): void {
+  const track = state.track
+  const music = !!track && !track.voice
+  const { volume, muted, repeat } = getAudioSettings()
+  a.volume = music ? volume : 1
+  a.muted = music && muted
+  a.loop = music && repeat === 'one'
+  const rate = rateOf(track, a)
+  a.defaultPlaybackRate = rate
+  a.playbackRate = rate
 }
 
 function knownDuration(a: HTMLAudioElement): number | null {
@@ -130,8 +178,9 @@ function element(): HTMLAudioElement {
   const a = new Audio()
   a.preload = 'auto'
   a.addEventListener('play', () => {
-    // Скорость — общая запомненная (lib/voice-rate): смена src её сбрасывает.
-    a.playbackRate = getVoiceRate()
+    // Скорость и громкость — общие запомненные (voice-rate, audio-settings): смена src
+    // скорость сбрасывает.
+    applyOutput(a)
     if (!forcing) emit({ playing: true })
   })
   a.addEventListener('playing', () => emit({ loading: false }))
@@ -151,6 +200,8 @@ function element(): HTMLAudioElement {
     const d = knownDuration(a)
     if (d) {
       emit({ duration: d })
+      // Длительность стала известна — у длинной записи появляется скорость.
+      applyOutput(a)
       applyPending(a, d)
       return
     }
@@ -179,8 +230,11 @@ function element(): HTMLAudioElement {
     applyPending(a, d)
     if (resumeAfterForce) void a.play().catch(() => emit({ playing: false }))
   })
-  subscribeVoiceRate(() => {
-    a.playbackRate = getVoiceRate()
+  subscribeVoiceRate(() => applyOutput(a))
+  subscribeAudioSettings(() => {
+    applyOutput(a)
+    // Повтор и перемешивание меняют, есть ли «следующее» и «предыдущее».
+    if (state.track) emit({})
   })
   audio = a
   return a
@@ -213,8 +267,7 @@ export function playAudioTrack(track: AudioTrack, startRatio?: number): void {
   const start = (url: string): void => {
     if (state.track?.id !== merged.id) return
     a.src = url
-    a.defaultPlaybackRate = getVoiceRate()
-    a.playbackRate = getVoiceRate()
+    applyOutput(a)
     void a.play().catch(() => emit({ playing: false, loading: false }))
   }
   if (merged.url) {
@@ -274,13 +327,28 @@ export function nudgeAudio(delta: number): void {
 /**
  * Соседний трек того же вида. `auto` — закончился предыдущий: в конце очереди панель
  * закрывается (как в Telegram), а ручное «следующее» на последнем просто ничего не делает.
+ *
+ * У музыки — режимы Telegram: «повторять все» идёт по кругу, перемешивание берёт случайный
+ * ещё не сыгранный трек (◀ возвращает к прежнему). «Повторять один» крутит сам элемент (loop),
+ * ручные ◀ ▶ при нём листают как обычно.
  */
 export function playNeighbour(direction: 1 | -1, auto = false): void {
   const track = state.track
   if (!track) return
   const list = sameKind(track)
   const i = list.findIndex((t) => t.id === track.id)
-  const next = i >= 0 ? list[i + direction] : undefined
+  const { repeat, shuffle } = getAudioSettings()
+  if (!track.voice && shuffle && list.length > 1) {
+    const next =
+      direction === 1 ? shuffleNext(track, list, auto && repeat !== 'all') : shufflePrev(list)
+    if (next) playAudioTrack(next)
+    else if (auto) closeAudio()
+    return
+  }
+  let next = i >= 0 ? list[i + direction] : undefined
+  if (!next && !track.voice && repeat === 'all' && list.length > 1) {
+    next = direction === 1 ? list[0] : list[list.length - 1]
+  }
   if (next) {
     playAudioTrack(next)
     return
@@ -288,10 +356,41 @@ export function playNeighbour(direction: 1 | -1, auto = false): void {
   if (auto) closeAudio()
 }
 
+/**
+ * Случайный ещё не сыгранный трек. Круг кончился: при «повторять все» (или ручном ▶)
+ * начинается новый, иначе — конец, и плеер закрывается.
+ */
+function shuffleNext(track: AudioTrack, list: AudioTrack[], stopAtEnd: boolean): AudioTrack | null {
+  shufflePlayed.add(track.id)
+  let pool = list.filter((t) => t.id !== track.id && !shufflePlayed.has(t.id))
+  if (pool.length === 0) {
+    shufflePlayed.clear()
+    if (stopAtEnd) return null
+    shufflePlayed.add(track.id)
+    pool = list.filter((t) => t.id !== track.id)
+  }
+  const next = pool[Math.floor(Math.random() * pool.length)] ?? null
+  if (next) shuffleBack.push(track.id)
+  return next
+}
+
+/** ◀ при перемешивании — к треку, с которого пришли; истории нет — к предыдущему по списку. */
+function shufflePrev(list: AudioTrack[]): AudioTrack | null {
+  while (shuffleBack.length > 0) {
+    const id = shuffleBack.pop()
+    const back = list.find((t) => t.id === id)
+    if (back) return back
+  }
+  const i = list.findIndex((t) => t.id === state.track?.id)
+  return i > 0 ? (list[i - 1] ?? null) : null
+}
+
 /** Остановить и убрать панель. */
 export function closeAudio(): void {
   forcing = false
   pendingRatio = null
+  shuffleBack = []
+  shufflePlayed.clear()
   if (audio) {
     audio.pause()
     audio.removeAttribute('src')
@@ -300,18 +399,21 @@ export function closeAudio(): void {
   emit({ ...EMPTY })
 }
 
-/** Отдать плееру голосовые и музыку чата — для «следующего» и кнопок панели. */
+/**
+ * Отдать плееру голосовые и музыку — для «следующего» и кнопок панели. Ключ — id чата
+ * (загруженная история) или свой ключ списка (`AudioTrack.queueKey`, правая панель).
+ */
 export function setAudioQueue(
-  chatId: string,
+  key: string,
   tracks: AudioTrack[],
   resolve: (id: string) => Promise<string>,
 ): void {
-  queues.delete(chatId)
-  queues.set(chatId, { tracks, resolve })
-  // Самые давние чаты забываем — кроме того, где играет текущий трек.
+  queues.delete(key)
+  queues.set(key, { tracks, resolve })
+  // Самые давние очереди забываем — кроме тех, по которым играет текущий трек.
   for (const id of queues.keys()) {
     if (queues.size <= MAX_QUEUES) break
-    if (id !== state.track?.chatId) queues.delete(id)
+    if (id !== state.track?.chatId && id !== state.track?.queueKey) queues.delete(id)
   }
   if (state.track) emit({})
 }

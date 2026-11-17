@@ -373,6 +373,9 @@ export interface ChatMediaPage {
   items: ChatMediaItem[]
   cursor?: string
   hasNext: boolean
+  /** Только у `direction: 'newer'`: граница ещё более новых и есть ли они. */
+  prevCursor?: string
+  hasPrev?: boolean
 }
 /**
  * Вид общих материалов: `voice` — всё аудио, `voice_note` — только голосовые, `music` — аудио
@@ -380,17 +383,42 @@ export interface ChatMediaPage {
  */
 export type ChatMediaType = 'media' | 'file' | 'voice' | 'voice_note' | 'music' | 'gif'
 
+/**
+ * Страница материалов: свежие первыми. `older` (по умолчанию) — старше курсора, `newer` —
+ * новее курсора (просмотрщик, открытый на кадре из середины, листает в обе стороны).
+ */
 export async function fetchChatMedia(
   chatId: string,
   type: ChatMediaType,
   cursor?: string,
+  direction: 'older' | 'newer' = 'older',
 ): Promise<ChatMediaPage> {
   const params: Record<string, string | number> = { type, limit: 30 }
   if (cursor) params.cursor = cursor
+  if (direction === 'newer') params.direction = 'newer'
   const res = (await api.get<ChatMediaItem[]>(`/chats/${chatId}/media`, {
     params,
   })) as ResponseWithMeta & { data: ChatMediaItem[] }
-  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    prevCursor: res.meta?.prevCursor,
+    hasPrev: res.meta?.hasPrev,
+  }
+}
+
+/** Место файла среди материалов вкладки: `index` — 1 у самого старого, `total` — всего. */
+export async function fetchChatMediaPosition(
+  chatId: string,
+  fileId: string,
+  type: ChatMediaType,
+): Promise<{ index: number; total: number }> {
+  const { data } = await api.get<{ index: number; total: number }>(
+    `/chats/${chatId}/media/${fileId}/position`,
+    { params: { type } },
+  )
+  return data
 }
 
 // Опросы чата (§38): сообщения с опросом, свежие первыми; курсор — id сообщения.

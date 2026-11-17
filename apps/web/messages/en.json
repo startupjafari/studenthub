@@ -1395,6 +1395,9 @@
     }
   },
   "Profile": {
+    "tgMedia2": {
+      "openPhoto": "Open photo"
+    },
     "title": "Profile",
     "personalInfo": "Personal info",
     "email": "Email",
@@ -2713,6 +2716,14 @@
       "next": "Next",
       "closePlayer": "Close player",
       "voiceMessage": "Voice message"
+    },
+    "tgMedia2": {
+      "volume": "Volume",
+      "playbackOrder": "Playback order",
+      "shuffle": "Shuffle",
+      "repeatAll": "Repeat all",
+      "repeatOne": "Repeat track",
+      "openPhoto": "Open photo"
     },
     "spoiler": "Spoiler",
     "spoilerToggle": "Hide as spoiler",

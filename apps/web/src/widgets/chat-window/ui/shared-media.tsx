@@ -26,12 +26,15 @@ import {
   fetchChatLinks,
   fetchChatMedia,
   fetchChatPolls,
+  ChatMediaRailViewer,
   fileKind,
-  MediaViewer,
+  getAudioElement,
+  LONG_AUDIO_SEC,
   type ChatLinkItem,
   type ChatMediaItem,
   type ChatMessage,
-  useVoiceRate,
+  useAudioPlayer,
+  usePlaylistQueue,
   VoiceRateButton,
 } from '../../../entities/chat'
 import { Button, EmptyState, MediaImage, ProgressRing, Skeleton } from '../../../shared/ui'
@@ -202,6 +205,8 @@ function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void 
       type="button"
       onClick={onOpen}
       aria-label={t('tgRight.openMedia')}
+      // Плитка — точка, из которой просмотрщик вырастает и в которую садится.
+      data-media-origin={item.id}
       className="relative aspect-square cursor-zoom-in overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       {link.data ? (
@@ -237,32 +242,24 @@ function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void 
   )
 }
 
-export function MediaTab({ chatId }: { chatId: string }) {
+export function MediaTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
-  const [viewer, setViewer] = useState<number | null>(null)
+  const [viewer, setViewer] = useState<string | null>(null)
+  const gridRef = useRef<HTMLDivElement | null>(null)
   const q = useMediaPages(chatId, 'media')
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <GridSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0)
     return <TabEmpty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  // Для просмотрщика маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
-  const attachments = items.map((it) => ({
-    id: it.id,
-    mime: it.mime,
-    size: it.size,
-    name: it.name,
-    // Заглушка и размеры — чтобы просмотрщик показал силуэт снимка, не дожидаясь ссылки.
-    width: it.width,
-    height: it.height,
-    placeholder: it.placeholder,
-    durationMs: it.durationMs,
-  }))
+  // Просмотрщик листает все медиа чата по времени (старые слева), как из ленты: сетка идёт
+  // от свежих, поэтому кадры открытия — в обратном порядке. Шапка ведёт к сообщению кадра.
+  const byTime = [...items].reverse()
   return (
     <>
-      <div className="grid grid-cols-3 gap-px">
-        {items.map((it, i) => (
-          <MediaThumb key={it.id} item={it} onOpen={() => setViewer(i)} />
+      <div ref={gridRef} className="grid grid-cols-3 gap-px">
+        {items.map((it) => (
+          <MediaThumb key={it.id} item={it} onOpen={() => setViewer(it.id)} />
         ))}
       </div>
       <PageSentinel
@@ -272,10 +269,20 @@ export function MediaTab({ chatId }: { chatId: string }) {
         onLoad={() => void q.fetchNextPage()}
       />
       {viewer !== null && (
-        <MediaViewer
-          items={attachments}
-          index={viewer}
-          onIndexChange={setViewer}
+        <ChatMediaRailViewer
+          rail={{ chatId, actions: { focus: onJump } }}
+          start={{
+            items: byTime,
+            index: Math.max(
+              0,
+              byTime.findIndex((it) => it.id === viewer),
+            ),
+          }}
+          originOf={(id) =>
+            gridRef.current?.querySelector<HTMLElement>(
+              `[data-media-origin="${CSS.escape(id)}"]`,
+            ) ?? null
+          }
           onClose={() => setViewer(null)}
         />
       )}
@@ -370,88 +377,34 @@ function FileRow({
 }
 
 /**
- * Плеер голосовых и музыки: один транспорт на весь список.
- *
- * Один общий элемент, автопереход к следующей записи и запомненная скорость — то, ради
- * чего голосовые вообще слушают из панели, а не из ленты. Два случайно запущенных плеера
- * одновременно не играют.
+ * Голосовые и музыка правой панели — очередь общего аудиоплеера (entities/chat, тот же звук,
+ * что у ленты): запуск отсюда останавливает играющее в ленте и наоборот, панель под шапкой
+ * чата показывает трек, автопереход идёт вниз по списку, скорость — общая запомненная.
  */
 function VoicePlaylist({
+  chatId,
+  type,
   items,
-  music = false,
   onJump,
   locale,
 }: {
+  chatId: string
+  type: 'voice_note' | 'music'
   items: ChatMediaItem[]
-  /** Музыка: в строке — название трека и кто прислал, а не только автор записи. */
-  music?: boolean
   onJump: (id: string) => void
   locale: string
 }) {
   const t = useTranslations('Chats')
   const unit = useByteUnitLabel()
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const [currentId, setCurrentId] = useState<string | null>(null)
-  const [playing, setPlaying] = useState(false)
-  const rate = useVoiceRate()
-  const [progress, setProgress] = useState(0)
-
-  // Presigned-ссылку берём только для играющей записи: подписывать весь список незачем.
-  const url = useFileUrl(currentId ?? '', currentId != null)
-
-  useEffect(() => {
-    const el = audioRef.current
-    if (!el || !url.data || !playing) return
-    el.playbackRate = rate
-    void el.play().catch(() => setPlaying(false))
-  }, [url.data, playing, rate])
-
-  function toggle(id: string): void {
-    if (currentId === id) {
-      const el = audioRef.current
-      if (!el) return
-      if (playing) {
-        el.pause()
-        setPlaying(false)
-      } else {
-        setPlaying(true)
-      }
-      return
-    }
-    setProgress(0)
-    setCurrentId(id)
-    setPlaying(true)
-  }
-
-  // Автопереход: конец записи → следующая по списку. Последняя останавливает плеер.
-  function onEnded(): void {
-    const idx = items.findIndex((i) => i.id === currentId)
-    const next = idx >= 0 ? items[idx + 1] : undefined
-    setProgress(0)
-    if (next) {
-      setCurrentId(next.id)
-      setPlaying(true)
-    } else {
-      setPlaying(false)
-      setCurrentId(null)
-    }
-  }
+  const player = useAudioPlayer()
+  const music = type === 'music'
+  const toggle = usePlaylistQueue(`panel:${chatId}:${type}`, chatId, items, t('attachment'))
 
   return (
     <>
-      <audio
-        ref={audioRef}
-        src={url.data}
-        preload="none"
-        onTimeUpdate={(e) => {
-          const el = e.currentTarget
-          setProgress(el.duration > 0 ? el.currentTime / el.duration : 0)
-        }}
-        onEnded={onEnded}
-        className="hidden"
-      />
       {items.map((it) => {
-        const active = currentId === it.id
+        const active = player.track?.id === it.id
+        const playing = active && player.playing
         const author = it.sender ? `${it.sender.lastName} ${it.sender.firstName}`.trim() : null
         return (
           <div
@@ -460,13 +413,13 @@ function VoicePlaylist({
           >
             <button
               type="button"
-              aria-label={active && playing ? t('pause') : t('play')}
+              aria-label={playing ? t('pause') : t('play')}
               onClick={() => toggle(it.id)}
               className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/20"
             >
-              {active && url.isFetching && !url.data ? (
+              {active && player.loading && !player.playing ? (
                 <Loader2 className="size-5 animate-spin" aria-hidden />
-              ) : active && playing ? (
+              ) : playing ? (
                 <Pause className="size-5 fill-current" aria-hidden />
               ) : (
                 <Play className="ml-0.5 size-5 fill-current" aria-hidden />
@@ -488,21 +441,52 @@ function VoicePlaylist({
                 {shortDate(it.createdAt, locale)}
               </span>
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
-              {active && (
-                <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted">
-                  <span
-                    className="block h-full origin-left bg-primary"
-                    style={{ transform: `scaleX(${progress})` }}
-                  />
-                </span>
-              )}
+              {active && <PlaylistProgress playing={player.playing} duration={player.duration} />}
             </button>
-            {active && <VoiceRateButton />}
+            {/* Скорость — у голосовых и длинных записей; песня играет на обычной. */}
+            {active && (!music || player.duration >= LONG_AUDIO_SEC) && <VoiceRateButton />}
           </div>
         )
       })}
     </>
   )
+}
+
+/**
+ * Прогресс играющей строки — из общего элемента звука, каждый кадр и прямо в DOM: по
+ * timeupdate полоса ползла бы ступеньками, а ререндер списка на каждом кадре незачем.
+ */
+function PlaylistProgress({ playing, duration }: { playing: boolean; duration: number }) {
+  const ref = useRef<HTMLSpanElement | null>(null)
+  useEffect(() => {
+    const bar = ref.current
+    const a = getAudioElement()
+    if (!bar || !a) return
+    const paint = (): void => {
+      const d = duration > 0 ? duration : knownDuration(a)
+      bar.style.transform = `scaleX(${d ? Math.min(1, a.currentTime / d) : 0})`
+    }
+    paint()
+    a.addEventListener('seeked', paint)
+    if (!playing) return () => a.removeEventListener('seeked', paint)
+    let frame = requestAnimationFrame(function loop() {
+      paint()
+      frame = requestAnimationFrame(loop)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      a.removeEventListener('seeked', paint)
+    }
+  }, [playing, duration])
+  return (
+    <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted">
+      <span ref={ref} className="block h-full origin-left scale-x-0 bg-primary" />
+    </span>
+  )
+}
+
+function knownDuration(a: HTMLAudioElement): number {
+  return Number.isFinite(a.duration) && a.duration > 0 ? a.duration : 0
 }
 
 // Голосовые — только записи с микрофона (`voice_note`): `voice` отдаёт всё аудио, и музыка
@@ -526,6 +510,17 @@ export function FileTab({
   const locale = useLocale()
   const q = useMediaPages(chatId, type)
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
+  // Плеер дошёл до конца загруженного списка панели — следующую страницу берём заранее,
+  // чтобы автопереход не упёрся в край и не закрыл плеер посреди списка.
+  const player = useAudioPlayer()
+  const playingHere =
+    type !== 'file' && player.track?.queueKey === `panel:${chatId}:${type}` ? player.track.id : null
+  const playingAt = playingHere ? items.findIndex((it) => it.id === playingHere) : -1
+  const nearEnd = playingAt >= 0 && playingAt >= items.length - 2
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = q
+  useEffect(() => {
+    if (nearEnd && hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [nearEnd, hasNextPage, isFetchingNextPage, fetchNextPage])
   if (q.isLoading) return <RowsSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0) {
@@ -535,7 +530,7 @@ export function FileTab({
   return (
     <div className="py-1">
       {type !== 'file' ? (
-        <VoicePlaylist items={items} music={type === 'music'} onJump={onJump} locale={locale} />
+        <VoicePlaylist chatId={chatId} type={type} items={items} onJump={onJump} locale={locale} />
       ) : (
         items.map((it) => <FileRow key={it.id} item={it} onJump={onJump} locale={locale} />)
       )}

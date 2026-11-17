@@ -103,6 +103,7 @@ export {
   type MediaViewerItem,
   type MediaViewerMedia,
 } from './media-viewer'
+export { AvatarViewer } from './avatar-viewer'
 export { VideoPlayer } from './video-player'
 export { MediaImage, type MediaImageData } from './media-image'
 export { DateTimeField } from './date-time-field'

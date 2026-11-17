@@ -239,6 +239,8 @@ export interface ChatMediaItem {
   durationMs?: number | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null } | null
+  /** Текст сообщения файла — подпись в просмотрщике (только у `GET /chats/:id/media`). */
+  caption?: string | null
 }
 
 // Общие материалы: сообщение со ссылкой (linkPreview).

@@ -3,20 +3,45 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { Loader2, Pause, Play, SkipBack, SkipForward, X } from 'lucide-react'
+import {
+  Loader2,
+  Pause,
+  Play,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume1,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react'
 import {
   closeAudio,
   getAudioElement,
+  LONG_AUDIO_SEC,
   nudgeAudio,
   playNeighbour,
   retainAudioPlayer,
   seekAudioRatio,
+  setAudioVolume,
   toggleAudio,
+  toggleAudioMuted,
+  toggleAudioRepeat,
+  toggleAudioShuffle,
   useAudioPlayer,
   useAudioQueue,
+  useAudioSettings,
   VoiceRateButton,
   type ChatMessage,
 } from '../../../entities/chat'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { senderName } from '../lib/format'
 
@@ -33,9 +58,13 @@ function mmss(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+/** Шаг громкости стрелками по регулятору. */
+const VOLUME_STEP = 0.1
+
 /**
  * Панель аудиоплеера под шапкой чата (как в Telegram): что играет, ◀ ▶ по голосовым и
- * музыке чата, пауза, скорость 1× / 1,5× / 2×, закрыть. Тонкая полоса снизу — прогресс и
+ * музыке чата, пауза, закрыть. У голосового — скорость 1× / 1,5× / 2×; у музыки —
+ * громкость (запоминается), повтор и перемешивание, скорость — только у длинных записей. Тонкая полоса снизу — прогресс и
  * перемотка. Видна, пока что-то играет — в том числе голосовое из другого чата: нажатие на
  * заголовок ведёт к его сообщению.
  *
@@ -170,7 +199,9 @@ export function AudioPlayerBar({
         </span>
       </button>
 
-      <VoiceRateButton className="mx-1" />
+      {!track.voice && <VolumeControl />}
+      {!track.voice && <PlaybackOrderMenu />}
+      {(track.voice || duration >= LONG_AUDIO_SEC) && <VoiceRateButton className="mx-1" />}
       <button
         type="button"
         aria-label={t('tgMedia.closePlayer')}
@@ -225,5 +256,118 @@ export function AudioPlayerBar({
         </span>
       </div>
     </div>
+  )
+}
+
+/**
+ * Громкость музыки: кнопка выключает звук, регулятор выезжает при наведении и фокусе — как в
+ * Telegram и в нашем видеоплеере. На телефоне регулятора нет: там громкость — кнопками
+ * устройства, а место в панели нужнее названию трека.
+ */
+function VolumeControl() {
+  const tCommon = useTranslations('Common')
+  const t = useTranslations('Chats')
+  const { volume, muted } = useAudioSettings()
+  const level = muted ? 0 : volume
+  const Icon = level === 0 ? VolumeX : level < 0.5 ? Volume1 : Volume2
+  const setFrom = (el: HTMLElement, clientX: number): void => {
+    const r = el.getBoundingClientRect()
+    if (r.width > 0) setAudioVolume((clientX - r.left) / r.width)
+  }
+  return (
+    <div className="group/vol hidden items-center sm:flex">
+      <button
+        type="button"
+        aria-label={muted ? tCommon('unmute') : tCommon('mute')}
+        title={muted ? tCommon('unmute') : tCommon('mute')}
+        onClick={toggleAudioMuted}
+        className={ICON_BTN}
+      >
+        <Icon className="size-4" aria-hidden />
+      </button>
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label={t('tgMedia2.volume')}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(level * 100)}
+        aria-valuetext={`${Math.round(level * 100)}%`}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId)
+          setFrom(e.currentTarget, e.clientX)
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) setFrom(e.currentTarget, e.clientX)
+        }}
+        onPointerUp={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId)
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+            e.preventDefault()
+            setAudioVolume(level - VOLUME_STEP)
+          } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            setAudioVolume(level + VOLUME_STEP)
+          }
+        }}
+        className="flex w-0 cursor-pointer touch-none items-center overflow-hidden py-2 opacity-0 transition-all duration-(--motion-micro) outline-none group-hover/vol:mr-1 group-hover/vol:w-16 group-hover/vol:opacity-100 focus-visible:mr-1 focus-visible:w-16 focus-visible:opacity-100 motion-reduce:transition-none"
+      >
+        <span className="relative block h-1 w-full rounded-full bg-primary/15">
+          <span
+            className="absolute inset-y-0 left-0 rounded-full bg-primary"
+            style={{ width: `${level * 100}%` }}
+          />
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Порядок воспроизведения музыки — меню, как в Telegram: перемешать, повторять все,
+ * повторять трек. Значок показывает выбранный режим и подсвечен, если он не обычный.
+ */
+function PlaybackOrderMenu() {
+  const t = useTranslations('Chats')
+  const { repeat, shuffle } = useAudioSettings()
+  const Icon = shuffle ? Shuffle : repeat === 'one' ? Repeat1 : Repeat
+  const applied = shuffle || repeat !== 'none'
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('tgMedia2.playbackOrder')}
+          title={t('tgMedia2.playbackOrder')}
+          className={cn(ICON_BTN, applied && 'text-primary hover:text-primary')}
+        >
+          <Icon className="size-4" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuCheckboxItem checked={shuffle} onCheckedChange={toggleAudioShuffle}>
+          <Shuffle aria-hidden />
+          {t('tgMedia2.shuffle')}
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={repeat === 'all'}
+          onCheckedChange={() => toggleAudioRepeat('all')}
+        >
+          <Repeat aria-hidden />
+          {t('tgMedia2.repeatAll')}
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={repeat === 'one'}
+          onCheckedChange={() => toggleAudioRepeat('one')}
+        >
+          <Repeat1 aria-hidden />
+          {t('tgMedia2.repeatOne')}
+        </DropdownMenuCheckboxItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

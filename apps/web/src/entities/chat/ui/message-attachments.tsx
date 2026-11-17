@@ -24,11 +24,12 @@ import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
 import { albumLayout } from '../lib/album-layout'
-import type { MessageAttachment } from '../model/types'
+import type { ChatMediaItem, MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
 import { VoiceMessage, type VoiceTrackMeta } from './voice-message'
 import { isVoiceRecording } from '../lib/audio-player'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
+import { ChatMediaRailViewer, type ChatMediaRailContext } from './chat-media-rail-viewer'
 
 // Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
 /** `0:55`, `1:02:30` — длительность ролика бейджем в углу кадра, как в Telegram. */
@@ -1020,6 +1021,8 @@ export function MessageAttachments({
   onRetry,
   viewerMeta,
   viewerActions,
+  messageId,
+  mediaRail,
 }: {
   media: MessageAttachment[]
   mine: boolean
@@ -1031,6 +1034,13 @@ export function MessageAttachments({
   onRetry?: () => void
   viewerMeta?: MediaViewerMeta
   viewerActions?: MediaViewerActions
+  /** id сообщения — нужен просмотрщику, листающему все медиа чата (`mediaRail`). */
+  messageId?: string
+  /**
+   * Чат сообщения: просмотрщик листает все его фото и видео подряд, а не только вложения
+   * этого сообщения. Нет (обсуждение события, поддержка) — только свои вложения.
+   */
+  mediaRail?: ChatMediaRailContext
 }) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -1059,6 +1069,40 @@ export function MessageAttachments({
     const id = viewable[i]?.id
     if (!id || !rootRef.current) return null
     return rootRef.current.querySelector<HTMLElement>(`[data-media-origin="${CSS.escape(id)}"]`)
+  }
+  // Лента всех медиа чата — только у доставленного сообщения: у ещё не отправленного файлов
+  // на сервере нет, и номер кадра среди медиа чата спросить не о чем.
+  const railOn =
+    !!mediaRail &&
+    !!messageId &&
+    !messageId.startsWith('tmp:') &&
+    !viewable.some((a) => a.uploading)
+  const railStart = (index: number) => ({
+    items: viewable.map((a): ChatMediaItem => ({
+      id: a.id,
+      messageId: messageId ?? '',
+      name: a.name ?? null,
+      mime: a.mime,
+      size: a.size,
+      hasPoster: false,
+      width: a.width,
+      height: a.height,
+      placeholder: a.placeholder,
+      durationMs: a.durationMs,
+      createdAt: viewerMeta?.createdAt ?? '',
+      sender: null,
+    })),
+    attachments: viewable,
+    index,
+    messageId,
+    meta: viewerMeta,
+    actions: viewerActions,
+  })
+  // Кадр своего сообщения — в своём пузыре; чужого — первый такой на экране (лента всех
+  // медиа: кадр соседнего сообщения садится в свой пузырь, если тот виден).
+  const originById = (id: string): HTMLElement | null => {
+    const sel = `[data-media-origin="${CSS.escape(id)}"]`
+    return rootRef.current?.querySelector<HTMLElement>(sel) ?? document.querySelector(sel)
   }
   return (
     <div ref={rootRef} className="mt-1 flex flex-col gap-1.5">
@@ -1094,7 +1138,15 @@ export function MessageAttachments({
           audioMeta={audioMetaOf(att)}
         />
       ))}
-      {viewerIndex !== null && (
+      {viewerIndex !== null && railOn && mediaRail && (
+        <ChatMediaRailViewer
+          rail={mediaRail}
+          start={railStart(viewerIndex)}
+          originOf={originById}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
+      {viewerIndex !== null && !railOn && (
         <MediaViewer
           items={viewable}
           index={viewerIndex}
