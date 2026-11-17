@@ -5,13 +5,16 @@ import { useTranslations } from 'next-intl'
 import {
   Archive,
   ArchiveRestore,
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Bell,
   BellOff,
   Bookmark,
   CheckCheck,
   Eraser,
   ExternalLink,
+  Eye,
   EyeOff,
   Folder,
   FolderCog,
@@ -43,12 +46,21 @@ import {
 } from '../../../shared/ui'
 import { useBackClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { buildFolderTabs, filterChatsByTab, folderTabLabel, type FolderTab } from '../lib/folders'
+import {
+  buildFolderTabs,
+  filterChatsByTab,
+  folderBadge,
+  folderTabLabel,
+  type FolderTab,
+} from '../lib/folders'
 import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
 import { canDeleteChat } from '../lib/chat-kind'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { useChatListActions } from '../lib/use-chat-list-actions'
 import { useListReorder } from '../lib/use-list-reorder'
+import { useArchiveRowMode } from '../lib/archive-row-mode'
+import { usePinnedDrag } from '../lib/use-pinned-drag'
+import { mergePinnedOrder } from '../lib/pinned-order'
 import { ChatListRow, isChatUnread } from './chat-list-row'
 import { ChatListArchiveRow } from './chat-list-archive-row'
 import { ChatListFab } from './chat-list-fab'
@@ -302,11 +314,15 @@ export function ConversationList({
       y: keyboard ? box.bottom : e.clientY,
     })
   }
-  // Долгое нажатие (тач): меню у самой строки, со снимком её самой над затемнением.
+  // Долгое нажатие (тач): меню у самой строки, со снимком её самой над затемнением. У
+  // закреплённого чата палец, поведённый после этого, закрывает меню и тащит строку.
   longPressRef.current = (id, el) => {
     const box = el.getBoundingClientRect()
     setRowMenu({ id, x: box.left + 24, y: box.bottom, anchor: captureAnchor(el) })
+    pinDrag.armTouch(id, touchYRef.current ?? box.top + box.height / 2)
   }
+  // Где палец коснулся списка — точка отсчёта перетаскивания после долгого нажатия.
+  const touchYRef = useRef<number | null>(null)
   const menuChat = rowMenu ? chats.find((c) => c.id === rowMenu.id) : undefined
   // Своя папка под курсором — по ней меню полное; у встроенных вкладок настраивать нечего,
   // кроме самого списка папок.
@@ -318,6 +334,8 @@ export function ConversationList({
   const [focusIn, setFocusIn] = useState(false)
   // Архив — не вкладка среди папок, а строка над «Все» и свой экран (Telegram-стиль).
   const [archiveOpen, setArchiveOpen] = useState(false)
+  // Вид строки «Архив»: развёрнута, свёрнута в полоску или скрыта в меню списка.
+  const [archiveMode, setArchiveMode] = useArchiveRowMode()
   const allTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   const archiveTab = allTabs.find((f) => f.kind === 'builtin' && f.archive)
   const folderTabs = useMemo(
@@ -329,6 +347,7 @@ export function ConversationList({
     () => (archiveTab ? filterChatsByTab(chats, archiveTab) : []),
     [chats, archiveTab],
   )
+  const archivedUnread = useMemo(() => archivedChats.filter(isChatUnread).length, [archivedChats])
   // Архив опустел (вернули последний чат) — экран архива закрывается сам.
   const showArchive = archiveOpen && archivedChats.length > 0
   const currentTab: FolderTab | undefined = showArchive
@@ -338,23 +357,54 @@ export function ConversationList({
 
   // Счётчик у каждой папки — число чатов с непрочитанным, как в Telegram: по ряду вкладок
   // видно, куда заглянуть. У «Запросов» — сами запросы: непрочитанных в них не бывает, а
-  // ждут они ответа все.
+  // ждут они ответа все. Счётчик серый, если всё непрочитанное папки — в заглушённых чатах.
   const folderItems: SegmentedTabItem<string>[] = useMemo(
     () =>
       folderTabs.map((f) => {
-        const inTab = filterChatsByTab(chats, f)
-        const count =
-          f.kind === 'builtin' && f.requests ? inTab.length : inTab.filter(isChatUnread).length
-        return { value: f.id, label: folderTabLabel(f, t), count }
+        const { count, tone } = folderBadge(filterChatsByTab(chats, f), {
+          requests: f.kind === 'builtin' && !!f.requests,
+        })
+        return { value: f.id, label: folderTabLabel(f, t), count, countTone: tone }
       }),
     [folderTabs, chats, t],
   )
+
+  // Закреплённые переставляются руками (Telegram): перетаскиванием и с клавиатуры. Порядок
+  // у сервера один на все списки, поэтому — только во «Всех» и в архиве: в папке перестановка
+  // двигала бы чаты и там, где человек их не видит.
+  const visiblePinnedIds = useMemo(
+    () => visibleChats.filter((c) => c.pinned).map((c) => c.id),
+    [visibleChats],
+  )
+  const reorderable =
+    !searchExpanded && (showArchive || folder === 'folderAll') && visiblePinnedIds.length > 1
+  const pinDrag = usePinnedDrag({
+    pinnedIds: visiblePinnedIds,
+    enabled: reorderable,
+    onCommit: (order) =>
+      listActions.reorderPinned(
+        mergePinnedOrder(
+          chats.filter((c) => c.pinned).map((c) => c.id),
+          order,
+        ),
+      ),
+    onTouchDragStart: () => setRowMenu(null),
+  })
+  // Объявление для чтения с экрана: куда встал чат после перестановки с клавиатуры.
+  const [pinAnnounce, setPinAnnounce] = useState('')
+  const movePinned = (id: string, step: -1 | 1): void => {
+    const position = pinDrag.moveBy(id, step)
+    if (position !== null) {
+      setPinAnnounce(t('tgListHeader.pinMoved', { n: position, total: visiblePinnedIds.length }))
+    }
+  }
 
   // Перестановка строк при новом сообщении — плавно (FLIP); смена папки — не перестановка.
   const listKey = `${showArchive ? 'archive' : folder}:${embedded ? 'e' : activeId ? 'h' : 'v'}`
   const registerRow = useListReorder(
     useMemo(() => visibleChats.map((c) => c.id), [visibleChats]),
     listKey,
+    pinDrag.skipReorderRef,
   )
 
   // Открыть чат из строки. Пометку «как новое» без настоящих непрочитанных снимаем сами:
@@ -414,6 +464,30 @@ export function ConversationList({
         label: c.pinned ? t('unpin') : t('pin'),
         onClick: () => onTogglePin(c),
       },
+      // Перестановка закреплённых без перетаскивания — для клавиатуры и чтения с экрана.
+      ...(reorderable && c.pinned && visiblePinnedIds.indexOf(c.id) > 0
+        ? [
+            {
+              key: 'pin-up',
+              icon: ArrowUp,
+              label: t('tgListHeader.pinMoveUp'),
+              onClick: () => movePinned(c.id, -1),
+            },
+          ]
+        : []),
+      ...(reorderable &&
+      c.pinned &&
+      visiblePinnedIds.indexOf(c.id) >= 0 &&
+      visiblePinnedIds.indexOf(c.id) < visiblePinnedIds.length - 1
+        ? [
+            {
+              key: 'pin-down',
+              icon: ArrowDown,
+              label: t('tgListHeader.pinMoveDown'),
+              onClick: () => movePinned(c.id, 1),
+            },
+          ]
+        : []),
       c.muted || !onMuteFor
         ? {
             key: 'mute',
@@ -488,6 +562,15 @@ export function ConversationList({
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     const target = e.target as HTMLElement
     if (!target.matches('[data-chat-row]')) return
+    // Alt+Shift+↑/↓ на закреплённом — переставить его (альтернатива перетаскиванию).
+    if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const id = [...rowElsRef.current.entries()].find(([, el]) => el === target)?.[0]
+      if (id && reorderable && visiblePinnedIds.includes(id)) {
+        e.preventDefault()
+        movePinned(id, e.key === 'ArrowUp' ? -1 : 1)
+      }
+      return
+    }
     const rows = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-chat-row]')]
     const i = rows.indexOf(target)
     const next = rows[e.key === 'ArrowDown' ? i + 1 : i - 1]
@@ -592,6 +675,18 @@ export function ConversationList({
                 {showArchive ? t('tgList.archiveTitle') : t('title')}
               </span>
             )}
+            {/* Архив скрыт в меню — отсюда его можно вернуть строкой в список. */}
+            {showArchive && archiveMode === 'hidden' && (
+              <button
+                type="button"
+                aria-label={t('tgListHeader.archiveShow')}
+                title={t('tgListHeader.archiveShow')}
+                onClick={() => setArchiveMode('expanded')}
+                className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+              >
+                <Eye className="size-5" aria-hidden />
+              </button>
+            )}
             <button
               type="button"
               aria-label={t('search')}
@@ -628,6 +723,25 @@ export function ConversationList({
                   <Bookmark className="size-4 shrink-0 opacity-80" aria-hidden />
                   {t('savedMessages')}
                 </button>
+                {/* Скрытая строка «Архив» живёт здесь, как в главном меню Telegram. */}
+                {archiveMode === 'hidden' && archivedChats.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCloseNewChat()
+                      setArchiveOpen(true)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                  >
+                    <Archive className="size-4 shrink-0 opacity-80" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{t('tgList.archiveTitle')}</span>
+                    {archivedUnread > 0 && (
+                      <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-muted-foreground/60 px-1.5 text-xs font-medium tabular-nums text-white">
+                        {archivedUnread}
+                      </span>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -772,11 +886,33 @@ export function ConversationList({
             />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col lg:px-1.5 lg:pt-1" onKeyDown={onListKeyDown}>
+          <div
+            className="flex min-h-0 flex-1 flex-col lg:px-1.5 lg:pt-1"
+            onKeyDown={onListKeyDown}
+            onPointerDown={pinDrag.onPointerDown}
+            onTouchStartCapture={(e) => {
+              touchYRef.current = e.touches[0]?.clientY ?? null
+            }}
+            // Картинка аватара тянется браузером сама и обрывает перетаскивание строки.
+            onDragStart={(e) => {
+              if (reorderable) e.preventDefault()
+            }}
+          >
+            <span className="sr-only" aria-live="polite">
+              {pinAnnounce}
+            </span>
             {/* Строка «Архив» — над списком «Все», как в Telegram. */}
-            {!showArchive && folder === 'folderAll' && archivedChats.length > 0 && (
-              <ChatListArchiveRow chats={archivedChats} onOpen={() => setArchiveOpen(true)} />
-            )}
+            {!showArchive &&
+              folder === 'folderAll' &&
+              archivedChats.length > 0 &&
+              archiveMode !== 'hidden' && (
+                <ChatListArchiveRow
+                  chats={archivedChats}
+                  mode={archiveMode}
+                  onOpen={() => setArchiveOpen(true)}
+                  onModeChange={setArchiveMode}
+                />
+              )}
             {visibleChats.length === 0 ? (
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 <EmptyState
@@ -803,13 +939,19 @@ export function ConversationList({
                   // «Печатает» вытесняет превью: пока собеседник набирает, это и есть самое
                   // свежее в чате. Имени в строке нет — места на него нет.
                   actionLabel={actionLabelOf(summarizeActors(actionsByChat[c.id]))}
-                  rowRef={registerRow(c.id)}
+                  rowRef={(el) => {
+                    registerRow(c.id)(el)
+                    pinDrag.register(c.id)(el)
+                    markReorderable(el, reorderable && !!c.pinned, t('tgListHeader.pinReorderHint'))
+                  }}
                   buttonRef={(el) => {
                     if (el) rowElsRef.current.set(c.id, el)
                     else rowElsRef.current.delete(c.id)
                   }}
                   handlers={{
                     onOpen: () => {
+                      // Строку только что перетащили мышью — это не открытие чата.
+                      if (pinDrag.consumeClick()) return
                       if (swipedFlagRef.current) {
                         swipedFlagRef.current = false
                         return
@@ -923,6 +1065,23 @@ export function ConversationList({
       />
     </aside>
   )
+}
+
+/**
+ * Подсказка закреплённой строке, что её можно переставить: клавиши и способ — для чтения с
+ * экрана. Атрибуты ставятся на кнопку строки напрямую: строку рисует ChatListRow, а это
+ * знание списка, не строки.
+ */
+function markReorderable(row: HTMLElement | null, on: boolean, hint: string): void {
+  const button = row?.querySelector<HTMLElement>('[data-chat-row]')
+  if (!button) return
+  if (on) {
+    button.setAttribute('aria-keyshortcuts', 'Alt+Shift+ArrowUp Alt+Shift+ArrowDown')
+    button.setAttribute('aria-description', hint)
+  } else {
+    button.removeAttribute('aria-keyshortcuts')
+    button.removeAttribute('aria-description')
+  }
 }
 
 /** Системное «назад» (Android, жест iOS) закрывает экран архива, а не уводит со страницы. */

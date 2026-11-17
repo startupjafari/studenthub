@@ -12,6 +12,7 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { ComplaintsService } from './complaints.service'
 import { CreateComplaintDto } from './dto/create-complaint.dto'
+import { CreateMessageComplaintsDto } from './dto/create-message-complaints.dto'
 import { ResolveComplaintDto } from './dto/resolve-complaint.dto'
 import { ComplaintListQueryDto } from './dto/complaint-list-query.dto'
 import { ComplaintFromSupportDto } from './dto/complaint-from-support.dto'
@@ -52,6 +53,28 @@ export class ComplaintsController {
     @Req() req: FastifyRequest,
   ) {
     return this.complaints.create(user, dto, this.ctx(req))
+  }
+
+  /**
+   * Жалоба на несколько сообщений одного чата (режим выбора). По жалобе на каждое
+   * сообщение, но одним запросом и одной единицей лимита: иначе десять сообщений спамера
+   * съедали бы часовой лимит целиком.
+   */
+  @Post('messages')
+  @Roles(...COMPLAINT_REPORTER_ROLES)
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } }) // тот же лимит, что у POST /complaints
+  @ApiOperation({ summary: 'Пожаловаться на несколько сообщений одного чата' })
+  @ApiResponse({ status: 201, description: '{ created, skipped } — заведено и уже было в очереди' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — сообщения нет или вы не в его чате' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — на все эти сообщения жалобы уже в очереди' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — сообщения из разных чатов' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
+  createForMessages(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: CreateMessageComplaintsDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.complaints.createForMessages(user, dto, this.ctx(req))
   }
 
   /**

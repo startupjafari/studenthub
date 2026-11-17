@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
-import { buildFolderTabs, filterChatsByTab, folderTabLabel } from './folders'
+import { buildFolderTabs, filterChatsByTab, folderBadge, folderTabLabel } from './folders'
 
 function chat(id: string, type: ChatListItem['type'], unreadCount = 0): ChatListItem {
   return { id, type, unreadCount } as ChatListItem
@@ -160,5 +160,40 @@ describe('folderTabLabel', () => {
     expect(
       folderTabLabel({ id: 'f1', kind: 'user', name: 'Учёба', chatIds: [] }, (k) => `t:${k}`),
     ).toBe('Учёба')
+  })
+})
+
+describe('folderBadge', () => {
+  const muted = (id: string, unreadCount: number): ChatListItem =>
+    ({ id, type: 'GROUP', unreadCount, muted: true }) as ChatListItem
+
+  it('пустая папка — без счётчика и без тона', () => {
+    expect(folderBadge([chat('c1', 'PRIVATE')])).toEqual({ count: 0, tone: undefined })
+  })
+
+  it('все непрочитанные заглушены — серый счётчик', () => {
+    expect(folderBadge([muted('g1', 3), muted('g2', 1), chat('c1', 'PRIVATE')])).toEqual({
+      count: 2,
+      tone: 'muted',
+    })
+  })
+
+  it('хоть один незаглушённый непрочитанный — акцентный', () => {
+    expect(folderBadge([muted('g1', 3), chat('c1', 'PRIVATE', 2)])).toEqual({
+      count: 2,
+      tone: 'accent',
+    })
+  })
+
+  it('пометка «как новое» считается непрочитанным', () => {
+    const marked = { id: 'c2', type: 'PRIVATE', unreadCount: 0, markedUnread: true }
+    expect(folderBadge([marked as ChatListItem])).toEqual({ count: 1, tone: 'accent' })
+  })
+
+  it('«Запросы» — число запросов, всегда акцентное', () => {
+    expect(folderBadge([request('r1', 0), request('r2', 0)], { requests: true })).toEqual({
+      count: 2,
+      tone: 'accent',
+    })
   })
 })

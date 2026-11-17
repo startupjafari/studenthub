@@ -29,6 +29,7 @@ export {
   exportChatFile,
   setChatMutedRequest,
   setChatPinnedRequest,
+  setPinnedChatsOrderRequest,
   setChatArchivedRequest,
   setChatMarkedUnreadRequest,
   markChatsReadRequest,
@@ -112,7 +113,11 @@ export { MessageLocationCard, MessageContactCard } from './ui/message-place-card
 export { MessageChecklistView } from './ui/message-checklist'
 export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
-export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
+export {
+  AttachmentLinkProvider,
+  useAttachmentLinkSource,
+  type AttachmentLinkSource,
+} from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
 export {

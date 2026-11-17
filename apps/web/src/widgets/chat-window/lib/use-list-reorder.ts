@@ -20,8 +20,15 @@ import { useCallback, useLayoutEffect, useRef } from 'react'
  *
  * `resetKey` — смена набора (другая папка, архив, поиск): строки не переставились, а сменился
  * весь список, ехать им неоткуда.
+ *
+ * `skipNextRef` — следующую перестановку не анимировать: её уже показал кто-то другой
+ * (строку перетащили руками, и все строки уже стоят на новых местах). Флаг снимается сам.
  */
-export function useListReorder(ids: readonly string[], resetKey: string) {
+export function useListReorder(
+  ids: readonly string[],
+  resetKey: string,
+  skipNextRef?: { current: boolean },
+) {
   const elsRef = useRef(new Map<string, HTMLElement>())
   const topsRef = useRef(new Map<string, number>())
   const keyRef = useRef(resetKey)
@@ -53,7 +60,9 @@ export function useListReorder(ids: readonly string[], resetKey: string) {
     for (const [id, el] of els) nextTops.set(id, el.offsetTop)
     topsRef.current = nextTops
 
-    if (keyChanged || prevTops.size === 0) return
+    const skip = !!skipNextRef?.current
+    if (skipNextRef) skipNextRef.current = false
+    if (keyChanged || prevTops.size === 0 || skip) return
     if (typeof window === 'undefined') return
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
 
@@ -109,8 +118,9 @@ export function useListReorder(ids: readonly string[], resetKey: string) {
       }
       el.addEventListener('transitionend', done)
     }
-    // idsSig — порядок строк: эффект нужен ровно тогда, когда он сменился.
-  }, [idsSig, resetKey])
+    // idsSig — порядок строк: эффект нужен ровно тогда, когда он сменился (skipNextRef —
+    // постоянный объект-ref и перезапусков не вызывает).
+  }, [idsSig, resetKey, skipNextRef])
 
   return register
 }

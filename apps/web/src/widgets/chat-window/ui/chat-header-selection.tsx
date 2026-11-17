@@ -2,10 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
-import { Copy, Forward, Trash2, X } from 'lucide-react'
 import { useConfirm } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
-import { ChatHeaderIconButton } from './chat-header-button'
 
 /** Открытый слой поверх чата: клавиши выбора тогда принадлежат ему. */
 const OVERLAY_SELECTOR =
@@ -20,37 +17,14 @@ function isEditable(el: Element | null): boolean {
 }
 
 /**
- * Панель выбора сообщений (Telegram: MessageSelectToolbar) — на месте шапки, пока идёт
- * выбор: «N сообщений», копировать, переслать, удалить.
- *
- * Клавиатура как в Telegram: Escape — выйти из выбора, Delete/Backspace — удалить
- * выбранное, Ctrl/⌘+C — скопировать текст выбранного. Пока открыт диалог или меню,
- * клавиши принадлежат им; в поле ввода Backspace и Ctrl+C остаются полю.
- *
- * Удалять можно только свои сообщения: кнопка учитывает именно их, а чужие из выбора
- * остаются в чате (сервер их не удалит), о чём окно предупредит отдельно.
+ * «Удалить выбранное» с подтверждением — одно на шапку выбора (клавиша Delete) и на нижнюю
+ * панель (кнопка). Удалять можно только свои сообщения: подтверждение называет именно их
+ * число, а чужие из выбора остаются в чате (сервер их не удалит).
  */
-export function ChatHeaderSelection({
-  count,
-  ownCount,
-  onCancel,
-  onCopy,
-  onForward,
-  onDelete,
-}: {
-  count: number
-  /** Сколько из выбранных — мои: удалить можно только их. */
-  ownCount: number
-  onCancel: () => void
-  onCopy: () => void
-  onForward: () => void
-  /** Удалить (подтверждение уже получено). */
-  onDelete: () => void
-}) {
+export function useSelectionDelete(ownCount: number, onDelete: () => void): () => void {
   const t = useTranslations('Chats')
   const confirm = useConfirm()
-
-  const askDelete = (): void => {
+  return () => {
     if (ownCount === 0) return
     void confirm({
       title: t('deleteSelectedConfirm', { count: ownCount }),
@@ -60,6 +34,35 @@ export function ChatHeaderSelection({
       if (ok) onDelete()
     })
   }
+}
+
+/**
+ * Шапка режима выбора сообщений, как в Telegram на телефоне: сверху — «N сообщений» и
+ * «Отмена», а сами действия (переслать, удалить, копировать, скачать, пожаловаться) — внизу,
+ * на месте поля ввода (ui/chat-selection-bar).
+ *
+ * Клавиатура как в Telegram и живёт здесь, пока шапка на экране: Escape — выйти из выбора,
+ * Delete/Backspace — удалить выбранное, Ctrl/⌘+C — скопировать текст выбранного. Пока открыт
+ * диалог или меню, клавиши принадлежат им; в поле ввода Backspace и Ctrl+C остаются полю.
+ */
+export function ChatHeaderSelection({
+  count,
+  ownCount,
+  onCancel,
+  onCopy,
+  onDelete,
+}: {
+  count: number
+  /** Сколько из выбранных — мои: удалить можно только их. */
+  ownCount: number
+  onCancel: () => void
+  onCopy: () => void
+  /** Удалить (подтверждение уже получено). */
+  onDelete: () => void
+}) {
+  const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
+  const askDelete = useSelectionDelete(ownCount, onDelete)
 
   // Обработчики меняются каждый рендер — слушатель один, читает свежие через ref.
   const handlers = useRef({ count, onCancel, onCopy, askDelete })
@@ -96,37 +99,22 @@ export function ChatHeaderSelection({
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Высота — как у обычной шапки (py-3 вокруг 44/40-px ряда): линия под шапкой не прыгает.
   return (
-    <header className="flex items-center gap-1 border-b border-border px-2 py-3 duration-(--motion-page) animate-in fade-in-0 slide-in-from-top-2">
-      <ChatHeaderIconButton aria-label={t('tgHeader.selectCancel')} onClick={onCancel}>
-        <X aria-hidden />
-      </ChatHeaderIconButton>
+    <header className="flex items-center gap-2 border-b border-border px-4 py-3 duration-(--motion-page) animate-in fade-in-0 slide-in-from-top-2">
       <span
-        className="min-w-0 flex-1 truncate px-1 text-base font-semibold tabular-nums"
+        className="min-w-0 flex-1 truncate text-base font-semibold tabular-nums"
         aria-live="polite"
       >
         {t('tgHeader.selectedMessages', { count })}
       </span>
-      {count > 0 && (
-        <>
-          <ChatHeaderIconButton aria-label={t('copyText')} title={t('copyText')} onClick={onCopy}>
-            <Copy aria-hidden />
-          </ChatHeaderIconButton>
-          <ChatHeaderIconButton aria-label={t('forward')} title={t('forward')} onClick={onForward}>
-            <Forward aria-hidden />
-          </ChatHeaderIconButton>
-          {ownCount > 0 && (
-            <ChatHeaderIconButton
-              aria-label={t('delete')}
-              title={t('delete')}
-              onClick={askDelete}
-              className={cn('text-destructive hover:bg-destructive/10 hover:text-destructive')}
-            >
-              <Trash2 aria-hidden />
-            </ChatHeaderIconButton>
-          )}
-        </>
-      )}
+      <button
+        type="button"
+        onClick={onCancel}
+        className="-mr-2 h-11 shrink-0 cursor-pointer rounded-lg px-3 text-sm font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-95 lg:h-10"
+      >
+        {tCommon('cancel')}
+      </button>
     </header>
   )
 }

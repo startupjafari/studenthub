@@ -20,6 +20,12 @@ import {
 //
 // Размер — удобство одного человека на одном устройстве, не данные сессии: localStorage
 // здесь уместен (FRONTEND_RULES §1 запрещает там только токены и данные сессии).
+//
+// Автосвёртка (как Telegram на узком десктопе): окно уже AUTO_COMPACT_BELOW — колонка сама
+// сворачивается до аватаров, чтобы переписке хватило места. Это не выбор человека, и в
+// хранилище он не пишется: окно расширили — вернулась запомненная ширина. Развернул колонку
+// сам (кнопкой, ручкой, клавишей) — она остаётся развёрнутой, пока окно снова не станет
+// широким: решение человека важнее автоматики, но только для этого «узкого» эпизода.
 
 const STORAGE_KEY = 'sh.chats.listWidth'
 /** Умолчание — прежняя ширина сайдбара (`w-72`). */
@@ -34,6 +40,16 @@ export const LIST_COMPACT_W = 76
 const COLLAPSE_AT = 200
 /** Шаг клавиатуры (стрелки на ручке). */
 const KEY_STEP = 16
+/**
+ * Уже этого окна колонка сворачивается сама. Сайдбар со списком появляется с 1024 px; до
+ * 1200 px переписке за развёрнутой колонкой остаётся меньше 900 px — тесно для пузырей с
+ * медиа и правой колонки.
+ */
+export const AUTO_COMPACT_BELOW = 1200
+
+function isNarrowWindow(): boolean {
+  return window.innerWidth < AUTO_COMPACT_BELOW
+}
 
 function maxWidth(): number {
   return Math.max(LIST_MIN_W, Math.min(LIST_MAX_W, Math.round(window.innerWidth * 0.4)))
@@ -101,15 +117,35 @@ export function useChatListWidth(enabled: boolean): ChatListWidth {
   // Живые значения для перетаскивания: пишем в документ на каждом движении, а состояние
   // React трогаем только при смене режима (свёрнута/развёрнута) и в конце жеста.
   const widthRef = useRef(LIST_DEFAULT_W)
+  // Свёрнута руками (это и запоминается).
   const compactRef = useRef(false)
+  // Окно узкое, и человек в этом «узком» эпизоде колонку сам не разворачивал.
+  const narrowRef = useRef(false)
+  const keepOpenRef = useRef(false)
   const dragRef = useRef<{ pointerId: number; startX: number; startW: number } | null>(null)
 
-  const set = useCallback((nextWidth: number, nextCompact: boolean): void => {
-    widthRef.current = nextWidth
-    compactRef.current = nextCompact
-    applyToDocument(nextWidth, nextCompact)
-    setCompact(nextCompact)
-  }, [])
+  /** Свёрнута ли колонка на экране: руками или автоматикой. */
+  const shownCompact = useCallback(
+    (): boolean => compactRef.current || (narrowRef.current && !keepOpenRef.current),
+    [],
+  )
+
+  const apply = useCallback((): void => {
+    const effective = shownCompact()
+    applyToDocument(widthRef.current, effective)
+    setCompact(effective)
+  }, [shownCompact])
+
+  const set = useCallback(
+    (nextWidth: number, nextCompact: boolean): void => {
+      widthRef.current = nextWidth
+      compactRef.current = nextCompact
+      // Развернул сам на узком окне — автоматика на этот эпизод отступает.
+      if (!nextCompact && narrowRef.current) keepOpenRef.current = true
+      apply()
+    },
+    [apply],
+  )
 
   const persist = useCallback((): void => {
     setWidth(widthRef.current)
@@ -119,19 +155,29 @@ export function useChatListWidth(enabled: boolean): ChatListWidth {
   useEffect(() => {
     if (!enabled) return
     const stored = readStored()
-    set(typeof stored === 'number' ? clampWidth(stored) : LIST_DEFAULT_W, stored === 'compact')
+    narrowRef.current = isNarrowWindow()
+    keepOpenRef.current = false
+    widthRef.current = typeof stored === 'number' ? clampWidth(stored) : LIST_DEFAULT_W
+    compactRef.current = stored === 'compact'
+    apply()
     setWidth(widthRef.current)
-    // Окно сузили — колонка не должна съесть переписку.
+    // Окно сузили — колонка не должна съесть переписку; совсем узкое — сворачивается сама.
     const onResize = (): void => {
+      const narrow = isNarrowWindow()
       const clamped = clampWidth(widthRef.current)
-      if (clamped !== widthRef.current) set(clamped, compactRef.current)
+      if (narrow === narrowRef.current && clamped === widthRef.current) return
+      // Окно снова широкое — «узкий» эпизод кончился, ручное «развернуть» забываем.
+      if (!narrow) keepOpenRef.current = false
+      narrowRef.current = narrow
+      widthRef.current = clamped
+      apply()
     }
     window.addEventListener('resize', onResize)
     return () => {
       window.removeEventListener('resize', onResize)
       clearDocument()
     }
-  }, [enabled, set])
+  }, [enabled, apply])
 
   const endDrag = (e: PointerEvent<HTMLElement>): void => {
     const drag = dragRef.current
@@ -153,7 +199,7 @@ export function useChatListWidth(enabled: boolean): ChatListWidth {
       dragRef.current = {
         pointerId: e.pointerId,
         startX: e.clientX,
-        startW: compactRef.current ? LIST_COMPACT_W : widthRef.current,
+        startW: shownCompact() ? LIST_COMPACT_W : widthRef.current,
       }
       // Курсор и запрет выделения — на всё окно: указатель уходит с узкой ручки сразу.
       document.body.style.cursor = 'ew-resize'
@@ -163,8 +209,12 @@ export function useChatListWidth(enabled: boolean): ChatListWidth {
       const drag = dragRef.current
       if (!drag || drag.pointerId !== e.pointerId) return
       const raw = drag.startW + (e.clientX - drag.startX)
-      if (raw < COLLAPSE_AT) set(widthRef.current, true)
-      else set(clampWidth(raw), false)
+      if (raw < COLLAPSE_AT) {
+        // Колонку свернула автоматика, и её ещё не вытянули — ручным «свернуть» дрожание
+        // указателя у края не считаем, иначе оно запомнилось бы.
+        if (!compactRef.current && narrowRef.current && !keepOpenRef.current) return
+        set(widthRef.current, true)
+      } else set(clampWidth(raw), false)
     },
     onPointerUp: endDrag,
     onPointerCancel: endDrag,
@@ -177,7 +227,7 @@ export function useChatListWidth(enabled: boolean): ChatListWidth {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         const dir = e.key === 'ArrowRight' ? 1 : -1
-        if (compactRef.current) {
+        if (shownCompact()) {
           if (dir > 0) set(widthRef.current, false)
         } else if (dir < 0 && widthRef.current <= LIST_MIN_W) {
           set(widthRef.current, true)
