@@ -2637,12 +2637,10 @@
       "searchFiles": "Файлы",
       "searchHint": "Ищите чаты, людей своего вуза и сообщения",
       "searchHintTitle": "Начните вводить запрос",
-      "searchKindHint": "Введите хотя бы два символа — поиск идёт по тексту сообщений и подписям к вложениям",
       "searchLinks": "Ссылки",
       "searchMedia": "Медиа",
       "searchMore": "Показать ещё",
-      "searchTabs": "Разделы поиска",
-      "topPeers": "Собеседники"
+      "searchTabs": "Разделы поиска"
     },
     "folderAll": "Все",
     "folderUnread": "Непрочитанные",
@@ -2820,7 +2818,6 @@
       "searchFromLabel": "От:",
       "searchFromChip": "От: {name}",
       "searchFromClear": "Убрать фильтр «От: {name}»",
-      "searchNeedQuery": "Введите текст — сообщения выбранного участника ищутся по словам",
       "searchFailed": "Не удалось выполнить поиск",
       "searching": "Ищем…",
       "searchFound": "{count, plural, one {# совпадение} few {# совпадения} many {# совпадений} other {# совпадения}}",
@@ -3036,6 +3033,22 @@
       "resizeList": "Ширина списка чатов",
       "expandList": "Развернуть список чатов",
       "collapseList": "Свернуть список до аватаров"
+    },
+    "tgSearch": {
+      "tabMusic": "Музыка",
+      "tabVoice": "Голосовые",
+      "topPeers": "Часто пишете",
+      "emptyMedia": "Здесь появятся фото и видео из ваших чатов",
+      "emptyLinks": "Здесь появятся ссылки из ваших чатов",
+      "emptyFiles": "Здесь появятся файлы из ваших чатов",
+      "emptyMusic": "Здесь появится музыка из ваших чатов",
+      "emptyVoice": "Здесь появятся голосовые сообщения из ваших чатов",
+      "rangeLabel": "Период",
+      "rangeHint": "Сообщения за выбранные дни — с запросом или без него",
+      "rangeFrom": "с {date}",
+      "rangeTo": "по {date}",
+      "rangeChange": "Период: {range}. Изменить",
+      "rangeClear": "Убрать период «{range}»"
     }
   },
   "Events": {

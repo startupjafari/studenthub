@@ -80,6 +80,8 @@ export type ConversationListProps = {
   embedded: boolean
   activeId: string | null
   onOpenChat: (id: string) => void
+  /** Открыть чат сразу на сообщении из выдачи поиска (прокрутка и подсветка — в окне чата). */
+  onOpenMessage: (chatId: string, messageId: string) => void
   onBack: () => void
   newChatOpen: boolean
   onToggleNewChat: () => void
@@ -166,6 +168,7 @@ export function ConversationList({
   embedded,
   activeId,
   onOpenChat,
+  onOpenMessage,
   onBack,
   newChatOpen,
   onToggleNewChat,
@@ -228,7 +231,7 @@ export function ConversationList({
   // Поиск свёрнут в иконку, пока его не открыли; с введённым запросом он открыт всегда.
   const [searchOpen, setSearchOpen] = useState(false)
   const searchExpanded = searchOpen || !!searchRaw
-  // Вкладка глобального поиска (Telegram-стиль): чаты, медиа, ссылки, файлы.
+  // Вкладка глобального поиска (Telegram-стиль): чаты, медиа, ссылки, файлы, музыка, голосовые.
   const [searchTab, setSearchTab] = useState<SearchTab>('chats')
   // Если поле уже на экране — фокус сразу, иначе его даст autoFocus при появлении.
   const openSearch = (): void => {
@@ -251,6 +254,10 @@ export function ConversationList({
   const pickFromSearch = (chatId: string, opts?: { remember?: boolean }): void => {
     if (opts?.remember) setRecentIds(pushRecentSearch(myId, chatId))
     onOpenChat(chatId)
+    closeSearch()
+  }
+  const pickMessageFromSearch = (chatId: string, messageId: string): void => {
+    onOpenMessage(chatId, messageId)
     closeSearch()
   }
   // Открытое меню действий строки: id чата + точка нажатия. Одно на список — двух сразу
@@ -721,6 +728,7 @@ export function ConversationList({
               onOpenPerson(u)
             }}
             onPickChat={pickFromSearch}
+            onPickMessage={pickMessageFromSearch}
             recentIds={recentIds}
             onClearRecent={() => {
               clearRecentSearch(myId)
