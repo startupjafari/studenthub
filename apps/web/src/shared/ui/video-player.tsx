@@ -328,6 +328,23 @@ export function VideoPlayer({
     }
   }, [visible])
 
+  // Открытое меню скорости или качества — верхний слой: Esc закрывает его, а не просмотрщик
+  // и не страницу под ним. Слушаем окно в фазе захвата — раньше Radix Dialog просмотрщика
+  // (он ловит Esc на документе, тоже захватом) и глобального «Esc — назад».
+  const menuOpen = qualityOpen || rateOpen
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      setQualityOpen(false)
+      setRateOpen(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [menuOpen])
+
   // Клавиши просмотрщика (как в Telegram Web): пробел и K — пауза, M — звук, F — во весь
   // экран; во весь экран стрелки перематывают (в обычном виде они листают альбом).
   useEffect(() => {
