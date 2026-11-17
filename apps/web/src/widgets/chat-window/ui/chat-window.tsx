@@ -128,6 +128,7 @@ import {
   type PresenceStore,
 } from '../lib/presence-store'
 import { ChatDetailsPanel } from './chat-details-panel'
+import { RightColumn } from './right-column'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { ChatComposer } from './chat-composer'
@@ -4384,41 +4385,18 @@ export function ChatWindow() {
         )}
       </section>
 
-      {/* Детали чата — одна панель на все размеры экрана, второго экрана с тем же
-          содержимым нет (§55). На ПК (≥xl) — докнутая третья колонка: ширина анимируется,
-          центральная переписка адаптивно сужается и остаётся активной. На планшете и
-          мобильном та же панель открывается в системном модальном окне. */}
-      {isWide ? (
-        <aside
-          className={cn(
-            'hidden shrink-0 overflow-hidden transition-[width] duration-(--motion-panel) xl:block',
-            detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
-          )}
-          aria-hidden={!(detailsOpen && activeChat)}
-        >
-          {detailsProps && (
-            <div className="h-full w-[22rem]">
-              <ChatDetailsPanel
-                key={detailsProps.chat.id}
-                {...detailsProps}
-                variant="column"
-                open={detailsOpen}
-              />
-            </div>
-          )}
-        </aside>
-      ) : (
-        detailsOpen &&
-        detailsProps && (
-          // Во весь экран, а не модальным окном: в окне у панели оставались поля по краям и
-          // затемнение вокруг, из-за чего список участников и сетка медиа жили в «окошке в
-          // окошке». В мессенджерах профиль чата — отдельный экран, и возвращаются с него
-          // стрелкой назад, а не крестиком поверх.
-          <div className="fixed inset-0 z-50 flex flex-col bg-background duration-200 animate-in fade-in slide-in-from-right-4 motion-reduce:animate-none">
-            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="fullscreen" />
-          </div>
-        )
-      )}
+      {/* Правая колонка (Telegram-стиль, right-column.tsx): в широком окне встаёт рядом и
+          сжимает переписку, в узком выезжает поверх неё. */}
+      <RightColumn open={detailsOpen} wide={isWide}>
+        {detailsProps && (
+          <ChatDetailsPanel
+            key={detailsProps.chat.id}
+            {...detailsProps}
+            variant={isWide ? 'column' : 'fullscreen'}
+            open={detailsOpen}
+          />
+        )}
+      </RightColumn>
 
       {menu && (
         <MessageContextMenu
