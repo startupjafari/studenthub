@@ -38,10 +38,7 @@ import {
 import { MessageReplyQuote } from './message-reply-quote'
 import { MessageTail } from './message-tail'
 import { MessageWebPage } from './message-web-page'
-
-// Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
-// «свой» эмодзи здесь негде — остальные ставятся из контекстного меню сообщения.
-const QUICK_REACTION = '🔥'
+import { centerOf, type FlightPoint } from '../lib/reaction-flight'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
 // Ключ текста служебного сообщения по его типу — общий для пузыря и превью в списке чатов.
@@ -84,7 +81,8 @@ export type MessageActions = {
   startSelect: (m: ChatMessage) => void
   /** Снимок лёг в буфер обмена (или не лёг) — сообщить об этом умеет только приложение. */
   copiedImage: (ok: boolean) => void
-  react: (id: string, emoji: string) => void
+  /** `origin` — откуда вылетает поставленная реакция (lib/reaction-flight); нет — без полёта. */
+  react: (id: string, emoji: string, origin?: FlightPoint) => void
   /** Кто отреагировал (правый клик по чипу реакции) — окно со списком, с вкладкой эмодзи. */
   showReactors?: (m: ChatMessage, emoji?: string) => void
   touchStart: (e: React.TouchEvent<HTMLDivElement>, m: ChatMessage) => void
@@ -128,6 +126,11 @@ export type MessageItemProps = {
   myId: string | undefined
   // Подсветка совпадений при активном in-chat поиске (§3); undefined — без подсветки.
   highlightTerm?: string
+  /**
+   * Быстрая реакция (своя, из настроек чатов — `GET /chats/settings`): её ставит кнопка у
+   * пузыря при наведении, как и двойной клик по сообщению.
+   */
+  quickReaction: string
   actions: MessageActions
 }
 
@@ -177,6 +180,7 @@ function MessageItemInner({
   forwardedFromNameText,
   myId,
   highlightTerm,
+  quickReaction,
   actions,
 }: MessageItemProps) {
   const t = useTranslations('Chats')
@@ -578,9 +582,9 @@ function MessageItemInner({
                 (CHAT_REACTION_EMOJIS), сбоку у низа пузыря стоит первый из них по частоте. */}
             <button
               type="button"
-              aria-label={t('quickReaction', { emoji: QUICK_REACTION })}
-              title={t('quickReaction', { emoji: QUICK_REACTION })}
-              onClick={() => actions.react(m.id, QUICK_REACTION)}
+              aria-label={t('quickReaction', { emoji: quickReaction })}
+              title={t('quickReaction', { emoji: quickReaction })}
+              onClick={(e) => actions.react(m.id, quickReaction, centerOf(e.currentTarget))}
               // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
               // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
@@ -590,7 +594,7 @@ function MessageItemInner({
                 tail && (mine ? 'mr-3.5' : 'ml-3.5'),
               )}
             >
-              <span aria-hidden>{QUICK_REACTION}</span>
+              <span aria-hidden>{quickReaction}</span>
             </button>
             {/* Шеврон меню (как в Telegram) — над быстрой реакцией, одной колонкой у низа
                 пузыря. Раньше он стоял по центру всей строки: у высокого снимка две кнопки
@@ -628,7 +632,7 @@ function MessageItemInner({
                   reactions={m.reactions}
                   myId={myId}
                   ownBubble={mine && !bare}
-                  onToggle={(emoji) => actions.react(m.id, emoji)}
+                  onToggle={(emoji, origin) => actions.react(m.id, emoji, origin)}
                   onShowReactors={
                     actions.showReactors ? (emoji) => actions.showReactors?.(m, emoji) : undefined
                   }

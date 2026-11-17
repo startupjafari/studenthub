@@ -50,7 +50,11 @@ export interface MessageListGesturesOptions {
   selectedIds: ReadonlySet<string>
   /** Жесты выключены: поиск по чату, запрос на переписку — там реакции и выбор неуместны. */
   disabled?: boolean
-  onDefaultReaction: (messageId: string) => void
+  /**
+   * Своя быстрая реакция (настройки чатов). `at` — точка двойного клика/касания: оттуда
+   * реакция вылетает к своему чипу (lib/reaction-flight).
+   */
+  onDefaultReaction: (messageId: string, at: { x: number; y: number }) => void
   /** Новый набор выбранных; пустой — выйти из режима выбора. */
   onSelectionChange: (ids: Set<string>) => void
 }
@@ -244,7 +248,7 @@ export function useMessageListGestures(options: MessageListGesturesOptions) {
     e.preventDefault()
     // Двойной клик рядом с текстом успевает выделить слово — оно здесь ни к чему.
     window.getSelection()?.removeAllRanges()
-    opts.current.onDefaultReaction(id)
+    opts.current.onDefaultReaction(id, { x: e.clientX, y: e.clientY })
   }
 
   /** Двойной клик мышью по пузырю или строке вне текста и кнопок — реакция по умолчанию. */

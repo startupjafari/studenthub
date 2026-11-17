@@ -4,15 +4,13 @@ import { useTranslations } from 'next-intl'
 import type { MessageReaction } from '../../../entities/chat'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { centerOf, type FlightPoint } from '../lib/reaction-flight'
 
 /**
  * Сколько всего реакций под сообщением, чтобы вместо числа показать лица поставивших.
  * Как в Telegram: при трёх и меньше видно, КТО отреагировал, — число «1» ничего не говорит.
  */
 const MAX_FACES = 3
-
-/** Реакция по умолчанию: двойной клик или двойное касание по сообщению. */
-export const DEFAULT_REACTION = '🔥'
 
 export interface ReactionGroup {
   emoji: string
@@ -60,7 +58,8 @@ export function ReactionsStrip({
   myId: string | undefined
   /** Чипы на своём (залитом primary) пузыре — инвертированная палитра. */
   ownBubble: boolean
-  onToggle: (emoji: string) => void
+  /** `origin` — центр чипа: постановка с самого чипа садится на месте, без полёта. */
+  onToggle: (emoji: string, origin?: FlightPoint) => void
   onShowReactors?: (emoji: string) => void
   className?: string
 }) {
@@ -75,10 +74,12 @@ export function ReactionsStrip({
         <button
           key={g.emoji}
           type="button"
+          // Цель полёта поставленной реакции и подпрыгивания пришедшей (lib/reaction-flight).
+          data-reaction-chip={g.emoji}
           aria-pressed={g.mine}
           aria-label={t('tgBehavior.reactionChip', { emoji: g.emoji, count: g.count })}
           title={g.users.map(reactorName).join(', ')}
-          onClick={() => onToggle(g.emoji)}
+          onClick={(e) => onToggle(g.emoji, centerOf(e.currentTarget))}
           onContextMenu={
             onShowReactors
               ? (e) => {
@@ -102,7 +103,7 @@ export function ReactionsStrip({
                 : 'bg-primary/10 text-primary hover:bg-primary/20',
           )}
         >
-          <span className="text-sm leading-none" aria-hidden>
+          <span className="text-sm leading-none" data-reaction-glyph aria-hidden>
             {g.emoji}
           </span>
           {withFaces ? (

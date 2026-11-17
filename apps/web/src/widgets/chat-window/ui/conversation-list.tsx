@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Search,
   Settings,
+  SmilePlus,
   ShieldBan,
   Trash2,
   UserRoundSearch,
@@ -87,6 +88,9 @@ export type ConversationListProps = {
   onNewGroup: () => void
   onOpenSaved: () => void
   onOpenBlocked: () => void
+  /** Своя быстрая реакция — видна справа в пункте меню, который открывает её выбор. */
+  quickReaction: string
+  onOpenQuickReaction: () => void
   searchRaw: string
   onSearchChange: (v: string) => void
   onClearSearch: () => void
@@ -173,6 +177,8 @@ export function ConversationList({
   onNewGroup,
   onOpenSaved,
   onOpenBlocked,
+  quickReaction,
+  onOpenQuickReaction,
   searchRaw,
   onSearchChange,
   onClearSearch,
@@ -643,6 +649,22 @@ export function ConversationList({
                 >
                   <ShieldBan className="size-4 shrink-0 opacity-80" aria-hidden />
                   {t('blockedTitle')}
+                </button>
+                {/* Быстрая реакция (двойной клик по сообщению) — настройка чатов, как в
+                    Telegram; текущая видна справа, чтобы не открывать экран ради проверки. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
+                    onOpenQuickReaction()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <SmilePlus className="size-4 shrink-0 opacity-80" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{t('tgReactions.quickTitle')}</span>
+                  <span className="shrink-0 text-base leading-none" aria-hidden>
+                    {quickReaction}
+                  </span>
                 </button>
               </div>
             </>
