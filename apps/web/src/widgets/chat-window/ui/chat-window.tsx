@@ -175,6 +175,8 @@ import {
 } from '../../../shared/ui'
 import { ConversationList } from './conversation-list'
 import { ChatWallpaper } from './chat-wallpaper'
+import { ConnectionStatusTitle } from './connection-status'
+import { useConnectionStatus } from '../lib/use-connection-status'
 import {
   avatarColor,
   chatInitials,
@@ -3316,6 +3318,8 @@ export function ChatWindow() {
     if (panelStackRef.current) panelStackRef.current.close()
     else closePanelsNow()
   }
+  // Статус связи вместо заголовка списка: «Ожидание сети…», «Соединение…», «Обновление…».
+  const connectionStatus = useConnectionStatus(connected)
 
   // Горячие клавиши каркаса (как в Telegram Web). Esc снимает верхний слой: меню шапки,
   // панель деталей, режим выбора, поиск по переписке — и только потом саму переписку или
@@ -3461,6 +3465,11 @@ export function ChatWindow() {
       locale={locale}
       // Возврат к списку ведёт стек экранов (useScreenStack) — своё «появление» списку не нужно.
       returning={false}
+      titleSlot={
+        connectionStatus === 'online' ? undefined : (
+          <ConnectionStatusTitle status={connectionStatus} />
+        )
+      }
       swiped={chatRows.swiped}
       swipedFlagRef={chatRows.swipedFlagRef}
       longPressedRef={chatRows.longPressedRef}

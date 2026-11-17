@@ -159,6 +159,11 @@ export type ConversationListProps = {
   onOpenUnread: (c: ChatListItem) => void
   onClearHistory: (c: ChatListItem) => void
   onDeleteChat: (c: ChatListItem) => void
+  /**
+   * Подмена заголовка «Чаты» — статус связи («Ожидание сети…», «Обновление…»), как в
+   * Telegram. Не передан — обычный заголовок.
+   */
+  titleSlot?: ReactNode
 }
 
 // Вид вложения в превью — значком и подписью, как в Telegram: по строке списка видно,
@@ -355,6 +360,7 @@ export function ConversationList({
   onToggleChatFolder,
   onEditFolder,
   onDeleteFolder,
+  titleSlot,
 }: ConversationListProps) {
   const t = useTranslations('Chats')
   const actionLabelOf = useChatActionLabel()
@@ -528,7 +534,9 @@ export function ConversationList({
           </div>
         ) : (
           <>
-            <span className="min-w-0 flex-1 truncate text-lg font-bold">{t('title')}</span>
+            {titleSlot ?? (
+              <span className="min-w-0 flex-1 truncate text-lg font-bold">{t('title')}</span>
+            )}
             <button
               type="button"
               aria-label={t('search')}
