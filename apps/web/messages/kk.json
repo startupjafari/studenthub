@@ -3029,6 +3029,22 @@
     "close": "Жабу",
     "openCalendar": "Күнтізбені ашу: {date}",
     "clearDayConfirm": "{day} күнгі хабарламаларды тазалау керек пе? Тек сізде — басқаларда хат алмасу сақталады.",
+    "tgComposer2": {
+      "backspace": "Өшіру",
+      "emojiSuggestions": "Сәйкес эмодзи",
+      "linkPreviewRemove": "Сілтеме көрінісінсіз жіберу",
+      "forwardSenderHidden": "Жіберушінің аты жасырылған",
+      "forwardCount": "Қайта жіберілетін хабарламалар ({count})",
+      "forwardNamesHidden": "Жіберушілердің аттары жасырылған",
+      "forwardFrom": "Кімнен: {names}",
+      "forwardOptions": "Қайта жіберу параметрлері",
+      "forwardCancel": "Қайта жібермеу",
+      "forwardShowSender": "{count, plural, one {Жіберушінің атын көрсету} other {Жіберушілердің аттарын көрсету}}",
+      "forwardHideSender": "{count, plural, one {Жіберушінің атын жасыру} other {Жіберушілердің аттарын жасыру}}",
+      "forwardShowCaptions": "{count, plural, one {Жазбаны көрсету} other {Жазбаларды көрсету}}",
+      "forwardHideCaptions": "{count, plural, one {Жазбаны жасыру} other {Жазбаларды жасыру}}",
+      "forwardChangeRecipient": "Алушыны өзгерту"
+    },
     "tgShell": {
       "waitingForNetwork": "Желіні күту…",
       "connecting": "Қосылу…",

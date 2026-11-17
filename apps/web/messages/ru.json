@@ -3029,6 +3029,22 @@
     "close": "Закрыть",
     "openCalendar": "Открыть календарь: {date}",
     "clearDayConfirm": "Очистить сообщения за {day}? Только у вас — у остальных переписка останется.",
+    "tgComposer2": {
+      "backspace": "Стереть",
+      "emojiSuggestions": "Подходящие эмодзи",
+      "linkPreviewRemove": "Отправить без превью ссылки",
+      "forwardSenderHidden": "Имя отправителя скрыто",
+      "forwardCount": "Пересланные сообщения ({count})",
+      "forwardNamesHidden": "Имена отправителей скрыты",
+      "forwardFrom": "От: {names}",
+      "forwardOptions": "Параметры пересылки",
+      "forwardCancel": "Не пересылать",
+      "forwardShowSender": "{count, plural, one {Показать имя отправителя} other {Показать имена отправителей}}",
+      "forwardHideSender": "{count, plural, one {Скрыть имя отправителя} other {Скрыть имена отправителей}}",
+      "forwardShowCaptions": "{count, plural, one {Показать подпись} other {Показать подписи}}",
+      "forwardHideCaptions": "{count, plural, one {Скрыть подпись} other {Скрыть подписи}}",
+      "forwardChangeRecipient": "Сменить получателя"
+    },
     "tgShell": {
       "waitingForNetwork": "Ожидание сети…",
       "connecting": "Соединение…",
