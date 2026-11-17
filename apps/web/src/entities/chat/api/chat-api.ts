@@ -144,8 +144,9 @@ export async function setChatArchivedRequest(chatId: string, archived: boolean):
 export async function joinChatRequest(
   chatId: string,
   code: string,
-): Promise<{ id: string; title: string | null }> {
-  const { data } = await api.post<{ id: string; title: string | null }>(
+  // requested — у группы включено одобрение (§8.3): ушла заявка, участником человек ещё не стал.
+): Promise<{ id: string; title: string | null; requested?: boolean }> {
+  const { data } = await api.post<{ id: string; title: string | null; requested?: boolean }>(
     `/chats/${encodeURIComponent(chatId)}/join`,
     { code },
   )

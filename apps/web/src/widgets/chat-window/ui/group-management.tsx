@@ -8,6 +8,8 @@ import {
   Ban,
   ChevronRight,
   Copy,
+  Globe,
+  KeyRound,
   Link2,
   Pencil,
   RotateCcw,
@@ -15,6 +17,8 @@ import {
   Shield,
   ShieldPlus,
   Trash2,
+  UserMinus,
+  UserPlus,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -40,18 +44,37 @@ import {
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ChatMembersList } from './chat-members-list'
+import {
+  GroupTypeScreen,
+  JoinRequestsScreen,
+  PermissionsScreen,
+  RemovedScreen,
+  allowedCount,
+  useJoinRequests,
+} from './group-permissions'
 import { InfoCard } from './profile-info-card'
 import { TabEmpty, TabError } from './shared-media'
 
 /**
  * Управление группой в правой колонке (Telegram-стиль: карандаш в шапке профиля).
  *
- * Экраны сменяют друг друга внутри той же колонки, «назад» в шапке возвращает на шаг. Всё
- * — в пределах существующего API: название, описание и фото (окно редактирования), ссылка-
- * приглашение, администраторы, участники, исключённые и удаление группы. Права участников
- * группы (кто может писать, слать медиа) сервер не хранит — такого экрана здесь нет.
+ * Экраны сменяют друг друга внутри той же колонки, «назад» в шапке возвращает на шаг:
+ * название, описание и фото (окно редактирования), тип группы, ссылка-приглашение,
+ * «Разрешения» участников, заявки на вступление, администраторы, участники, заблокированные,
+ * исключённые («Удалённые») и удаление группы (§8.3). Экраны прав и заявок —
+ * group-permissions.tsx.
  */
-export type ManageScreen = 'main' | 'invite' | 'admins' | 'addAdmin' | 'members' | 'banned'
+export type ManageScreen =
+  | 'main'
+  | 'invite'
+  | 'admins'
+  | 'addAdmin'
+  | 'members'
+  | 'banned'
+  | 'permissions'
+  | 'groupType'
+  | 'joinRequests'
+  | 'removed'
 
 /** Экран, на который ведёт «назад» с данного. */
 export function manageParent(screen: ManageScreen): ManageScreen | null {
@@ -68,6 +91,10 @@ export const MANAGE_TITLE: Record<ManageScreen, string> = {
   addAdmin: 'tgRight.addAdmin',
   members: 'tabParticipants',
   banned: 'tgRight.banned',
+  permissions: 'tgGroups.permissions',
+  groupType: 'tgGroups.groupType',
+  joinRequests: 'tgGroups.joinRequests',
+  removed: 'tgGroups.removed',
 }
 
 const ROW =
@@ -160,6 +187,10 @@ export function GroupManagement({
           <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} filter="banned" />
         </>
       )}
+      {screen === 'permissions' && <PermissionsScreen chat={chat} />}
+      {screen === 'groupType' && <GroupTypeScreen chat={chat} />}
+      {screen === 'joinRequests' && <JoinRequestsScreen chat={chat} />}
+      {screen === 'removed' && <RemovedScreen chat={chat} />}
     </div>
   )
 }
@@ -188,6 +219,12 @@ function ManageMain({
   const banned = list.filter((m) => m.banned).length
   const active = list.filter((m) => !m.banned).length || chat.memberCount
   const isUserGroup = chat.type === 'GROUP'
+  // Права, тип группы, заявки и исключённые — только у пользовательской группы и только
+  // админам: официальные чаты ведёт вуз, их состав и правила здесь не меняются.
+  const canModerate = isUserGroup && (chat.isAdmin || chat.isOwner)
+  const byLink = chat.joinByLink !== false
+  const requests = useJoinRequests(chat, canModerate)
+  const pendingRequests = requests.data?.length ?? 0
 
   const remove = useMutation({
     mutationFn: () => deleteChatRequest(chat.id),
@@ -203,7 +240,15 @@ function ManageMain({
     <>
       <InfoCard className="mt-3">
         <NavRow icon={Pencil} label={t('tgRight.manageInfo')} onClick={onEditInfo} />
-        {isUserGroup && chat.isAdmin && (
+        {canModerate && (
+          <NavRow
+            icon={Globe}
+            label={t('tgGroups.groupType')}
+            value={byLink ? t('tgGroups.typeByLink') : t('tgGroups.typeClosed')}
+            onClick={() => onNavigate('groupType')}
+          />
+        )}
+        {isUserGroup && chat.isAdmin && byLink && (
           <NavRow
             icon={Link2}
             label={t('tgRight.inviteLink')}
@@ -211,6 +256,25 @@ function ManageMain({
           />
         )}
       </InfoCard>
+
+      {canModerate && (
+        <InfoCard className="mt-3">
+          <NavRow
+            icon={KeyRound}
+            label={t('tgGroups.permissions')}
+            value={t('tgGroups.permsAllowed', { count: allowedCount(chat), total: 8 })}
+            onClick={() => onNavigate('permissions')}
+          />
+          {(chat.joinApproval === true || pendingRequests > 0) && (
+            <NavRow
+              icon={UserPlus}
+              label={t('tgGroups.joinRequests')}
+              value={requests.data ? pendingRequests : undefined}
+              onClick={() => onNavigate('joinRequests')}
+            />
+          )}
+        </InfoCard>
+      )}
 
       <InfoCard className="mt-3">
         <NavRow
@@ -231,6 +295,13 @@ function ManageMain({
           value={members.data ? banned : undefined}
           onClick={() => onNavigate('banned')}
         />
+        {canModerate && (
+          <NavRow
+            icon={UserMinus}
+            label={t('tgGroups.removed')}
+            onClick={() => onNavigate('removed')}
+          />
+        )}
       </InfoCard>
 
       {isUserGroup && chat.isOwner && (

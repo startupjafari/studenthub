@@ -43,6 +43,8 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
   const [error, setError] = useState(false)
+  // Группа с одобрением вступления (§8.3): вместо членства ушла заявка админам.
+  const [requested, setRequested] = useState(false)
   // Работодатель живёт только в /employer, групповых чатов у него нет вовсе (сервер даёт ему
   // лишь «Избранное»): вступать некуда, и путь `${home}/chats` для него был бы 404.
   // Cookie читается в эффекте, а не при рендере: на сервере её нет, и разметка разошлась бы
@@ -60,9 +62,13 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
     // Сразу в группу, а не в общий список: ?chat= открывает чат и перечитывает список, где
     // группы, в которую только что вступили, ещё нет.
     joinChatRequest(id, code)
-      .then((chat) =>
-        router.replace(`${chatsPath(viewerRole)}?chat=${encodeURIComponent(chat.id)}`),
-      )
+      .then((chat) => {
+        if (chat.requested) {
+          setRequested(true)
+          return
+        }
+        router.replace(`${chatsPath(viewerRole)}?chat=${encodeURIComponent(chat.id)}`)
+      })
       .catch(() => setError(true))
   }, [id, code, router])
 
@@ -77,6 +83,17 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
             className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             {tCommon('goHome')}
+          </button>
+        </div>
+      ) : requested ? (
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm text-muted-foreground">{t('tgGroups.joinRequestSent')}</p>
+          <button
+            type="button"
+            onClick={() => router.replace(chatsPath(role))}
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            {t('title')}
           </button>
         </div>
       ) : error ? (

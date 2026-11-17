@@ -76,6 +76,23 @@ export {
 } from './api/chat-api'
 export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
 export {
+  groupKeys,
+  updateChatPermissionsRequest,
+  updateChatJoinSettingsRequest,
+  fetchJoinRequests,
+  approveJoinRequest,
+  declineJoinRequest,
+  fetchRemovedMembers,
+  fetchChatPhotos,
+  deleteChatPhotoRequest,
+  fetchUserPhotos,
+  deleteMyPhotoRequest,
+  type ChatGroupSettings,
+  type JoinRequestRow,
+  type RemovedMemberRow,
+  type AvatarPhoto,
+} from './api/group-api'
+export {
   type ChatTypeValue,
   type ChatMessage,
   type ChatListItem,

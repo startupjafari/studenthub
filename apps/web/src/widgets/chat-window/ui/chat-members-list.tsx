@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -39,6 +38,7 @@ import { ProfileLink } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { identityColor, identityInitials } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { useColumnNavigate } from '../lib/column-navigation'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
 import { RowsSkeleton, TabEmpty, TabError } from './shared-media'
 
@@ -94,7 +94,8 @@ export function ChatMembersList({
   const tr = useTranslations('Roles')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const router = useRouter()
+  // В колонке переход закрывает её и ждёт снятия записи истории (column-navigation.tsx).
+  const navigate = useColumnNavigate()
   const confirm = useConfirm()
   const [memberMenu, setMemberMenu] = useState<{ m: ChatMemberInfo; x: number; y: number } | null>(
     null,
@@ -108,10 +109,16 @@ export function ChatMembersList({
   const blockedQuery = useQuery({ queryKey: chatKeys.blocked(), queryFn: fetchBlockedUsers })
   const blockedIds = new Set((blockedQuery.data ?? []).map((b) => b.id))
 
+  // Владелец — по полю сервера у любого участника (§8.3); старый сервер его не отдаёт, тогда
+  // знаем только про себя.
+  const isOwnerMember = (m: ChatMemberInfo): boolean =>
+    m.isOwner === true || (chat.isOwner && m.id === myId)
+
   const list = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
     const filtered = (members.data ?? []).filter((m) => {
-      if (filter === 'admins' && !(m.isAdmin || (chat.isOwner && m.id === myId))) return false
+      const owner = m.isOwner === true || (chat.isOwner && m.id === myId)
+      if (filter === 'admins' && !(m.isAdmin || owner)) return false
       if (filter === 'banned' && !m.banned) return false
       if (!needle) return true
       return `${m.lastName} ${m.firstName}`.toLocaleLowerCase().includes(needle)
@@ -193,7 +200,7 @@ export function ChatMembersList({
         key: 'profile',
         label: t('openProfile'),
         icon: UserRound,
-        onClick: () => router.push(`/profile/${m.id}`),
+        onClick: () => navigate(`/profile/${m.id}`),
       },
     ]
     if (m.id !== myId) {
@@ -260,7 +267,7 @@ export function ChatMembersList({
         danger: !isBlocked,
       })
     }
-    if ((chat.isOwner || (chat.isAdmin && !m.isAdmin)) && m.id !== myId) {
+    if ((chat.isOwner || (chat.isAdmin && !m.isAdmin)) && m.id !== myId && !isOwnerMember(m)) {
       items.push({
         key: 'kick',
         label: t('removeFromGroup'),
@@ -301,7 +308,7 @@ export function ChatMembersList({
       <ul className="py-1">
         {list.map((m) => {
           const name = `${m.lastName} ${m.firstName}`.trim()
-          const isOwnerRow = chat.isOwner && m.id === myId
+          const isOwnerRow = isOwnerMember(m)
           const rank = m.banned
             ? null
             : isOwnerRow

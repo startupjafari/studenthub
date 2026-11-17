@@ -1,4 +1,4 @@
-import type { ChatTypeValue } from '@studenthub/shared-schemas'
+import type { ChatPermissions, ChatTypeValue } from '@studenthub/shared-schemas'
 import type { MediaStatus } from '../../../shared/api'
 export type { ChatTypeValue }
 
@@ -310,6 +310,12 @@ export interface ChatListItem {
   // написал и жду принятия: чат обычный, но с пометкой «запрос ещё не принят».
   requestIncoming: boolean
   requestOutgoing: boolean
+  // Разрешения участников пользовательской группы (§8.3) — у остальных чатов null. Админу и
+  // владельцу не мешают. Необязательные — старый сервер полей не отдаёт.
+  permissions?: ChatPermissions | null
+  // Тип группы: вступление по ссылке и через одобрение заявок (§8.3).
+  joinByLink?: boolean | null
+  joinApproval?: boolean | null
   updatedAt: string
 }
 
@@ -331,6 +337,8 @@ export interface ChatMemberInfo {
   banned: boolean
   // Админ группы (Ф9+).
   isAdmin: boolean
+  // Владелец (создатель) группы — ранг «владелец» у любого участника. Старый сервер не отдаёт.
+  isOwner?: boolean
 }
 
 // Заблокированный пользователь (экран управления блокировками).

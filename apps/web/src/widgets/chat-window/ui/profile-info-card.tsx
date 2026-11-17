@@ -323,7 +323,7 @@ const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
  * должен читать «включено/выключено», а не «отмечено» (идиома из DESIGN_SYSTEM §9).
  * Сам не фокусируется и кликов не ловит: им управляет строка целиком.
  */
-function SwitchVisual({ checked }: { checked: boolean }) {
+export function SwitchVisual({ checked }: { checked: boolean }) {
   return (
     <span
       aria-hidden
