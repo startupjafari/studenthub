@@ -3316,6 +3316,87 @@ export function ChatWindow() {
     else closePanelsNow()
   }
 
+  // Горячие клавиши каркаса (как в Telegram Web). Esc снимает верхний слой: меню шапки,
+  // панель деталей, режим выбора, поиск по переписке — и только потом саму переписку или
+  // панель колонки. Alt+↑/↓ и Ctrl+Tab / Ctrl+Shift+Tab — соседний чат в том порядке, в
+  // каком он виден в списке (с учётом выбранной папки). Ctrl/⌘+F — выше, у поиска по чату.
+  // Обработчик читает свежее состояние через ref: подписка одна на всё время жизни окна.
+  const shellKeysRef = useRef<(e: KeyboardEvent) => void>(() => undefined)
+  shellKeysRef.current = (e) => {
+    if (e.defaultPrevented || e.isComposing) return
+    if (e.key === 'Escape') {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+      // Открытое окно, диалог подтверждения или меню закрываются сами — это их Esc.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
+      if (headerMenuOpen) {
+        setHeaderMenuOpen(false)
+        return
+      }
+      if (detailsOpen) {
+        // Экранную панель деталей (не колонку) закрывает её собственный обработчик выше.
+        if (isWide) setDetailsOpen(false)
+        return
+      }
+      if (selectMode) {
+        exitSelect()
+        return
+      }
+      if (chatSearchOpen) {
+        closeChatSearch()
+        return
+      }
+      if (activeId) {
+        // Ответ или правку в поле ввода снимает сам композер, а не закрытие переписки.
+        if (editing || replyTo) return
+        e.preventDefault()
+        closeChat()
+        return
+      }
+      if (panelOpen) {
+        e.preventDefault()
+        closePanel()
+      }
+      return
+    }
+    const altStep =
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+    const tabStep = e.key === 'Tab' && e.ctrlKey && !e.altKey && !e.metaKey
+    if (!altStep && !tabStep) return
+    // Порядок — как на экране: строки списка в порядке документа (папка, закреплённые
+    // сверху). Список свёрнут или в нём выдача поиска — порядок открытых чатов из данных.
+    const rows = [...chatRows.rowElsRef.current.entries()]
+      .filter(([, el]) => el.isConnected)
+      .sort(([, a], [, b]) =>
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+      )
+      .map(([id]) => id)
+    const ids = rows.length > 0 ? rows : filterChatsByTab(list, undefined).map((c) => c.id)
+    if (ids.length === 0) return
+    e.preventDefault()
+    const dir = altStep ? (e.key === 'ArrowUp' ? -1 : 1) : e.shiftKey ? -1 : 1
+    const at = activeId ? ids.indexOf(activeId) : -1
+    // Alt упирается в края списка, Ctrl+Tab идёт по кругу — как вкладки.
+    const nextIndex =
+      at < 0
+        ? dir > 0
+          ? 0
+          : ids.length - 1
+        : tabStep
+          ? (at + dir + ids.length) % ids.length
+          : at + dir
+    const next = ids[nextIndex]
+    if (next && next !== activeId) setActiveId(next)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => shellKeysRef.current(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // Список чатов — на мобильном во весь экран; на десктопе порталится в сайдбар (embedded).
   const chatList = (
     <ConversationList
