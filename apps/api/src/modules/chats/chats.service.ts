@@ -223,9 +223,14 @@ function quoteMatches(content: string, quote: string): boolean {
   return letters(content).includes(wanted)
 }
 
-/** Первая http(s)-ссылка текста — по ней строится превью сообщения. */
-function firstLinkUrl(content?: string): string | undefined {
-  return content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+/**
+ * Первая http(s)-ссылка текста — по ней строится превью сообщения. Маркер спойлера `||`
+ * (PROJECT.md §3.6) адресу не принадлежит: в `||https://x.kz||` адрес — `https://x.kz`.
+ */
+export function firstLinkUrl(content?: string): string | undefined {
+  return content
+    ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1]?.replace(/\|\|.*$/, '') || undefined
+    : undefined
 }
 
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
