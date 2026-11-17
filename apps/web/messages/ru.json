@@ -1395,6 +1395,9 @@
     }
   },
   "Profile": {
+    "tgMedia2": {
+      "openPhoto": "Открыть фото"
+    },
     "title": "Профиль",
     "personalInfo": "Личные данные",
     "email": "Email",
@@ -2706,7 +2709,8 @@
       "playbackOrder": "Порядок воспроизведения",
       "shuffle": "Перемешать",
       "repeatAll": "Повторять все",
-      "repeatOne": "Повторять трек"
+      "repeatOne": "Повторять трек",
+      "openPhoto": "Открыть фото"
     },
     "spoiler": "Спойлер",
     "spoilerToggle": "Скрыть под спойлер",

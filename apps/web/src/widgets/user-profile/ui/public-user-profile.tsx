@@ -23,6 +23,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  AvatarViewer,
   Button,
   Card,
   CardContent,
@@ -81,6 +82,7 @@ export function PublicUserProfile({
   // то, что смотрящему положено видеть по аудитории сторис.
   const storyRing = useAuthorStories(userId)
   const [storiesOpen, setStoriesOpen] = useState(false)
+  const [photoOpen, setPhotoOpen] = useState(false)
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const router = useRouter()
@@ -251,13 +253,24 @@ export function PublicUserProfile({
                   </AvatarFallback>
                 </Avatar>
               </StoryAvatarRing>
-              {storyRing && renderStoryViewer && (
+              {storyRing && renderStoryViewer ? (
                 <button
                   type="button"
                   onClick={() => setStoriesOpen(true)}
                   aria-label={tStories('openStoryOf', { name: fullNameOf(u) })}
                   className="absolute inset-0 cursor-pointer rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
                 />
+              ) : (
+                // Без сторис аватар открывает само фото во весь экран (как в Telegram).
+                (u.avatarUrl ?? u.avatarThumbUrl) && (
+                  <button
+                    type="button"
+                    onClick={() => setPhotoOpen(true)}
+                    aria-label={t('tgMedia2.openPhoto')}
+                    title={t('tgMedia2.openPhoto')}
+                    className="absolute inset-0 cursor-zoom-in rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
+                  />
+                )
               )}
               <span className="absolute left-[85%] top-[15%] z-10 -translate-x-1/2 -translate-y-1/2">
                 <StatusDot online={online} />
@@ -274,6 +287,15 @@ export function PublicUserProfile({
           )}
         </div>
         {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
+        {photoOpen && (u.avatarUrl ?? u.avatarThumbUrl) && (
+          <AvatarViewer
+            photos={[(u.avatarUrl ?? u.avatarThumbUrl) as string]}
+            name={fullNameOf(u)}
+            index={0}
+            onIndexChange={() => undefined}
+            onClose={() => setPhotoOpen(false)}
+          />
+        )}
       </Card>
 
       {u.access === 'limited' ? (

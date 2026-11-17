@@ -4,12 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { BadgeCheck, ChevronLeft, ChevronRight } from 'lucide-react'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  MediaViewer as PlainMediaViewer,
-} from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, AvatarViewer } from '../../../shared/ui'
 import {
   createSpring,
   identityColor,
@@ -141,14 +136,13 @@ export function ProfileHero({
         </div>
       )}
 
-      {viewer !== null && photos[viewer] && (
-        <PlainMediaViewer
-          items={photos.map(() => ({ mime: 'image/*', name: title }))}
+      {viewer !== null && (
+        <AvatarViewer
+          photos={photos}
+          name={title}
           index={viewer}
-          src={photos[viewer]}
           onIndexChange={setViewer}
           onClose={() => setViewer(null)}
-          downloadName={title}
         />
       )}
     </>
