@@ -563,6 +563,28 @@ export const MessageReactionSchema = z
   .strict()
 export type MessageReactionInput = z.infer<typeof MessageReactionSchema>
 
+/**
+ * Личные настройки чатов (`PATCH /chats/settings`). `defaultReaction` — своя быстрая реакция,
+ * которую ставит двойной клик или двойное касание по сообщению (как «Быстрая реакция» в
+ * Telegram); `null` возвращает общую по умолчанию (DEFAULT_CHAT_REACTION в shared-config).
+ */
+export const ChatSettingsUpdateSchema = z
+  .object({
+    defaultReaction: z
+      .string()
+      .min(1)
+      .max(REACTION_EMOJI_MAX)
+      .refine(isSingleEmoji, vm('validation.chats.reactionEmoji'))
+      .nullable(),
+  })
+  .strict()
+export type ChatSettingsUpdateInput = z.infer<typeof ChatSettingsUpdateSchema>
+
+/** Ответ `GET/PATCH /chats/settings`: реакция уже с подставленным значением по умолчанию. */
+export interface ChatSettingsResponse {
+  defaultReaction: string
+}
+
 // Пересылка сообщения в текущий чат (:id — цель): messageId — источник (из любого моего чата).
 export const MessageForwardSchema = z.object({ messageId: z.string().min(1) }).strict()
 export type MessageForwardInput = z.infer<typeof MessageForwardSchema>

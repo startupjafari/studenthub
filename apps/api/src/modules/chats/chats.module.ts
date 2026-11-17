@@ -9,6 +9,8 @@ import { SupportService } from './support.service'
 import { ChatsController } from './chats.controller'
 import { ChatFoldersService } from './chat-folders.service'
 import { ChatFoldersController } from './chat-folders.controller'
+import { ChatSettingsService } from './chat-settings.service'
+import { ChatSettingsController } from './chat-settings.controller'
 import { ChatGateway } from './chats.gateway'
 import { LinkPreviewProcessor } from './link-preview.processor'
 import { LinkPreviewService } from '../../common/link-preview/link-preview.service'
@@ -26,12 +28,14 @@ import { ChatGifsController } from './chat-gifs.controller'
 @Module({
   imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
   // Контроллеры со статическим префиксом (`chats/folders`, `chats/checklists`,
-  // `chats/stickers`, `chats/gifs`) — первыми: их пути не должны попасть в `chats/:id`.
+  // `chats/stickers`, `chats/gifs`, `chats/settings`) — первыми: их пути не должны попасть
+  // в `chats/:id`.
   controllers: [
     ChatFoldersController,
     ChatChecklistsController,
     ChatStickersController,
     ChatGifsController,
+    ChatSettingsController,
     ChatsController,
     SupportController,
     StickerSetsAdminController,
@@ -46,6 +50,7 @@ import { ChatGifsController } from './chat-gifs.controller'
     ChatChecklistsService,
     ChatStickersService,
     ChatGifsService,
+    ChatSettingsService,
   ],
   exports: [ChatsService, SupportService],
 })
