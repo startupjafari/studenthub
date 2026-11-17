@@ -2258,6 +2258,48 @@ textarea.field {
   }
 }
 
+/* Спойлер (PROJECT.md §3.6): до касания текст прозрачен, поверх — точки цвета реплики,
+   сдвигающиеся навстречу друг другу, как частицы спойлера в Telegram. Содержимое не
+   принимает касаний — ссылка внутри скрытого спойлера не откроется раньше него самого. */
+.msg-spoiler[data-hidden] {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  background-image:
+    radial-gradient(circle, currentColor 0.7px, transparent 1.2px),
+    radial-gradient(circle, currentColor 0.5px, transparent 1px);
+  background-size:
+    5px 5px,
+    7px 6px;
+  animation: msg-spoiler-drift 2.4s linear infinite;
+}
+
+.msg-spoiler[data-hidden] > span {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes msg-spoiler-drift {
+  from {
+    background-position:
+      0 0,
+      3px 2px;
+  }
+  to {
+    background-position:
+      10px -5px,
+      -11px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-spoiler[data-hidden] {
+    animation: none;
+  }
+}
+
 .bubble-author {
   display: block;
   margin-bottom: 2px;

@@ -11,7 +11,9 @@
 // что встречается в переписке поддержки, — остальное остаётся текстом и ничего не ломает.
 //
 // Разбор ПЛОСКИЙ: жирное внутри ссылки не разбирается. В переписке такого не пишут, а
-// вложенность стоила бы рекурсивного разбора и отдельного набора ошибок.
+// вложенность стоила бы рекурсивного разбора и отдельного набора ошибок. Исключение —
+// подчёркнутый `++…++` и спойлер `||…||` (PROJECT.md §3.6): их содержимое отрисовка
+// разбирает заново, `||**ответ**||` — спойлер с жирным внутри.
 
 export type Token =
   | { kind: 'text'; text: string }
@@ -19,6 +21,8 @@ export type Token =
   | { kind: 'code'; text: string }
   | { kind: 'bold'; text: string }
   | { kind: 'italic'; text: string }
+  | { kind: 'underline'; text: string }
+  | { kind: 'spoiler'; text: string }
 
 /**
  * Одно правило на все виды разметки: чередование разбирается слева направо, и на равной
@@ -42,11 +46,31 @@ const PATTERN = new RegExp(
     // голый адрес в тексте
     String.raw`(?<bareHref>(?:https?:\/\/|www\.)[^\s<>]+)`,
     String.raw`\`(?<code>[^\`\n]+)\``,
+    // ++подчёркнутый++ и ||спойлер|| — до `*`: внутри них может быть жирный
+    String.raw`\+\+(?<underline>[^\s+][^+\n]*?)\+\+`,
+    String.raw`\|\|(?<spoiler>[^\s|][^|\n]*?)\|\|`,
     String.raw`\*\*(?<bold>[^\s*][^*\n]*?)\*\*`,
     String.raw`\*(?<italic>[^\s*][^*\n]*?)\*`,
   ].join('|'),
   'g',
 )
+
+const WORD = /[\p{L}\p{N}]/u
+
+/**
+ * Пара маркеров `++`/`||` по правилам контракта (PROJECT.md §3.6): маркер — ровно два знака,
+ * не внутри слова, без пробела у внутренней стороны. Так `i++; j++` и `a||b||c` остаются
+ * текстом. Проверка — здесь, а не в выражении: без обратного просмотра (см. выше).
+ */
+function isMarkerPair(content: string, start: number, match: string, inner: string): boolean {
+  const char = match[0] as string
+  const before = content[start - 1]
+  const after = content[start + match.length]
+  if (before === char || after === char) return false
+  if (before !== undefined && WORD.test(before)) return false
+  if (after !== undefined && WORD.test(after)) return false
+  return !/\s$/.test(inner)
+}
 
 /** Знаки, которые в конце голого адреса принадлежат предложению, а не ссылке. */
 const TAIL = '.,!?;:«»"’”'
@@ -124,6 +148,15 @@ export function parseMessage(content: string): Token[] {
       if (groups.autoHref !== undefined) plain('')
       tokens.push({ kind: 'link', text: visible, href: href(visible) })
       plain(url.slice(visible.length))
+      continue
+    }
+    const marked = groups.underline ?? groups.spoiler
+    if (marked !== undefined) {
+      if (isMarkerPair(content, start, match[0], marked)) {
+        tokens.push({ kind: groups.spoiler !== undefined ? 'spoiler' : 'underline', text: marked })
+      } else {
+        plain(match[0])
+      }
       continue
     }
     if (groups.code !== undefined) tokens.push({ kind: 'code', text: groups.code })

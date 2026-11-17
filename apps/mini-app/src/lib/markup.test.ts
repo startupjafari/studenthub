@@ -97,3 +97,29 @@ describe('разбор сообщения', () => {
     expect(plain(parseMessage(text))).toContain('#новости')
   })
 })
+
+// Подчёркнутый и спойлер — маркеры контракта чата (PROJECT.md §3.6).
+describe('разбор сообщения — подчёркнутый и спойлер', () => {
+  it('разбирает ++подчёркнутый++ и ||спойлер||', () => {
+    expect(parseMessage('это ++важно++, ответ ||42||')).toEqual([
+      { kind: 'text', text: 'это ' },
+      { kind: 'underline', text: 'важно' },
+      { kind: 'text', text: ', ответ ' },
+      { kind: 'spoiler', text: '42' },
+    ])
+  })
+
+  it('разметка внутри спойлера остаётся для повторного разбора', () => {
+    expect(parseMessage('||**ответ**||')).toEqual([{ kind: 'spoiler', text: '**ответ**' }])
+  })
+
+  it('код и выражения остаются текстом', () => {
+    for (const text of ['i++; j++', 'C++ и C++', 'a || b || c', 'a||b||c', '|||x|||']) {
+      const tokens = parseMessage(text)
+      expect(plain(tokens)).toBe(text)
+      expect(tokens.some((token) => token.kind === 'spoiler' || token.kind === 'underline')).toBe(
+        false,
+      )
+    }
+  })
+})
