@@ -37,11 +37,16 @@ export const chatKeys = {
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
+  // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору.
+  searchInChat: (chatId: string, q: string, senderId?: string) =>
+    ['chats', chatId, 'search', q, senderId ?? 'any'] as const,
   media: (id: string, type: string) => ['chats', id, 'media', type] as const,
   // Ключ по месяцу: календарь листают туда-сюда, и уже виденный месяц не должен
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
   mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
+  // Код ссылки-приглашения группы (только админам): правая колонка показывает ссылку целиком.
+  invite: (id: string) => ['chats', id, 'invite'] as const,
   // Опросы чата для вкладки общих материалов (полные сообщения, свежие первыми).
   polls: (id: string) => ['chats', id, 'polls'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
@@ -154,6 +159,9 @@ export interface MessagesPage {
   // Двунаправленная пагинация (jump-to-message): курсор/наличие более НОВЫХ сообщений.
   prevCursor?: string
   hasPrev: boolean
+  // Сколько всего совпадений («3 из 57» в поиске по чату). Сервер считает только в поиске
+  // внутри одного чата; у истории сообщений и глобального поиска поля нет.
+  total?: number
 }
 
 export async function fetchMessages(
@@ -256,6 +264,7 @@ export async function searchMessages(
     cursor: res.meta?.cursor,
     hasNext: res.meta?.hasNext ?? false,
     hasPrev: false,
+    total: res.meta?.total,
   }
 }
 
@@ -508,6 +517,20 @@ export async function deleteChatFolderRequest(id: string): Promise<void> {
 export async function setChatPinnedRequest(chatId: string, pinned: boolean): Promise<void> {
   if (pinned) await api.post(`/chats/${chatId}/pin`)
   else await api.delete(`/chats/${chatId}/pin`)
+}
+
+// «Пометить как непрочитанное» (Telegram-стиль): точка в строке без самих непрочитанных.
+// Персонально; любое прочтение чата снимает пометку и на сервере.
+export async function setChatMarkedUnreadRequest(chatId: string, marked: boolean): Promise<void> {
+  if (marked) await api.post(`/chats/${chatId}/unread`)
+  else await api.delete(`/chats/${chatId}/unread`)
+}
+
+// Прочитать чаты целиком одним запросом (не больше MARK_READ_BATCH_MAX): «Прочитать все» в
+// меню папки. Пометку «как новое» снимает тоже.
+export async function markChatsReadRequest(chatIds: string[]): Promise<{ updated: number }> {
+  const { data } = await api.post<{ updated: number }>('/chats/read', { chatIds })
+  return data
 }
 
 export async function fetchPresence(chatId: string): Promise<PresenceEntry[]> {

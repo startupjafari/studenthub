@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Узор фона переписки StudentHub: учебные мелочи. Рисунок собственный; используется как
+       маска (важна только непрозрачность), цвет задаёт тема. -->
+  <!-- раскрытая книга -->
+  <g transform="translate(22 30) rotate(-12)">
+    <path d="M0 4c8-5 16-5 22 0v26c-6-5-14-5-22 0z"/>
+    <path d="M22 4c6-5 14-5 22 0v26c-8-5-16-5-22 0"/>
+    <path d="M6 12h10M6 18h10M28 12h10M28 18h10"/>
+  </g>
+  <!-- карандаш -->
+  <g transform="translate(118 18) rotate(35)">
+    <path d="M0 0h34l8 6-8 6H0z"/>
+    <path d="M34 0v12M6 0v12"/>
+  </g>
+  <!-- академическая шапочка -->
+  <g transform="translate(210 26) rotate(8)">
+    <path d="M0 12 24 2l24 10-24 10z"/>
+    <path d="M10 16v10c8 6 20 6 28 0V16"/>
+    <path d="M44 14v12"/>
+    <circle cx="44" cy="29" r="2"/>
+  </g>
+  <!-- облачко сообщения -->
+  <g transform="translate(276 88) rotate(-6)">
+    <path d="M4 0h24a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H14l-8 7v-7H4a4 4 0 0 1-4-4V4a4 4 0 0 1 4-4z"/>
+    <path d="M8 8h16M8 14h10"/>
+  </g>
+  <!-- звезда -->
+  <path d="m88 92 4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z"/>
+  <!-- лампочка -->
+  <g transform="translate(160 84) rotate(-10)">
+    <path d="M12 0a12 12 0 0 1 7 22v6H5v-6A12 12 0 0 1 12 0z"/>
+    <path d="M6 32h12M8 36h8"/>
+  </g>
+  <!-- бумажный самолётик -->
+  <g transform="translate(222 150) rotate(12)">
+    <path d="M0 14 40 0 28 34 18 22z"/>
+    <path d="M18 22 40 0"/>
+  </g>
+  <!-- атом -->
+  <g transform="translate(46 166)">
+    <ellipse cx="0" cy="0" rx="20" ry="7"/>
+    <ellipse cx="0" cy="0" rx="20" ry="7" transform="rotate(60)"/>
+    <ellipse cx="0" cy="0" rx="20" ry="7" transform="rotate(-60)"/>
+    <circle cx="0" cy="0" r="2"/>
+  </g>
+  <!-- линейка -->
+  <g transform="translate(108 150) rotate(-28)">
+    <rect x="0" y="0" width="48" height="12" rx="2"/>
+    <path d="M8 0v5M16 0v7M24 0v5M32 0v7M40 0v5"/>
+  </g>
+  <!-- сердечко -->
+  <path d="M168 212c-6-6-14-1-10 6l10 10 10-10c4-7-4-12-10-6z"/>
+  <!-- чашка -->
+  <g transform="translate(270 214) rotate(-8)">
+    <path d="M0 4h24v12a10 10 0 0 1-10 10h-4A10 10 0 0 1 0 16z"/>
+    <path d="M24 8h3a5 5 0 0 1 0 10h-3"/>
+    <path d="M8 -6c-2 3 2 4 0 7M15 -6c-2 3 2 4 0 7"/>
+  </g>
+  <!-- часы -->
+  <g transform="translate(96 250)">
+    <circle cx="0" cy="0" r="14"/>
+    <path d="M0-8v8l6 4"/>
+  </g>
+  <!-- скрепка -->
+  <path d="M28 236v28a8 8 0 0 0 16 0v-32a5 5 0 0 0-10 0v28" transform="rotate(-18 36 250)"/>
+  <!-- колба -->
+  <g transform="translate(208 262) rotate(10)">
+    <path d="M6 0h12M9 0v12L0 30a3 3 0 0 0 3 4h18a3 3 0 0 0 3-4L15 12V0"/>
+    <path d="M4 24h16"/>
+  </g>
+  <!-- мелочь: точки, плюсы, кольца -->
+  <circle cx="190" cy="132" r="2"/>
+  <circle cx="64" cy="112" r="3"/>
+  <circle cx="300" cy="170" r="4"/>
+  <circle cx="140" cy="292" r="3"/>
+  <circle cx="250" cy="300" r="2"/>
+  <path d="M290 30v8M286 34h8"/>
+  <path d="M140 210v8M136 214h8"/>
+  <path d="M18 108v8M14 112h8"/>
+  <path d="M310 260v8M306 264h8"/>
+  <path d="M70 290v6M67 293h6"/>
+</svg>

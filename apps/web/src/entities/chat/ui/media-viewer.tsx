@@ -1,11 +1,16 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, ImageDown, Trash2 } from 'lucide-react'
-import { MediaViewer as BaseMediaViewer, VIEWER_ICON_BUTTON } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  MediaViewer as BaseMediaViewer,
+  type MediaViewerAction,
+} from '../../../shared/ui'
 import { downloadedUrl, srcSetOf, useBodyScrollLock, useFileDownload } from '../../../shared/lib'
 import { useAttachmentLinkSource } from './attachment-link-source'
 import type { MessageAttachment } from '../model/types'
@@ -42,6 +47,8 @@ const attachmentKey = (scope: string, fileId: string | undefined): (string | und
 
 export interface MediaViewerMeta {
   senderName: string
+  /** Аватар автора в шапке просмотрщика (как в Telegram); нет — инициалы. */
+  senderAvatarUrl?: string | null
   createdAt: string
   mine: boolean
   /** Подпись к медиа (текст сообщения) — показывается внизу по центру. */
@@ -66,6 +73,7 @@ export function MediaViewer({
   onClose,
   meta,
   actions,
+  getOrigin,
 }: {
   items: MessageAttachment[]
   index: number
@@ -73,8 +81,11 @@ export function MediaViewer({
   onClose: () => void
   meta?: MediaViewerMeta
   actions?: MediaViewerActions
+  /** Миниатюра кадра в пузыре — из неё просмотрщик вырастает и в неё же садится. */
+  getOrigin?: (index: number) => HTMLElement | null
 }) {
   const t = useTranslations('Chats')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
   // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
   // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
@@ -142,73 +153,100 @@ export function MediaViewer({
   // Оптимистичное вложение играет из локального файла; у отправленного — подписанная ссылка.
   const url = cur.localUrl ?? local ?? link?.url
 
-  const run =
-    (fn?: () => void): (() => void) =>
-    () => {
-      fn?.()
-      onClose()
-    }
+  const counter =
+    items.length > 1
+      ? tCommon('tgMedia.counter', { current: index + 1, total: items.length })
+      : null
+  const when = meta
+    ? `${new Date(meta.createdAt).toLocaleDateString(locale, {
+        day: 'numeric',
+        month: 'long',
+      })}, ${new Date(meta.createdAt).toLocaleTimeString(locale, {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`
+    : ''
 
-  const topLeft = meta ? (
-    <div className="flex shrink-0 flex-col leading-tight text-white">
-      <span className="truncate text-sm font-medium">{meta.senderName}</span>
-      <span className="text-xs text-white/60">
-        {new Date(meta.createdAt).toLocaleDateString(locale, { day: 'numeric', month: 'long' })},{' '}
-        {new Date(meta.createdAt).toLocaleTimeString(locale, {
-          hour: '2-digit',
-          minute: '2-digit',
-        })}
-      </span>
-    </div>
-  ) : undefined
+  // Шапка как в Telegram: аватар, имя и «дата · N из M». Нажатие ведёт к сообщению — так же,
+  // как в Telegram, где это и есть «перейти к сообщению». На телефоне аватара нет: место
+  // нужнее имени.
+  const senderInfo = meta
+    ? (close: () => void) => (
+        <SenderInfo
+          name={meta.senderName}
+          avatarUrl={meta.senderAvatarUrl}
+          subtitle={counter ? `${when} · ${counter}` : when}
+          label={actions ? t('goToMessage') : undefined}
+          onClick={
+            actions
+              ? () => {
+                  actions.onGoTo()
+                  close()
+                }
+              : undefined
+          }
+        />
+      )
+    : undefined
 
+  // Подпись — до трёх строк по центру, длинная прокручивается внутри (Telegram: 4,25rem).
   const caption = meta?.caption ? (
-    <p className="max-w-2xl truncate rounded-xl bg-black/50 px-4 py-2 text-center text-sm text-white">
+    <p
+      dir="auto"
+      className="max-h-[4.25rem] max-w-2xl overflow-y-auto px-2 text-center text-[0.9375rem] leading-snug break-words whitespace-pre-wrap text-white/90 select-text"
+    >
       {meta.caption}
     </p>
   ) : undefined
 
-  // Действия — иконками в верхней панели, слева от поворота, «скачать» и «закрыть»: без
-  // всплывающего меню, всё видно сразу (как в Telegram). Подпись — в title и aria-label.
-  const icon = (
-    label: string,
-    Icon: typeof Eye,
-    onClick: () => void,
-    tone?: 'danger',
-  ): ReactNode => (
-    <button
-      key={label}
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={cn(VIEWER_ICON_BUTTON, tone === 'danger' && 'text-red-400 hover:text-red-300')}
-    >
-      <Icon className="size-5" aria-hidden />
-    </button>
-  )
-  const topActions = actions ? (
-    <>
-      {icon(t('goToMessage'), Eye, run(actions.onGoTo))}
-      {icon(t('copyText'), Copy, run(actions.onCopy))}
-      {/* Копировать сам снимок — отдельно от «копировать текст»: в буфер кладут либо
-          подпись, либо картинку, и одна кнопка на оба случая всегда не та. */}
-      {cur.mime.startsWith('image/') &&
-        url &&
-        icon(t('copyImage'), ImageDown, () => {
-          void copyImageToClipboard(url).then(
-            () => actions.onCopiedImage?.(true),
-            () => actions.onCopiedImage?.(false),
-          )
-        })}
-      {/* Пересылка — поверх просмотрщика, как в Telegram: закрыли окно пересылки или
-          отправили — снова смотрим тот же снимок, а не ленту. */}
-      {icon(t('forward'), Forward, actions.onForward)}
-      {meta?.mine && icon(t('delete'), Trash2, run(actions.onDelete), 'danger')}
-      {/* Отбивка между действиями над сообщением и управлением просмотром. */}
-      <span className="mx-1 h-5 w-px bg-white/15" aria-hidden />
-    </>
-  ) : undefined
+  // Действия: на ПК — иконками в шапке, на телефоне — в меню «⋮» (раскладку решает
+  // общий просмотрщик). Пересылка — поверх просмотрщика, как в Telegram: закрыли окно
+  // пересылки или отправили — снова смотрим тот же снимок, а не ленту.
+  const menu: MediaViewerAction[] | undefined = actions
+    ? [
+        {
+          key: 'goto',
+          label: t('goToMessage'),
+          icon: Eye,
+          onSelect: actions.onGoTo,
+          closes: true,
+        },
+        // Копировать подпись — только если она есть: пустая строка в буфере — не действие.
+        ...(meta?.caption
+          ? [{ key: 'copy', label: t('copyText'), icon: Copy, onSelect: actions.onCopy }]
+          : []),
+        // Копировать сам снимок — отдельно от «копировать текст»: в буфер кладут либо
+        // подпись, либо картинку, и одна кнопка на оба случая всегда не та.
+        ...(cur.mime.startsWith('image/') && url
+          ? [
+              {
+                key: 'copy-image',
+                label: t('copyImage'),
+                icon: ImageDown,
+                onSelect: () => {
+                  void copyImageToClipboard(url).then(
+                    () => actions.onCopiedImage?.(true),
+                    () => actions.onCopiedImage?.(false),
+                  )
+                },
+              },
+            ]
+          : []),
+        { key: 'forward', label: t('forward'), icon: Forward, onSelect: actions.onForward },
+        ...(meta?.mine
+          ? [
+              {
+                key: 'delete',
+                label: t('delete'),
+                icon: Trash2,
+                onSelect: actions.onDelete,
+                tone: 'danger' as const,
+                closes: true,
+              },
+            ]
+          : []),
+      ]
+    : undefined
 
   return (
     <BaseMediaViewer
@@ -226,11 +264,62 @@ export function MediaViewer({
       }}
       onIndexChange={onIndexChange}
       onClose={onClose}
-      topLeft={topLeft}
+      topLeft={senderInfo}
       caption={caption}
-      actions={topActions}
+      menu={menu}
       downloadName={cur.name}
       downloadKey={cur.id ? `file:${cur.id}` : undefined}
+      getOrigin={getOrigin}
     />
+  )
+}
+
+/** Автор кадра в шапке просмотрщика: аватар, имя и подпись «когда · N из M». */
+function SenderInfo({
+  name,
+  avatarUrl,
+  subtitle,
+  label,
+  onClick,
+}: {
+  name: string
+  avatarUrl?: string | null
+  subtitle: string
+  /** Подпись для скринридера, если блок нажимается (перейти к сообщению). */
+  label?: string
+  onClick?: () => void
+}) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0] ?? '')
+    .join('')
+    .toUpperCase()
+  const body = (
+    <>
+      <Avatar className="hidden size-10 sm:flex">
+        {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
+        <AvatarFallback className="bg-white/15 text-white">{initials}</AvatarFallback>
+      </Avatar>
+      <span className="flex min-w-0 flex-col text-left leading-tight">
+        <span className="truncate text-sm font-medium text-white">{name}</span>
+        <span className="truncate text-xs text-white/60 tabular-nums">{subtitle}</span>
+      </span>
+    </>
+  )
+  if (!onClick) return <div className="flex min-w-0 items-center gap-3 px-1">{body}</div>
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={`${label}: ${name}, ${subtitle}`}
+      // Telegram приглушает автора и проявляет при наведении — нажимаемость видна, а шапка
+      // не спорит со снимком.
+      className="flex max-w-full min-w-0 items-center gap-3 rounded-lg px-1 py-0.5 opacity-80 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+    >
+      {body}
+    </button>
   )
 }

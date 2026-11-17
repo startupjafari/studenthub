@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { EditorContent, Extension, useEditor, type Editor } from '@tiptap/react'
 import { BubbleMenu, FloatingMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
@@ -194,6 +194,14 @@ export function RichTextEditor({
   // Последнее значение, которое поле само отдало наружу: с ним сверяем входящий `value`,
   // чтобы не пересобирать документ на каждое нажатие (курсор прыгал бы в конец).
   const emitted = useRef(value)
+  // Ctrl/Cmd+K открывает диалог ссылки — через ref: расширение создаётся вместе с редактором.
+  const linkPromptRef = useRef<(() => boolean) | null>(null)
+  linkPromptRef.current = actions.includes('link')
+    ? () => {
+        setPrompt('link')
+        return true
+      }
+    : null
 
   const editor = useEditor({
     // SSR: Next.js рендерит страницу на сервере, где DOM нет — первый кадр рисуем в браузере.
@@ -209,6 +217,19 @@ export function RichTextEditor({
       Image.configure({ inline: false }),
       TableKit.configure({ table: { resizable: false } }),
       Placeholder.configure({ placeholder: placeholder ?? '' }),
+      // Горячие клавиши Telegram поверх стандартных tiptap (Ctrl+B, Ctrl+I, Ctrl+Shift+S,
+      // Ctrl+E): зачёркнутый — Ctrl+Shift+X, моноширинный — Ctrl+Shift+M, ссылка — Ctrl+K.
+      // Подчёркивания и спойлера нет в контракте разметки сообщения (PROJECT.md §3.6).
+      Extension.create({
+        name: 'telegramShortcuts',
+        addKeyboardShortcuts() {
+          return {
+            'Mod-Shift-x': () => this.editor.commands.toggleStrike(),
+            'Mod-Shift-m': () => this.editor.commands.toggleCode(),
+            'Mod-k': () => linkPromptRef.current?.() ?? false,
+          }
+        },
+      }),
       // html: false — сырой HTML из вставки не попадёт ни в документ, ни на сервер.
       Markdown.configure({
         html: false,

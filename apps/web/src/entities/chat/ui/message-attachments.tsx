@@ -23,9 +23,11 @@ import { useAttachmentLinkSource } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
+import { albumLayout } from '../lib/album-layout'
 import type { MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
-import { VoiceMessage } from './voice-message'
+import { VoiceMessage, type VoiceTrackMeta } from './voice-message'
+import { isVoiceRecording } from '../lib/audio-player'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 
 // Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
@@ -411,10 +413,13 @@ function Single({
   onCancel,
   sendFailed: messageFailed,
   onRetry,
+  audioMeta,
 }: {
   att: MessageAttachment
   mine: boolean
   onOpen?: () => void
+  /** Подписи голосового или песни для панели аудиоплеера: автор, когда, «к сообщению». */
+  audioMeta?: VoiceTrackMeta
   /** Прервать загрузку этого сообщения (крестик в оверлее). Нет — отменять нечего. */
   onCancel?: () => void
   /** Сообщение не ушло: отправка упала и сама уже не возобновится. */
@@ -497,7 +502,7 @@ function Single({
   if (isVoice(att)) {
     return (
       <span className={cn('relative inline-flex', uploading && 'opacity-60')}>
-        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} />
+        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} meta={audioMeta} />
         {uploading && (
           <span className="absolute right-1 top-1/2 -translate-y-1/2">
             <Loader2 className="size-4 animate-spin opacity-70" aria-hidden />
@@ -517,6 +522,8 @@ function Single({
     const frame = frameProps(att)
     return (
       <span
+        // Рамка снимка в пузыре: из неё просмотрщик вырастает и в неё садится (MediaViewer).
+        data-media-origin={att.id}
         className={cn(
           // w-fit обязателен: вложения лежат в колоночном флексе, и без него обёртка
           // растягивается на ширину пузыря — заглушка оказалась бы шире самого снимка.
@@ -593,6 +600,7 @@ function Single({
     const shownDuration = att.durationMs ? att.durationMs / 1000 : duration
     return (
       <div
+        data-media-origin={att.id}
         className={cn(
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
@@ -771,7 +779,9 @@ function Single({
   )
 }
 
-// Ширина ячейки альбома для `sizes`: сетка 260–300px на 2–3 колонки.
+// Ширина альбома-мозаики в пузыре, px (уже — по ширине пузыря на узком экране).
+const ALBUM_WIDTH = 320
+// Ширина ячейки альбома для `sizes`: мозаика 320px, ячейка — обычно от трети до половины.
 const TILE_SIZES = '150px'
 
 // Ячейка альбома-сетки (Telegram-стиль): квадратный кроп через object-cover, поверх — play у видео
@@ -822,7 +832,10 @@ function GridTile({
   // Контейнер, а не кнопка: нажатие по ячейке ловит слой-кнопка во весь кадр, а кнопка
   // скачивания — отдельная поверх него (вложить кнопку в кнопку нельзя).
   return (
-    <div className={cn('relative block overflow-hidden', MEDIA_TINT, className)}>
+    <div
+      data-media-origin={att.id}
+      className={cn('relative block overflow-hidden', MEDIA_TINT, className)}
+    >
       {failed ? (
         <span className="absolute inset-0 flex items-center justify-center">
           {/* Не кнопка: нажатие ловит слой-кнопка во весь кадр (вложить кнопку в кнопку
@@ -943,14 +956,11 @@ function GridTile({
   )
 }
 
-// Альбом изображений/видео сеткой (Telegram-стиль): 2 и 4 — по два в ряд, 3 и 5+ — по три.
-// Клик по ячейке открывает полноэкранный просмотрщик.
-//
-// Все ячейки квадратные. Прежняя мозаика делала первую из трёх высокой (`row-span-2`), и
-// квадратный снимок в ней обрезался до вертикального прямоугольника — на превью от него
-// оставалась полоса посередине. Настоящая мозаика Telegram подбирает раскладку по
-// пропорциям самих снимков; выдавать за неё одну жёстко заданную форму — хуже, чем
-// честная ровная сетка.
+// Альбом изображений/видео мозаикой, как в Telegram: раскладка — по пропорциям самих кадров
+// (lib/album-layout): широкий первый снимок полосой сверху, узкий — колонкой слева, длинный
+// альбом — рядами одной высоты. Пропорции известны заранее (сервер отдаёт width/height), поэтому
+// место под альбом резервируется сразу и лента не прыгает, пока едут снимки. Кадр без размеров
+// (видео, вложения старше полей) считается квадратом. Клик по ячейке — полноэкранный просмотр.
 function MediaGrid({
   items,
   onOpen,
@@ -964,25 +974,40 @@ function MediaGrid({
   sendFailed?: boolean
   onRetry?: () => void
 }) {
-  const n = items.length
-  const cols = n === 2 || n === 4 ? 'grid-cols-2' : 'grid-cols-3'
-  const width = n === 2 || n === 4 ? 260 : 300
+  const layout = albumLayout(
+    items.map((a) => (a.width && a.height ? a.width / a.height : 1)),
+    ALBUM_WIDTH,
+  )
   return (
     <div
-      className={cn('grid gap-0.5 overflow-hidden rounded-lg', cols)}
-      style={{ width, maxWidth: '100%' }}
+      className="relative overflow-hidden rounded-lg"
+      style={{ width: ALBUM_WIDTH, maxWidth: '100%', aspectRatio: layout.aspect }}
     >
-      {items.map((att) => (
-        <GridTile
-          key={att.id}
-          att={att}
-          onOpen={() => onOpen(att)}
-          onCancel={onCancel}
-          sendFailed={sendFailed}
-          onRetry={onRetry}
-          className="aspect-square"
-        />
-      ))}
+      {items.map((att, i) => {
+        const tile = layout.tiles[i]
+        if (!tile) return null
+        return (
+          <div
+            key={att.id}
+            className="absolute"
+            style={{
+              left: `${tile.x * 100}%`,
+              top: `${tile.y * 100}%`,
+              width: `${tile.w * 100}%`,
+              height: `${tile.h * 100}%`,
+            }}
+          >
+            <GridTile
+              att={att}
+              onOpen={() => onOpen(att)}
+              onCancel={onCancel}
+              sendFailed={sendFailed}
+              onRetry={onRetry}
+              className="size-full"
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -1008,14 +1033,35 @@ export function MessageAttachments({
   viewerActions?: MediaViewerActions
 }) {
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   if (media.length === 0) return null
   // Изображения/видео (viewable) — альбомом-сеткой; голосовые и файлы — отдельными строками.
   const viewable = media.filter(isViewable)
   const others = media.filter((a) => !isViewable(a))
   const openViewer = (att: MessageAttachment): void =>
     setViewerIndex(viewable.findIndex((v) => v.id === att.id))
+  // Голосовое — подписано автором, песня — своим названием, автор уходит во вторую строку
+  // (как в панели плеера Telegram).
+  const audioMetaOf = (att: MessageAttachment): VoiceTrackMeta | undefined => {
+    if (!viewerMeta) return undefined
+    const voice = isVoiceRecording(att)
+    return {
+      voice,
+      title: voice ? viewerMeta.senderName : (att.name ?? viewerMeta.senderName),
+      performer: voice ? null : viewerMeta.senderName,
+      createdAt: viewerMeta.createdAt,
+      onGoTo: viewerActions?.onGoTo,
+    }
+  }
+  // Миниатюра кадра — в своём пузыре, а не первая попавшаяся на странице: тот же файл может
+  // лежать и в соседнем пересланном сообщении, и в панели «Медиа».
+  const originOf = (i: number): HTMLElement | null => {
+    const id = viewable[i]?.id
+    if (!id || !rootRef.current) return null
+    return rootRef.current.querySelector<HTMLElement>(`[data-media-origin="${CSS.escape(id)}"]`)
+  }
   return (
-    <div className="mt-1 flex flex-col gap-1.5">
+    <div ref={rootRef} className="mt-1 flex flex-col gap-1.5">
       {viewable.length >= 2 ? (
         <MediaGrid
           items={viewable}
@@ -1045,6 +1091,7 @@ export function MessageAttachments({
           onCancel={onCancel}
           sendFailed={sendFailed}
           onRetry={onRetry}
+          audioMeta={audioMetaOf(att)}
         />
       ))}
       {viewerIndex !== null && (
@@ -1055,6 +1102,7 @@ export function MessageAttachments({
           onClose={() => setViewerIndex(null)}
           meta={viewerMeta}
           actions={viewerActions}
+          getOrigin={originOf}
         />
       )}
     </div>

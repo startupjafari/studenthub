@@ -6,32 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import {
-  Archive,
-  ArchiveRestore,
-  BadgeCheck,
-  Bell,
-  BellOff,
-  CheckCheck,
-  ChevronDown,
-  ChevronLeft,
-  ChevronUp,
-  Copy,
-  Download,
-  Forward,
-  List as ListIcon,
-  Loader2,
-  Ban,
-  Eraser,
-  MoreVertical,
-  Pin,
-  PinOff,
-  Search,
-  Trash2,
-  UserSearch,
-  WifiOff,
-  X,
-} from 'lucide-react'
+import { Loader2, WifiOff } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
   canFileComplaint,
@@ -125,25 +100,30 @@ import {
   othersOnlineCount,
   peerIdOf,
   usePresence,
-  type PresenceStore,
 } from '../lib/presence-store'
+import { useChatHeaderSearch } from '../lib/use-chat-header-search'
 import { ChatDetailsPanel } from './chat-details-panel'
+import { RightColumn } from './right-column'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
+import { messageRunPosition } from '../lib/message-run'
 import { ChatComposer } from './chat-composer'
+import { AudioPlayerBar } from './audio-player-bar'
 import { PollCreator } from './poll-creator'
+import { ComposerDropArea, dropModeOf } from './composer-drop-area'
+import { lastEditableMessage } from '../lib/composer-last-editable'
 import { BlockedUsersPanel } from './blocked-users-panel'
 import { CreateGroupPanel } from './create-group-panel'
+import { ChatHeader } from './chat-header'
+import { ChatHeaderMenu } from './chat-header-menu'
+import { ChatHeaderPinned } from './chat-header-pinned'
+import { ChatHeaderSearch, ChatHeaderSearchFooter } from './chat-header-search'
+import { ChatHeaderSelection } from './chat-header-selection'
+import { ChatHeaderStatus } from './chat-header-status'
 import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
   Button,
   DateJumpPicker,
   formatYmd,
-  MenuSeparator,
-  Modal,
-  RowContextMenu,
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
@@ -167,17 +147,28 @@ import {
 } from '../../../shared/lib'
 
 import { ChatCalendarModal } from './chat-calendar-modal'
-import { ConversationList } from './conversation-list'
 import {
-  avatarColor,
-  chatInitials,
-  chatTitle,
-  isOfficialChat,
-  listTime,
-  senderName,
-} from '../lib/format'
+  BackCloseWhileOpen,
+  ScreenStack,
+  useScreenStack,
+  type ScreenStackHandle,
+} from '../../../shared/ui'
+import { ConversationList } from './conversation-list'
+import { ChatWallpaper } from './chat-wallpaper'
+import { ConnectionStatusTitle } from './connection-status'
+import { useConnectionStatus } from '../lib/use-connection-status'
+import { ChatListRail, ChatListResizeHandle } from './chat-list-rail'
+import { useChatListWidth } from '../lib/use-list-width'
+import { chatTitle, senderName } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
-import { canDeleteChat } from '../lib/chat-kind'
+// Лента сообщений в духе Telegram: плавающие кнопки, жесты, въезд новых, реакции.
+import { useMessageListAttention } from '../lib/use-message-list-attention'
+import { useMessageListGestures } from '../lib/use-message-list-gestures'
+import { useListScrolling, useNewMessageAppear } from '../lib/use-message-list-motion'
+import { MessageListFab } from './message-list-fab'
+import { MessageListSwipeHint, type SwipeReplyHintHandle } from './message-list-swipe-hint'
+import { ReactionsListModal } from './reactions-list-modal'
+import { DEFAULT_REACTION } from './reactions-strip'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -253,10 +244,6 @@ const ROW_BTN_W = 72
 const FOCUS_RETRY_MS = 50
 const FOCUS_TRIES = 10
 
-// Сколько закреплений полоса показывает шкалой. Дальше деления тоньше волоса и читаются
-// как сплошная линия — там честнее число «3/12».
-const PINNED_SCALE_MAX = 6
-
 // Высота пометки дня в потоке ленты: строка 20 px + вертикальные отступы my-2 (8+8).
 // По ней понимаем, ушла ли пометка под верх — тогда её подменяет прилипший заголовок.
 const DAY_LABEL_H = 36
@@ -279,25 +266,6 @@ const LIST_REFRESH_MIN_INTERVAL_MS = 1000
 // стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
 const HEADER_ICON_BTN =
   'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-10'
-
-/**
- * Подсветка совпавшего фрагмента в превью результата поиска. Первое вхождение, без
- * регистра: строка превью короткая, а подсвечивать все вхождения в двух строках —
- * пестрота, из которой уже не видно самого текста.
- */
-function highlightTerm(text: string, term: string): React.ReactNode {
-  const at = term ? text.toLowerCase().indexOf(term.toLowerCase()) : -1
-  if (at < 0) return text
-  return (
-    <>
-      {text.slice(0, at)}
-      <mark className="rounded-sm bg-primary/20 px-0.5 text-foreground">
-        {text.slice(at, at + term.length)}
-      </mark>
-      {text.slice(at + term.length)}
-    </>
-  )
-}
 
 export function ChatWindow() {
   const t = useTranslations('Chats')
@@ -338,8 +306,8 @@ export function ChatWindow() {
   // Достаточно широкий экран (≥xl) — правая панель деталей докается третьей колонкой,
   // не закрывая переписку (Telegram-стиль §1). На узких экранах — прежнее модальное окно.
   const isWide = useMediaQuery('(min-width: 1280px)')
-  // Телефон. На нём окно со списком закреплённых не показываем вовсе: полоса закрепления
-  // сама листает их по нажатию, а окно поверх чата ради того же списка — лишний слой.
+  // Телефон (Telegram: isMobile). Поиск по чату на нём уводит счётчик и стрелки в нижнюю
+  // панель вместо поля ввода, а пункт «Поиск» живёт в меню шапки.
   const isPhone = useMediaQuery('(max-width: 767px)')
   const embedded = isDesktop && !!listSlot
   // Открытый чат — полноэкранная поверхность на мобильном: просим оболочку скрыть нижнюю навигацию,
@@ -434,6 +402,8 @@ export function ChatWindow() {
   // Прикрепление файлов через диалог «Отправить как файл» (Telegram-стиль).
   const [attachFiles, setAttachFiles] = useState<File[]>([])
   const [attachOpen, setAttachOpen] = useState(false)
+  // Файлы брошены в зону «без сжатия» — окно отправки открывается сразу в этом режиме.
+  const [attachAsFiles, setAttachAsFiles] = useState(false)
   // Перетаскивание файлов в переписку: подсветка зоны и счётчик вложенных dragenter/dragleave.
   const [dropActive, setDropActive] = useState(false)
   const dragDepth = useRef(0)
@@ -442,18 +412,6 @@ export function ChatWindow() {
   // Единый поиск в панели чатов: по названиям чатов + по сообщениям (глобально).
   const [listSearchRaw, setListSearchRaw] = useState('')
   const [listSearchTerm, setListSearchTerm] = useState('')
-  const [pinnedIndex, setPinnedIndex] = useState(0)
-  const [pinnedTouched, setPinnedTouched] = useState(false)
-  /**
-   * Полоса закреплённого спрятана «до следующего раза» (§2 карты): помним набор закреплений,
-   * который прятали. Изменился набор — подсказка снова нужна и полоса возвращается. Набор,
-   * а не «самое новое»: сервер отдаёт закреплённые списком без обещания порядка, и по одному
-   * его краю «появилось новое» не отличить от «сняли старое».
-   */
-  const [pinnedHiddenKey, setPinnedHiddenKey] = useState<string | null>(null)
-  // Меню полосы закреплённого (правый клик) и окно со списком всех закреплений чата.
-  const [pinnedMenu, setPinnedMenu] = useState<{ x: number; y: number } | null>(null)
-  const [pinnedListOpen, setPinnedListOpen] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   // Сообщение, к которому сейчас едем (ссылка, ответ, поиск, дата). Пока оно задано, начальная
   // прокрутка открытого чата («к непрочитанным / вниз») и удержание низа не вмешиваются —
@@ -481,24 +439,11 @@ export function ChatWindow() {
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   // Отправленная правка до подтверждения: при отказе сервера текст возвращается в поле ввода.
   const pendingEditRef = useRef<{ message: ChatMessage; content: string } | null>(null)
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
-  // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
-  const [chatSearchOpen, setChatSearchOpen] = useState(false)
   // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
   // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
   const [jumpDate, setJumpDate] = useState('')
   // День, на пилюлю которого нажали: открыт календарь переписки (Telegram-стиль).
   const [calendarDay, setCalendarDay] = useState<string | null>(null)
-  const [chatSearchRaw, setChatSearchRaw] = useState('')
-  const [chatSearchTerm, setChatSearchTerm] = useState('')
-  const [searchIdx, setSearchIdx] = useState(0)
-  // Список совпадений под строкой поиска. Открыт, пока не выбрали конкретное сообщение:
-  // шагать по совпадениям вслепую стрелками — это и есть «неудобно», когда их два десятка.
-  const [searchListOpen, setSearchListOpen] = useState(true)
-  const searchJumpedFor = useRef<string | null>(null)
-  // Фильтр «От кого» (§4): id+имя выбранного автора (или null — все).
-  const [searchFrom, setSearchFrom] = useState<{ id: string; name: string } | null>(null)
-  const [searchFromOpen, setSearchFromOpen] = useState(false)
   // Докнутая правая панель деталей (десктоп ≥xl): профиль/участники/медиа без ухода из чата.
   const [detailsOpen, setDetailsOpen] = useState(false)
   // Кнопка «вниз» + счётчик сообщений, пришедших пока пользователь пролистан вверх (Telegram-стиль).
@@ -533,21 +478,6 @@ export function ChatWindow() {
     rightWidth: 3 * ROW_BTN_W, // Без звука + Архив + Удалить
     onLongPress: (id, el) => rowLongPressRef.current?.(id, el),
   })
-
-  // Возврат из чата к списку: панель списка не монтируется заново (она всегда в дереве),
-  // поэтому «появление» ей даём флагом — на время анимации, а потом снимаем, иначе список
-  // въезжал бы при каждой перерисовке.
-  const [listReturning, setListReturning] = useState(false)
-  const prevActiveId = useRef(activeId)
-  useEffect(() => {
-    const had = prevActiveId.current
-    prevActiveId.current = activeId
-    // Только переход «чат был → чата нет»: при первом открытии экрана списку ехать неоткуда.
-    if (activeId || !had) return
-    setListReturning(true)
-    const timer = window.setTimeout(() => setListReturning(false), 320)
-    return () => window.clearTimeout(timer)
-  }, [activeId])
 
   // Разделитель «Непрочитанные»: снимок кол-ва непрочитанных при открытии + id первого непрочитанного.
   const [unreadDividerId, setUnreadDividerId] = useState<string | null>(null)
@@ -713,23 +643,6 @@ export function ChatWindow() {
       setActiveId(chat.id)
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
-  })
-
-  // Поиск внутри чата (§3): дебаунс запроса + результаты по активному чату.
-  useEffect(() => {
-    const term = chatSearchRaw.trim()
-    const id = setTimeout(() => {
-      setChatSearchTerm(term.length >= 2 ? term : '')
-      // Новый запрос — снова показываем список: выбор прошлого запроса к нему не относится.
-      setSearchListOpen(true)
-    }, 300)
-    return () => clearTimeout(id)
-  }, [chatSearchRaw])
-  const chatSearchResults = useQuery({
-    queryKey: [...chatKeys.search(chatSearchTerm, activeId ?? undefined), searchFrom?.id ?? 'any'],
-    queryFn: () =>
-      searchMessages(chatSearchTerm, activeId as string, undefined, { senderId: searchFrom?.id }),
-    enabled: chatSearchOpen && !!activeId && chatSearchTerm.length >= 2,
   })
 
   // Явно pin/unpin по флагу (не полагаемся на возможно-устаревший pinnedAt) + обновляем кэш из ответа.
@@ -1518,8 +1431,6 @@ export function ChatWindow() {
     setReplyQuote(null)
     setAttachFiles([])
     setAttachOpen(false)
-    setPinnedIndex(0)
-    setPinnedTouched(false)
     return () => {
       socket.emit('chat:leave', { chatId: activeId })
     }
@@ -2467,7 +2378,7 @@ export function ChatWindow() {
     })
   }
 
-  function send(): void {
+  function send(opts: { silent?: boolean } = {}): void {
     const content = text.trim()
     if (!activeId) return
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
@@ -2498,7 +2409,7 @@ export function ChatWindow() {
       content,
       replyToId: replyTo?.id ?? null,
       replyQuote: replyQuote,
-      silent: false,
+      silent: !!opts.silent,
       forwardedFromId: null,
       editedAt: null,
       pinnedAt: null,
@@ -2530,6 +2441,7 @@ export function ChatWindow() {
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [...(old ?? []), temp])
     emitSend(activeId, nonce, content, replyTo?.id, {
       replyQuote: replyQuote ?? undefined,
+      silent: opts.silent,
     })
     chatActions.end()
     setText('')
@@ -2639,11 +2551,12 @@ export function ChatWindow() {
   }
 
   // ── Тач-жесты по сообщению (мобильный) ──────────────────────────────────────
-  // Долгое нажатие → меню действий; свайп вправо → ответ. На десктопе жесты не мешают
+  // Долгое нажатие → меню действий; свайп влево → ответ (Telegram). На десктопе жесты не мешают
   // (нет touch), контекстное меню/hover-кнопки остаются. touch-action:pan-y на строке
   // отдаёт вертикальный скролл браузеру, а горизонтальный жест — нам.
   const LONG_PRESS_MS = 450
   const SWIPE_REPLY_PX = 64
+  const swipeHintRef = useRef<SwipeReplyHintHandle>(null)
   const msgTouch = useRef<{
     m: ChatMessage
     startX: number
@@ -2690,6 +2603,7 @@ export function ChatWindow() {
       if (!s) return
       s.longFired = true
       resetBubble(s.bubble, true)
+      swipeHintRef.current?.hide()
       // Геометрию снимаем ПОСЛЕ сброса сдвига: меню строится вокруг пузыря на его законном
       // месте, а не там, куда его успел утащить начатый свайп.
       const r = s.bubble?.getBoundingClientRect()
@@ -2731,29 +2645,32 @@ export function ChatWindow() {
       clearTimeout(s.timer)
       s.timer = null
     }
-    // Свайп вправо (преимущественно горизонтальный) → сдвигаем пузырь как визуальную подсказку.
-    if (dx > 0 && Math.abs(dy) < 24) {
+    // Свайп влево (преимущественно горизонтальный), как в Telegram, → сдвигаем пузырь, а
+    // справа проступает значок «Ответить» (ui/message-list-swipe-hint).
+    const pull = -dx
+    if (pull > 0 && Math.abs(dy) < 24) {
       s.swiping = true
       // За порогом ответа пузырь не встаёт колом (было `Math.min(dx, 72)` — палец едет,
       // пузырь стоит, и жест читается как «заело»), а сопротивляется всё сильнее: §9.
-      const shift =
-        dx <= SWIPE_REPLY_PX
-          ? dx
-          : SWIPE_REPLY_PX + rubberband(dx - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240)
+      const shift = -(pull <= SWIPE_REPLY_PX
+        ? pull
+        : SWIPE_REPLY_PX + rubberband(pull - SWIPE_REPLY_PX, s.bubble?.offsetWidth ?? 240))
       if (s.bubble) {
         s.bubble.style.transition = 'none'
         s.bubble.style.transform = `translateX(${shift}px)`
+        swipeHintRef.current?.update(s.bubble, shift, SWIPE_REPLY_PX)
       }
       // Один тик ровно в момент пересечения порога — палец узнаёт, что отпускать уже можно,
       // не глядя на экран (§13: обратная связь на причинном событии, а не в конце).
-      if (!s.reachedReply && dx > SWIPE_REPLY_PX) {
+      if (!s.reachedReply && pull > SWIPE_REPLY_PX) {
         s.reachedReply = true
         hapticTick()
-      } else if (s.reachedReply && dx <= SWIPE_REPLY_PX) {
+      } else if (s.reachedReply && pull <= SWIPE_REPLY_PX) {
         s.reachedReply = false
       }
-    } else if (s.swiping && dx <= 0) {
+    } else if (s.swiping && pull <= 0) {
       resetBubble(s.bubble, false)
+      swipeHintRef.current?.hide()
     }
   }
 
@@ -2766,8 +2683,9 @@ export function ChatWindow() {
     }
     const dx = (e.changedTouches[0]?.clientX ?? s.startX) - s.startX
     resetBubble(s.bubble, true)
-    // Свайп вправо дальше порога (и это не было долгим нажатием) → ответ на сообщение.
-    if (!s.longFired && s.swiping && dx > SWIPE_REPLY_PX) setReplyTo(s.m)
+    swipeHintRef.current?.hide()
+    // Свайп влево дальше порога (и это не было долгим нажатием) → ответ на сообщение.
+    if (!s.longFired && s.swiping && -dx > SWIPE_REPLY_PX) setReplyTo(s.m)
     msgTouch.current = null
   }
 
@@ -2781,21 +2699,6 @@ export function ChatWindow() {
   function openMenuAt(m: ChatMessage, x: number, y: number): void {
     if (msgTouch.current?.longFired) return
     setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
-  }
-
-  // Единая навигация по закреплённым (клик по бару и стрелки ◀▶ используют её — без рассинхрона).
-  // Первое взаимодействие фокусирует показанное сообщение; далее шаг вперёд/назад по кругу.
-  function navigatePinned(pinned: ChatMessage[], dir: 1 | -1): void {
-    if (pinned.length === 0) return
-    const base = pinnedIndex % pinned.length
-    const target = pinnedTouched
-      ? (((base + dir) % pinned.length) + pinned.length) % pinned.length
-      : base
-    const msg = pinned[target]
-    if (!msg) return
-    setPinnedIndex(target)
-    setPinnedTouched(true)
-    focusMessage(msg.id)
   }
 
   function onType(v: string): void {
@@ -2869,7 +2772,7 @@ export function ChatWindow() {
     return Array.from(e.dataTransfer?.types ?? []).includes('Files')
   }
 
-  function addFiles(list: FileList | null): void {
+  function addFiles(list: FileList | null, asFiles = false): void {
     const arr = Array.from(list ?? [])
     if (arr.length === 0) return
     // Отсекаем неподъёмное сразу при выборе: иначе файл сначала уезжал на сервер целиком и
@@ -2880,6 +2783,7 @@ export function ChatWindow() {
       return false
     })
     if (accepted.length === 0) return
+    if (!attachOpen) setAttachAsFiles(asFiles)
     setAttachFiles((prev) => (attachOpen ? [...prev, ...accepted] : accepted))
     setAttachOpen(true)
   }
@@ -2989,73 +2893,43 @@ export function ChatWindow() {
     })
   }
 
-  // Ctrl/⌘+F в открытом чате ищет по переписке, а не по странице браузера: искать
-  // «где это было» браузерным поиском бессмысленно — в DOM только видимый кусок ленты
-  // (виртуализация). Перехватываем только когда чат открыт и фокус не в поле ввода.
-  useEffect(() => {
-    if (!activeId) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'f' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
-      const el = document.activeElement
-      const typing =
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        (el instanceof HTMLElement && el.isContentEditable)
-      if (typing && !chatSearchOpen) return
-      e.preventDefault()
-      setChatSearchOpen(true)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activeId, chatSearchOpen])
-
-  // Новые результаты in-chat поиска → прыгаем к самому свежему совпадению (idx 0), один раз на набор.
-  useEffect(() => {
-    if (!chatSearchOpen) return
-    const items = chatSearchResults.data?.items ?? []
-    const first = items[0]
-    const key = `${chatSearchTerm}:${items.length}:${first?.id ?? ''}`
-    if (!first || searchJumpedFor.current === key) return
-    searchJumpedFor.current = key
-    setSearchIdx(0)
-    void jumpToMessage(first.id)
-  }, [chatSearchOpen, chatSearchTerm, chatSearchResults.data, jumpToMessage])
-
-  // Выбор совпадения из списка: прыгаем к нему и убираем список — дальше человек
-  // читает переписку вокруг найденного, а не выдачу.
-  function pickSearchResult(index: number): void {
-    const items = chatSearchResults.data?.items ?? []
-    const m = items[index]
-    if (!m) return
-    setSearchIdx(index)
-    setSearchListOpen(false)
-    void jumpToMessage(m.id)
-  }
-
-  // Шаг по совпадениям: dir=+1 — старее (следующее), -1 — новее (предыдущее). Прыгаем к сообщению.
-  /** Сколько сообщений нашлось. Нужно и списку выдачи, и нижней панели поиска. */
-  const searchTotal = chatSearchResults.data?.items.length ?? 0
-
-  function stepSearch(dir: 1 | -1): void {
-    const items = chatSearchResults.data?.items ?? []
-    if (items.length === 0) return
-    const next = Math.min(Math.max(searchIdx + dir, 0), items.length - 1)
-    setSearchIdx(next)
-    setSearchListOpen(false)
-    const m = items[next]
-    if (m) void jumpToMessage(m.id)
-  }
-
-  function closeChatSearch(): void {
-    setChatSearchOpen(false)
-    setChatSearchRaw('')
-    setChatSearchTerm('')
-    setSearchIdx(0)
-    setSearchListOpen(true)
-    setSearchFrom(null)
-    setSearchFromOpen(false)
-    searchJumpedFor.current = null
-  }
+  // Поиск по переписке в шапке (Telegram): состояние, выдача и шаги по совпадениям — в хуке.
+  // Под старыми именами — то, что читают лента (подсветка) и панель ввода.
+  const chatSearch = useChatHeaderSearch({
+    chatId: activeId,
+    jumpToMessage: (id) => void jumpToMessage(id),
+  })
+  const chatSearchOpen = chatSearch.open
+  const chatSearchTerm = chatSearch.highlight
+  // Переход к дате из поиска (#5): клик по числу сразу прокручивает историю к этому дню и
+  // закрывает календарь. Будущее закрыто — сообщений там заведомо нет. Режим диапазона
+  // очищает историю за период «у себя».
+  const searchCalendar = (
+    <DateJumpPicker
+      className={HEADER_ICON_BTN}
+      value={jumpDate}
+      onChange={(ymd) => {
+        setJumpDate(ymd)
+        if (ymd) void jumpToDate(ymd)
+      }}
+      max={formatYmd(new Date())}
+      aria-label={t('jumpToDate')}
+      dayThumbs={dayThumbs}
+      onViewChange={(y, m) => setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)}
+      rangeAction={{
+        label: t('clearHistory'),
+        destructive: true,
+        onSubmit: (from, to) => {
+          void confirm({
+            title: t('clearPeriodConfirm', { from, to }),
+            destructive: true,
+          }).then((ok) => {
+            if (ok) clearPeriod.mutate({ from, to })
+          })
+        },
+      }}
+    />
+  )
 
   // Подпись действия для шапки (Telegram-стиль): в группе — с именем начавшего раньше всех.
   const actionSummary = summarizeActors(activeId ? actionsByChat[activeId] : undefined)
@@ -3148,8 +3022,6 @@ export function ChatWindow() {
     [list, folderList, t],
   )
 
-  const pinnedKey = pinnedList.map((p) => p.id).join(',')
-  const pinnedHidden = pinnedHiddenKey !== null && pinnedHiddenKey === pinnedKey
   const hasText = text.trim().length > 0
   // Кнопка отправки показывается при вводе/вложениях/правке; иначе — микрофон (Telegram-стиль).
   const showSend = !!editing || hasText
@@ -3158,13 +3030,17 @@ export function ChatWindow() {
   // Имя показываем только в групповом чате: в личном собеседник и так один.
   const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
   // Из присутствия окно берёт только то, что рисует само; число «в сети» группы читает
-  // подпись в шапке (MembersOnlineLabel) — его изменения окно не перерисовывают.
+  // подпись в шапке (ChatHeaderStatus) — его изменения окно не перерисовывают.
   const otherId = usePresence(presenceStore, (m) => peerIdOf(m, myId))
   const otherOnline = usePresence(presenceStore, (m) => {
     const peer = isPrivate ? peerIdOf(m, myId) : undefined
     return peer !== undefined && m.get(peer) === true
   })
   const anyOthersOnline = usePresence(presenceStore, (m) => othersOnlineCount(m, myId) > 0)
+  // Когда собеседник был в сети (§49) — для подписи «был(а) …» в шапке.
+  const peerLastSeenAt = isPrivate
+    ? (membersQuery.data?.find((u) => u.id !== myId)?.lastSeenAt ?? null)
+    : null
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
   // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
@@ -3234,6 +3110,41 @@ export function ChatWindow() {
       }
     : null
 
+  // ── Лента в духе Telegram (lib/use-message-list-*, ui/message-list-*) ─────────
+  // Кнопки «к упоминанию» и «к реакции» над «вниз», въезд нового сообщения, прилипшая дата
+  // только во время прокрутки, двойной клик — реакция, протягивание мышью — выбор.
+  const listAttention = useMessageListAttention({
+    chatId: activeId,
+    me,
+    messages: messages.data,
+    readUpTo,
+    scrollRef: messagesScrollRef,
+  })
+  useNewMessageAppear(messagesScrollRef, activeId, messages.data)
+  const listScrolling = useListScrolling(messagesScrollRef, activeId)
+  const listGestures = useMessageListGestures({
+    scrollRef: messagesScrollRef,
+    messages: messages.data,
+    selecting: selectMode,
+    selectedIds,
+    disabled: chatSearchOpen || !!activeChat?.requestIncoming,
+    onDefaultReaction: (id) => react.mutate({ messageId: id, emoji: DEFAULT_REACTION }),
+    onSelectionChange: (ids) => {
+      setSelectedIds(ids)
+      setSelectMode(ids.size > 0)
+    },
+  })
+  // Окно «кто отреагировал»: id, а не снимок сообщения — живые реакции обновляют его на месте.
+  const [reactorsFor, setReactorsFor] = useState<{
+    chatId: string
+    id: string
+    emoji?: string
+  } | null>(null)
+  const reactorsMessage =
+    reactorsFor && reactorsFor.chatId === activeId
+      ? messages.data?.find((m) => m.id === reactorsFor.id)
+      : undefined
+
   // Стабильный диспетчер действий над сообщением (см. MessageItem). Всегда зовёт свежие
   // обработчики через ref — идентичность объекта не меняется между рендерами, поэтому memo
   // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
@@ -3295,9 +3206,123 @@ export function ChatWindow() {
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
       openCalendar: (ymd) => setCalendarDay(ymd),
+      showReactors: (m, emoji) => setReactorsFor({ chatId: m.chatId, id: m.id, emoji }),
     }),
     [],
   )
+
+  // Каркас как в Telegram (стек экранов). Телефон: открытая переписка — верхний экран поверх
+  // списка: въезжает справа, список отступает влево и темнеет; назад — свайпом от левого края,
+  // кнопкой «назад» шапки или системной «назад». На планшете и ПК колонки стоят рядом, стек
+  // выключен. Состояние «чат открыт» снимается, когда уход доехал, — до этого уезжает живая
+  // переписка, а не пустой экран.
+  const chatStack = useScreenStack<HTMLElement>({
+    open: !!activeId,
+    onClose: () => setActiveId(null),
+    enabled: isPhone,
+    openKey: activeId,
+  })
+  const closeChat = chatStack.close
+  // Панели колонки (папки, чёрный список, новая группа) — тот же стек внутри колонки: панель
+  // ложится поверх списка и уходит вправо по «назад» в своей шапке.
+  const panelOpen = foldersOpen || blockedOpen || createGroupOpen
+  const panelStackRef = useRef<ScreenStackHandle | null>(null)
+  const closePanelsNow = (): void => {
+    setFoldersOpen(false)
+    setBlockedOpen(false)
+    setCreateGroupOpen(false)
+  }
+  const closePanel = (): void => {
+    if (panelStackRef.current) panelStackRef.current.close()
+    else closePanelsNow()
+  }
+  // Статус связи вместо заголовка списка: «Ожидание сети…», «Соединение…», «Обновление…».
+  const connectionStatus = useConnectionStatus(connected)
+  // ПК: ширина колонки списка тянется за край и запоминается; совсем узкая — одни аватары.
+  const listWidth = useChatListWidth(embedded)
+
+  // Горячие клавиши каркаса (как в Telegram Web). Esc снимает верхний слой: меню шапки,
+  // панель деталей, режим выбора, поиск по переписке — и только потом саму переписку или
+  // панель колонки. Alt+↑/↓ и Ctrl+Tab / Ctrl+Shift+Tab — соседний чат в том порядке, в
+  // каком он виден в списке (с учётом выбранной папки). Ctrl/⌘+F — выше, у поиска по чату.
+  // Обработчик читает свежее состояние через ref: подписка одна на всё время жизни окна.
+  const shellKeysRef = useRef<(e: KeyboardEvent) => void>(() => undefined)
+  shellKeysRef.current = (e) => {
+    if (e.defaultPrevented || e.isComposing) return
+    if (e.key === 'Escape') {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+      // Открытое окно, диалог подтверждения или меню закрываются сами — это их Esc.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]')) return
+      // Своя выпадашка списка — без роли меню, закрываем сами. Меню шапки — Radix (role=menu),
+      // выбор «От кого» живёт в поиске и снимается его ступенчатым Esc.
+      if (newChatOpen) {
+        setNewChatOpen(false)
+        return
+      }
+      if (detailsOpen) {
+        // Экранную панель деталей (не колонку) закрывает её собственный обработчик выше.
+        if (isWide) setDetailsOpen(false)
+        return
+      }
+      if (selectMode) {
+        exitSelect()
+        return
+      }
+      if (chatSearchOpen) {
+        chatSearch.escape()
+        return
+      }
+      if (activeId) {
+        // Ответ или правку в поле ввода снимает сам композер, а не закрытие переписки.
+        if (editing || replyTo) return
+        e.preventDefault()
+        closeChat()
+        return
+      }
+      if (panelOpen) {
+        e.preventDefault()
+        closePanel()
+      }
+      return
+    }
+    const altStep =
+      e.altKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+    const tabStep = e.key === 'Tab' && e.ctrlKey && !e.altKey && !e.metaKey
+    if (!altStep && !tabStep) return
+    // Порядок — как на экране: строки списка в порядке документа (папка, закреплённые
+    // сверху). Список свёрнут или в нём выдача поиска — порядок открытых чатов из данных.
+    const rows = [...chatRows.rowElsRef.current.entries()]
+      .filter(([, el]) => el.isConnected)
+      .sort(([, a], [, b]) =>
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+      )
+      .map(([id]) => id)
+    const ids = rows.length > 0 ? rows : filterChatsByTab(list, undefined).map((c) => c.id)
+    if (ids.length === 0) return
+    e.preventDefault()
+    const dir = altStep ? (e.key === 'ArrowUp' ? -1 : 1) : e.shiftKey ? -1 : 1
+    const at = activeId ? ids.indexOf(activeId) : -1
+    // Alt упирается в края списка, Ctrl+Tab идёт по кругу — как вкладки.
+    const nextIndex =
+      at < 0
+        ? dir > 0
+          ? 0
+          : ids.length - 1
+        : tabStep
+          ? (at + dir + ids.length) % ids.length
+          : at + dir
+    const next = ids[nextIndex]
+    if (next && next !== activeId) setActiveId(next)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => shellKeysRef.current(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Список чатов — на мобильном во весь экран; на десктопе порталится в сайдбар (embedded).
   const chatList = (
@@ -3358,9 +3383,17 @@ export function ChatWindow() {
       chatById={chatById}
       chats={list}
       chatsLoading={chats.isLoading}
+      chatsError={chats.isError}
+      onRetryChats={() => void chats.refetch()}
       myId={myId}
       locale={locale}
-      returning={listReturning}
+      // Возврат к списку ведёт стек экранов (useScreenStack) — своё «появление» списку не нужно.
+      returning={false}
+      titleSlot={
+        connectionStatus === 'online' ? undefined : (
+          <ConnectionStatusTitle status={connectionStatus} />
+        )
+      }
       swiped={chatRows.swiped}
       swipedFlagRef={chatRows.swipedFlagRef}
       longPressedRef={chatRows.longPressedRef}
@@ -3388,6 +3421,7 @@ export function ChatWindow() {
       }}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
+      onMuteFor={(c, minutes) => mute.mutate({ chatId: c.id, muted: true, minutes })}
       onToggleArchive={(c) => archive.mutate({ chatId: c.id, archived: !c.archived })}
       onDeleteChat={(c) => {
         const msg =
@@ -3404,12 +3438,12 @@ export function ChatWindow() {
   const foldersPanel = (
     <ChatFoldersPanel
       embedded={embedded}
-      hidden={!!activeId}
+      hidden={false}
       folders={folderList}
       chats={chats.data ?? []}
       busy={createFolder.isPending || updateFolder.isPending || deleteFolder.isPending}
       editId={foldersEditId}
-      onClose={() => setFoldersOpen(false)}
+      onClose={closePanel}
       onCreate={(input) => createFolder.mutate(input)}
       onUpdate={(id, input) => updateFolder.mutate({ id, ...input })}
       onDelete={(id) => {
@@ -3426,19 +3460,13 @@ export function ChatWindow() {
     />
   )
 
-  const blockedPanel = (
-    <BlockedUsersPanel
-      embedded={embedded}
-      hidden={!!activeId}
-      onClose={() => setBlockedOpen(false)}
-    />
-  )
+  const blockedPanel = <BlockedUsersPanel embedded={embedded} hidden={false} onClose={closePanel} />
 
   const createGroupPanel = (
     <CreateGroupPanel
       embedded={embedded}
-      hidden={!!activeId}
-      onClose={() => setCreateGroupOpen(false)}
+      hidden={false}
+      onClose={closePanel}
       onCreated={(chatId) => {
         setCreateGroupOpen(false)
         setActiveId(chatId)
@@ -3446,51 +3474,83 @@ export function ChatWindow() {
     />
   )
 
-  // «Заблокировать / Разблокировать» из меню «три точки» в шапке. Красный пункт только в роли
-  // «Заблокировать», поэтому место у него разное: блокировка — в опасной группе за линией,
-  // снятие блокировки — среди обычных пунктов.
-  const headerBlockItem =
-    isPrivate && otherId && activeChat ? (
-      <button
-        type="button"
-        disabled={block.isPending}
-        onClick={() => {
-          block.mutate({ userId: otherId, blocked: activeChat.blocked })
-          setHeaderMenuOpen(false)
-        }}
-        className={cn(
-          'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50',
-          !activeChat.blocked && 'text-destructive',
-        )}
-      >
-        <Ban className="size-4 shrink-0 opacity-80" aria-hidden />
-        <span className="flex-1 text-left">
-          {activeChat.blocked ? t('unblockUser') : t('blockUser')}
-        </span>
-      </button>
-    ) : null
-
   return (
-    <div className="-mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
-      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, список
-          чатов уступает ему место — и на телефоне во весь экран, и в сайдбаре десктопа. */}
+    <div className="relative -mx-4 -mt-4 -mb-24 flex h-[calc(100%+7rem)] overflow-hidden md:-m-6 md:h-[calc(100%+3rem)]">
+      {/* Колонка одна: пока открыт экран папок, чёрного списка или создания группы, он ложится
+          поверх списка чатов (стек экранов) — и на телефоне во весь экран, и в сайдбаре десктопа. */}
       {(() => {
-        const column = foldersOpen
-          ? foldersPanel
-          : blockedOpen
-            ? blockedPanel
-            : createGroupOpen
-              ? createGroupPanel
-              : chatList
-        return embedded && listSlot ? createPortal(column, listSlot) : column
+        const column = (
+          <ScreenStack
+            open={panelOpen}
+            onClose={closePanelsNow}
+            handleRef={panelStackRef}
+            backClose
+            topClassName={embedded ? 'bg-sidebar' : 'bg-background'}
+            className={
+              embedded ? 'min-h-0 w-full flex-1 flex-col' : 'w-full flex-col md:w-80 lg:hidden'
+            }
+            base={chatList}
+            top={
+              foldersOpen
+                ? foldersPanel
+                : blockedOpen
+                  ? blockedPanel
+                  : createGroupOpen
+                    ? createGroupPanel
+                    : null
+            }
+          />
+        )
+        if (embedded && listSlot) {
+          return createPortal(
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {listWidth.compact ? (
+                <ChatListRail
+                  chats={filterChatsByTab(list, undefined)}
+                  activeId={activeId}
+                  onOpenChat={setActiveId}
+                  onExpand={listWidth.expand}
+                />
+              ) : (
+                column
+              )}
+              <ChatListResizeHandle listWidth={listWidth} />
+            </div>,
+            listSlot,
+          )
+        }
+        // Телефон: колонка — нижний экран под открытой перепиской (отступает и темнеет).
+        return (
+          <div
+            ref={chatStack.baseRef}
+            className="relative isolate flex shrink-0 max-md:w-full lg:hidden"
+          >
+            {column}
+            <div
+              ref={chatStack.dimRef}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-30 bg-overlay opacity-0 md:hidden"
+            />
+          </div>
+        )
       })()}
+      {activeId && isPhone && (
+        <BackCloseWhileOpen key={chatStack.historyKey} onBack={chatStack.closeFromHistory} />
+      )}
 
       {/* Панель сообщений — на мобильном во весь экран; скрыта, пока чат не выбран.
           Она же зона перетаскивания: файл роняют в переписку целиком, а не точно в поле
           ввода. Счётчик dragDepth — чтобы подсветка не мигала, когда курсор проходит над
           вложенными элементами: dragleave прилетает на каждый из них. */}
       <section
-        className={cn('relative min-w-0 flex-1 flex-col', activeId ? 'flex' : 'hidden md:flex')}
+        ref={chatStack.topRef}
+        className={cn(
+          // isolate — фон переписки (ChatWallpaper, -z-10) остаётся внутри секции.
+          'relative isolate min-w-0 flex-1 flex-col',
+          // Телефон: переписка — верхний экран стека, лежит поверх списка во всю площадь.
+          'max-md:absolute max-md:inset-0 max-md:z-10 max-md:bg-background',
+          activeId ? 'flex' : 'hidden md:flex',
+        )}
         onDragEnter={(e) => {
           if (!canDropFiles(e)) return
           dragDepth.current += 1
@@ -3512,16 +3572,13 @@ export function ChatWindow() {
           e.preventDefault()
           dragDepth.current = 0
           setDropActive(false)
-          addFiles(e.dataTransfer.files)
+          addFiles(e.dataTransfer.files, dropModeOf(e.target) === 'file')
         }}
       >
-        {dropActive && (
-          <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
-            <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
-              {t('dropHint')}
-            </span>
-          </div>
-        )}
+        {/* Обои переписки — на всю колонку и неподвижны: при смене чата меняется лента
+            поверх них, а не фон. Шапки над ними — сплошные (см. ниже). */}
+        <ChatWallpaper />
+        {dropActive && <ComposerDropArea />}
         {!activeId ? (
           <div className="flex flex-1 items-center justify-center p-6 duration-(--motion-page) animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
@@ -3532,552 +3589,109 @@ export function ChatWindow() {
           // key={activeId} — контент разговора заново проигрывает анимацию при открытии/смене чата.
           <div
             key={activeId}
-            className="flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4"
-          >
-            {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
-            {selectMode && (
-              <header className="flex items-center gap-1 border-b border-border px-2 py-3 duration-200 animate-in fade-in slide-in-from-top-2">
-                <button
-                  type="button"
-                  aria-label={t('cancel')}
-                  onClick={exitSelect}
-                  className={cn(HEADER_ICON_BTN, 'active:scale-90')}
-                >
-                  <X className="size-5" aria-hidden />
-                </button>
-                <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">
-                  {t('selectedCount', { count: selectedIds.size })}
-                </span>
-                <button
-                  type="button"
-                  aria-label={t('copyText')}
-                  disabled={selectedIds.size === 0}
-                  onClick={bulkCopy}
-                  className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                >
-                  <Copy className="size-5" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  aria-label={t('forward')}
-                  disabled={selectedIds.size === 0}
-                  onClick={() => setForwardIds(selectedInOrder().map((m) => m.id))}
-                  className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                >
-                  <Forward className="size-5" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  aria-label={t('delete')}
-                  disabled={ownSelectedCount === 0}
-                  onClick={() => {
-                    void confirm({
-                      title: t('deleteSelectedConfirm', { count: ownSelectedCount }),
-                      destructive: true,
-                    }).then((ok) => {
-                      if (ok) bulkDelete()
-                    })
-                  }}
-                  className={cn(
-                    HEADER_ICON_BTN,
-                    'text-destructive hover:bg-destructive/10 hover:text-destructive disabled:opacity-40',
-                  )}
-                >
-                  <Trash2 className="size-5" aria-hidden />
-                </button>
-              </header>
+            className={cn(
+              'flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4',
+              // Телефон: экран въезжает целиком (стек), второй сдвиг содержимого внутри лишний.
+              'max-md:animate-none',
+              // Шапки (обычная, выбора, поиска) лежат сплошной плоскостью над обоями.
+              '[&>div>header]:bg-background [&>header]:bg-background',
             )}
-            {/* Режим поиска внутри чата (§3): ввод, счётчик совпадений, навигация ↑↓ и
-                список найденных сообщений. Список — главное: без него единственным
-                способом добраться до нужного совпадения было жать ↓ и смотреть, куда
-                прыгнула переписка. Он лежит поверх ленты (absolute), чтобы прыжок к
-                сообщению был виден за ним и переписка не сжималась, и открывается
-                под самим полем ввода, а не во всю ширину шапки. */}
-            {chatSearchOpen &&
-              (() => {
-                const found = chatSearchResults.data?.items ?? []
-                const total = found.length
-                return (
-                  <div className="relative z-30 shrink-0">
-                    {/* py-3, как у шапки переписки, которую поиск собой заменяет: та же
-                        высота вокруг тех же 44/40-px элементов. С py-2 шапка выходила на
-                        8 px ниже соседних колонок, и общая линия под шапками ломалась
-                        ступенькой ровно на ширину переписки. */}
-                    <header className="flex items-center gap-1 border-b border-border px-2 py-3">
-                      <button
-                        type="button"
-                        aria-label={t('cancel')}
-                        onClick={closeChatSearch}
-                        className={cn(HEADER_ICON_BTN, 'active:scale-90')}
-                      >
-                        <ChevronLeft className="size-5" aria-hidden />
-                      </button>
-                      <div className="relative min-w-0 flex-1">
-                        <input
-                          autoFocus
-                          value={chatSearchRaw}
-                          onChange={(e) => setChatSearchRaw(e.target.value)}
-                          // Кнопки «показать список» нет: выдача, закрытая выбором
-                          // совпадения, снова открывается возвратом в поле.
-                          onFocus={() => setSearchListOpen(true)}
-                          onClick={() => setSearchListOpen(true)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              stepSearch(e.shiftKey ? -1 : 1)
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault()
-                              closeChatSearch()
-                            }
-                          }}
-                          placeholder={t('searchInChat')}
-                          // Поле без рамки и заливки, во всю ширину шапки: в режиме поиска
-                          // шапка И ЕСТЬ поле, а коробочка внутри коробочки только сужала
-                          // строку ввода и спорила с границей самой шапки.
-                          className="h-11 w-full border-0 bg-transparent px-2 text-base outline-none placeholder:text-muted-foreground lg:h-10 lg:text-sm"
-                        />
-                        {searchListOpen && chatSearchTerm.length >= 2 && total > 0 && (
-                          <ul
-                            aria-label={t('searchResults')}
-                            className="absolute inset-x-0 top-full z-10 mt-1 max-h-[min(60dvh,26rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in slide-in-from-top-1"
-                          >
-                            {found.map((m, i) => (
-                              <li key={m.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => pickSearchResult(i)}
-                                  className={cn(
-                                    'flex w-full cursor-pointer items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50',
-                                    i === searchIdx && 'bg-primary/10',
-                                  )}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-baseline gap-1.5">
-                                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-                                        {m.senderId === myId ? t('you') : senderName(m)}
-                                      </span>
-                                      <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
-                                        {listTime(m.createdAt, locale)}
-                                      </span>
-                                    </div>
-                                    {/* Совпавший кусок подсвечен: из строки в две строки видно,
-                                      то ли это сообщение, ещё до перехода к нему. */}
-                                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                      {highlightTerm(m.content || t('attachment'), chatSearchTerm)}
-                                    </p>
-                                  </div>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      {/* Фильтр «От кого» (§4) — только в группах. */}
-                      {activeIsGroup && (
-                        <div className="relative shrink-0">
-                          <button
-                            type="button"
-                            aria-label={t('searchFrom')}
-                            onClick={() => setSearchFromOpen((v) => !v)}
-                            className={cn(
-                              'flex h-11 max-w-28 items-center gap-1 rounded-xl px-2.5 text-xs transition-colors lg:h-10',
-                              searchFrom
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-muted-foreground hover:bg-muted',
-                            )}
-                          >
-                            <UserSearch className="size-4 shrink-0" aria-hidden />
-                            {searchFrom && <span className="truncate">{searchFrom.name}</span>}
-                          </button>
-                          {searchFromOpen && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setSearchFromOpen(false)}
-                              />
-                              <div className="absolute right-0 top-full z-50 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSearchFrom(null)
-                                    setSearchFromOpen(false)
-                                  }}
-                                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                                >
-                                  {t('searchFromAll')}
-                                </button>
-                                {(membersQuery.data ?? []).map((mem) => {
-                                  const name = `${mem.lastName} ${mem.firstName}`.trim()
-                                  return (
-                                    <button
-                                      key={mem.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setSearchFrom({ id: mem.id, name })
-                                        setSearchFromOpen(false)
-                                      }}
-                                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
-                                    >
-                                      <Avatar className="size-6 shrink-0">
-                                        {mem.avatarUrl && (
-                                          <AvatarImage src={mem.avatarUrl} alt={name} />
-                                        )}
-                                        <AvatarFallback className="text-[0.6rem]">
-                                          {(mem.lastName[0] ?? '') + (mem.firstName[0] ?? '')}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <span className="min-w-0 flex-1 truncate">{name}</span>
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </header>
-                  </div>
-                )
-              })()}
-            <header
-              className={cn(
-                'flex items-center justify-between gap-1 border-b border-border px-3 py-3 md:px-4',
-                (selectMode || chatSearchOpen) && 'hidden',
-              )}
-            >
-              {/* Назад к списку — только на мобильном */}
-              <button
-                type="button"
-                aria-label={t('back')}
-                onClick={() => setActiveId(null)}
-                className={cn(HEADER_ICON_BTN, 'md:hidden')}
-              >
-                <ChevronLeft className="size-5" aria-hidden />
-              </button>
-              {/* Подсветка при наведении идёт вровень с шапкой: отрицательные поля
-                  съедают её собственные отступы, поэтому область занимает всю высоту
-                  и (на ПК, где кнопки «назад» нет) доходит до левого края. Скруглённый
-                  прямоугольник в рамке из пустоты читался как чужой элемент внутри
-                  шапки, а не как сама шапка. */}
-              <button
-                type="button"
-                onClick={() => setDetailsOpen((v) => !v)}
-                className="-my-3 flex min-w-0 flex-1 items-center gap-2 rounded-none px-1 py-3 text-left transition-colors hover:bg-muted md:-ml-4 md:pl-4"
-              >
-                <span className="relative shrink-0">
-                  <Avatar className="size-9">
-                    {activeChat?.avatarUrl && (
-                      <AvatarImage
-                        src={activeChat.avatarUrl}
-                        alt={activeChat ? chatTitle(activeChat, t) : ''}
-                      />
-                    )}
-                    <AvatarFallback
-                      className={cn(
-                        'text-xs font-medium text-white',
-                        avatarColor(activeChat?.id ?? ''),
-                      )}
-                    >
-                      {activeChat ? chatInitials(chatTitle(activeChat, t)) : '#'}
-                    </AvatarFallback>
-                  </Avatar>
-                  {isPrivate && otherOnline && (
-                    <span
-                      className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-background bg-success"
-                      aria-hidden
-                    />
-                  )}
-                </span>
-                <div className="flex min-w-0 flex-col">
-                  <span className="flex min-w-0 items-center gap-1">
-                    <span className="truncate text-sm font-semibold">
-                      {activeChat ? chatTitle(activeChat, t) : ''}
-                    </span>
-                    {activeChat && isOfficialChat(activeChat.type) && (
-                      <BadgeCheck
-                        className="size-3.5 shrink-0 text-info"
-                        aria-label={t('officialChat')}
-                      />
-                    )}
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {actionLabel ? (
-                      <span className="text-primary">{actionLabel}</span>
-                    ) : isPrivate ? (
-                      otherOnline ? (
-                        t('online')
-                      ) : (
-                        t('offlineStatus')
-                      )
-                    ) : (
-                      <MembersOnlineLabel store={presenceStore} myId={myId} />
-                    )}
-                  </span>
-                </div>
-              </button>
-              <div className="flex items-center gap-1">
-                {!connected && (
+          >
+            {/* Шапка переписки (Telegram): в режиме выбора её место занимает панель выбора,
+                в режиме поиска — строка поиска. Сама шапка остаётся смонтированной. */}
+            {selectMode && (
+              <ChatHeaderSelection
+                count={selectedIds.size}
+                ownCount={ownSelectedCount}
+                onCancel={exitSelect}
+                onCopy={bulkCopy}
+                onForward={() => setForwardIds(selectedInOrder().map((m) => m.id))}
+                onDelete={bulkDelete}
+              />
+            )}
+            {chatSearchOpen && !selectMode && (
+              <ChatHeaderSearch
+                search={chatSearch}
+                isGroup={activeIsGroup}
+                isPhone={isPhone}
+                members={membersQuery.data ?? []}
+                myId={myId}
+                calendar={searchCalendar}
+              />
+            )}
+            <ChatHeader
+              chat={activeChat}
+              title={activeChat ? chatTitle(activeChat, t) : ''}
+              peerOnline={isPrivate && otherOnline}
+              hidden={selectMode || chatSearchOpen}
+              status={
+                <ChatHeaderStatus
+                  kind={activeChat?.type === 'SAVED' ? 'saved' : isPrivate ? 'private' : 'group'}
+                  actionLabel={actionLabel}
+                  peerOnline={otherOnline}
+                  peerLastSeenAt={peerLastSeenAt}
+                  memberCount={activeChat?.memberCount ?? 0}
+                  store={presenceStore}
+                  myId={myId}
+                />
+              }
+              extra={
+                !connected && (
                   <span className="mr-1 flex items-center gap-1 text-xs text-destructive">
                     <WifiOff className="size-3.5" aria-hidden />
                     {t('offline')}
                   </span>
-                )}
-                {/* Действия — в меню «три точки». */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setHeaderMenuOpen((v) => !v)}
-                    aria-label={t('messageActions')}
-                    className={cn(
-                      HEADER_ICON_BTN,
-                      'relative',
-                      headerMenuOpen && 'bg-muted text-foreground',
-                    )}
-                  >
-                    <MoreVertical className="size-5" aria-hidden />
-                    {activeChat?.muted && (
-                      <span
-                        className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
-                        aria-hidden
-                      />
-                    )}
-                  </button>
-                  {headerMenuOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-40"
-                        onClick={() => setHeaderMenuOpen(false)}
-                      />
-                      <div className="absolute right-0 top-full z-50 mt-1 w-56 origin-top-right overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
-                        {/* Поиск — первым пунктом и только здесь: отдельная лупа в шапке
-                            занимала место рядом с календарём и «тремя точками», а ищут в
-                            переписке реже, чем листают её. */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setChatSearchOpen(true)
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                        >
-                          <Search className="size-4 shrink-0 opacity-80" aria-hidden />
-                          <span className="flex-1 text-left">{t('searchInChat')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (activeChat)
-                              mute.mutate({ chatId: activeChat.id, muted: !activeChat.muted })
-                            setHeaderMenuOpen(false)
-                          }}
-                          className={cn(
-                            'flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted',
-                            activeChat?.muted && 'text-destructive',
-                          )}
-                        >
-                          {activeChat?.muted ? (
-                            <BellOff className="size-4 shrink-0 opacity-80" aria-hidden />
-                          ) : (
-                            <Bell className="size-4 shrink-0 opacity-80" aria-hidden />
-                          )}
-                          <span className="flex-1 text-left">
-                            {activeChat?.muted ? t('unmute') : t('mute')}
-                          </span>
-                        </button>
-                        {/* «Выбрать» есть в меню сообщения, но включать режим оттуда можно
-                            только зная, с какого сообщения начать; из шапки — над чатом целиком. */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectMode(true)
-                            setSelectedIds(new Set())
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                        >
-                          <CheckCheck className="size-4 shrink-0 opacity-80" aria-hidden />
-                          <span className="flex-1 text-left">{t('select')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (activeChat)
-                              archive.mutate({
-                                chatId: activeChat.id,
-                                archived: !activeChat.archived,
-                              })
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                        >
-                          {activeChat?.archived ? (
-                            <ArchiveRestore className="size-4 shrink-0 opacity-80" aria-hidden />
-                          ) : (
-                            <Archive className="size-4 shrink-0 opacity-80" aria-hidden />
-                          )}
-                          <span className="flex-1 text-left">
-                            {activeChat?.archived ? t('unarchive') : t('archive')}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          disabled={exportChat.isPending}
-                          onClick={() => {
-                            exportChat.mutate('txt')
-                            setHeaderMenuOpen(false)
-                          }}
-                          className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted disabled:opacity-50"
-                        >
-                          {exportChat.isPending ? (
-                            <Loader2
-                              className="size-4 shrink-0 animate-spin opacity-80"
-                              aria-hidden
-                            />
-                          ) : (
-                            <Download className="size-4 shrink-0 opacity-80" aria-hidden />
-                          )}
-                          <span className="flex-1 text-left">{t('export')}</span>
-                        </button>
-                        {/* «Разблокировать» не красный — остаётся среди обычных пунктов. */}
-                        {activeChat?.blocked && headerBlockItem}
-                        {activeChat && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHeaderMenuOpen(false)
-                              void confirm({
-                                title: t('clearHistoryConfirm'),
-                                destructive: true,
-                              }).then((ok) => {
-                                if (ok) clearChat.mutate(activeChat.id)
-                              })
-                            }}
-                            className="flex h-9 w-full items-center gap-2 px-3 text-sm transition-colors hover:bg-muted"
-                          >
-                            <Eraser className="size-4 shrink-0 opacity-80" aria-hidden />
-                            <span className="flex-1 text-left">{t('clearHistory')}</span>
-                          </button>
-                        )}
-                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть у
-                            личного чата и группы (у официальных и «Сохранённых» его нет, F-F17),
-                            а блокировка бывает только в личном — линия зависит от «Удалить». */}
-                        {activeChat && canDeleteChat(activeChat.type) && <MenuSeparator />}
-                        {!activeChat?.blocked && headerBlockItem}
-                        {activeChat && canDeleteChat(activeChat.type) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const msg =
-                                !isPrivate && activeChat.isOwner
-                                  ? t('deleteGroupConfirm')
-                                  : t('deleteChatConfirm')
-                              setHeaderMenuOpen(false)
-                              void confirm({ title: msg, destructive: true }).then((ok) => {
-                                if (ok) deleteChat.mutate(activeChat.id)
-                              })
-                            }}
-                            className="flex h-9 w-full items-center gap-2 px-3 text-sm text-destructive transition-colors hover:bg-destructive/10"
-                          >
-                            <Trash2 className="size-4 shrink-0 opacity-80" aria-hidden />
-                            <span className="flex-1 text-left">
-                              {!isPrivate && activeChat.isOwner
-                                ? t('deleteGroup')
-                                : t('deleteChat')}
-                            </span>
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </header>
-
-            {/* Закреплённое сообщение (§2 карты): подпись, первая строка текста и шкала
-                закреплений слева. Крестик справа ПРЯЧЕТ полосу до следующего закрепления —
-                это подсказка, а не само закрепление; снять его можно из меню полосы. */}
-            {pinnedList.length > 0 &&
-              !pinnedHidden &&
-              (() => {
-                const idx = pinnedIndex % pinnedList.length
-                const cur = pinnedList[idx]
-                if (!cur) return null
-                return (
-                  <div
-                    className="flex items-center gap-2 border-b border-border bg-background px-3 py-1.5"
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      const box = e.currentTarget.getBoundingClientRect()
-                      const keyboard = e.clientX === 0 && e.clientY === 0
-                      setPinnedMenu({
-                        x: keyboard ? box.left + 24 : e.clientX,
-                        y: keyboard ? box.bottom : e.clientY,
-                      })
-                    }}
-                  >
-                    {/* Клик по строке циклически переходит к следующему закреплённому (navigatePinned). */}
-                    <button
-                      type="button"
-                      onClick={() => navigatePinned(pinnedList, 1)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    >
-                      {/* Шкала закреплений: по делению на каждое, текущее — сплошным акцентом.
-                          Считать «2/7» глазами дольше, чем увидеть положение на шкале. Сверх
-                          PINNED_SCALE_MAX делений полоска превращается в штриховку, и вместо
-                          неё честнее показать число. */}
-                      {pinnedList.length > 1 && pinnedList.length <= PINNED_SCALE_MAX ? (
-                        <span className="flex h-7 w-0.5 shrink-0 flex-col gap-px" aria-hidden>
-                          {pinnedList.map((p, i) => (
-                            <span
-                              key={p.id}
-                              className={cn(
-                                'flex-1 rounded-full',
-                                i === idx ? 'bg-primary' : 'bg-primary/25',
-                              )}
-                            />
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="h-7 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                      )}
-                      <Pin className="size-3.5 shrink-0 text-primary" aria-hidden />
-                      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                        <span className="truncate text-[0.7rem] font-semibold text-primary">
-                          {t('pinnedMessage')}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {cur.content || (cur.media.length ? t('attachment') : '')}
-                        </span>
-                      </span>
-                      {pinnedList.length > PINNED_SCALE_MAX && (
-                        <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
-                          {idx + 1}/{pinnedList.length}
-                        </span>
-                      )}
-                    </button>
-                    {pinnedList.length > 1 && (
-                      <button
-                        type="button"
-                        aria-label={t('pinnedMessages')}
-                        title={t('pinnedMessages')}
-                        onClick={() => setPinnedListOpen(true)}
-                        className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        <ListIcon className="size-3.5" aria-hidden />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={t('pinnedHide')}
-                      title={t('pinnedHide')}
-                      onClick={() => setPinnedHiddenKey(pinnedKey)}
-                      className="flex size-6 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      <X className="size-3.5" aria-hidden />
-                    </button>
-                  </div>
                 )
-              })()}
+              }
+              menu={
+                activeChat && (
+                  <ChatHeaderMenu
+                    chat={activeChat}
+                    title={chatTitle(activeChat, t)}
+                    peerId={isPrivate ? otherId : undefined}
+                    canReport={canReport}
+                    exporting={exportChat.isPending}
+                    showSearch={isPhone}
+                    onSearch={chatSearch.openSearch}
+                    onMute={(minutes) =>
+                      mute.mutate({ chatId: activeChat.id, muted: true, minutes })
+                    }
+                    onUnmute={() => mute.mutate({ chatId: activeChat.id, muted: false })}
+                    onSelect={() => {
+                      setSelectMode(true)
+                      setSelectedIds(new Set())
+                    }}
+                    onToggleArchive={() =>
+                      archive.mutate({ chatId: activeChat.id, archived: !activeChat.archived })
+                    }
+                    onExport={() => exportChat.mutate('txt')}
+                    onToggleBlock={() => {
+                      if (otherId) block.mutate({ userId: otherId, blocked: activeChat.blocked })
+                    }}
+                    onClearHistory={() => clearChat.mutate(activeChat.id)}
+                    onDelete={() => deleteChat.mutate(activeChat.id)}
+                  />
+                )
+              }
+              onBack={() => closeChat()}
+              onOpenDetails={() => setDetailsOpen((v) => !v)}
+              onSearch={chatSearch.openSearch}
+            />
+
+            {/* Панель аудиоплеера (голосовые и музыка подряд) — под шапкой, как в Telegram. */}
+            <AudioPlayerBar
+              chatId={activeId}
+              messages={messages.data}
+              onFocusMessage={focusMessage}
+            />
+
+            {/* Закреплённые сообщения (§2 карты) — полоса под шапкой, как в Telegram. */}
+            <ChatHeaderPinned
+              pinned={pinnedList}
+              senderName={senderName}
+              onJump={focusMessage}
+              onUnpin={(id) => setPin.mutate({ id, pinned: false })}
+            />
 
             <div className="relative flex min-h-0 flex-1 flex-col">
               {/* Спиннер догрузки старых — оверлей, чтобы не влиять на измерение высот virtua (startMargin=0). */}
@@ -4094,14 +3708,17 @@ export function ChatWindow() {
                   {/* Нажатие на дату — календарь переписки (Telegram). */}
                   <button
                     type="button"
-                    tabIndex={floatingDayShown ? 0 : -1}
+                    tabIndex={floatingDayShown && listScrolling ? 0 : -1}
                     aria-label={t('openCalendar', { date: floatingDay })}
                     onClick={() =>
                       floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
                     }
                     className={cn(
                       'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
-                      floatingDayShown ? 'pointer-events-auto opacity-100' : 'opacity-0',
+                      // Telegram: видна, пока ленту листают, и гаснет через секунду покоя.
+                      floatingDayShown && listScrolling
+                        ? 'pointer-events-auto opacity-100'
+                        : 'opacity-0',
                     )}
                   >
                     {floatingDay}
@@ -4111,6 +3728,11 @@ export function ChatWindow() {
               <div
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
+                onMouseDown={listGestures.onMouseDown}
+                onClickCapture={listGestures.onClickCapture}
+                onClick={listGestures.onClick}
+                onDoubleClick={listGestures.onDoubleClick}
+                onPointerDown={listGestures.onPointerDown}
                 className="flex-1 overflow-y-auto p-4"
                 // Плавающий композер перекрывает низ ленты — держим под ним пустоту ровно
                 // по его высоте, иначе последнее сообщение уезжает под панель.
@@ -4126,7 +3748,9 @@ export function ChatWindow() {
                       // Группировка подряд идущих сообщений одного автора: аватар/имя — только у первого в серии.
                       const arr = messages.data ?? []
                       const prevMsg = arr[i - 1]
-                      const firstOfRun = prevMsg?.senderId !== m.senderId
+                      // Серия как в Telegram (lib/message-run): рвётся на паузе > 10 мин, смене
+                      // дня, служебном сообщении и разделителе «Непрочитанные».
+                      const run = messageRunPosition(arr, i, unreadDividerId)
                       // Пометка дня: перед первым сообщением и при смене календарного дня.
                       const showDay =
                         !prevMsg ||
@@ -4156,7 +3780,9 @@ export function ChatWindow() {
                           m={m}
                           mine={mine}
                           isGroup={activeIsGroup}
-                          firstOfRun={firstOfRun}
+                          firstOfRun={run.first}
+                          lastOfRun={run.last}
+                          runStartId={run.startId}
                           showDay={showDay}
                           dayText={showDay ? dayLabel(m.createdAt) : null}
                           isFirstInList={i === 0}
@@ -4187,23 +3813,26 @@ export function ChatWindow() {
                   </Virtualizer>
                 )}
               </div>
-              {/* Кнопка «вниз» со счётчиком непрочитанных ниже — появляется, когда пролистано вверх (Telegram-стиль). */}
-              {showScrollDown && (
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  aria-label={t('scrollToBottom')}
-                  className="absolute right-3 z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md transition-transform duration-200 animate-in fade-in zoom-in-90 hover:bg-muted active:scale-95"
-                  style={{ bottom: composerH + 12 }}
-                >
-                  <ChevronDown className="size-5" aria-hidden />
-                  {unreadBelow > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-bold text-primary-foreground">
-                      {unreadBelow > 99 ? '99+' : unreadBelow}
-                    </span>
-                  )}
-                </button>
-              )}
+              {/* Кнопки справа над панелью ввода (Telegram): «к реакции», «к упоминанию» и
+                  «вниз» со счётчиком непрочитанных ниже — ui/message-list-fab. */}
+              <MessageListFab
+                bottom={composerH + 12}
+                showDown={showScrollDown}
+                unreadBelow={unreadBelow}
+                mentionCount={listAttention.mentionIds.length}
+                reactionCount={listAttention.reactionIds.length}
+                onDown={scrollToBottom}
+                onMention={() => {
+                  const id = listAttention.mentionIds[0]
+                  if (id) focusMessage(id)
+                }}
+                onReaction={() => {
+                  const id = listAttention.takeNextReaction()
+                  if (id) focusMessage(id)
+                }}
+                onReadAllMentions={listAttention.readAllMentions}
+                onReadAllReactions={listAttention.readAllReactions}
+              />
               {/* Панель ввода. На телефоне — плавающий остров поверх ленты (Telegram-стиль):
                 он не прибит к краю, лента прокручивается под ним, а место под последним
                 сообщением держит padding по измеренной высоте панели.
@@ -4211,85 +3840,16 @@ export function ChatWindow() {
                 та же поверхность, что у шапки чата. Парящие острова оставляли между собой
                 и по краям просветы, сквозь которые лезла лента: у большого пальца это
                 читается как «панель лежит поверх», у курсора — как дырки в интерфейсе. */}
-              {/* Нижняя панель режима поиска (Telegram): календарь слева, счётчик совпадений
-                  и стрелки справа. Раньше календарь стоял в шапке рядом с «тремя точками»,
-                  а прыгают по датам ровно тогда же, когда ищут, — в поиске он под рукой, а
-                  в обычном чате не занимает место постоянно. Поле ввода в этом режиме
-                  скрыто: писать во время поиска всё равно некуда. */}
-              {chatSearchOpen && (
-                <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
-                  {/* Ряд 44 px — тот же, что у панели ввода, которую поиск собой заменяет.
-                      py-2 вокруг него даёт ту же высоту, что и плашка профиля внизу
-                      сайдбара (py-3 вокруг 36-px строки): верхние границы обеих панелей
-                      идут одной линией. Кнопки здесь на ПК 40-px, и без заданной высоты
-                      ряда панель выходила на 4 px ниже соседней колонки — линия внизу
-                      ломалась ступенькой ровно так же, как раньше ломалась верхняя. */}
-                  <div className="flex h-11 items-center gap-1">
-                    {/* Переход по дате (#5): клик по числу сразу прокручивает историю к
-                        этому дню и закрывает календарь — как в мессенджерах. Дата —
-                        действие, а не значение формы, поэтому ни поля с текстом даты, ни
-                        «Готово» тут нет. Будущее закрыто: сообщений там заведомо нет. */}
-                    <DateJumpPicker
-                      className={HEADER_ICON_BTN}
-                      value={jumpDate}
-                      onChange={(ymd) => {
-                        setJumpDate(ymd)
-                        if (ymd) void jumpToDate(ymd)
-                      }}
-                      max={formatYmd(new Date())}
-                      aria-label={t('jumpToDate')}
-                      dayThumbs={dayThumbs}
-                      onViewChange={(y, m) =>
-                        setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)
-                      }
-                      rangeAction={{
-                        label: t('clearHistory'),
-                        destructive: true,
-                        onSubmit: (from, to) => {
-                          void confirm({
-                            title: t('clearPeriodConfirm', { from, to }),
-                            destructive: true,
-                          }).then((ok) => {
-                            if (ok) clearPeriod.mutate({ from, to })
-                          })
-                        },
-                      }}
-                    />
-                    <span className="flex-1" aria-hidden />
-                    {chatSearchResults.isFetching ? (
-                      <Loader2
-                        className="size-4 shrink-0 animate-spin text-muted-foreground"
-                        aria-hidden
-                      />
-                    ) : (
-                      chatSearchTerm.length >= 2 && (
-                        <span className="shrink-0 whitespace-nowrap px-1 text-xs tabular-nums text-muted-foreground">
-                          {searchTotal > 0 ? `${searchIdx + 1}/${searchTotal}` : t('noResults')}
-                        </span>
-                      )
-                    )}
-                    <button
-                      type="button"
-                      aria-label={t('searchPrev')}
-                      onClick={() => stepSearch(-1)}
-                      disabled={searchTotal === 0 || searchIdx <= 0}
-                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                    >
-                      <ChevronUp className="size-5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t('searchNext')}
-                      onClick={() => stepSearch(1)}
-                      disabled={searchTotal === 0 || searchIdx >= searchTotal - 1}
-                      className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
-                    >
-                      <ChevronDown className="size-5" aria-hidden />
-                    </button>
-                  </div>
-                </div>
+              {/* Нижняя панель поиска — только на телефоне (Telegram): автор, календарь,
+                  счётчик и стрелки. На ПК всё это в шапке поиска, а поле ввода остаётся. */}
+              {chatSearchOpen && isPhone && (
+                <ChatHeaderSearchFooter
+                  search={chatSearch}
+                  isGroup={activeIsGroup}
+                  calendar={searchCalendar}
+                />
               )}
-              {!activeChat?.requestIncoming && !chatSearchOpen && (
+              {!activeChat?.requestIncoming && !(chatSearchOpen && isPhone) && (
                 <div
                   ref={setComposerBox}
                   // Зазор снизу — safe-area, но только пока нет клавиатуры: с поднятой клавиатурой
@@ -4326,7 +3886,14 @@ export function ChatWindow() {
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}
                     onType={onType}
-                    onSend={send}
+                    onSend={() => send()}
+                    onSendSilent={() => send({ silent: true })}
+                    onEditLast={() => {
+                      const last = lastEditableMessage(messages.data, myId)
+                      if (last) startEdit(last)
+                      return !!last
+                    }}
+                    chatId={activeId}
                     showSend={showSend}
                     connected={connected}
                     composerRef={composerRef}
@@ -4384,46 +3951,24 @@ export function ChatWindow() {
         )}
       </section>
 
-      {/* Детали чата — одна панель на все размеры экрана, второго экрана с тем же
-          содержимым нет (§55). На ПК (≥xl) — докнутая третья колонка: ширина анимируется,
-          центральная переписка адаптивно сужается и остаётся активной. На планшете и
-          мобильном та же панель открывается в системном модальном окне. */}
-      {isWide ? (
-        <aside
-          className={cn(
-            'hidden shrink-0 overflow-hidden transition-[width] duration-(--motion-panel) xl:block',
-            detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
-          )}
-          aria-hidden={!(detailsOpen && activeChat)}
-        >
-          {detailsProps && (
-            <div className="h-full w-[22rem]">
-              <ChatDetailsPanel
-                key={detailsProps.chat.id}
-                {...detailsProps}
-                variant="column"
-                open={detailsOpen}
-              />
-            </div>
-          )}
-        </aside>
-      ) : (
-        detailsOpen &&
-        detailsProps && (
-          // Во весь экран, а не модальным окном: в окне у панели оставались поля по краям и
-          // затемнение вокруг, из-за чего список участников и сетка медиа жили в «окошке в
-          // окошке». В мессенджерах профиль чата — отдельный экран, и возвращаются с него
-          // стрелкой назад, а не крестиком поверх.
-          <div className="fixed inset-0 z-50 flex flex-col bg-background duration-200 animate-in fade-in slide-in-from-right-4 motion-reduce:animate-none">
-            <ChatDetailsPanel key={detailsProps.chat.id} {...detailsProps} variant="fullscreen" />
-          </div>
-        )
-      )}
+      {/* Правая колонка (Telegram-стиль, right-column.tsx): в широком окне встаёт рядом и
+          сжимает переписку, в узком выезжает поверх неё. */}
+      <RightColumn open={detailsOpen} wide={isWide}>
+        {detailsProps && (
+          <ChatDetailsPanel
+            key={detailsProps.chat.id}
+            {...detailsProps}
+            variant={isWide ? 'column' : 'fullscreen'}
+            open={detailsOpen}
+          />
+        )}
+      </RightColumn>
 
       {menu && (
         <MessageContextMenu
           message={menu.message}
           mine={menu.message.senderId === myId}
+          myId={myId}
           x={menu.x}
           y={menu.y}
           anchor={menu.anchor}
@@ -4454,9 +3999,22 @@ export function ChatWindow() {
               canReport && !menu.message.systemType && !menu.message.id.startsWith('tmp:')
                 ? () => setReportMsg(menu.message)
                 : undefined,
+            onShowReactors: () =>
+              setReactorsFor({ chatId: menu.message.chatId, id: menu.message.id }),
           }}
         />
       )}
+
+      {reactorsFor && reactorsMessage && reactorsMessage.reactions.length > 0 && (
+        <ReactionsListModal
+          reactions={reactorsMessage.reactions}
+          myId={myId}
+          initialEmoji={reactorsFor.emoji}
+          onClose={() => setReactorsFor(null)}
+        />
+      )}
+      {/* Значок «Ответить» при свайпе сообщения влево (тач). */}
+      <MessageListSwipeHint ref={swipeHintRef} />
 
       {reportMsg && (
         <ReportModal
@@ -4528,102 +4086,6 @@ export function ChatWindow() {
         />
       )}
 
-      {/* Меню полосы закреплённого (§2 карты): список всех закреплений и снятие текущего. */}
-      {pinnedMenu &&
-        (() => {
-          const cur = pinnedList[pinnedIndex % pinnedList.length]
-          if (!cur) return null
-          return (
-            <RowContextMenu
-              x={pinnedMenu.x}
-              y={pinnedMenu.y}
-              ariaLabel={t('pinnedMessage')}
-              onClose={() => setPinnedMenu(null)}
-              items={[
-                ...(isPhone
-                  ? []
-                  : [
-                      {
-                        key: 'pinned-all',
-                        icon: ListIcon,
-                        label: t('pinnedMessages'),
-                        onClick: () => setPinnedListOpen(true),
-                      },
-                    ]),
-                {
-                  key: 'unpin',
-                  icon: PinOff,
-                  label: t('unpin'),
-                  // Закрепление в чате общее: снимая его, человек меняет шапку всем
-                  // участникам — отсюда подтверждение, а не молчаливое действие.
-                  onClick: () => {
-                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
-                      if (ok) setPin.mutate({ id: cur.id, pinned: false })
-                    })
-                  },
-                  danger: true,
-                },
-              ]}
-            />
-          )
-        })()}
-
-      {/* Все закрепления чата отдельным списком — из полосы или из её меню. */}
-      {pinnedListOpen && !isPhone && (
-        <Modal
-          onClose={() => setPinnedListOpen(false)}
-          title={t('pinnedMessages')}
-          size="md"
-          bodyClassName="p-0"
-        >
-          <div className="flex max-h-[min(70vh,32rem)] flex-col overflow-y-auto p-2">
-            {pinnedList.map((m, i) => (
-              <div
-                key={m.id}
-                className="flex items-start gap-2 rounded-xl px-2 py-2 transition-colors hover:bg-muted/60"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPinnedIndex(i)
-                    setPinnedTouched(true)
-                    setPinnedListOpen(false)
-                    focusMessage(m.id)
-                  }}
-                  className="flex min-w-0 flex-1 flex-col items-start text-left"
-                >
-                  <span className="text-xs font-semibold text-primary">{senderName(m)}</span>
-                  <span className="line-clamp-2 text-sm text-foreground/90">
-                    {m.content || (m.media.length ? t('attachment') : '')}
-                  </span>
-                  <span className="mt-0.5 text-[0.7rem] text-muted-foreground">
-                    {new Date(m.createdAt).toLocaleString(locale, {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={t('unpin')}
-                  title={t('unpin')}
-                  onClick={() => {
-                    void confirm({ title: t('unpinConfirm'), destructive: true }).then((ok) => {
-                      if (ok) setPin.mutate({ id: m.id, pinned: false })
-                    })
-                  }}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <PinOff className="size-4" aria-hidden />
-                </button>
-              </div>
-            ))}
-          </div>
-        </Modal>
-      )}
-
       {pollCreatorOpen && (
         <PollCreator
           onClose={() => setPollCreatorOpen(false)}
@@ -4635,6 +4097,7 @@ export function ChatWindow() {
       {attachOpen && (
         <AttachmentDialog
           files={attachFiles}
+          initialAsFiles={attachAsFiles}
           sending={false}
           onSend={(caption, options) => sendAttachments(caption, options)}
           onAddMore={() => fileInputRef.current?.click()}
@@ -4642,6 +4105,14 @@ export function ChatWindow() {
             setAttachFiles((prev) => {
               const next = prev.filter((_, j) => j !== i)
               if (next.length === 0) setAttachOpen(false)
+              return next
+            })
+          }
+          onReorder={(from, to) =>
+            setAttachFiles((prev) => {
+              const next = [...prev]
+              const [moved] = next.splice(from, 1)
+              if (moved) next.splice(to, 0, moved)
               return next
             })
           }
@@ -4656,13 +4127,6 @@ export function ChatWindow() {
 }
 
 // Идентификаторы сущностей — uuid и токены сида: буквы, цифры, дефис и подчёркивание.
-/** «N в сети» в шапке группы: перерисовывается сама, не трогая окно (F-F12). */
-function MembersOnlineLabel({ store, myId }: { store: PresenceStore; myId?: string }) {
-  const t = useTranslations('Chats')
-  const count = usePresence(store, (m) => othersOnlineCount(m, myId))
-  return <>{t('membersOnline', { count })}</>
-}
-
 function safeParamId(value: string | null): string | null {
   return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null
 }

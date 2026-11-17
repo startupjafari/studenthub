@@ -99,6 +99,7 @@ export { AppSplash } from './app-splash'
 export {
   MediaViewer,
   VIEWER_ICON_BUTTON,
+  type MediaViewerAction,
   type MediaViewerItem,
   type MediaViewerMedia,
 } from './media-viewer'
@@ -181,3 +182,12 @@ export { EmojiPicker } from './emoji-picker'
 export { ProgressRing } from './progress-ring'
 export { useListboxKeys } from './use-listbox-keys'
 export { MarkdownImage } from './markdown-image'
+export {
+  BackCloseWhileOpen,
+  ScreenStack,
+  useScreenStack,
+  type ScreenStackController,
+  type ScreenStackHandle,
+  type ScreenStackOptions,
+  type ScreenStackProps,
+} from './screen-stack'
