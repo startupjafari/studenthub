@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslations } from 'next-intl'
-import { BadgeCheck, ChevronLeft, ChevronRight } from 'lucide-react'
+import { BadgeCheck, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -27,9 +27,10 @@ import { cn } from '../../../shared/lib/utils'
  *
  * Свёрнутый вид — крупный круглый аватар по центру, под ним имя и статус. Нажатие на аватар
  * (или прокрутка вверх за край) разворачивает фото во всю ширину колонки: квадрат, имя и
- * статус поверх затемнения снизу, полоски-индикаторы сверху, если фото несколько. Фото
- * листаются нажатием на левую/правую четверть, стрелками клавиатуры и жестом пальцем.
- * Прокрутка колонки вниз сворачивает фото обратно.
+ * статус поверх затемнения снизу, полоски-индикаторы сверху, если фото несколько. Фото —
+ * история аватаров (§8.3), как в Telegram: текущее первым, дальше прошлые; листаются
+ * нажатием на левую/правую четверть, стрелками клавиатуры и жестом пальцем. Владелец фото
+ * может удалить показанное (корзина в углу). Прокрутка колонки вниз сворачивает фото.
  *
  * Переход круг ↔ квадрат — View Transitions браузера: оба состояния помечены одним
  * `view-transition-name`, и браузер сам переносит снимок из одной геометрии в другую,
@@ -64,6 +65,7 @@ export function ProfileHero({
   officialLabel,
   expanded,
   onExpand,
+  onDeletePhoto,
 }: {
   /** id чата — от него цвет кружка с инициалами. */
   id: string
@@ -77,6 +79,8 @@ export function ProfileHero({
   officialLabel: string
   expanded: boolean
   onExpand: () => void
+  /** Удалить фото с этим номером из истории; нет — удалять нельзя (не владелец). */
+  onDeletePhoto?: (index: number) => void
 }) {
   const t = useTranslations('Chats')
   const [viewer, setViewer] = useState<number | null>(null)
@@ -103,6 +107,7 @@ export function ProfileHero({
           name={name}
           status={status}
           onOpen={setViewer}
+          onDelete={onDeletePhoto}
         />
       ) : (
         <div className="flex flex-col items-center px-4 pt-6 pb-4 text-center">
@@ -168,12 +173,14 @@ function PhotoCarousel({
   name,
   status,
   onOpen,
+  onDelete,
 }: {
   photos: string[]
   title: string
   name: React.ReactNode
   status: string | null
   onOpen: (index: number) => void
+  onDelete?: (index: number) => void
 }) {
   const t = useTranslations('Chats')
   const [index, setIndex] = useState(0)
@@ -185,6 +192,19 @@ function PhotoCarousel({
   // просмотрщик: человек листал, а не выбирал.
   const draggedAt = useRef(0)
   const count = photos.length
+
+  // Фото удалили из истории — показанный номер не должен выйти за конец ленты.
+  useEffect(() => {
+    if (indexRef.current > count - 1 && count > 0) {
+      indexRef.current = count - 1
+      setIndex(count - 1)
+      const spring = springRef.current
+      const x = -(count - 1) * widthOf(frameRef.current)
+      spring?.set(x)
+      const strip = stripRef.current
+      if (strip) strip.style.transform = `translate3d(${x}px, 0, 0)`
+    }
+  }, [count])
 
   const render = useCallback((x: number) => {
     const strip = stripRef.current
@@ -365,6 +385,18 @@ function PhotoCarousel({
             />
           ))}
         </div>
+      )}
+
+      {onDelete && (
+        <button
+          type="button"
+          aria-label={t('tgGroups.photoDelete')}
+          title={t('tgGroups.photoDelete')}
+          onClick={() => onDelete(indexRef.current)}
+          className="absolute top-3 right-3 z-[2] flex size-9 items-center justify-center rounded-full bg-black/35 text-white outline-none backdrop-blur-sm hover:bg-black/50 focus-visible:ring-4 focus-visible:ring-white/40"
+        >
+          <Trash2 className="size-4" aria-hidden />
+        </button>
       )}
 
       {index > 0 && (
