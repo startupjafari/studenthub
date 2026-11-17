@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Loader2, WifiOff } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
   canFileComplaint,
@@ -155,7 +155,7 @@ import {
 } from '../../../shared/ui'
 import { ConversationList } from './conversation-list'
 import { ChatWallpaper } from './chat-wallpaper'
-import { ConnectionStatusTitle } from './connection-status'
+import { ConnectionStatusLine, ConnectionStatusTitle } from './connection-status'
 import { useConnectionStatus } from '../lib/use-connection-status'
 import { ChatListRail, ChatListResizeHandle } from './chat-list-rail'
 import { useChatListWidth } from '../lib/use-list-width'
@@ -3625,22 +3625,19 @@ export function ChatWindow() {
               peerOnline={isPrivate && otherOnline}
               hidden={selectMode || chatSearchOpen}
               status={
-                <ChatHeaderStatus
-                  kind={activeChat?.type === 'SAVED' ? 'saved' : isPrivate ? 'private' : 'group'}
-                  actionLabel={actionLabel}
-                  peerOnline={otherOnline}
-                  peerLastSeenAt={peerLastSeenAt}
-                  memberCount={activeChat?.memberCount ?? 0}
-                  store={presenceStore}
-                  myId={myId}
-                />
-              }
-              extra={
-                !connected && (
-                  <span className="mr-1 flex items-center gap-1 text-xs text-destructive">
-                    <WifiOff className="size-3.5" aria-hidden />
-                    {t('offline')}
-                  </span>
+                // Телефон: пока нет связи, подпись — её статус (заголовка списка не видно).
+                isPhone && connectionStatus !== 'online' ? (
+                  <ConnectionStatusLine status={connectionStatus} />
+                ) : (
+                  <ChatHeaderStatus
+                    kind={activeChat?.type === 'SAVED' ? 'saved' : isPrivate ? 'private' : 'group'}
+                    actionLabel={actionLabel}
+                    peerOnline={otherOnline}
+                    peerLastSeenAt={peerLastSeenAt}
+                    memberCount={activeChat?.memberCount ?? 0}
+                    store={presenceStore}
+                    myId={myId}
+                  />
                 )
               }
               menu={
