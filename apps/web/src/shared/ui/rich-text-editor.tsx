@@ -12,6 +12,7 @@ import { Markdown, type MarkdownStorage } from 'tiptap-markdown'
 import {
   Bold,
   Code,
+  EyeOff,
   Heading2,
   Image as ImageIcon,
   Italic,
@@ -21,8 +22,10 @@ import {
   Quote,
   Strikethrough,
   Table as TableIcon,
+  Underline,
 } from 'lucide-react'
 import { PromptDialog } from './prompt-dialog'
+import { ChatSpoiler, ChatUnderline } from './rich-text-chat-marks'
 import { useScrollRow } from '../lib/use-scroll-row'
 import { cn } from '../lib/utils'
 import {
@@ -77,6 +80,12 @@ const ACTIONS: {
     isActive: (e) => e.isActive('italic'),
   },
   {
+    key: 'underline',
+    icon: Underline,
+    run: (e) => void e.chain().focus().toggleMark('underline').run(),
+    isActive: (e) => e.isActive('underline'),
+  },
+  {
     key: 'strike',
     icon: Strikethrough,
     run: (e) => void e.chain().focus().toggleStrike().run(),
@@ -87,6 +96,12 @@ const ACTIONS: {
     icon: Code,
     run: (e) => void e.chain().focus().toggleCode().run(),
     isActive: (e) => e.isActive('code'),
+  },
+  {
+    key: 'spoiler',
+    icon: EyeOff,
+    run: (e) => void e.chain().focus().toggleMark('spoiler').run(),
+    isActive: (e) => e.isActive('spoiler'),
   },
   {
     key: 'heading',
@@ -122,6 +137,12 @@ const ACTIONS: {
   },
 ]
 
+/** Подписи кнопок, добавленных вместе с маркерами чата (PROJECT.md §3.6), — в `Editor.tgMarkup`. */
+const LABEL_KEY: Partial<Record<MarkdownActionKey, string>> = {
+  underline: 'tgMarkup.underline',
+  spoiler: 'tgMarkup.spoiler',
+}
+
 /** Ряд кнопок панели. Одна строка всегда: перенос читался бы как две панели. */
 function ActionRow({
   editor,
@@ -150,8 +171,8 @@ function ActionRow({
         <button
           key={key}
           type="button"
-          aria-label={t(key)}
-          title={t(key)}
+          aria-label={t(LABEL_KEY[key] ?? key)}
+          title={t(LABEL_KEY[key] ?? key)}
           aria-pressed={isActive(editor)}
           // Нажатие не должно уводить фокус из поля: иначе выделение слетает и
           // форматировать становится нечего.
@@ -210,16 +231,21 @@ export function RichTextEditor({
       // Узлы включены все, даже если кнопки для них нет: иначе правка сообщения или
       // статьи, где список уже есть, потеряла бы его при разборе markdown.
       StarterKit.configure({
-        // Подчёркивания в markdown нет — оно уехало бы на сервер как HTML.
+        // Подчёркивание StarterKit пишет в markdown HTML-тегом `<u>`, которого в контрактах
+        // нет; в чате подчёркнутый — своя метка `++…++` (ChatUnderline ниже).
         underline: false,
         link: { openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer nofollow' } },
       }),
       Image.configure({ inline: false }),
       TableKit.configure({ table: { resizable: false } }),
       Placeholder.configure({ placeholder: placeholder ?? '' }),
+      // Подчёркнутый и спойлер — только там, где для них есть кнопки (поле чата, PROJECT.md
+      // §3.6): в постах и статьях этих маркеров нет, и `++`/`||` там остаются текстом.
+      ...(actions.includes('underline') ? [ChatUnderline] : []),
+      ...(actions.includes('spoiler') ? [ChatSpoiler] : []),
       // Горячие клавиши Telegram поверх стандартных tiptap (Ctrl+B, Ctrl+I, Ctrl+Shift+S,
-      // Ctrl+E): зачёркнутый — Ctrl+Shift+X, моноширинный — Ctrl+Shift+M, ссылка — Ctrl+K.
-      // Подчёркивания и спойлера нет в контракте разметки сообщения (PROJECT.md §3.6).
+      // Ctrl+E): зачёркнутый — Ctrl+Shift+X, моноширинный — Ctrl+Shift+M, ссылка — Ctrl+K;
+      // подчёркнутый (Ctrl+U) и спойлер (Ctrl+Shift+P) — в своих метках.
       Extension.create({
         name: 'telegramShortcuts',
         addKeyboardShortcuts() {

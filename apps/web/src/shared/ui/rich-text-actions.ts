@@ -6,8 +6,10 @@ import type { RefObject } from 'react'
 export type MarkdownActionKey =
   | 'bold'
   | 'italic'
+  | 'underline'
   | 'strike'
   | 'code'
+  | 'spoiler'
   | 'heading'
   | 'link'
   | 'bullet'
@@ -42,12 +44,17 @@ export const MARKDOWN_ACTIONS_ARTICLE: readonly MarkdownActionKey[] = [
   'table',
 ]
 
-/** Только строчная разметка: поле чата — короткое сообщение, без блоков. */
+/**
+ * Только строчная разметка: поле чата — короткое сообщение, без блоков. Набор Telegram:
+ * подчёркнутый и спойлер есть только здесь — это маркеры контракта чата (PROJECT.md §3.6).
+ */
 export const MARKDOWN_ACTIONS_INLINE: readonly MarkdownActionKey[] = [
   'bold',
   'italic',
+  'underline',
   'strike',
   'code',
+  'spoiler',
   'link',
 ]
 
