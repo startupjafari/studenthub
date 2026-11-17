@@ -68,17 +68,35 @@ model Chat {
   // раз и не сбрасывается — повторное открытие обращения не делает первый ответ быстрее.
   supportFirstReplyAt DateTime? @map("support_first_reply_at")
 
+  // Разрешения участников пользовательской группы (§8.3, экран «Разрешения» как в Telegram):
+  // объект ChatPermissions из shared-schemas — sendMessages, sendMedia, sendStickers,
+  // embedLinks, sendPolls, addMembers, pinMessages, changeInfo. NULL — значения по умолчанию
+  // (DEFAULT_CHAT_PERMISSIONS). Json, а не восемь колонок: набор читается целиком на каждую
+  // отправку и меняется одной формой, а новое право не требует миграции.
+  // Админов и владельца ограничения не касаются.
+  permissions Json?
+
+  // Вступление по ссылке-приглашению (§8.3): false — ссылка выключена, группа «закрытая» и
+  // пополняется только админами. joinApproval — вступление по ссылке через заявку, которую
+  // одобряет админ (ChatJoinRequest).
+  joinByLink   Boolean @default(true) @map("join_by_link")
+  joinApproval Boolean @default(false) @map("join_approval")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  university  University?        @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  faculty     Faculty?           @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  group       Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  members     ChatMember[]
-  messages    Message[]
-  scheduled   ScheduledMessage[]
+  university     University?         @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty        Faculty?            @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group          Group?              @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  members        ChatMember[]
+  messages       Message[]
+  scheduled      ScheduledMessage[]
   // Вхождения чата в пользовательские папки (§2): удаление чата убирает и их.
-  folderItems ChatFolderItem[]
+  folderItems    ChatFolderItem[]
+  // Заявки на вступление, исключённые участники и история фото группы (38-chat-groups.prisma).
+  joinRequests   ChatJoinRequest[]
+  removedMembers ChatRemovedMember[]
+  avatarPhotos   AvatarPhoto[]
 
   @@index([type])
   @@index([universityId])

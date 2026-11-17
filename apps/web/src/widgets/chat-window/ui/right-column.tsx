@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { ColumnBackClose } from '../lib/column-navigation'
 
 /**
  * Правая колонка чата (Telegram-стиль): профиль собеседника или группы и общие материалы.
@@ -22,12 +23,19 @@ const DOCKED_WIDTH = 'w-[clamp(20rem,25vw,26.5rem)]'
 export function RightColumn({
   open,
   wide,
+  onClose,
   children,
 }: {
   /** Панель показана. Закрытие проигрывается до конца, прежде чем панель уйдёт из DOM. */
   open: boolean
   /** Широкое окно: колонка рядом с перепиской, а не поверх неё. */
   wide: boolean
+  /**
+   * Закрыть колонку. Пока она открыта, системная «назад» (жест, кнопка браузера) закрывает
+   * её, а не уводит со страницы — как в Telegram. Запись в истории живёт здесь, а не в
+   * панели: панель пересоздаётся при смене чата, и запись плодилась бы на каждый чат.
+   */
+  onClose?: () => void
   /** Содержимое; null — открытого чата нет (панель уезжает с последним показанным). */
   children: React.ReactNode | null
 }) {
@@ -36,6 +44,7 @@ export function RightColumn({
   const last = useRef<React.ReactNode | null>(children)
   if (children) last.current = children
   const shown = open && children != null
+  const backClose = shown && onClose ? <ColumnBackClose onClose={onClose} /> : null
 
   if (wide) {
     return (
@@ -49,11 +58,17 @@ export function RightColumn({
         // не должен: Tab иначе уводил бы в невидимые кнопки.
         inert={!shown}
       >
+        {backClose}
         {last.current && <div className={cn('h-full shrink-0', DOCKED_WIDTH)}>{last.current}</div>}
       </aside>
     )
   }
-  return <OverlayColumn open={shown}>{last.current}</OverlayColumn>
+  return (
+    <>
+      {backClose}
+      <OverlayColumn open={shown}>{last.current}</OverlayColumn>
+    </>
+  )
 }
 
 /** Панель поверх переписки: монтируется на открытие и доигрывает уход перед размонтированием. */

@@ -95,6 +95,7 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   POST: 'на пост',
   STORY: 'на историю',
   COMMENT: 'на комментарий',
+  CHAT: 'на группу',
 }
 
 // Ответ на невидимую цель — слово в слово как на несуществующую (getTarget).
@@ -104,6 +105,7 @@ const NOT_FOUND_MESSAGE: Record<ComplaintTargetType, string> = {
   POST: 'Пост не найден',
   STORY: 'Сторис не найдена',
   COMMENT: 'Комментарий не найден',
+  CHAT: 'Группа не найдена',
 }
 
 // Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
@@ -150,6 +152,15 @@ export class ComplaintsService {
         select: { id: true },
       })
       if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
+    }
+    // На группу жалуется только её действующий участник (§8.3, пункт «Пожаловаться» в меню
+    // группы): иначе по одному id закрытой группы её существование подтверждалось бы любому.
+    if (input.targetType === ComplaintTargetType.CHAT) {
+      const member = await this.prisma.chatMember.findUnique({
+        where: { chatId_userId: { chatId: input.targetId, userId: reporter.sub } },
+        select: { bannedAt: true },
+      })
+      if (!member || member.bannedAt) throw new AppException('NOT_FOUND', 'Группа не найдена')
     }
     await this.assertVisibleToReporter(
       reporter,
@@ -641,6 +652,15 @@ export class ComplaintsService {
       if (complaint.targetType === ComplaintTargetType.USER) {
         throw new AppException('BAD_REQUEST', 'Для пользователя используйте блокировку')
       }
+      // Группу целиком модерация не удаляет: с ней ушла бы переписка всех участников, а это
+      // уже не «снять контент». Меры по группе — предупредить или заблокировать владельца;
+      // отдельные сообщения снимаются жалобами на сообщения.
+      if (complaint.targetType === ComplaintTargetType.CHAT) {
+        throw new AppException(
+          'BAD_REQUEST',
+          'Группу целиком не удаляют: предупредите или заблокируйте владельца',
+        )
+      }
       // Тот же ранг, что при удалении контента напрямую (posts/stories): по жалобе модератор
       // вуза не снимает пост админа своего вуза.
       const ownerId = await this.ownerOf(complaint)
@@ -998,6 +1018,22 @@ export class ComplaintsService {
             }
           : null
       }
+      case ComplaintTargetType.CHAT: {
+        // Название и описание группы — то, на что жалуются; переписку модератор открывает
+        // жалобами на конкретные сообщения, а не целиком по жалобе на группу.
+        const chat = await this.prisma.chat.findUnique({
+          where: { id },
+          select: { title: true, description: true, avatarUrl: true },
+        })
+        return chat
+          ? {
+              title: chat.title,
+              text: chat.description,
+              mediaCount: chat.avatarUrl ? 1 : 0,
+              deleted: false,
+            }
+          : null
+      }
       default:
         return null
     }
@@ -1072,6 +1108,25 @@ export class ComplaintsService {
         })
         if (!u) throw new AppException('NOT_FOUND', 'Пользователь не найден')
         return { universityId: u.universityId, ownerId: u.id }
+      }
+      case ComplaintTargetType.CHAT: {
+        // Только пользовательские группы: официальные чаты ведёт вуз, личный — это жалоба
+        // на человека. Нарушитель — владелец группы, вуз — вуз группы или владельца.
+        const c = await this.prisma.chat.findFirst({
+          where: { id: targetId, type: 'GROUP' },
+          select: { universityId: true, createdById: true },
+        })
+        if (!c) throw new AppException('NOT_FOUND', 'Группа не найдена')
+        const owner = c.createdById
+          ? await this.prisma.user.findUnique({
+              where: { id: c.createdById },
+              select: { universityId: true },
+            })
+          : null
+        return {
+          universityId: c.universityId ?? owner?.universityId ?? null,
+          ownerId: c.createdById,
+        }
       }
       default:
         throw new AppException('BAD_REQUEST', 'Неизвестный тип цели')

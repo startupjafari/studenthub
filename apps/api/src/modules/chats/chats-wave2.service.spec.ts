@@ -361,7 +361,7 @@ describe('Отложенные сообщения', () => {
     await expect(
       service.scheduleMessage('u1', 'c1', { content: 'привет', scheduledAt: future.toISOString() }),
     ).resolves.toEqual(row)
-    expect(canSend).toHaveBeenCalledWith('c1', 'u1')
+    expect(canSend).toHaveBeenCalledWith('c1', 'u1', { needs: ['sendMessages'] })
     expect(prisma.scheduledMessage.create.mock.calls[0][0].data).toMatchObject({
       chatId: 'c1',
       senderId: 'u1',

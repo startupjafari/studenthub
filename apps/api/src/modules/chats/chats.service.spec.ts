@@ -96,6 +96,16 @@ function setup() {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
     },
+    // Группы как в Telegram (§8.3): «Удалённые», заявки на вступление, история фото.
+    chatRemovedMember: {
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    chatJoinRequest: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    avatarPhoto: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn(),
     // Аллокатор Message.seq — сырой UPDATE ... RETURNING. По умолчанию выдаёт первый номер.
     $queryRaw: jest.fn().mockResolvedValue([{ last_seq: 1 }]),
@@ -4287,19 +4297,23 @@ describe('ChatsService.setChatAvatar — замена аватара', () => {
     return harness
   }
 
-  it('новый файл принимается и записывается раньше, чем удаляется прежний', async () => {
+  it('новый файл записывается в чат и в историю фото, прежний остаётся в истории (§8.3)', async () => {
     const { service, prisma, files } = avatarSetup()
     files.upload.mockResolvedValue({ id: 'new-file', key: 'new.png' })
     prisma.chat.update.mockResolvedValue({ id: 'c1', avatarUrl: 'http://minio/chat-media/new.png' })
 
     await service.setChatAvatar(user('u1'), 'c1', Buffer.from('png'))
 
-    expect(files.delete).toHaveBeenCalledWith('old-file')
+    // Прежний файл больше не сносится: его листают в шапке профиля группы.
+    expect(files.delete).not.toHaveBeenCalled()
+    expect(prisma.avatarPhoto.create).toHaveBeenCalledWith({
+      data: { chatId: 'c1', fileId: 'new-file', url: expect.stringContaining('new.png') },
+    })
     const uploadedAt = files.upload.mock.invocationCallOrder[0] ?? Infinity
     const savedAt = prisma.chat.update.mock.invocationCallOrder[0] ?? Infinity
-    const deletedAt = files.delete.mock.invocationCallOrder[0] ?? 0
+    const historyAt = prisma.avatarPhoto.create.mock.invocationCallOrder[0] ?? 0
     expect(uploadedAt).toBeLessThan(savedAt)
-    expect(savedAt).toBeLessThan(deletedAt)
+    expect(savedAt).toBeLessThan(historyAt)
   })
 
   it('новый файл отклонён — прежний аватар остаётся на месте', async () => {

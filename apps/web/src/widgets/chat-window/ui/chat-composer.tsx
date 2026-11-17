@@ -27,7 +27,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import type { ChatChecklistCreateInput } from '@studenthub/shared-schemas'
+import type { ChatChecklistCreateInput, ChatPermissions } from '@studenthub/shared-schemas'
 import {
   VoiceWaveform,
   composerKeys,
@@ -245,6 +245,12 @@ export type ChatComposerProps = {
    * правка началась; `false` — стрелка остаётся стрелкой.
    */
   onEditLast?: () => boolean
+  /**
+   * Права рядового участника группы (§8.3, «Разрешения»). null — ограничений нет (не группа,
+   * админ или владелец). Без права писать — плашка вместо поля; запрещённые пункты скрепки,
+   * стикеры и голосовые прячутся. Сервер проверяет то же самое сам.
+   */
+  restrictions?: ChatPermissions | null
 }
 
 export function ChatComposer({
@@ -280,7 +286,11 @@ export function ChatComposer({
   onSendSilent,
   onEditLast,
   forward = null,
+  restrictions = null,
 }: ChatComposerProps) {
+  const canMedia = restrictions?.sendMedia !== false
+  const canPolls = restrictions?.sendPolls !== false
+  const canStickers = restrictions?.sendStickers !== false
   const t = useTranslations('Chats')
   const locale = useLocale()
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
@@ -518,12 +528,13 @@ export function ChatComposer({
   // Главная кнопка: запись голосового (удержанием или кликом), отправка, подтверждение правки.
   // Пока запись зафиксирована (замок или клик мышью), кнопка отправляет голосовое.
   const voiceLocked = recorder.recording && !hold.holding
+  // Голосовое — медиа: без права на медиа (§8.3) микрофона нет, кнопка остаётся отправкой.
   const mainMode: MainButtonMode = voiceLocked
     ? 'send'
     : editing
       ? 'edit'
       : // Пересылка уходит и без текста — кнопка сразу «отправить», а не микрофон.
-        showSend || forward
+        showSend || forward || !canMedia
         ? 'send'
         : 'record'
 
@@ -731,6 +742,17 @@ export function ChatComposer({
             </button>
           )}
         </div>
+      ) : restrictions?.sendMessages === false ? (
+        // Админ группы запретил участникам писать (§8.3) — как в Telegram, плашка вместо поля.
+        <div
+          className={cn(
+            island,
+            'flex items-center justify-center gap-2 rounded-2xl p-4 text-center text-sm text-muted-foreground lg:h-11 lg:rounded-md lg:py-0',
+          )}
+        >
+          <Lock className="size-4 shrink-0" aria-hidden />
+          <span>{t('tgGroups.restricted')}</span>
+        </div>
       ) : requestPending ? (
         <div
           className={cn(
@@ -871,6 +893,8 @@ export function ChatComposer({
             <>
               <div
                 ref={attachMenu.ref}
+                // Без медиа и опросов (§8.3) в скрепке нечего выбрать — её нет совсем.
+                hidden={!canMedia && !canPolls}
                 className="relative shrink-0"
                 // Выключенная кнопка не открывается и наведением: обработчики висят на
                 // обёртке, а она про `disabled` кнопки внутри ничего не знает.
@@ -905,33 +929,35 @@ export function ChatComposer({
                             icon: ImageIcon,
                             label: t('attachPhoto'),
                             run: () => mediaInputRef.current?.click(),
+                            hidden: !canMedia,
                           },
                           {
                             key: 'camera',
                             icon: Camera,
                             label: t('attachCamera'),
                             run: () => cameraInputRef.current?.click(),
-                            hidden: !canCapture,
+                            hidden: !canCapture || !canMedia,
                           },
                           {
                             key: 'file',
                             icon: FileText,
                             label: t('attachFile'),
                             run: () => fileInputRef.current?.click(),
+                            hidden: !canMedia,
                           },
                           {
                             key: 'poll',
                             icon: BarChart3,
                             label: t('createPoll'),
                             run: () => onCreatePoll?.(),
-                            hidden: !onCreatePoll,
+                            hidden: !onCreatePoll || !canPolls,
                           },
                           {
                             key: 'checklist',
                             icon: ListChecks,
                             label: t('tgComposer.attachChecklist'),
                             run: () => setChecklistOpen(true),
-                            hidden: !chatId,
+                            hidden: !chatId || !canPolls,
                           },
                         ] as const
                       )
@@ -1029,7 +1055,7 @@ export function ChatComposer({
                         variant="popover"
                         tab={symbolTab}
                         onTabChange={setSymbolTab}
-                        allowMedia={!!chatId && !editing}
+                        allowMedia={!!chatId && !editing && canStickers}
                         onEmoji={insertEmoji}
                         onSticker={pickSticker}
                         onGif={pickGif}
@@ -1131,7 +1157,7 @@ export function ChatComposer({
             variant="dock"
             tab={symbolTab}
             onTabChange={setSymbolTab}
-            allowMedia={!!chatId && !editing}
+            allowMedia={!!chatId && !editing && canStickers}
             onEmoji={insertEmoji}
             onSticker={pickSticker}
             onGif={pickGif}

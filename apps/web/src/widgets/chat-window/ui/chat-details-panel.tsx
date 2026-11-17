@@ -1,13 +1,26 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { ArrowLeft, ChevronLeft, Pencil, UserPlus, X } from 'lucide-react'
-import { chatKeys, fetchChatMembers, type ChatListItem } from '../../../entities/chat'
+import {
+  chatKeys,
+  fetchChatMembers,
+  deleteChatPhotoRequest,
+  fetchChatPhotos,
+  fetchUserPhotos,
+  groupKeys,
+  type ChatListItem,
+} from '../../../entities/chat'
 import { fetchUserById, userKeys } from '../../../entities/user'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../shared/ui'
+import { Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
+import { afterOverlayClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { ColumnNavigateProvider, interceptableHref } from '../lib/column-navigation'
+import { useTabSwipe } from '../lib/use-tab-swipe'
 import { isOfficialChat } from '../lib/format'
 import { ChatMembersList, lastSeenText } from './chat-members-list'
 import { EditGroupDialog } from './edit-group-dialog'
@@ -103,8 +116,13 @@ export function ChatDetailsPanel({
   const isSaved = chat.type === 'SAVED'
   // Сведения о собеседнике есть только там, где он один: у «Избранного» и групп их нет.
   const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
-  // Аватар группы меняет владелец, название — любой админ: управление открывается по любому.
-  const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
+  // Аватар группы меняет владелец, название — любой админ (и участник, если владелец открыл
+  // «смену информации», §8.3): управление открывается по любому из них.
+  const canEdit =
+    isGroup &&
+    (chat.isAdmin ||
+      chat.isOwner ||
+      (chat.type === 'GROUP' && chat.permissions?.changeInfo === true))
 
   const [screen, setScreen] = useState<Screen>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -135,15 +153,55 @@ export function ChatDetailsPanel({
     enabled: peer != null,
   })
 
-  // Фото шапки: у собеседника — аватар и обложка профиля, у группы — её аватар. Истории
-  // аватаров сервер не хранит, поэтому листаются только они.
+  // Фото шапки — история аватаров, как в Telegram (§8.3): у собеседника его фото профиля, у
+  // группы — фото группы, текущее первым. Обложку профиля Telegram в шапке не показывает —
+  // её здесь и нет. Пока история не пришла (или старый сервер) — один текущий аватар.
   const hasPeer = peer != null
+  const isUserGroup = chat.type === 'GROUP'
+  const current = hasPeer ? (user.data?.avatarUrl ?? chat.avatarUrl) : chat.avatarUrl
+  const history = useQuery({
+    // Текущий аватар — в ключе: сменили фото — история перечитывается сама.
+    queryKey: [
+      ...(hasPeer ? groupKeys.userPhotos(peerId ?? '') : groupKeys.chatPhotos(chat.id)),
+      current,
+    ],
+    queryFn: () => (hasPeer ? fetchUserPhotos(peerId as string) : fetchChatPhotos(chat.id)),
+    enabled: open && (hasPeer || isUserGroup),
+    staleTime: 60_000,
+  })
   const photos = useMemo(() => {
-    const list = hasPeer
-      ? [user.data?.avatarUrl ?? chat.avatarUrl, user.data?.coverUrl]
-      : [chat.avatarUrl]
+    const list = history.data?.length ? history.data.map((p) => p.url) : [current]
     return [...new Set(list.filter((x): x is string => Boolean(x)))]
-  }, [hasPeer, user.data, chat.avatarUrl])
+  }, [history.data, current])
+
+  // Удалить фото группы из истории — только владелец (фото группы — его, §8.3). Текущее
+  // сменится предыдущим: сервер вернёт новый аватар, список и шапка перечитаются.
+  const qc = useQueryClient()
+  const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
+  const deletePhoto = useMutation({
+    mutationFn: (photoId: string) => deleteChatPhotoRequest(chat.id, photoId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: groupKeys.chatPhotos(chat.id) })
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      toast.success(t('tgGroups.photoDeleted'))
+    },
+    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+  const photoIds = history.data?.map((p) => p.id) ?? []
+  const onDeletePhoto =
+    isUserGroup && chat.isOwner && photoIds.length === photos.length
+      ? (index: number): void => {
+          const id = photoIds[index]
+          // Пустой id — аватар старше истории: удаляется только целиком, из окна правки.
+          if (!id) return
+          void confirm({ title: t('tgGroups.photoDeleteConfirm'), destructive: true }).then(
+            (ok) => {
+              if (ok) deletePhoto.mutate(id)
+            },
+          )
+        }
+      : undefined
 
   const peerMember = peer ? members.data?.find((m) => m.id === peer.id) : undefined
   const onlineCount = (members.data ?? []).filter((m) => m.online && !m.banned).length
@@ -262,182 +320,228 @@ export function ChatDetailsPanel({
         ? t('addMembers')
         : t(MANAGE_TITLE[screen])
 
-  const showFab = screen === null && isGroup && chat.isAdmin && tab === 'participants'
+  const showFab =
+    screen === null &&
+    isGroup &&
+    (chat.isAdmin || chat.isOwner || (isUserGroup && chat.permissions?.addMembers === true)) &&
+    tab === 'participants'
+
+  // Переход со страницы из колонки — через закрытие колонки (column-navigation.tsx): иначе
+  // снятие её записи в истории откатывало бы адрес новой страницы.
+  const router = useRouter()
+  const navigate = useCallback(
+    (href: string) => {
+      onClose()
+      afterOverlayClose(() => router.push(href))
+    },
+    [onClose, router],
+  )
+
+  // Свайп по содержимому вкладок листает вкладки (§55, как в Telegram), на пружине.
+  const tabOrder = useMemo(
+    () => [
+      ...(isGroup ? ['participants'] : []),
+      'media',
+      'files',
+      'links',
+      'music',
+      'voice',
+      'gif',
+      'polls',
+    ],
+    [isGroup],
+  )
+  const swipeRef = useTabSwipe({ tabs: tabOrder, current: tab, onChange: changeTab })
 
   return (
-    <div
-      className="relative flex h-full min-h-0 flex-col bg-background"
-      onKeyDown={(e) => {
-        // Esc внутри управления — шаг назад, а не закрытие всей колонки.
-        // Открытое меню или окно Esc закрывает само — шаг назад в этот момент был бы лишним.
-        if (e.key !== 'Escape' || screen === null || e.defaultPrevented) return
-        if (!document.querySelector('[role="menu"],[role="dialog"],[role="alertdialog"]')) {
+    <ColumnNavigateProvider value={navigate}>
+      <div
+        className="relative flex h-full min-h-0 flex-col bg-background"
+        onClickCapture={(e) => {
+          const href = interceptableHref(e)
+          if (!href) return
           e.preventDefault()
-          e.stopPropagation()
-          back()
-        }
-      }}
-    >
-      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-3">
-        <button
-          type="button"
-          aria-label={screen !== null || variant === 'fullscreen' ? t('back') : t('close')}
-          onClick={back}
-          className={HEADER_BTN}
-        >
-          {screen !== null ? (
-            <ArrowLeft className="size-5" aria-hidden />
-          ) : variant === 'column' ? (
-            <X className="size-5" aria-hidden />
-          ) : (
-            <>
-              {/* На телефоне колонка — экран, с него возвращаются стрелкой; на планшете
-                  это остров поверх переписки, его закрывают крестиком. */}
-              <ChevronLeft className="size-5 md:hidden" aria-hidden />
-              <X className="hidden size-5 md:block" aria-hidden />
-            </>
-          )}
-        </button>
-        <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">{headerTitle}</span>
-        {screen === null && canEdit && (
+          navigate(href)
+        }}
+        onKeyDown={(e) => {
+          // Esc внутри управления — шаг назад, а не закрытие всей колонки.
+          // Открытое меню или окно Esc закрывает само — шаг назад в этот момент был бы лишним.
+          if (e.key !== 'Escape' || screen === null || e.defaultPrevented) return
+          if (!document.querySelector('[role="menu"],[role="dialog"],[role="alertdialog"]')) {
+            e.preventDefault()
+            e.stopPropagation()
+            back()
+          }
+        }}
+      >
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-3">
           <button
             type="button"
-            aria-label={t('tgRight.manageTitle')}
-            title={t('tgRight.manageTitle')}
-            onClick={() => goTo('main')}
+            aria-label={screen !== null || variant === 'fullscreen' ? t('back') : t('close')}
+            onClick={back}
             className={HEADER_BTN}
           >
-            <Pencil className="size-5" aria-hidden />
-          </button>
-        )}
-      </div>
-
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
-      >
-        {screen === null ? (
-          <>
-            <ProfileHero
-              id={chat.id}
-              title={title}
-              photos={photos}
-              status={status}
-              online={isPrivate && peerOnline}
-              official={isOfficialChat(chat.type)}
-              officialLabel={t('officialChat')}
-              expanded={expanded}
-              onExpand={expand}
-            />
-
-            {(!isSaved || peer) && (
-              <InfoCard className={cn(expanded && 'mt-3')}>
-                {peer && <PeerInfoRows userId={peer.id} />}
-                {isGroup && <GroupInfoRows chat={chat} />}
-                {!isSaved && <NotificationsRow chat={chat} onMute={onMute} onUnmute={onUnmute} />}
-              </InfoCard>
+            {screen !== null ? (
+              <ArrowLeft className="size-5" aria-hidden />
+            ) : variant === 'column' ? (
+              <X className="size-5" aria-hidden />
+            ) : (
+              <>
+                {/* На телефоне колонка — экран, с него возвращаются стрелкой; на планшете
+                  это остров поверх переписки, его закрывают крестиком. */}
+                <ChevronLeft className="size-5 md:hidden" aria-hidden />
+                <X className="hidden size-5 md:block" aria-hidden />
+              </>
             )}
+          </button>
+          <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">
+            {headerTitle}
+          </span>
+          {screen === null && canEdit && (
+            <button
+              type="button"
+              aria-label={t('tgRight.manageTitle')}
+              title={t('tgRight.manageTitle')}
+              onClick={() => goTo('main')}
+              className={HEADER_BTN}
+            >
+              <Pencil className="size-5" aria-hidden />
+            </button>
+          )}
+        </div>
 
-            <ChatActionsCard
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+        >
+          {screen === null ? (
+            <>
+              <ProfileHero
+                id={chat.id}
+                title={title}
+                photos={photos}
+                status={status}
+                online={isPrivate && peerOnline}
+                official={isOfficialChat(chat.type)}
+                officialLabel={t('officialChat')}
+                expanded={expanded}
+                onExpand={expand}
+                onDeletePhoto={onDeletePhoto}
+              />
+
+              {(!isSaved || peer) && (
+                <InfoCard className={cn(expanded && 'mt-3')}>
+                  {peer && <PeerInfoRows userId={peer.id} />}
+                  {isGroup && <GroupInfoRows chat={chat} />}
+                  {!isSaved && <NotificationsRow chat={chat} onMute={onMute} onUnmute={onUnmute} />}
+                </InfoCard>
+              )}
+
+              <ChatActionsCard
+                chat={chat}
+                peerBlocked={peerBlocked}
+                onToggleBlock={peer?.onToggleBlock}
+                onLeft={onLeft}
+              />
+
+              {/* Общие материалы. Вкладки прилипают к верху колонки, под ними — содержимое;
+                сначала участники группы: «кто здесь» — вопрос раньше, чем «что присылали». */}
+              <Tabs value={tab} onValueChange={changeTab} className="mt-3">
+                <div ref={tabsAnchorRef} aria-hidden />
+                <div className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md">
+                  <TabsList className="w-full sm:w-full" aria-label={t('tgRight.sharedTabs')}>
+                    {isGroup && (
+                      <TabsTrigger value="participants" className="flex-none">
+                        {t('tabParticipants')}
+                      </TabsTrigger>
+                    )}
+                    <TabsTrigger value="media" className="flex-none">
+                      {t('tabMedia')}
+                    </TabsTrigger>
+                    <TabsTrigger value="files" className="flex-none">
+                      {t('tabFiles')}
+                    </TabsTrigger>
+                    <TabsTrigger value="links" className="flex-none">
+                      {t('tabLinks')}
+                    </TabsTrigger>
+                    <TabsTrigger value="music" className="flex-none">
+                      {t('tabMusic')}
+                    </TabsTrigger>
+                    <TabsTrigger value="voice" className="flex-none">
+                      {t('tabVoice')}
+                    </TabsTrigger>
+                    <TabsTrigger value="gif" className="flex-none">
+                      {t('tabGif')}
+                    </TabsTrigger>
+                    <TabsTrigger value="polls" className="flex-none">
+                      {t('tabPolls')}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <div ref={swipeRef} className="touch-pan-y">
+                  {isGroup && (
+                    <TabsContent value="participants" className={TAB_PANE}>
+                      <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} />
+                    </TabsContent>
+                  )}
+                  <TabsContent value="media" className={TAB_PANE}>
+                    <MediaTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="files" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="file" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="links" className={TAB_PANE}>
+                    <LinksTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="music" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="music" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="voice" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="gif" className={TAB_PANE}>
+                    <GifTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="polls" className={TAB_PANE}>
+                    <PollsTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </>
+          ) : screen === 'addMembers' ? (
+            <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+          ) : (
+            <GroupManagement
               chat={chat}
-              peerBlocked={peerBlocked}
-              onToggleBlock={peer?.onToggleBlock}
+              myId={myId}
+              screen={screen}
+              onNavigate={goTo}
+              onEditInfo={() => setEditOpen(true)}
+              onOpenChat={onOpenChat}
               onLeft={onLeft}
             />
+          )}
+        </div>
 
-            {/* Общие материалы. Вкладки прилипают к верху колонки, под ними — содержимое;
-                сначала участники группы: «кто здесь» — вопрос раньше, чем «что присылали». */}
-            <Tabs value={tab} onValueChange={changeTab} className="mt-3">
-              <div ref={tabsAnchorRef} aria-hidden />
-              <div className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md">
-                <TabsList className="w-full sm:w-full" aria-label={t('tgRight.sharedTabs')}>
-                  {isGroup && (
-                    <TabsTrigger value="participants" className="flex-none">
-                      {t('tabParticipants')}
-                    </TabsTrigger>
-                  )}
-                  <TabsTrigger value="media" className="flex-none">
-                    {t('tabMedia')}
-                  </TabsTrigger>
-                  <TabsTrigger value="files" className="flex-none">
-                    {t('tabFiles')}
-                  </TabsTrigger>
-                  <TabsTrigger value="links" className="flex-none">
-                    {t('tabLinks')}
-                  </TabsTrigger>
-                  <TabsTrigger value="music" className="flex-none">
-                    {t('tabMusic')}
-                  </TabsTrigger>
-                  <TabsTrigger value="voice" className="flex-none">
-                    {t('tabVoice')}
-                  </TabsTrigger>
-                  <TabsTrigger value="gif" className="flex-none">
-                    {t('tabGif')}
-                  </TabsTrigger>
-                  <TabsTrigger value="polls" className="flex-none">
-                    {t('tabPolls')}
-                  </TabsTrigger>
-                </TabsList>
-              </div>
+        {/* Добавить участников — плавающей кнопкой на вкладке участников, как в Telegram. */}
+        {showFab && (
+          <button
+            type="button"
+            aria-label={t('addMembers')}
+            title={t('addMembers')}
+            onClick={() => goTo('addMembers')}
+            className="absolute right-4 bottom-4 z-20 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none duration-(--motion-menu) animate-in fade-in-0 zoom-in-75 hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/30"
+          >
+            <UserPlus className="size-6" aria-hidden />
+          </button>
+        )}
 
-              {isGroup && (
-                <TabsContent value="participants" className={TAB_PANE}>
-                  <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} />
-                </TabsContent>
-              )}
-              <TabsContent value="media" className={TAB_PANE}>
-                <MediaTab chatId={chat.id} onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="files" className={TAB_PANE}>
-                <FileTab chatId={chat.id} type="file" onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="links" className={TAB_PANE}>
-                <LinksTab chatId={chat.id} onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="music" className={TAB_PANE}>
-                <FileTab chatId={chat.id} type="music" onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="voice" className={TAB_PANE}>
-                <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="gif" className={TAB_PANE}>
-                <GifTab chatId={chat.id} onJump={onJump} />
-              </TabsContent>
-              <TabsContent value="polls" className={TAB_PANE}>
-                <PollsTab chatId={chat.id} onJump={onJump} />
-              </TabsContent>
-            </Tabs>
-          </>
-        ) : screen === 'addMembers' ? (
-          <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
-        ) : (
-          <GroupManagement
-            chat={chat}
-            myId={myId}
-            screen={screen}
-            onNavigate={goTo}
-            onEditInfo={() => setEditOpen(true)}
-            onOpenChat={onOpenChat}
-            onLeft={onLeft}
-          />
+        {editOpen && (
+          <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />
         )}
       </div>
-
-      {/* Добавить участников — плавающей кнопкой на вкладке участников, как в Telegram. */}
-      {showFab && (
-        <button
-          type="button"
-          aria-label={t('addMembers')}
-          title={t('addMembers')}
-          onClick={() => goTo('addMembers')}
-          className="absolute right-4 bottom-4 z-20 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none duration-(--motion-menu) animate-in fade-in-0 zoom-in-75 hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/30"
-        >
-          <UserPlus className="size-6" aria-hidden />
-        </button>
-      )}
-
-      {editOpen && <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />}
-    </div>
+    </ColumnNavigateProvider>
   )
 }

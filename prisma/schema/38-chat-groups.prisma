@@ -1,0 +1,67 @@
+// Группы как в Telegram (docs/PROJECT.md §8.3): заявки на вступление по ссылке, список
+// исключённых и история фото (аватаров) пользователей и групп.
+
+// Заявка на вступление в группу по ссылке-приглашению, когда у группы включено
+// `joinApproval`. Одна живая заявка на человека в группе: повторный переход по ссылке её
+// не дублирует. Одобрение создаёт ChatMember и удаляет заявку, отклонение — просто удаляет.
+model ChatJoinRequest {
+  id        String   @id @default(uuid())
+  chatId    String   @map("chat_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([chatId, userId])
+  // Список заявок группы — свежие сверху.
+  @@index([chatId, createdAt])
+  @@index([userId])
+  @@map("chat_join_requests")
+}
+
+// Исключённый (удалённый админом) участник группы. Отдельно от бана (ChatMember.bannedAt):
+// забаненный остаётся строкой участника и вернуться не может, исключённый теряет строку
+// участника и может вернуться по ссылке или заявке. Запись — только «кто и когда исключил»
+// для списка «Удалённые»; она снимается, когда человек снова становится участником.
+model ChatRemovedMember {
+  id          String   @id @default(uuid())
+  chatId      String   @map("chat_id")
+  userId      String   @map("user_id")
+  // Кто исключил. NULL — его аккаунт удалён.
+  removedById String?  @map("removed_by_id")
+  removedAt   DateTime @default(now()) @map("removed_at")
+
+  chat      Chat  @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user      User  @relation("ChatRemovedUser", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  removedBy User? @relation("ChatRemovedBy", fields: [removedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([chatId, removedAt])
+  @@index([userId])
+  @@index([removedById])
+  @@map("chat_removed_members")
+}
+
+// Фото в истории аватаров (Telegram: листание фото в шапке профиля). Ровно одно из
+// userId/chatId. Текущий аватар — тоже строка истории (самая свежая); сам URL текущего
+// по-прежнему лежит в User.avatarUrl / Chat.avatarUrl, чтобы списки не делали join.
+// Строка уходит каскадом вместе с файлом: удалили объект — пропало и фото.
+model AvatarPhoto {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  chatId    String?  @map("chat_id")
+  // NULL — аватар старше истории, для которого не нашлось записи File.
+  fileId    String?  @unique @map("file_id")
+  // Публичный URL в бакете avatars.
+  url       String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  chat Chat? @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file File? @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([chatId, createdAt])
+  @@map("avatar_photos")
+}

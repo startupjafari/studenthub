@@ -243,7 +243,8 @@ export function GroupInfoRows({ chat }: { chat: ChatListItem }) {
   // Описание развёрнуто целиком. Сбрасывать при смене чата не нужно: панель монтируется
   // заново на каждый чат (key={chat.id} у вызывающего).
   const [descriptionOpen, setDescriptionOpen] = useState(false)
-  const canInvite = chat.type === 'GROUP' && chat.isAdmin
+  // «Закрытая» группа (§8.3, joinByLink: false) ссылкой не пополняется — показывать нечего.
+  const canInvite = chat.type === 'GROUP' && chat.isAdmin && chat.joinByLink !== false
   const invite = useQuery({
     queryKey: chatKeys.invite(chat.id),
     queryFn: () => fetchChatInviteCode(chat.id),
@@ -323,7 +324,7 @@ const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
  * должен читать «включено/выключено», а не «отмечено» (идиома из DESIGN_SYSTEM §9).
  * Сам не фокусируется и кликов не ловит: им управляет строка целиком.
  */
-function SwitchVisual({ checked }: { checked: boolean }) {
+export function SwitchVisual({ checked }: { checked: boolean }) {
   return (
     <span
       aria-hidden

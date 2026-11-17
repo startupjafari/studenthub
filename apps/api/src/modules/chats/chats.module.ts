@@ -25,6 +25,8 @@ import { ChatAttentionService } from './chat-attention.service'
 import { ChatAttentionController } from './chat-attention.controller'
 import { ChatLinkPreviewController } from './chat-link-preview.controller'
 import { ChatLinkPreviewService } from './chat-link-preview.service'
+import { ChatGroupsService } from './chat-groups.service'
+import { ChatGroupsController } from './chat-groups.controller'
 
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
@@ -43,6 +45,7 @@ import { ChatLinkPreviewService } from './chat-link-preview.service'
     ChatSettingsController,
     ChatLinkPreviewController,
     ChatsController,
+    ChatGroupsController,
     SupportController,
     StickerSetsAdminController,
   ],
@@ -59,6 +62,7 @@ import { ChatLinkPreviewService } from './chat-link-preview.service'
     ChatGifsService,
     ChatAttentionService,
     ChatSettingsService,
+    ChatGroupsService,
   ],
   exports: [ChatsService, SupportService],
 })

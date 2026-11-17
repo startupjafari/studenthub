@@ -160,6 +160,7 @@ export class DataExportService {
       career,
       services,
       records,
+      groups,
     ] = await Promise.all([
       this.prisma.file.findMany({
         where: { ownerId: userId },
@@ -446,6 +447,7 @@ export class DataExportService {
       this.collectCareer(userId, take),
       this.collectServices(userId, take),
       this.collectRecords(userId, take),
+      this.collectGroups(userId, take),
     ])
 
     return {
@@ -479,7 +481,44 @@ export class DataExportService {
       ...career,
       ...services,
       ...records,
+      ...groups,
       auditLog: section(auditLog, AUDIT_LIMIT),
+    }
+  }
+
+  /**
+   * Группы и фото профиля (PROJECT §3.6 «Группы»): история своих фото, свои заявки на
+   * вступление и исключения из групп. Кто исключил — не выгружается: это действие другого
+   * человека, субъекту хватает самого факта и даты.
+   */
+  private async collectGroups(
+    userId: string,
+    take: number,
+  ): Promise<Record<string, ExportSection>> {
+    const [avatarPhotos, chatJoinRequests, chatRemovals] = await Promise.all([
+      this.prisma.avatarPhoto.findMany({
+        where: { userId },
+        select: { url: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.chatJoinRequest.findMany({
+        where: { userId },
+        select: { chatId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.chatRemovedMember.findMany({
+        where: { userId },
+        select: { chatId: true, removedAt: true },
+        orderBy: { removedAt: 'desc' },
+        take,
+      }),
+    ])
+    return {
+      avatarPhotos: section(avatarPhotos, SECTION_LIMIT),
+      chatJoinRequests: section(chatJoinRequests, SECTION_LIMIT),
+      chatRemovals: section(chatRemovals, SECTION_LIMIT),
     }
   }
 
@@ -1324,6 +1363,12 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
       excluded: 'служебная настройка интерфейса: только id стикеров каталога платформы',
     },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
+    'AvatarPhoto.userId': { section: 'avatarPhotos' },
+    'ChatJoinRequest.userId': { section: 'chatJoinRequests' },
+    'ChatRemovedMember.userId': { section: 'chatRemovals' },
+    'ChatRemovedMember.removedById': {
+      excluded: 'действие админа группы над другим участником — данные другого человека',
+    },
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
     'EventComment.authorId': { section: 'eventComments' },

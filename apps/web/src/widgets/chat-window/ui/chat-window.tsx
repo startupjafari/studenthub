@@ -10,6 +10,7 @@ import { Loader2 } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
   canFileComplaint,
+  containsLink,
   type ChatAction,
   type CreateChatPollInput,
 } from '@studenthub/shared-schemas'
@@ -69,6 +70,7 @@ import {
   scheduleChatsUnreadRefresh,
   applyLocationUpdate,
   type ChatFolder,
+  type ChatGroupSettings,
   type ChatListItem,
   type SavedChatDraft,
   type ChatMemberInfo,
@@ -227,6 +229,8 @@ const WS_ERROR_CODES = new Set([
   'RATE_LIMIT',
   'MAINTENANCE',
   'UNIVERSITY_BLOCKED',
+  // Админ группы закрыл это право («Разрешения», §8.3): ссылки, медиа, закреп…
+  'CHAT_PERMISSION_DENIED',
   'INTERNAL_ERROR',
 ])
 
@@ -1742,6 +1746,22 @@ export function ChatWindow() {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
     void qc.invalidateQueries({ queryKey: chatKeys.members(chatId) })
   })
+  // Разрешения или тип группы изменились (§8.3): права — сразу в кэш списка, чтобы композер
+  // спрятал запрещённое в тот же кадр, не дожидаясь перечитывания списка.
+  useRealtimeEvent<ChatGroupSettings>('chat:permissions', (settings) => {
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+      old?.map((c) =>
+        c.id === settings.chatId
+          ? {
+              ...c,
+              permissions: settings.permissions,
+              joinByLink: settings.joinByLink,
+              joinApproval: settings.joinApproval,
+            }
+          : c,
+      ),
+    )
+  })
   // Состав участников изменился (9.4): обновляем список чатов и участников открытого окна.
   const onMembersChanged = ({ chatId }: { chatId: string }): void => {
     void qc.invalidateQueries({ queryKey: chatKeys.list() })
@@ -2539,6 +2559,18 @@ export function ChatWindow() {
   function send(opts: { silent?: boolean } & ComposerSendOptions = {}): void {
     const content = text.trim()
     if (!activeId) return
+    // Ссылки запрещены правами группы (§8.3) — говорим сразу, не отправляя: иначе пузырь
+    // повис бы «отправляется» до отказа сервера. Сервер проверяет то же самое сам.
+    if (
+      activeChat?.type === 'GROUP' &&
+      !activeChat.isAdmin &&
+      !activeChat.isOwner &&
+      activeChat.permissions?.embedLinks === false &&
+      containsLink(content)
+    ) {
+      toast.error(tErr('CHAT_PERMISSION_DENIED'))
+      return
+    }
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
     if (editing) {
       if (content && socket) {
@@ -4142,6 +4174,12 @@ export function ChatWindow() {
                     fileInputRef={fileInputRef}
                     onFilesPicked={addFiles}
                     onCreatePoll={isPrivate ? undefined : () => setPollCreatorOpen(true)}
+                    // Права рядового участника группы (§8.3): админу и владельцу не мешают.
+                    restrictions={
+                      activeChat?.type === 'GROUP' && !activeChat.isAdmin && !activeChat.isOwner
+                        ? (activeChat.permissions ?? null)
+                        : null
+                    }
                     mentionCandidates={mentionCandidates}
                     onInsertMention={insertMention}
                     onCloseMentions={() => setMentionQuery(null)}
@@ -4196,7 +4234,7 @@ export function ChatWindow() {
 
       {/* Правая колонка (Telegram-стиль, right-column.tsx): в широком окне встаёт рядом и
           сжимает переписку, в узком выезжает поверх неё. */}
-      <RightColumn open={detailsOpen} wide={isWide}>
+      <RightColumn open={detailsOpen} wide={isWide} onClose={() => setDetailsOpen(false)}>
         {detailsProps && (
           <ChatDetailsPanel
             key={detailsProps.chat.id}

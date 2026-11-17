@@ -36,6 +36,10 @@ import {
   chatCountsViews,
   firstLinkUrl,
   isSingleEmoji,
+  messagePermissionNeeds,
+  missingChatPermission,
+  resolveChatPermissions,
+  type ChatPermissionKey,
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -48,6 +52,7 @@ import { isPlatformRole } from '../../common/auth/group-scope'
 import { LINK_PREVIEW_JOBS, NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
+import { AvatarHistoryService } from '../files/avatar-history.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
@@ -74,6 +79,21 @@ interface PollVoter {
 }
 
 const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
+
+/**
+ * Текст отказа CHAT_PERMISSION_DENIED по закрытому праву. Клиенты реагируют на код и поле
+ * details[0].field, а старые сборки показывают этот текст как есть — он человеческий.
+ */
+const CHAT_PERMISSION_DENIED_TEXT: Record<ChatPermissionKey, string> = {
+  sendMessages: 'Отправка сообщений в этой группе ограничена',
+  sendMedia: 'В этой группе запрещено отправлять медиа и файлы',
+  sendStickers: 'В этой группе запрещено отправлять стикеры и GIF',
+  embedLinks: 'В этой группе запрещено отправлять ссылки',
+  sendPolls: 'В этой группе запрещено создавать опросы и чек-листы',
+  addMembers: 'Добавлять участников в этой группе могут только администраторы',
+  pinMessages: 'Закреплять сообщения в этой группе могут только администраторы',
+  changeInfo: 'Менять информацию о группе могут только администраторы',
+}
 
 // Потолок дельты догона (GET /chats/:id/updates). Больше — клиенту дешевле перезапросить историю,
 // чем склеивать: непрерывность ленты всё равно не гарантируется.
@@ -229,6 +249,41 @@ function quoteMatches(content: string, quote: string): boolean {
   return letters(content).includes(wanted)
 }
 
+/** Текст чек-листа (название и пункты) — для проверки права на ссылки. */
+function richChecklistText(create: unknown): string {
+  const c = create as { title?: unknown; items?: { create?: unknown } }
+  const items = Array.isArray(c.items?.create) ? (c.items.create as { text?: unknown }[]) : []
+  return [c.title, ...items.map((i) => i.text)].filter((t) => typeof t === 'string').join('\n')
+}
+
+/**
+ * Права группы, которые нужны пересылке (§8.3): по содержимому каждого источника и
+ * комментария. Пересланный опрос, стикер или альбом требует того же права, что и свой.
+ */
+function forwardNeeds(
+  sources: {
+    content: string | null
+    media: unknown[]
+    stickerId: string | null
+    poll: unknown
+    checklist: unknown
+  }[],
+  comment?: string,
+): ChatPermissionKey[] {
+  const needs = new Set<ChatPermissionKey>(messagePermissionNeeds({ text: comment }))
+  for (const s of sources) {
+    for (const key of messagePermissionNeeds({
+      text: s.content,
+      media: s.media.length > 0,
+      sticker: s.stickerId != null,
+      poll: s.poll != null || s.checklist != null,
+    })) {
+      needs.add(key)
+    }
+  }
+  return [...needs]
+}
+
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
   if (!m.lastReadAt) return m.clearedAt
   if (!m.clearedAt) return m.lastReadAt
@@ -283,6 +338,9 @@ function chatListSelect(viewerId: string) {
     universityId: true,
     subject: true,
     requestPendingForId: true,
+    permissions: true,
+    joinByLink: true,
+    joinApproval: true,
     updatedAt: true,
     members: {
       where: { userId: viewerId },
@@ -1366,6 +1424,12 @@ export class ChatsService implements OnModuleInit {
         isOwner: c.createdById != null && c.createdById === viewer.sub,
         // Я — админ группы (могу банить, менять аватар/название, управлять участниками).
         isAdmin: mem?.isAdmin === true,
+        // Разрешения участников группы (§8.3) — только у пользовательских групп. Клиент сам
+        // решает по ним, что показать в композере: админу и владельцу ограничения не мешают.
+        permissions: c.type === ChatType.GROUP ? resolveChatPermissions(c.permissions) : null,
+        // Тип группы: вступление по ссылке и через одобрение заявок (§8.3).
+        joinByLink: c.type === ChatType.GROUP ? c.joinByLink : null,
+        joinApproval: c.type === ChatType.GROUP ? c.joinApproval : null,
         // Блокировка (только для PRIVATE): blocked — я заблокировал собеседника; blockedBy — он меня.
         blocked: other ? iBlocked.has(other) : false,
         blockedBy: other ? blockedMe.has(other) : false,
@@ -2332,7 +2396,12 @@ export class ChatsService implements OnModuleInit {
     input: CreateChatPollInput,
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, chatId)
-    await this.assertCanSend(chatId, senderId)
+    await this.assertCanSend(chatId, senderId, {
+      needs: messagePermissionNeeds({
+        poll: true,
+        text: `${input.question}\n${input.description ?? ''}\n${input.options.join('\n')}`,
+      }),
+    })
     const messageId = await this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({
         data: {
@@ -2625,6 +2694,10 @@ export class ChatsService implements OnModuleInit {
   /** Список участников чата с ролью и онлайн-статусом (для окна управления группой, Ф9+). */
   async listMembers(viewer: JwtPayload, chatId: string) {
     await this.assertMembership(viewer.sub, chatId)
+    const owner = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { createdById: true },
+    })
     const members = await this.prisma.chatMember.findMany({
       where: { chatId },
       select: {
@@ -2668,6 +2741,9 @@ export class ChatsService implements OnModuleInit {
           : (user.lastSeenAt?.toISOString() ?? null),
       banned: m.bannedAt != null,
       isAdmin: m.isAdmin,
+      // Владелец группы (создатель) — у любого участника, не только у самого владельца:
+      // список рисует ранг «владелец» рядом с его именем (§8.3).
+      isOwner: owner?.createdById != null && owner.createdById === m.userId,
     }))
   }
 
@@ -2751,9 +2827,9 @@ export class ChatsService implements OnModuleInit {
   }
 
   async addMember(actor: JwtPayload, chatId: string, userId: string) {
-    // Управление составом группы — только админам группы (не любому участнику): иначе
-    // рядовой участник добавлял бы произвольных пользователей. GROUP-only (проверяет helper).
-    await this.assertGroupAdmin(actor, chatId)
+    // Управление составом группы — админам группы, а рядовым участникам только если владелец
+    // открыл право «добавлять участников» (§8.3). GROUP-only (проверяет helper).
+    await this.assertGroupAdminOr(actor, chatId, 'addMembers')
     await this.assertCanAddToGroup(actor, [userId])
     try {
       // Вступивший видит историю, но не получает её как непрочитанное: иначе новичок в
@@ -2765,6 +2841,8 @@ export class ChatsService implements OnModuleInit {
       }
       throw error
     }
+    // Снова участник — не «исключённый» и не ждёт одобрения заявки.
+    await this.clearMembershipLeftovers(chatId, userId)
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: SENDER_SELECT.select,
@@ -2810,6 +2888,13 @@ export class ChatsService implements OnModuleInit {
     // Не участник — исключать некого: без проверки в ленту уходило ложное «исключил X», а
     // ссылка-приглашение сменялась зря.
     if (count === 0) throw new AppException('NOT_FOUND', 'Участник не найден')
+    // Список «Удалённые» (§8.3): кто и когда исключил. Отдельно от бана — исключённый может
+    // вернуться по ссылке, и запись снимется, когда он снова станет участником.
+    await this.prisma.chatRemovedMember.upsert({
+      where: { chatId_userId: { chatId, userId } },
+      create: { chatId, userId, removedById: actor.sub },
+      update: { removedById: actor.sub, removedAt: new Date() },
+    })
     // Исключённого выводим из комнаты и гасим ссылку-приглашение: старую он знает и иначе
     // вернулся бы по ней сразу же.
     this.realtime.leaveRoom(userId, `chat:${chatId}`)
@@ -2821,6 +2906,15 @@ export class ChatsService implements OnModuleInit {
     await this.emitSystemMessage(chatId, actor.sub, 'member_removed', {
       targetName: target ? `${target.lastName} ${target.firstName}`.trim() : undefined,
     })
+  }
+
+  /**
+   * Человек снова участник группы: снять запись «исключён» и висящую заявку на вступление.
+   * Публичный — им же пользуется одобрение заявки (ChatGroupsService).
+   */
+  async clearMembershipLeftovers(chatId: string, userId: string): Promise<void> {
+    await this.prisma.chatRemovedMember.deleteMany({ where: { chatId, userId } })
+    await this.prisma.chatJoinRequest.deleteMany({ where: { chatId, userId } })
   }
 
   // Тихий сигнал «обнови список чатов» всем участникам (+доп. id, напр. удалённому).
@@ -2911,7 +3005,7 @@ export class ChatsService implements OnModuleInit {
   }
 
   // Аналог chat:activity из notifyNewMessage: не создаёт уведомление, только просит рефетч.
-  private async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
+  async pingChatList(chatId: string, extraUserIds: string[] = []): Promise<void> {
     const members = await this.allMembers(chatId)
     const ids = new Set<string>([...members.map((m) => m.userId), ...extraUserIds])
     for (const id of ids) this.realtime.emitToUser(id, 'chat:activity', { chatId })
@@ -2932,10 +3026,24 @@ export class ChatsService implements OnModuleInit {
     }
     const chat = await this.prisma.chat.findUnique({
       where: { id: chatId },
-      select: { id: true, type: true, title: true, inviteCode: true },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        inviteCode: true,
+        joinByLink: true,
+        joinApproval: true,
+      },
     })
-    // Неверный код отвечает так же, как несуществующий чат: иначе id перебирался бы.
-    if (!chat || chat.type !== ChatType.GROUP || !chat.inviteCode || chat.inviteCode !== code) {
+    // Неверный код отвечает так же, как несуществующий чат: иначе id перебирался бы. Так же
+    // отвечает и «закрытая» группа (§8.3, ссылка выключена): старая ссылка просто не работает.
+    if (
+      !chat ||
+      chat.type !== ChatType.GROUP ||
+      chat.joinByLink === false ||
+      !chat.inviteCode ||
+      chat.inviteCode !== code
+    ) {
       throw new AppException('NOT_FOUND', 'Приглашение недействительно')
     }
     const exists = await this.prisma.chatMember.findUnique({
@@ -2943,7 +3051,14 @@ export class ChatsService implements OnModuleInit {
       select: { id: true, bannedAt: true },
     })
     if (exists?.bannedAt) throw new AppException('FORBIDDEN', 'Вы заблокированы в этом чате')
+    // Вступление через одобрение (§8.3): вместо членства — заявка админам. Ответ тот же, что
+    // при вступлении, с `requested: true` — клиент пишет «заявка отправлена».
+    if (!exists && chat.joinApproval) {
+      await this.requestToJoin(chat.id, chat.title, actor.sub)
+      return { id: chat.id, type: chat.type, title: chat.title, requested: true }
+    }
     if (!exists && (await this.createInvitedMember(chatId, actor.sub))) {
+      await this.clearMembershipLeftovers(chatId, actor.sub)
       // Вступивший по ссылке раньше был невидим для группы до перезагрузки (F-F17): ни
       // нового участника в открытом окне, ни строки в ленте, ни сигнала спискам. Теперь —
       // как при добавлении админом: участник в открытое окно, служебная строка в ленту
@@ -2959,11 +3074,68 @@ export class ChatsService implements OnModuleInit {
   }
 
   /**
+   * Заявка на вступление (§8.3). Повторный переход по ссылке заявку не дублирует и админов
+   * второй раз не будит. Админам — уведомление (выключаемое, как запрос на переписку) и
+   * сигнал `chat:join-requests`, по которому экран управления обновляет список.
+   */
+  private async requestToJoin(chatId: string, title: string | null, userId: string) {
+    try {
+      await this.prisma.chatJoinRequest.create({ data: { chatId, userId } })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return
+      throw error
+    }
+    const adminIds = await this.groupAdminIds(chatId)
+    for (const id of adminIds) this.realtime.emitToUser(id, 'chat:join-requests', { chatId })
+    if (adminIds.length === 0) return
+    const from = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true },
+    })
+    const name = `${from?.lastName ?? ''} ${from?.firstName ?? ''}`.trim() || 'Пользователь'
+    // Метка времени в ключе: отклонённый может подать заявку снова, и второе уведомление
+    // не должно отсечься как повтор первого. Дубль одной заявки отсекает уникальный ключ выше.
+    const dedupeKey = `chat-join-request:${chatId}:${userId}:${Date.now()}`
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.CHAT_REQUEST,
+      {
+        recipientIds: adminIds,
+        type: 'SYSTEM',
+        titleKey: 'chats.joinRequest.title',
+        bodyKey: 'chats.joinRequest.body',
+        params: { name, title: title ?? '' },
+        data: { kind: 'chat-join-request', chatId, url: `/chats?c=${chatId}` },
+        dedupeKey,
+      },
+      { jobId: dedupeKey },
+    )
+  }
+
+  /**
+   * Админы группы и владелец — те, кто разбирает заявки. Потолок страховочный: админов
+   * назначают единицы.
+   */
+  async groupAdminIds(chatId: string): Promise<string[]> {
+    const [chat, admins] = await Promise.all([
+      this.prisma.chat.findUnique({ where: { id: chatId }, select: { createdById: true } }),
+      this.prisma.chatMember.findMany({
+        where: { chatId, isAdmin: true, bannedAt: null },
+        select: { userId: true },
+        take: 100,
+      }),
+    ])
+    const ids = new Set(admins.map((a) => a.userId))
+    if (chat?.createdById) ids.add(chat.createdById)
+    return [...ids]
+  }
+
+  /**
    * Строка участника, вступившего по ссылке. `false` — его уже добавил параллельный запрос
    * (двойной клик, две вкладки): вход идемпотентен, и гонка — не ошибка, а успех без второго
    * объявления. Раньше уникальный ключ [chatId, userId] ронял второй запрос в 500.
    */
-  private async createInvitedMember(chatId: string, userId: string): Promise<boolean> {
+  async createInvitedMember(chatId: string, userId: string): Promise<boolean> {
     try {
       // История до вступления — не непрочитанное (см. addMember).
       await this.prisma.chatMember.create({ data: { chatId, userId, lastReadAt: new Date() } })
@@ -3018,7 +3190,10 @@ export class ChatsService implements OnModuleInit {
       input.nonce,
       async () => {
         await this.assertMembership(senderId, input.chatId)
-        await this.assertCanSend(input.chatId, senderId, opts)
+        await this.assertCanSend(input.chatId, senderId, {
+          ...opts,
+          needs: messagePermissionNeeds({ text: input.content }),
+        })
         await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
         const created = await this.prisma.$transaction(async (tx) =>
           tx.message.create({
@@ -3137,14 +3312,16 @@ export class ChatsService implements OnModuleInit {
    */
   async presignAttachment(userId: string, chatId: string, mime: string) {
     await this.assertMembership(userId, chatId)
-    await this.assertCanSend(chatId, userId)
+    // Запрет медиа (§8.3) — уже на загрузке: иначе файл лился бы целиком, чтобы получить
+    // отказ на отправке.
+    await this.assertCanSend(chatId, userId, { needs: messagePermissionNeeds({ media: true }) })
     return this.files.presignPut(this.chatBucket(), mime, userId)
   }
 
   /** Открыть многочастную загрузку вложения (файлы больше порога одиночного PUT). */
   async startAttachmentMultipart(userId: string, chatId: string, mime: string, size: number) {
     await this.assertMembership(userId, chatId)
-    await this.assertCanSend(chatId, userId)
+    await this.assertCanSend(chatId, userId, { needs: messagePermissionNeeds({ media: true }) })
     return this.files.startMultipart({ bucket: this.chatBucket(), mime, size, ownerId: userId })
   }
 
@@ -3216,7 +3393,12 @@ export class ChatsService implements OnModuleInit {
     input: Parameters<ChatsService['sendMessageFromUploads']>[2],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, chatId)
-    await this.assertCanSend(chatId, senderId)
+    await this.assertCanSend(chatId, senderId, {
+      needs: messagePermissionNeeds({
+        text: input.content,
+        media: input.attachments.length > 0,
+      }),
+    })
     await this.assertReplyInChat(chatId, input.replyToId, input.replyQuote)
     const bucket = this.chatBucket()
     // Нормализацию текста делает схема (MessageSendUploadedSchema → messageText).
@@ -3325,7 +3507,9 @@ export class ChatsService implements OnModuleInit {
     files: { buffer: Buffer; name?: string }[],
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
-    await this.assertCanSend(input.chatId, senderId)
+    await this.assertCanSend(input.chatId, senderId, {
+      needs: messagePermissionNeeds({ text: input.content, media: files.length > 0 }),
+    })
     await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
     // Текст уже нормализован схемой (обрезан, без невидимых символов) — здесь только
     // проверка, что сообщение не пустое совсем: без текста оно осмысленно лишь с вложением.
@@ -3472,7 +3656,7 @@ export class ChatsService implements OnModuleInit {
 
   // Системное сообщение группы (§20): служебная запись о событии (актор = actorId). Текст рендерит
   // клиент по systemType + systemMeta (денормализованные детали). Эмитим message:new — попадает в ленту.
-  private async emitSystemMessage(
+  async emitSystemMessage(
     chatId: string,
     actorId: string,
     systemType: string,
@@ -3735,7 +3919,11 @@ export class ChatsService implements OnModuleInit {
     await this.assertMembership(senderId, msg.chatId)
     // Правка — тоже отправка (BUG-163): переписать сообщение у заблокировавшего тебя человека
     // нельзя, и частота правок считается в общий антифлуд.
-    await this.assertCanSend(msg.chatId, senderId, { skipQuota: true })
+    // Права группы — по новому тексту: правкой нельзя вписать ссылку, если ссылки запрещены.
+    await this.assertCanSend(msg.chatId, senderId, {
+      skipQuota: true,
+      needs: messagePermissionNeeds({ text: content }),
+    })
     // Редактирование доступно ограниченное время после отправки (Ф9+).
     if (Date.now() - msg.createdAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {
       throw new AppException(
@@ -4034,7 +4222,8 @@ export class ChatsService implements OnModuleInit {
     // Закрепление пишет в ленту служебное сообщение — это отправка, и правила у неё те же:
     // блокировка, антифлуд и потолок непринятого запроса (§50). Иначе закрепами можно было
     // писать заблокировавшему и сыпать строками «закрепил» во вкладку «Запросы».
-    await this.assertCanSend(msg.chatId, userId, { skipQuota: !pinned })
+    // В группе закреп — отдельное право (§8.3): ни текста, ни медиа он не добавляет.
+    await this.assertCanSend(msg.chatId, userId, { skipQuota: !pinned, needs: ['pinMessages'] })
     const message = toClientMessage(
       await this.prisma.message.update({
         where: { id: messageId },
@@ -4096,7 +4285,7 @@ export class ChatsService implements OnModuleInit {
    */
   async unpinAllMessages(userId: string, chatId: string): Promise<{ count: number }> {
     await this.assertMembership(userId, chatId)
-    await this.assertCanSend(chatId, userId, { skipQuota: true })
+    await this.assertCanSend(chatId, userId, { skipQuota: true, needs: ['pinMessages'] })
     let count = 0
     for (;;) {
       const batch = await this.prisma.message.findMany({
@@ -4524,6 +4713,8 @@ export class ChatsService implements OnModuleInit {
       select: FORWARD_SOURCE_SELECT,
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
+    // Права группы — по тому, что пересылается: пересылкой не обойти запрет медиа или ссылок.
+    await this.assertGroupPermission(targetChatId, userId, forwardNeeds([source]))
     await this.assertMembership(userId, source.chatId)
     // Пост пересылает дальше тот, кто его видит, — как и при «поделиться» (IDOR-защита):
     // иначе карточка уходила бы за пределы аудитории поста через цепочку пересылок.
@@ -4662,6 +4853,7 @@ export class ChatsService implements OnModuleInit {
       await this.assertCanSend(chatId, userId, {
         skipFlood: true,
         count: sources.length + (comment ? 1 : 0),
+        needs: forwardNeeds(sources, comment),
       })
       if (comment) {
         const message = await this.insertTextMessage(userId, chatId, comment, {
@@ -4796,7 +4988,17 @@ export class ChatsService implements OnModuleInit {
   ): Promise<MessageRow> {
     const { message } = await this.withNonce(senderId, chatId, input.nonce, async () => {
       await this.assertMembership(senderId, chatId)
-      await this.assertCanSend(chatId, senderId)
+      // Права группы (§8.3): стикер и GIF (вложение-копия) — «стикеры и GIF», чек-лист — как
+      // опрос, геопозиция и контакт — обычное сообщение. Текст в названии чек-листа или
+      // пунктах может нести ссылку.
+      const checklist = input.data.checklist?.create
+      await this.assertCanSend(chatId, senderId, {
+        needs: messagePermissionNeeds({
+          sticker: input.data.stickerId != null || input.attachments != null,
+          poll: checklist != null,
+          text: checklist ? richChecklistText(checklist) : undefined,
+        }),
+      })
       await this.assertReplyInChat(chatId, input.replyToId)
       const attachments: PendingAttachment[] = []
       let created: { id: string }
@@ -4875,7 +5077,12 @@ export class ChatsService implements OnModuleInit {
     await this.assertMembership(userId, msg.chatId)
     // Блокировка в личном чате останавливает и трансляцию; антифлуд не трогаем — у точек
     // своя частота, а потолок запроса — про новые сообщения.
-    await this.assertCanSend(msg.chatId, userId, { skipFlood: true, skipQuota: true })
+    await this.assertCanSend(msg.chatId, userId, {
+      skipFlood: true,
+      skipQuota: true,
+      // Двигается уже отправленная трансляция: новых прав группы она не требует.
+      needs: [],
+    })
     const now = new Date()
     const { count } = await this.prisma.chatLocation.updateMany({
       where: {
@@ -4992,7 +5199,8 @@ export class ChatsService implements OnModuleInit {
    */
   async assertCanAct(userId: string, chatId: string): Promise<void> {
     await this.assertMembership(userId, chatId)
-    await this.assertCanSend(chatId, userId, { skipQuota: true })
+    // Отметка пункта — как голос в опросе: права отправки группы (§8.3) её не ограничивают.
+    await this.assertCanSend(chatId, userId, { skipQuota: true, needs: [] })
   }
 
   /**
@@ -5093,7 +5301,9 @@ export class ChatsService implements OnModuleInit {
     comment?: string,
   ): Promise<MessageRow> {
     await this.assertMembership(viewer.sub, targetChatId)
-    await this.assertCanSend(targetChatId, viewer.sub)
+    await this.assertCanSend(targetChatId, viewer.sub, {
+      needs: messagePermissionNeeds({ text: comment }),
+    })
     // Бросит NOT_FOUND, если пост не виден отправителю (IDOR-защита).
     await this.posts.assertVisibleToViewer(viewer, postId)
     const created = await this.prisma.$transaction(async (tx) =>
@@ -5679,7 +5889,15 @@ export class ChatsService implements OnModuleInit {
     // оно не добавляет, и упёршийся в потолок запроса инициатор должен мочь поправить своё.
     // count — сколько сообщений действие добавит разом (пересылка пачкой): потолок
     // непринятого запроса сверяется со всей пачкой, а не с первым сообщением.
-    opts: { skipFlood?: boolean; skipQuota?: boolean; count?: number } = {},
+    // needs — права группы, которые нужны действию (§8.3 «Разрешения»): по умолчанию
+    // `sendMessages`; вложения, стикеры, ссылки и опросы добавляют свои (messagePermissionNeeds).
+    // Пустой список — действие над уже отправленным, правами отправки не ограничено.
+    opts: {
+      skipFlood?: boolean
+      skipQuota?: boolean
+      count?: number
+      needs?: readonly ChatPermissionKey[]
+    } = {},
   ): Promise<void> {
     if (!opts.skipFlood) await this.assertNotFlooding(senderId)
     const chat = await this.prisma.chat.findUnique({
@@ -5687,12 +5905,18 @@ export class ChatsService implements OnModuleInit {
       select: {
         type: true,
         requestPendingForId: true,
+        createdById: true,
+        permissions: true,
         // Собеседник нужен только личному чату, а он там один (F-F22): раньше на каждое
         // сообщение в чат факультета читались все остальные участники — тысячи строк ради
         // проверки, которая для группы не делается вовсе.
         members: { where: { userId: { not: senderId } }, select: { userId: true }, take: 1 },
       },
     })
+    if (chat?.type === ChatType.GROUP) {
+      await this.assertGroupPermission(chatId, senderId, opts.needs ?? ['sendMessages'], chat)
+      return
+    }
     if (chat?.type !== ChatType.PRIVATE) return
 
     const other = chat.members[0]?.userId
@@ -5715,6 +5939,41 @@ export class ChatsService implements OnModuleInit {
         )
       }
     }
+  }
+
+  /**
+   * Права участника пользовательской группы (§8.3, экран «Разрешения»). Админов и владельца
+   * ограничения не касаются; группа без создателя (legacy) живёт по правилам assertGroupAdmin —
+   * там все участники с правами админа. Для чатов других типов — ничего не проверяет.
+   *
+   * Строка участника читается, только если право закрыто: в обычной группе, где всё открыто,
+   * проверка не стоит ни одного запроса сверх чтения самого чата.
+   */
+  async assertGroupPermission(
+    chatId: string,
+    userId: string,
+    needs: readonly ChatPermissionKey[],
+    known?: { type: ChatType; createdById: string | null; permissions: Prisma.JsonValue | null },
+  ): Promise<void> {
+    if (needs.length === 0) return
+    const chat =
+      known ??
+      (await this.prisma.chat.findUnique({
+        where: { id: chatId },
+        select: { type: true, createdById: true, permissions: true },
+      }))
+    if (chat?.type !== ChatType.GROUP) return
+    const missing = missingChatPermission(resolveChatPermissions(chat.permissions), needs, false)
+    if (!missing) return
+    if (chat.createdById == null || chat.createdById === userId) return
+    const member = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId } },
+      select: { isAdmin: true },
+    })
+    if (member?.isAdmin) return
+    throw new AppException('CHAT_PERMISSION_DENIED', CHAT_PERMISSION_DENIED_TEXT[missing], [
+      { field: missing, message: CHAT_PERMISSION_DENIED_TEXT[missing] },
+    ])
   }
 
   /**
@@ -5748,7 +6007,7 @@ export class ChatsService implements OnModuleInit {
    * Права «админа» пользовательской группы: участник с isAdmin (создатель — админ по умолчанию).
    * Для legacy-групп без создателя и без админов действие разрешено любому участнику. Возвращает чат.
    */
-  private async assertGroupAdmin(actor: JwtPayload, chatId: string) {
+  async assertGroupAdmin(actor: JwtPayload, chatId: string) {
     const member = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: actor.sub } },
       select: { isAdmin: true, bannedAt: true },
@@ -5767,6 +6026,36 @@ export class ChatsService implements OnModuleInit {
     const legacy = chat.createdById == null
     if (!member.isAdmin && !legacy) {
       throw new AppException('FORBIDDEN', 'Действие доступно только администраторам группы')
+    }
+    return chat
+  }
+
+  /**
+   * Действие админа, которое владелец группы может открыть всем участникам на экране
+   * «Разрешения» (§8.3): добавление людей (`addMembers`), смена названия и описания
+   * (`changeInfo`). Рядовому участнику без права — CHAT_PERMISSION_DENIED, а не FORBIDDEN:
+   * клиент прячет пункт, а не пишет «недостаточно прав».
+   */
+  private async assertGroupAdminOr(actor: JwtPayload, chatId: string, key: ChatPermissionKey) {
+    const member = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: actor.sub } },
+      select: { isAdmin: true, bannedAt: true },
+    })
+    if (!member || member.bannedAt)
+      throw new AppException('WRONG_SCOPE', 'Вы не участник этого чата')
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true, type: true, title: true, createdById: true, permissions: true },
+    })
+    if (!chat) throw new AppException('NOT_FOUND', 'Чат не найден')
+    if (chat.type !== ChatType.GROUP) {
+      throw new AppException('WRONG_SCOPE', 'Действие доступно только в пользовательских группах')
+    }
+    const privileged = member.isAdmin || chat.createdById == null || chat.createdById === actor.sub
+    if (missingChatPermission(resolveChatPermissions(chat.permissions), [key], privileged)) {
+      throw new AppException('CHAT_PERMISSION_DENIED', CHAT_PERMISSION_DENIED_TEXT[key], [
+        { field: key, message: CHAT_PERMISSION_DENIED_TEXT[key] },
+      ])
     }
     return chat
   }
@@ -5835,11 +6124,10 @@ export class ChatsService implements OnModuleInit {
       await this.files.delete(file.id).catch(() => undefined)
       throw error
     }
-    // Прежний файл — после записи. Не удалился — останется строкой без ссылки; на картинку
-    // группы это уже не влияет.
-    await this.deleteChatAvatarFile(chat.avatarUrl, bucket).catch((error: unknown) => {
-      this.logger.warn(`Прежний аватар группы ${chatId} не удалён: ${String(error)}`)
-    })
+    // Прежний файл больше не удаляется: он остаётся в истории фото группы (§8.3, листание в
+    // шапке профиля, как в Telegram). Новое фото — свежая строка истории; сверх потолка
+    // уходят самые старые вместе с файлами.
+    await this.avatarHistory.add({ chatId }, file.id, avatarUrl)
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })
     await this.pingChatList(chatId)
@@ -5847,19 +6135,74 @@ export class ChatsService implements OnModuleInit {
     return { id: updated.id, avatarUrl: updated.avatarUrl ?? avatarUrl }
   }
 
-  /** Удалить аватар группы. */
+  /**
+   * Удалить текущее фото группы. Как в Telegram: фото уходит из истории, а текущим
+   * становится предыдущее (если оно есть) — `avatarUrl` в ответе может быть не null.
+   */
   async removeChatAvatar(
     actor: JwtPayload,
     chatId: string,
-  ): Promise<{ id: string; avatarUrl: null }> {
+  ): Promise<{ id: string; avatarUrl: string | null }> {
     const chat = await this.assertGroupCreator(actor, chatId)
+    return this.dropChatPhoto(chatId, chat.avatarUrl, null)
+  }
+
+  /**
+   * Удалить фото группы из истории (`DELETE /chats/:id/avatars/:photoId`, только создатель).
+   * Текущее — как removeChatAvatar; прошлое — молча, текущее фото группы не меняется.
+   */
+  async deleteChatPhoto(
+    actor: JwtPayload,
+    chatId: string,
+    photoId: string,
+  ): Promise<{ id: string; avatarUrl: string | null }> {
+    const chat = await this.assertGroupCreator(actor, chatId)
+    const photo = await this.avatarHistory.find({ chatId }, photoId)
+    if (!photo) throw new AppException('NOT_FOUND', 'Фото не найдено')
+    return this.dropChatPhoto(chatId, chat.avatarUrl, photo)
+  }
+
+  /** История фото группы — свежие первыми, текущее первым (участникам группы). */
+  async listChatPhotos(userId: string, chatId: string) {
+    await this.assertMembership(userId, chatId)
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { avatarUrl: true },
+    })
+    return this.avatarHistory.list({ chatId }, chat?.avatarUrl ?? null)
+  }
+
+  /** История фото — помощник поверх уже внедрённых prisma и files (см. AvatarHistoryService). */
+  private get avatarHistory(): AvatarHistoryService {
+    return new AvatarHistoryService(this.prisma, this.files)
+  }
+
+  /**
+   * Снять фото группы: строку истории вместе с файлом. Если это текущее фото (или его
+   * строки нет — аватар старше истории), текущим становится самое свежее из оставшихся.
+   */
+  private async dropChatPhoto(
+    chatId: string,
+    currentUrl: string | null,
+    photo: { id: string; url: string } | null,
+  ): Promise<{ id: string; avatarUrl: string | null }> {
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
-    await this.deleteChatAvatarFile(chat.avatarUrl, bucket)
-    await this.prisma.chat.update({ where: { id: chatId }, data: { avatarUrl: null } })
+    const target =
+      photo ?? (currentUrl ? await this.avatarHistory.findByUrl({ chatId }, currentUrl) : null)
+    const isCurrent = photo == null || photo.url === currentUrl
+    if (target) {
+      await this.avatarHistory.remove(target.id)
+    } else if (isCurrent) {
+      // Аватар старше истории: строки нет — снимаем файл по ключу, как раньше.
+      await this.deleteChatAvatarFile(currentUrl, bucket)
+    }
+    if (!isCurrent) return { id: chatId, avatarUrl: currentUrl }
+    const avatarUrl = (await this.avatarHistory.latest({ chatId }))?.url ?? null
+    await this.prisma.chat.update({ where: { id: chatId }, data: { avatarUrl } })
     await this.bumpChat(chatId)
-    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl: null })
+    this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })
     await this.pingChatList(chatId)
-    return { id: chatId, avatarUrl: null }
+    return { id: chatId, avatarUrl }
   }
 
   // Удаляет прежний файл аватара группы по ключу из публичного URL (бакет avatars общий с
@@ -5955,7 +6298,8 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     input: EditChatInput,
   ): Promise<{ id: string; title: string; description: string | null }> {
-    const before = await this.assertGroupAdmin(actor, chatId)
+    // Админы — всегда; рядовые участники — если владелец открыл «смену информации» (§8.3).
+    const before = await this.assertGroupAdminOr(actor, chatId, 'changeInfo')
     const updated = await this.prisma.chat.update({
       where: { id: chatId },
       data: {
@@ -6028,6 +6372,11 @@ export class ChatsService implements OnModuleInit {
     await this.prisma.$transaction([
       this.prisma.chat.update({ where: { id: chatId }, data: { createdById: userId } }),
       this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { isAdmin: true } }),
+      // История фото группы (§8.3) тоже записана на создателя — переезжает вся.
+      this.prisma.file.updateMany({
+        where: { avatarPhoto: { is: { chatId } } },
+        data: { ownerId: userId },
+      }),
       // Аватар группы живёт на создателе (см. setChatAvatar) — переезжает вместе с группой.
       ...(avatarKey
         ? [
@@ -6202,7 +6551,10 @@ export class ChatsService implements OnModuleInit {
    */
   async scheduleMessage(senderId: string, chatId: string, input: ScheduleMessageInput) {
     await this.assertMembership(senderId, chatId)
-    await this.assertCanSend(chatId, senderId)
+    // Права группы сверяются и сейчас, и при доставке (createMessage): их могли закрыть.
+    await this.assertCanSend(chatId, senderId, {
+      needs: messagePermissionNeeds({ text: input.content }),
+    })
     await this.assertReplyInChat(chatId, input.replyToId, input.replyQuote)
     const pending = await this.prisma.scheduledMessage.count({ where: { chatId, senderId } })
     if (pending >= SCHEDULED_PER_CHAT_LIMIT) {
