@@ -156,6 +156,7 @@ import {
 import { ConversationList } from './conversation-list'
 import { ChatWallpaper } from './chat-wallpaper'
 import { ConnectionStatusLine, ConnectionStatusTitle } from './connection-status'
+import { ChatSelectionFooter } from './chat-selection-bar'
 import { useConnectionStatus } from '../lib/use-connection-status'
 import { ChatListRail, ChatListResizeHandle } from './chat-list-rail'
 import { useChatListWidth } from '../lib/use-list-width'
@@ -3605,7 +3606,6 @@ export function ChatWindow() {
                 ownCount={ownSelectedCount}
                 onCancel={exitSelect}
                 onCopy={bulkCopy}
-                onForward={() => setForwardIds(selectedInOrder().map((m) => m.id))}
                 onDelete={bulkDelete}
               />
             )}
@@ -3863,8 +3863,23 @@ export function ChatWindow() {
                     // поверхность всё равно негде. py-2 вокруг 44-px ряда — та же высота, что
                     // у плашки профиля внизу сайдбара: их верхние границы идут одной линией.
                     'lg:pointer-events-auto lg:border-t lg:border-border lg:bg-background lg:py-2',
+                    // Выбор сообщений: поле ввода прячем, оставляя смонтированным (панель выбора).
+                    selectMode && '[&>:not([data-selection-footer])]:hidden',
                   )}
                 >
+                  {/* Режим выбора: действия внизу, на месте поля ввода (Telegram). Поле
+                      остаётся смонтированным — его черновик и вложения не теряются. */}
+                  {selectMode && (
+                    <ChatSelectionFooter
+                      selected={selectedInOrder()}
+                      myId={myId}
+                      canReport={canReport}
+                      onForward={() => setForwardIds(selectedInOrder().map((m) => m.id))}
+                      onCopy={bulkCopy}
+                      onDelete={bulkDelete}
+                      onDone={exitSelect}
+                    />
+                  )}
                   <ChatComposer
                     editing={editing}
                     onCancelEdit={() => {
