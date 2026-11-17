@@ -3,7 +3,14 @@ import { Role } from '@studenthub/shared-types'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Жалобы (docs/PROJECT.md §11, Ф11). Enum'ы дублируют Prisma ComplaintTargetType/ComplaintStatus.
-export const ComplaintTargetTypeSchema = z.enum(['POST', 'STORY', 'COMMENT', 'MESSAGE', 'USER'])
+export const ComplaintTargetTypeSchema = z.enum([
+  'POST',
+  'STORY',
+  'COMMENT',
+  'MESSAGE',
+  'USER',
+  'CHAT',
+])
 export type ComplaintTargetTypeValue = z.infer<typeof ComplaintTargetTypeSchema>
 
 export const ComplaintStatusSchema = z.enum(['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'])
@@ -32,6 +39,8 @@ export const COMPLAINT_PRIORITY_BY_TARGET: Record<
   MESSAGE: 'HIGH',
   POST: 'MEDIUM',
   STORY: 'MEDIUM',
+  // Группа целиком (название, фото, назначение) — публичное внутри вуза, как пост.
+  CHAT: 'MEDIUM',
   COMMENT: 'LOW',
 }
 
