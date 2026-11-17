@@ -149,6 +149,7 @@ export {
   closeAudio,
   getAudioElement,
   isVoiceRecording,
+  LONG_AUDIO_SEC,
   nudgeAudio,
   playAudioTrack,
   playNeighbour,
@@ -160,6 +161,15 @@ export {
   type AudioTrack,
 } from './lib/audio-player'
 export { useAudioQueue, usePlaylistQueue } from './lib/use-audio-queue'
+export {
+  setAudioVolume,
+  toggleAudioMuted,
+  toggleAudioRepeat,
+  toggleAudioShuffle,
+  useAudioSettings,
+  type AudioRepeat,
+  type AudioSettings,
+} from './lib/audio-settings'
 export {
   composerKeys,
   fetchStickerSets,

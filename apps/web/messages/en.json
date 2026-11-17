@@ -2701,6 +2701,13 @@
       "closePlayer": "Close player",
       "voiceMessage": "Voice message"
     },
+    "tgMedia2": {
+      "volume": "Volume",
+      "playbackOrder": "Playback order",
+      "shuffle": "Shuffle",
+      "repeatAll": "Repeat all",
+      "repeatOne": "Repeat track"
+    },
     "spoiler": "Spoiler",
     "spoilerToggle": "Hide as spoiler",
     "savedMessages": "Saved Messages",

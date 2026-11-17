@@ -2701,6 +2701,13 @@
       "closePlayer": "Ойнатқышты жабу",
       "voiceMessage": "Дауыстық хабарлама"
     },
+    "tgMedia2": {
+      "volume": "Дыбыс деңгейі",
+      "playbackOrder": "Ойнату реті",
+      "shuffle": "Араластыру",
+      "repeatAll": "Барлығын қайталау",
+      "repeatOne": "Тректі қайталау"
+    },
     "spoiler": "Спойлер",
     "spoilerToggle": "Спойлер астына жасыру",
     "savedMessages": "Сақталған",

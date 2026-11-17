@@ -2701,6 +2701,13 @@
       "closePlayer": "Закрыть плеер",
       "voiceMessage": "Голосовое сообщение"
     },
+    "tgMedia2": {
+      "volume": "Громкость",
+      "playbackOrder": "Порядок воспроизведения",
+      "shuffle": "Перемешать",
+      "repeatAll": "Повторять все",
+      "repeatOne": "Повторять трек"
+    },
     "spoiler": "Спойлер",
     "spoilerToggle": "Скрыть под спойлер",
     "savedMessages": "Сохранённые",
