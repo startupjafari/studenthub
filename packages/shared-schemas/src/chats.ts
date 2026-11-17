@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 import { vm } from './validation-messages.js'
+import { httpUrl } from './url.js'
 
 // Чаты (docs/PROJECT.md §3.6, §9; Ф9). ChatType дублирует Prisma-enum.
 
@@ -584,9 +585,34 @@ export const MessageForwardBatchSchema = z
     // «Скрыть имя отправителя»: копии уходят как свои сообщения пересылающего — без
     // «Переслано от» (forwardedFromId не ставится). Содержимое и вложения те же.
     hideSender: z.boolean().optional(),
+    // «Скрыть подписи»: у сообщений с вложениями текст не копируется — уходят только файлы.
+    // Как в Telegram, включает и hideSender: подпись без имени автора — уже не его слова.
+    hideCaptions: z.boolean().optional(),
+    // Комментарий уходит без превью ссылки (плашку закрыли над полем ввода).
+    noLinkPreview: z.boolean().optional(),
   })
   .strict()
 export type MessageForwardBatchInput = z.infer<typeof MessageForwardBatchSchema>
+
+/**
+ * Первая http(s)-ссылка текста — по ней строится превью сообщения. Общая для сервера (job
+ * превью отправленного) и клиента (плашка превью над полем ввода): разойдись они, человек
+ * видел бы над полем одну карточку, а под сообщением — другую.
+ */
+export function firstLinkUrl(content?: string | null): string | undefined {
+  return content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+}
+
+/** Потолок длины ссылки для превью черновика: длиннее браузеры и сайты сами не держат. */
+export const LINK_PREVIEW_URL_MAX = 2048
+
+/**
+ * Превью ссылки для черновика (`GET /chats/link-preview?url=`): карточка над полем ввода до
+ * отправки, как в Telegram. Только http(s); остальное (приватные адреса, редиректы внутрь
+ * сети) отсекает сервер при выборке.
+ */
+export const LinkPreviewQuerySchema = z.object({ url: httpUrl(LINK_PREVIEW_URL_MAX) }).strict()
+export type LinkPreviewQueryInput = z.infer<typeof LinkPreviewQuerySchema>
 
 /**
  * Недавние файлы для листа вложений (`GET /chats/files/recent`): `document` — документы,
@@ -862,6 +888,9 @@ export const MessageSendSchema = z
     replyQuote: z.string().min(1).max(500).optional(),
     // Отправить «без звука»: сообщение доставляется, уведомление и push по нему — нет.
     silent: z.boolean().optional(),
+    // «Без превью ссылки»: человек закрыл плашку превью над полем ввода — карточку под
+    // сообщением не строим (job выборки не ставится). Нет поля — превью как раньше.
+    noLinkPreview: z.boolean().optional(),
     // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
     // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
     nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
@@ -875,7 +904,12 @@ export const MessageSendSchema = z
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
 export const MessageEditSchema = z
-  .object({ messageId: z.string().min(1), content: messageText() })
+  .object({
+    messageId: z.string().min(1),
+    content: messageText(),
+    // Превью ссылки закрыто в режиме правки: прежняя карточка снимается, новая не строится.
+    noLinkPreview: z.boolean().optional(),
+  })
   .strict()
 export type MessageEditInput = z.infer<typeof MessageEditSchema>
 
