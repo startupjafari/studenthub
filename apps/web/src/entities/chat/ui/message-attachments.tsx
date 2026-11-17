@@ -25,7 +25,8 @@ import { fileKind } from '../lib/file-kind'
 import { isViewable, isVoice } from '../lib/attachment-kind'
 import type { MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
-import { VoiceMessage } from './voice-message'
+import { VoiceMessage, type VoiceTrackMeta } from './voice-message'
+import { isVoiceRecording } from '../lib/audio-player'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 
 // Голосовое сообщение (плеер-волна), а не обычное аудио/видео вложение.
@@ -411,10 +412,13 @@ function Single({
   onCancel,
   sendFailed: messageFailed,
   onRetry,
+  audioMeta,
 }: {
   att: MessageAttachment
   mine: boolean
   onOpen?: () => void
+  /** Подписи голосового или песни для панели аудиоплеера: автор, когда, «к сообщению». */
+  audioMeta?: VoiceTrackMeta
   /** Прервать загрузку этого сообщения (крестик в оверлее). Нет — отменять нечего. */
   onCancel?: () => void
   /** Сообщение не ушло: отправка упала и сама уже не возобновится. */
@@ -497,7 +501,7 @@ function Single({
   if (isVoice(att)) {
     return (
       <span className={cn('relative inline-flex', uploading && 'opacity-60')}>
-        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} />
+        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} meta={audioMeta} />
         {uploading && (
           <span className="absolute right-1 top-1/2 -translate-y-1/2">
             <Loader2 className="size-4 animate-spin opacity-70" aria-hidden />
@@ -1021,6 +1025,19 @@ export function MessageAttachments({
   const others = media.filter((a) => !isViewable(a))
   const openViewer = (att: MessageAttachment): void =>
     setViewerIndex(viewable.findIndex((v) => v.id === att.id))
+  // Голосовое — подписано автором, песня — своим названием, автор уходит во вторую строку
+  // (как в панели плеера Telegram).
+  const audioMetaOf = (att: MessageAttachment): VoiceTrackMeta | undefined => {
+    if (!viewerMeta) return undefined
+    const voice = isVoiceRecording(att)
+    return {
+      voice,
+      title: voice ? viewerMeta.senderName : (att.name ?? viewerMeta.senderName),
+      performer: voice ? null : viewerMeta.senderName,
+      createdAt: viewerMeta.createdAt,
+      onGoTo: viewerActions?.onGoTo,
+    }
+  }
   // Миниатюра кадра — в своём пузыре, а не первая попавшаяся на странице: тот же файл может
   // лежать и в соседнем пересланном сообщении, и в панели «Медиа».
   const originOf = (i: number): HTMLElement | null => {
@@ -1059,6 +1076,7 @@ export function MessageAttachments({
           onCancel={onCancel}
           sendFailed={sendFailed}
           onRetry={onRetry}
+          audioMeta={audioMetaOf(att)}
         />
       ))}
       {viewerIndex !== null && (

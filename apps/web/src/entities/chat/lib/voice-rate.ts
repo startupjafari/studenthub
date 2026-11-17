@@ -40,13 +40,14 @@ export function cycleVoiceRate(): void {
   for (const fn of listeners) fn()
 }
 
+/** Подписка вне React: общий аудиоплеер подхватывает новую скорость прямо на играющем. */
+export function subscribeVoiceRate(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => {
+    listeners.delete(fn)
+  }
+}
+
 export function useVoiceRate(): number {
-  return useSyncExternalStore(
-    (fn) => {
-      listeners.add(fn)
-      return () => listeners.delete(fn)
-    },
-    getVoiceRate,
-    () => 1,
-  )
+  return useSyncExternalStore(subscribeVoiceRate, getVoiceRate, () => 1)
 }
