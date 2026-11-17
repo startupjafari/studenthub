@@ -1,17 +1,21 @@
 'use client'
 
 import { useRef, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { Check, Mic, Send } from 'lucide-react'
+import { Check, Mic, Send, Video } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 
 export type MainButtonMode = 'record' | 'send' | 'edit'
+/** Что пишет кнопка в режиме записи: голосовое (микрофон) или кружок (камера). */
+export type RecordKind = 'voice' | 'video'
 
 /** Сколько держать палец на «Отправить», чтобы открылось меню способа отправки. */
 const LONG_PRESS_MS = 400
 
 /**
  * Главная кнопка поля ввода, как в Telegram: одна кнопка на месте, а значок меняется —
- * микрофон, пока поле пустое, самолётик, когда есть что отправить, галочка в режиме правки.
+ * микрофон (или камера кружка), пока поле пустое, самолётик, когда есть что отправить,
+ * галочка в режиме правки. Микрофон и камеру переключает короткое нажатие, правый клик или
+ * клавиша меню; удержание пишет.
  * Значки лежат стопкой и меняются масштабом с прозрачностью; при сниженной анимации остаётся
  * только смена прозрачности.
  *
@@ -19,6 +23,8 @@ const LONG_PRESS_MS = 400
  */
 export function ComposerMainButton({
   mode,
+  recordKind = 'voice',
+  onToggleRecordKind,
   holding,
   ariaLabel,
   disabled,
@@ -29,6 +35,9 @@ export function ComposerMainButton({
   onRecordPointerDown,
 }: {
   mode: MainButtonMode
+  recordKind?: RecordKind
+  /** Переключить голосовое ↔ кружок с клавиатуры или правым кликом. Нет — кружка нет. */
+  onToggleRecordKind?: () => void
   /** Палец держит запись голосового: кнопка крупнее — как в Telegram. Цвет задаёт `className`. */
   holding: boolean
   ariaLabel: string
@@ -71,6 +80,12 @@ export function ComposerMainButton({
       onContextMenu={(e) => {
         // Меню браузера на кнопке отправки бесполезно; на записи — мешает удержанию.
         e.preventDefault()
+        // На записи правый клик (и клавиша меню) — переключение голосового и кружка: мышью
+        // короткое нажатие тоже переключает, а с клавиатуры другого пути нет.
+        if (mode === 'record' && !holding) {
+          onToggleRecordKind?.()
+          return
+        }
         if (!onMenu || mode !== 'send') return
         const box = e.currentTarget.getBoundingClientRect()
         const keyboard = e.clientX === 0 && e.clientY === 0
@@ -82,9 +97,9 @@ export function ComposerMainButton({
       onPointerDown={(e) => {
         swallowClick.current = false
         if (mode === 'record') {
-          // Палец записывает удержанием (useComposerVoiceHold), и click после отпускания
-          // запустил бы вторую запись — тот обработчик для мыши и клавиатуры.
-          if (e.pointerType !== 'mouse') swallowClick.current = true
+          // Удержание пишет, короткое нажатие переключает (useComposerVoiceHold) — и палец, и
+          // мышь. Click после отпускания запустил бы ещё и запись: click — для клавиатуры.
+          swallowClick.current = true
           onRecordPointerDown(e)
           return
         }
@@ -111,7 +126,8 @@ export function ComposerMainButton({
     >
       <Send className={icon(mode === 'send')} aria-hidden />
       <Check className={icon(mode === 'edit')} aria-hidden />
-      <Mic className={icon(mode === 'record')} aria-hidden />
+      <Mic className={icon(mode === 'record' && recordKind === 'voice')} aria-hidden />
+      <Video className={icon(mode === 'record' && recordKind === 'video')} aria-hidden />
     </button>
   )
 }

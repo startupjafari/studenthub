@@ -22,8 +22,14 @@ import {
 const LOCK_DISTANCE = 72
 /** Сколько провести влево, чтобы отменить запись. */
 const CANCEL_DISTANCE = 120
-/** Короче — это касание, а не удержание: запись отменяется, человеку подсказываем жест. */
+/**
+ * Короче — это касание, а не удержание: запись не начинается вовсе, касание уходит в `onTap`
+ * (переключение «голосовое ↔ кружок», как в Telegram). Запись стартует, только когда палец
+ * продержался дольше, — иначе каждое переключение дёргало бы микрофон и камеру.
+ */
 const TAP_MS = 250
+/** Палец уехал дальше до начала записи — это не касание и не удержание, а промах: ничего. */
+const TAP_SLOP = 12
 
 type Point = { position: number; time: number }
 
@@ -36,13 +42,15 @@ export interface ComposerVoiceHold {
   lockRef: RefObject<HTMLDivElement | null>
   /** Подсказка «влево — отмена»: уезжает вслед за пальцем и гаснет. */
   hintRef: RefObject<HTMLDivElement | null>
-  /** Обработчик нажатия на кнопку записи — только палец и перо; мышь записывает по клику. */
+  /** Обработчик нажатия на кнопку записи: палец, перо и мышь (клавиатура — кликом). */
   onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => void
 }
 
 /**
- * Запись голосового удержанием, как в Telegram на телефоне: держишь — пишется, отпустил —
- * ушло; вверх до замка — запись фиксируется и пальцы свободны; влево — отмена.
+ * Запись удержанием, как в Telegram на телефоне: держишь — пишется, отпустил — ушло; вверх до
+ * замка — запись фиксируется и пальцы свободны; влево — отмена. Короткое нажатие не пишет, а
+ * зовёт `onTap` — переключение голосового и кружка. Рекордер любой: голосовой или кружка, у
+ * них общий контроллер.
  *
  * Слушатели движения висят на окне, а не на кнопке: пока идёт запись, строка ввода
  * перестраивается, и привязанная к элементу цель жеста могла бы потеряться. Положение
@@ -53,7 +61,7 @@ export interface ComposerVoiceHold {
  */
 export function useComposerVoiceHold(
   voice: VoiceRecorderController,
-  { onTapHint }: { onTapHint: () => void },
+  { onTap }: { onTap: () => void },
 ): ComposerVoiceHold {
   const [holding, setHolding] = useState(false)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
@@ -66,8 +74,8 @@ export function useComposerVoiceHold(
   const detach = useRef<(() => void) | null>(null)
   const voiceRef = useRef(voice)
   voiceRef.current = voice
-  const tapHintRef = useRef(onTapHint)
-  tapHintRef.current = onTapHint
+  const tapRef = useRef(onTap)
+  tapRef.current = onTap
 
   useEffect(() => {
     if (voice.recording && cancelOnStart.current) {
@@ -134,7 +142,7 @@ export function useComposerVoiceHold(
   }
 
   function onPointerDown(e: ReactPointerEvent<HTMLButtonElement>): void {
-    if (e.pointerType === 'mouse' || e.button !== 0 || voiceRef.current.recording) return
+    if (e.button !== 0 || voiceRef.current.recording) return
     // Без этого браузер начнёт выделение текста или откроет меню долгого нажатия.
     e.preventDefault()
     detach.current?.()
@@ -143,21 +151,32 @@ export function useComposerVoiceHold(
     const pointerId = e.pointerId
     const x0 = e.clientX
     const y0 = e.clientY
-    const t0 = performance.now()
     const histX: Point[] = []
     const histY: Point[] = []
     let dx = 0
     let dy = 0
     let done = false
+    let started = false
 
-    cancelOnStart.current = false
-    setHolding(true)
-    void voiceRef.current.start()
+    // Запись — только после TAP_MS удержания: короткое нажатие её не трогает вовсе.
+    const startTimer = setTimeout(() => {
+      started = true
+      cancelOnStart.current = false
+      setHolding(true)
+      hapticTick()
+      void voiceRef.current.start()
+    }, TAP_MS)
 
     const finish = (outcome: 'send' | 'lock' | 'cancel' | 'tap'): void => {
       if (done) return
       done = true
+      clearTimeout(startTimer)
       detach.current?.()
+      if (!started) {
+        // Запись не начиналась: касание — переключение, промах и отмена — ничего.
+        if (outcome === 'tap') tapRef.current()
+        return
+      }
       setHolding(false)
       const v = voiceRef.current
       if (outcome === 'lock') {
@@ -172,13 +191,17 @@ export function useComposerVoiceHold(
         cancelOnStart.current = true
       }
       if (outcome === 'cancel') hapticTick()
-      if (outcome === 'tap') tapHintRef.current()
       settle(dx, dy, velocityFrom(histX), velocityFrom(histY))
     }
 
     const onMove = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return
       const now = performance.now()
+      if (!started) {
+        // До начала записи палец не ведёт кнопку; уехал далеко — это не касание.
+        if (Math.hypot(ev.clientX - x0, ev.clientY - y0) > TAP_SLOP) finish('cancel')
+        return
+      }
       const rawX = Math.min(0, ev.clientX - x0)
       const rawY = Math.min(0, ev.clientY - y0)
       histX.push({ position: rawX, time: now })
@@ -206,7 +229,7 @@ export function useComposerVoiceHold(
         finish('cancel')
         return
       }
-      if (performance.now() - t0 < TAP_MS) {
+      if (!started) {
         finish('tap')
         return
       }
@@ -221,6 +244,8 @@ export function useComposerVoiceHold(
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
     detach.current = () => {
+      // Размонтирование до начала записи не должно запустить её задним числом.
+      clearTimeout(startTimer)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)

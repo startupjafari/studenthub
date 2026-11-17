@@ -36,6 +36,8 @@ export {
   fetchChatMembers,
   fetchReadReceipts,
   saveChatDraft,
+  type SavedChatDraft,
+  fetchMessageViews,
   addChatMemberRequest,
   removeChatMemberRequest,
   banChatMemberRequest,
@@ -81,6 +83,7 @@ export {
   type ChatListItem,
   type MessageAttachment,
   type MessageReplyPreview,
+  type ReplyMediaPreview,
   type MessageForwardOrigin,
   type MessageReaction,
   type SharedPostPreview,
@@ -125,10 +128,18 @@ export {
   type MessageMenuTarget,
 } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
+export {
+  useRoundVideoRecorder,
+  ROUND_VIDEO_MAX_SECONDS,
+  type RoundVideoRecorderController,
+} from './lib/use-round-video-recorder'
+export { RoundVideo } from './ui/round-video'
+export { useMessageViews, formatViews } from './lib/use-message-views'
 export { fileKind, type FileKind } from './lib/file-kind'
 export {
   attachmentKind,
   isViewable,
+  isVideoNote,
   isVoice,
   mediaPreview,
   type AttachmentKind,

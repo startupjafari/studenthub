@@ -2950,6 +2950,18 @@
     "unarchivedDone": "Чат возвращён в список",
     "quotingFrom": "Цитата из {name}",
     "sendOptions": "Способ отправки",
+    "tgMessage": {
+      "previewRound": "{n, plural, one {Видеосообщение} few {# видеосообщения} many {# видеосообщений} other {# видеосообщения}}",
+      "recordRound": "Записать видеосообщение",
+      "holdToRecordRound": "Удерживайте кнопку, чтобы записать видеосообщение; нажмите — чтобы вернуться к голосовому",
+      "roundPlay": "Воспроизвести видеосообщение",
+      "roundPause": "Пауза",
+      "roundUnsupported": "Браузер не умеет записывать видео",
+      "roundDenied": "Нет доступа к камере или микрофону",
+      "roundRecording": "Идёт запись видеосообщения",
+      "replyRound": "Видеосообщение",
+      "views": "{count, plural, one {# просмотр} few {# просмотра} many {# просмотров} other {# просмотра}}"
+    },
     "tgComposer": {
       "attachChecklist": "Чек-лист",
       "checklistTitle": "Новый чек-лист",

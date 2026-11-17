@@ -40,6 +40,7 @@ import {
   type CatalogSticker,
   type ChatMemberInfo,
   type ChatMessage,
+  type RoundVideoRecorderController,
   type VoiceRecorderController,
 } from '../../../entities/chat'
 import {
@@ -53,7 +54,9 @@ import { plainPreview } from '../lib/format'
 import { useMediaQuery } from '../../../shared/lib'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useComposerVoiceHold } from '../lib/composer-voice-hold'
-import { ComposerMainButton, type MainButtonMode } from './composer-main-button'
+import { ComposerMainButton, type MainButtonMode, type RecordKind } from './composer-main-button'
+import { ComposerRoundPreview } from './composer-round-preview'
+import { ReplyThumb, replyThumbOf } from './message-reply-quote'
 import { ComposerMentionList } from './composer-mention-list'
 import { ComposerSymbolMenu, type PickedGif, type SymbolTab } from './composer-symbol-menu'
 import { ComposerScheduleDialog } from './composer-schedule-dialog'
@@ -64,6 +67,9 @@ import { ComposerChecklistCreator } from './composer-checklist-creator'
 // захлопывается на любом дрожании руки по дороге к ней; полсекунды — что она висит уже
 // после того, как человек ушёл. 180 мс — привычный запас из десктопных меню.
 const HOVER_CLOSE_MS = 180
+
+/** Ключ браузерного хранилища: что пишет кнопка записи — голосовое или кружок. */
+const RECORD_KIND_KEY = 'chat.recordKind'
 
 /**
  * Поповер панели ввода, который раскрывается наведением, а не нажатием: смайлы и опции
@@ -199,6 +205,11 @@ export type ChatComposerProps = {
   onCloseMentions: () => void
   myId: string | undefined
   voice: VoiceRecorderController
+  /**
+   * Запись кружка (видеосообщения). Есть — короткое нажатие на микрофон переключает его на
+   * камеру и обратно, как в Telegram; нет — кнопка пишет только голосовое.
+   */
+  round?: RoundVideoRecorderController
   recMMSS: string
   /**
    * Открытый чат: по нему поле ввода само шлёт стикеры, GIF и чек-листы и ставит
@@ -241,6 +252,7 @@ export function ChatComposer({
   onCloseMentions,
   myId,
   voice,
+  round,
   recMMSS,
   chatId = null,
   onSendSilent,
@@ -268,9 +280,45 @@ export function ChatComposer({
   const mentionIndex = mentionPick.key === mentionKey ? mentionPick.index : 0
   const setMentionIndex = (index: number): void => setMentionPick({ key: mentionKey, index })
   const mentionListId = useId()
-  const hold = useComposerVoiceHold(voice, {
-    onTapHint: () => toast(t('tgComposer.voiceHoldHint')),
-  })
+  // Что пишет кнопка записи: голосовое или кружок. Последний выбор помним в браузере — как в
+  // Telegram, где кнопка остаётся камерой, если ей пользовались последней.
+  // Читаем после монтирования: на сервере хранилища нет, и разметка разошлась бы с клиентской.
+  const [recordKind, setRecordKind] = useState<RecordKind>('voice')
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(RECORD_KIND_KEY) === 'video') setRecordKind('video')
+    } catch {
+      // Хранилище закрыто (приватное окно) — остаётся голосовое.
+    }
+  }, [])
+  const kind: RecordKind = round ? recordKind : 'voice'
+  // Идущая запись держит свой рекордер, что бы ни было выбрано: переключение посреди записи
+  // не должно терять её.
+  const recorder: VoiceRecorderController =
+    round && (round.recording || (kind === 'video' && !voice.recording)) ? round : voice
+  const recordingRound = !!round && recorder === round
+  const toggleRecordKind = (): void => {
+    if (!round || voice.recording || round.recording) {
+      toast(t('tgComposer.voiceHoldHint'))
+      return
+    }
+    const next: RecordKind = kind === 'video' ? 'voice' : 'video'
+    setRecordKind(next)
+    try {
+      window.localStorage.setItem(RECORD_KIND_KEY, next)
+    } catch {
+      // Хранилище закрыто (приватное окно) — выбор живёт до перезагрузки, и только.
+    }
+    // Подсказка жеста — одна на экране: id заменяет прошлую, а не копит стопку.
+    toast(t(next === 'video' ? 'tgMessage.holdToRecordRound' : 'tgComposer.voiceHoldHint'), {
+      id: 'composer-record-kind',
+    })
+  }
+  const hold = useComposerVoiceHold(recorder, { onTap: toggleRecordKind })
+  // Таймер строки записи — по идущему рекордеру: у кружка свой счётчик секунд.
+  const recLabel = recordingRound
+    ? `${Math.floor(recorder.seconds / 60)}:${String(recorder.seconds % 60).padStart(2, '0')}`
+    : recMMSS
   // Наведение открывает меню только на ПК. На узком экране (в том числе в узком окне
   // браузера с мышью) панель смайлов доковано под полем ввода и занимает пол-экрана:
   // раскрывать её проездом курсора — то же самое, что открывать клавиатуру наведением.
@@ -287,6 +335,7 @@ export function ChatComposer({
   // пишут тут же, без лишнего клика по полю. Два кадра ожидания: меню сообщения при
   // закрытии возвращает фокус на свою кнопку, и наш фокус должен прийти после него.
   const replyId = replyTo?.id
+  const replyThumb = replyTo ? replyThumbOf(replyTo.media) : null
   useEffect(() => {
     if (!replyId) return
     let inner = 0
@@ -427,7 +476,7 @@ export function ChatComposer({
 
   // Главная кнопка: запись голосового (удержанием или кликом), отправка, подтверждение правки.
   // Пока запись зафиксирована (замок или клик мышью), кнопка отправляет голосовое.
-  const voiceLocked = voice.recording && !hold.holding
+  const voiceLocked = recorder.recording && !hold.holding
   const mainMode: MainButtonMode = voiceLocked
     ? 'send'
     : editing
@@ -469,7 +518,7 @@ export function ChatComposer({
     // «скрепка · поле · микрофон». Отступ до края экрана держит обёртка в ChatWindow;
     // pointer-events-auto — обёртка их снимает, чтобы лента прокручивалась рядом с панелью.
     <div
-      className="pointer-events-auto flex flex-col gap-2"
+      className="pointer-events-auto relative flex flex-col gap-2"
       // Ctrl+V со скриншотом — основной способ отправить картинку в мессенджере, и раньше
       // он не работал вовсе: вставка уходила в редактор как текст (то есть в никуда).
       // Слушаем на обёртке, а не внутри RichTextField: событие всплывает из
@@ -484,6 +533,11 @@ export function ChatComposer({
         onFilesPicked(files)
       }}
     >
+      {/* Кружок пишется — над полем ввода круглое превью камеры с кольцом длины (Telegram). */}
+      {recordingRound && round?.stream && (
+        <ComposerRoundPreview stream={round.stream} seconds={round.seconds} />
+      )}
+
       {/* Панель правки (Telegram-стиль): иконка · вертикальная полоса-акцент · заголовок
           акцентным цветом и однострочное превью · крестик. Полоса — та же метка «это про
           вон то сообщение», что у цитаты в пузыре; без неё панель читалась как обычная
@@ -535,6 +589,8 @@ export function ChatComposer({
         >
           <Reply className="size-4 shrink-0 text-primary" aria-hidden />
           <span className="h-8 w-0.5 shrink-0 rounded-full bg-primary" aria-hidden />
+          {/* Миниатюра снимка или ролика оригинала — как в плашке ответа Telegram. */}
+          {replyThumb && <ReplyThumb media={replyThumb} className="size-8" />}
           {/* Нажатие по плашке ведёт к оригиналу в ленте — как в Telegram. */}
           <button
             type="button"
@@ -555,7 +611,8 @@ export function ChatComposer({
                 replyQuote && 'italic',
               )}
             >
-              {plainPreview(replyQuote || replyTo.content) || t('attachment')}
+              {plainPreview(replyQuote || replyTo.content) ||
+                (replyThumb?.videoNote ? t('tgMessage.replyRound') : t('attachment'))}
             </span>
           </button>
           <button
@@ -626,7 +683,7 @@ export function ChatComposer({
         // круглые кнопки остаются внизу, на своей линии.
         <div className="relative flex items-end gap-2">
           {/* Подсказка @-упоминаний: ↑/↓ — выбор, Enter/Tab — вставить, Esc — закрыть. */}
-          {mentionCandidates.length > 0 && !voice.recording && (
+          {mentionCandidates.length > 0 && !recorder.recording && (
             <ComposerMentionList
               id={mentionListId}
               candidates={mentionCandidates}
@@ -684,7 +741,7 @@ export function ChatComposer({
                 aria-hidden
               />
               <span className="w-10 shrink-0 tabular-nums text-sm text-muted-foreground">
-                {recMMSS}
+                {recLabel}
               </span>
               <div
                 ref={hold.hintRef}
@@ -694,14 +751,14 @@ export function ChatComposer({
                 <span className="truncate">{t('tgComposer.voiceSlideToCancel')}</span>
               </div>
             </div>
-          ) : voice.recording ? (
+          ) : recorder.recording ? (
             // Зафиксированная запись: отмена · таймер + волны · пауза/продолжить. Отправка —
-            // главной кнопкой справа (она же была микрофоном).
+            // главной кнопкой справа (она же была микрофоном). У кружка строка та же.
             <>
               <button
                 type="button"
                 aria-label={t('cancelRecording')}
-                onClick={voice.cancel}
+                onClick={recorder.cancel}
                 className={cn(roundBtn, 'text-destructive hover:text-destructive')}
               >
                 <Trash2 className="size-6 lg:size-5" aria-hidden />
@@ -715,21 +772,21 @@ export function ChatComposer({
                 <span
                   className={cn(
                     'size-2 shrink-0 rounded-full bg-destructive',
-                    !voice.paused && 'animate-pulse',
+                    !recorder.paused && 'animate-pulse',
                   )}
                   aria-hidden
                 />
                 <span className="w-10 shrink-0 tabular-nums text-sm text-muted-foreground">
-                  {recMMSS}
+                  {recLabel}
                 </span>
-                <VoiceWaveform analyserRef={voice.analyserRef} paused={voice.paused} />
+                <VoiceWaveform analyserRef={recorder.analyserRef} paused={recorder.paused} />
                 <button
                   type="button"
-                  aria-label={voice.paused ? t('resumeRecording') : t('pauseRecording')}
-                  onClick={voice.paused ? voice.resume : voice.pause}
+                  aria-label={recorder.paused ? t('resumeRecording') : t('pauseRecording')}
+                  onClick={recorder.paused ? recorder.resume : recorder.pause}
                   className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground lg:size-7"
                 >
-                  {voice.paused ? (
+                  {recorder.paused ? (
                     <Play className="size-4" aria-hidden />
                   ) : (
                     <Pause className="size-4" aria-hidden />
@@ -923,10 +980,14 @@ export function ChatComposer({
             <ComposerMainButton
               buttonRef={hold.buttonRef}
               mode={mainMode}
+              recordKind={kind}
+              onToggleRecordKind={round ? toggleRecordKind : undefined}
               holding={hold.holding}
               ariaLabel={
                 mainMode === 'record'
-                  ? t('recordVoice')
+                  ? kind === 'video'
+                    ? t('tgMessage.recordRound')
+                    : t('recordVoice')
                   : mainMode === 'edit'
                     ? t('tgComposer.saveEdit')
                     : t('send')
@@ -934,8 +995,8 @@ export function ChatComposer({
               disabled={!connected && !voiceLocked}
               className={mainMode === 'record' && !hold.holding ? roundBtn : sendBtn}
               onClick={() => {
-                if (voiceLocked) voice.finish()
-                else if (mainMode === 'record') void voice.start()
+                if (voiceLocked) recorder.finish()
+                else if (mainMode === 'record') void recorder.start()
                 else onSend()
               }}
               onMenu={
@@ -983,7 +1044,7 @@ export function ChatComposer({
           Всплывающее окно у кнопки здесь не работает: оно шириной в половину экрана, висит
           над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
           и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
-      {emoji.open && !voice.recording && (
+      {emoji.open && !recorder.recording && (
         // Во всю ширину экрана: отрицательные поля гасят отступы плавающего острова, а
         // скругления и рамка остаются только сверху — панель встаёт на место клавиатуры и
         // с трёх сторон уходит за кромку, как в Telegram.

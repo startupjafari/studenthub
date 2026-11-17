@@ -61,11 +61,14 @@ import {
   updateChatFolderRequest,
   deleteChatFolderRequest,
   useVoiceRecorder,
+  useRoundVideoRecorder,
+  useMessageViews,
   createRefreshCoalescer,
   scheduleChatsUnreadRefresh,
   applyLocationUpdate,
   type ChatFolder,
   type ChatListItem,
+  type SavedChatDraft,
   type ChatMemberInfo,
   type ChatMessage,
   type ChatReadReceipt,
@@ -80,6 +83,7 @@ import { firstUnreadIndex, unreadAfter, withReceipt } from '../lib/read-tracking
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
   mergeChatHead,
+  withDraft,
   withEditedMessage,
   withNewMessage,
   withOthersRead,
@@ -193,6 +197,8 @@ interface UploadPayload {
   spoilerIndexes?: number[]
   asFiles?: boolean
   silent?: boolean
+  /** Кружок: единственное вложение — видеосообщение с камеры. */
+  videoNote?: boolean
 }
 
 /** Чат-события, об отказе в которых человеку нужно сказать. Прочтение, «печатает» и вход в
@@ -1066,6 +1072,20 @@ export function ChatWindow() {
       toast.error(t(kind === 'unsupported' ? 'recordUnsupported' : 'recordDenied'))
     },
   })
+  // Запись кружка (видеосообщения): по завершению уходит так же сразу, вложением с флагом.
+  // Подписи «записывает…» на время записи нет: у действий чата нет «записывает видео», а
+  // «записывает голосовое» было бы неправдой. Загрузку собеседник увидит как «отправляет видео».
+  const round = useRoundVideoRecorder({
+    onRecorded: (file) => {
+      if (!activeId) return
+      sendFiles({ replyToId: replyTo?.id, files: [file], videoNote: true })
+    },
+    onError: (kind) => {
+      toast.error(
+        t(kind === 'unsupported' ? 'tgMessage.roundUnsupported' : 'tgMessage.roundDenied'),
+      )
+    },
+  })
 
   // ── Оптимистичная отправка медиа (Telegram-стиль) ─────────────────────────────
   // Пузырь нужного типа (голос/видео/фото/файл) с локальным превью показываем сразу, ещё до
@@ -1094,6 +1114,7 @@ export function ChatWindow() {
         files: File[]
         spoilerIndexes?: number[]
         asFiles?: boolean
+        videoNote?: boolean
       }
     >
   >(new Map())
@@ -1300,6 +1321,7 @@ export function ChatWindow() {
     spoilerIndexes?: number[]
     asFiles?: boolean
     silent?: boolean
+    videoNote?: boolean
   }): void {
     if (!activeId || !me || payload.files.length === 0) return
     const chatId = activeId
@@ -1317,6 +1339,7 @@ export function ChatWindow() {
       name: f.name,
       spoiler: payload.spoilerIndexes?.includes(i),
       asDocument: payload.asFiles,
+      videoNote: payload.videoNote,
       localUrl: localUrls[i],
       uploading: true,
       progress: 0,
@@ -1343,7 +1366,8 @@ export function ChatWindow() {
       },
       linkPreview: null,
       media,
-      // Оптимистичная цитата ответа для медиа-сообщения (вложенный блок виден сразу).
+      // Оптимистичная цитата ответа для медиа-сообщения (вложенный блок виден сразу) — с
+      // миниатюрой первого вложения оригинала, как её потом пришлёт сервер.
       replyTo:
         replyTo && replyTo.id === payload.replyToId
           ? {
@@ -1351,6 +1375,7 @@ export function ChatWindow() {
               content: replyTo.content,
               senderId: replyTo.senderId,
               sender: replyTo.sender,
+              media: replyTo.media.slice(0, 1),
             }
           : null,
       forwardedFrom: null,
@@ -1370,6 +1395,7 @@ export function ChatWindow() {
       files: payload.files,
       spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
+      videoNote: payload.videoNote,
     })
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => [...(old ?? []), temp])
     // Сбрасываем композер/диалог сразу — как в Telegram (пузырь уже в ленте, грузится в фоне).
@@ -1385,6 +1411,7 @@ export function ChatWindow() {
       spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
       silent: payload.silent,
+      videoNote: payload.videoNote,
     })
   }
 
@@ -2369,6 +2396,7 @@ export function ChatWindow() {
         files: media.files,
         spoilerIndexes: media.spoilerIndexes,
         asFiles: media.asFiles,
+        videoNote: media.videoNote,
       })
       return
     }
@@ -2429,6 +2457,7 @@ export function ChatWindow() {
             content: replyTo.content,
             senderId: replyTo.senderId,
             sender: replyTo.sender,
+            media: replyTo.media.slice(0, 1),
           }
         : null,
       forwardedFrom: null,
@@ -2448,7 +2477,9 @@ export function ChatWindow() {
     draftsRef.current.delete(activeId)
     // #3: отправили — гасим серверный черновик (и локальный таймер сохранения).
     if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
-    void saveChatDraft(activeId, '').catch(() => undefined)
+    void saveChatDraft(activeId, '')
+      .then(applySavedDraft)
+      .catch(() => undefined)
     setReplyTo(null)
     setReplyQuote(null)
     setMentionQuery(null)
@@ -2701,6 +2732,13 @@ export function ChatWindow() {
     setMenu({ message: m, x, y, selection: selectionWithin(m.id) })
   }
 
+  // Сохранённый черновик — сразу в строку списка: время и место строки, как в Telegram.
+  function applySavedDraft(saved: SavedChatDraft): void {
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+      old ? withDraft(old, saved.chatId, saved.draft, saved.draftAt ?? null) : old,
+    )
+  }
+
   function onType(v: string): void {
     setText(v)
     if (activeId) {
@@ -2709,7 +2747,9 @@ export function ChatWindow() {
       const chatId = activeId
       if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
       draftSaveTimer.current = setTimeout(() => {
-        void saveChatDraft(chatId, v).catch(() => undefined)
+        void saveChatDraft(chatId, v)
+          .then(applySavedDraft)
+          .catch(() => undefined)
       }, 800)
     }
     // Определяем @-запрос перед курсором для автодополнения упоминаний. Текст до
@@ -3026,6 +3066,8 @@ export function ChatWindow() {
   // Кнопка отправки показывается при вводе/вложениях/правке; иначе — микрофон (Telegram-стиль).
   const showSend = !!editing || hasText
   const recMMSS = `${Math.floor(voice.seconds / 60)}:${String(voice.seconds % 60).padStart(2, '0')}`
+  // Просмотры сообщений официального чата (как у постов канала): глаз и число в мете.
+  const messageViews = useMessageViews(activeId, activeChat?.type, messages.data)
   const isPrivate = activeChat?.type === 'PRIVATE'
   // Имя показываем только в групповом чате: в личном собеседник и так один.
   const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
@@ -3793,6 +3835,7 @@ export function ChatWindow() {
                           menuActive={menu?.message.id === m.id}
                           readState={readState}
                           readCount={readCount}
+                          views={messageViews.get(m.id)}
                           locale={locale}
                           senderNameText={senderName(m)}
                           senderBadge={!mine && activeIsGroup ? senderBadge(m.senderId) : null}
@@ -3905,6 +3948,7 @@ export function ChatWindow() {
                     onCloseMentions={() => setMentionQuery(null)}
                     myId={myId}
                     voice={voice}
+                    round={round}
                     recMMSS={recMMSS}
                   />
                 </div>

@@ -2950,6 +2950,18 @@
     "unarchivedDone": "Chat restored to the list",
     "quotingFrom": "Quote from {name}",
     "sendOptions": "Send options",
+    "tgMessage": {
+      "previewRound": "{n, plural, one {Video message} other {# video messages}}",
+      "recordRound": "Record video message",
+      "holdToRecordRound": "Hold to record a video message; tap to switch back to voice",
+      "roundPlay": "Play video message",
+      "roundPause": "Pause",
+      "roundUnsupported": "This browser cannot record video",
+      "roundDenied": "No access to the camera or microphone",
+      "roundRecording": "Recording a video message",
+      "replyRound": "Video message",
+      "views": "{count, plural, one {# view} other {# views}}"
+    },
     "tgComposer": {
       "attachChecklist": "Checklist",
       "checklistTitle": "New checklist",

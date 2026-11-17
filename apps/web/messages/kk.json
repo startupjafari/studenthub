@@ -2950,6 +2950,18 @@
     "unarchivedDone": "Чат тізімге қайтарылды",
     "quotingFrom": "{name} дәйексөзі",
     "sendOptions": "Жіберу тәсілі",
+    "tgMessage": {
+      "previewRound": "{n, plural, one {Бейнехабар} other {# бейнехабар}}",
+      "recordRound": "Бейнехабар жазу",
+      "holdToRecordRound": "Бейнехабар жазу үшін түймені басып тұрыңыз; дауыстық хабарға оралу үшін басыңыз",
+      "roundPlay": "Бейнехабарды ойнату",
+      "roundPause": "Кідірту",
+      "roundUnsupported": "Браузер бейне жаза алмайды",
+      "roundDenied": "Камераға немесе микрофонға рұқсат жоқ",
+      "roundRecording": "Бейнехабар жазылып жатыр",
+      "replyRound": "Бейнехабар",
+      "views": "{count, plural, one {# қаралым} other {# қаралым}}"
+    },
     "tgComposer": {
       "attachChecklist": "Чек-тізім",
       "checklistTitle": "Жаңа чек-тізім",

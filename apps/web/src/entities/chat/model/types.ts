@@ -14,6 +14,9 @@ export interface MessageAttachment {
   // Отправлено «без сжатия» (§9): показывать строкой файла с расширением и размером, а не
   // превью, даже если mime картиночный. Выбор отправителя, не свойство байтов.
   asDocument?: boolean
+  // Кружок (видеосообщение, как в Telegram): ролик рисуется кругом без пузыря, превью играет
+  // без звука, нажатие — со звуком. Флаг отправителя: по байтам квадратное видео не отличить.
+  videoNote?: boolean
   // Размеры изображения в пикселях (сервер считает их при загрузке): под снимок резервируется
   // точное место, пока идут байты. NULL/undefined — не картинка либо вложение старше полей.
   width?: number | null
@@ -33,6 +36,21 @@ export interface MessageAttachment {
   progress?: number
 }
 
+/**
+ * Первое вложение оригинала в цитате ответа — ровно то, что нужно миниатюре (как в Telegram).
+ * Ссылку на неё берём тем же `GET /chats/attachments/:id/url`, до неё рисуем LQIP.
+ */
+export interface ReplyMediaPreview {
+  id: string
+  mime: string
+  // Имя файла: по нему голосовое (`voice-…`) отличается от видео с тем же mime.
+  name?: string | null
+  placeholder?: string | null
+  spoiler?: boolean
+  asDocument?: boolean
+  videoNote?: boolean
+}
+
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
 export interface MessageReplyPreview {
   id: string
@@ -41,6 +59,8 @@ export interface MessageReplyPreview {
   deletedAt?: string | null
   senderId: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Не больше одного вложения — для миниатюры. Нет у старого сервера и у удалённого оригинала.
+  media?: ReplyMediaPreview[]
 }
 
 // Источник пересланного сообщения (Ф9+): чей текст переслали.
@@ -291,6 +311,9 @@ export interface ChatListItem {
   archived: boolean
   // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
   draft: string | null
+  // Когда черновик сохранён: строка показывает его время и встаёт в списке по нему, если он
+  // свежее последнего сообщения (Telegram). Необязательное — старый сервер поля не отдаёт.
+  draftAt?: string | null
   // Я — создатель группы (владелец): удаление группы, передача прав, назначение админов.
   isOwner: boolean
   // Я — админ группы: бан, смена аватара/названия, управление участниками.
