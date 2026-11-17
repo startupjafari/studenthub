@@ -2894,7 +2894,9 @@ export class ChatsService implements OnModuleInit {
       select: { firstName: true, lastName: true },
     })
     const name = `${from?.lastName ?? ''} ${from?.firstName ?? ''}`.trim() || 'Пользователь'
-    const dedupeKey = `chat-join-request:${chatId}:${userId}`
+    // Метка времени в ключе: отклонённый может подать заявку снова, и второе уведомление
+    // не должно отсечься как повтор первого. Дубль одной заявки отсекает уникальный ключ выше.
+    const dedupeKey = `chat-join-request:${chatId}:${userId}:${Date.now()}`
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.CHAT_REQUEST,

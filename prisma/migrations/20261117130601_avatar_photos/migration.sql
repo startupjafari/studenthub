@@ -43,7 +43,7 @@ FROM "users" u
 LEFT JOIN LATERAL (
     SELECT fl."id", fl."created_at"
     FROM "files" fl
-    WHERE fl."owner_id" = u."id" AND u."avatar_url" LIKE '%/' || fl."key"
+    WHERE fl."owner_id" = u."id" AND u."avatar_url" LIKE ('%/' || fl."key")
     ORDER BY fl."created_at" DESC
     LIMIT 1
 ) f ON TRUE
@@ -57,7 +57,7 @@ FROM "chats" c
 LEFT JOIN LATERAL (
     SELECT fl."id", fl."created_at"
     FROM "files" fl
-    WHERE fl."owner_id" = c."created_by_id" AND c."avatar_url" LIKE '%/' || fl."key"
+    WHERE fl."owner_id" = c."created_by_id" AND c."avatar_url" LIKE ('%/' || fl."key")
     ORDER BY fl."created_at" DESC
     LIMIT 1
 ) f ON TRUE
