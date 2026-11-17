@@ -18,6 +18,16 @@ final class MessagePreviewTests: XCTestCase {
         XCTAssertEqual(MessagePreview.text("> цитата\n>\nответ\r\nещё"), "цитата ответ ещё")
     }
 
+    /// Подчёркнутый — текстом, спойлер — знаками Брайля, без самого текста (PROJECT.md §3.6).
+    func testChatMarkersInPreview() {
+        XCTAssertEqual(MessagePreview.text("++важно++ ответ: ||42||"), "важно ответ: ⠿⠿")
+        XCTAssertFalse(MessagePreview.text("||**секрет**||").contains("секрет"))
+        XCTAssertEqual(MessagePreview.text("i++; j++"), "i++; j++")
+        // Копирование — явное действие: спойлер копируется своим текстом.
+        XCTAssertEqual(MessagePreview.visibleText("ответ ||42||"), "ответ 42")
+        XCTAssertEqual(MessagePreview.spokenText("ответ ||42||"), "ответ " + ChatMarkup.spokenPlaceholder)
+    }
+
     func testPlainTextUnchanged() {
         XCTAssertEqual(MessagePreview.text("Привет, как дела?"), "Привет, как дела?")
     }

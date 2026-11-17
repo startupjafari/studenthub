@@ -178,7 +178,8 @@ struct MessageBubbleView: View {
         } else if isUnsupportedKind {
             body = unsupportedText
         } else if !message.content.isEmpty {
-            body = message.content
+            // Без разметки и без текста скрытых спойлеров (PROJECT.md §3.6).
+            body = MessagePreview.spokenText(message.content)
         } else if let poll = extras.poll {
             body = poll.question
         } else {
@@ -513,9 +514,17 @@ struct MessageBubbleView: View {
         return extras.linkPreview
     }
 
-    /// Как выглядит строка текста: разметка, недоверенные ссылки, подсветка поиска.
-    private var textStyle: BubbleTextStyle {
-        BubbleTextStyle(isOwn: item.isOwn, highlight: context.highlight, plainLinks: plainLinks)
+    /// Как выглядит строка текста: разметка, недоверенные ссылки, спойлеры, подсветка поиска.
+    private func textStyle(revealSpoilers: Bool) -> BubbleTextStyle {
+        BubbleTextStyle(
+            isOwn: item.isOwn, highlight: context.highlight, plainLinks: plainLinks, revealSpoilers: revealSpoilers
+        )
+    }
+
+    /// Есть ли что открывать касанием: спойлер `||…||` (PROJECT.md §3.6). Предфильтр —
+    /// `contains("||")`, разбор — тот же, что рисует.
+    private var hasSpoilers: Bool {
+        !isDeleted && !isUnsupportedKind && ChatMarkup.containsSpoiler(message.content)
     }
 
     /// Снимки и ролики — плитками (одиночной или альбомом), остальное — строками.
@@ -572,8 +581,17 @@ struct MessageBubbleView: View {
             && !(context.isGroup && !item.isOwn && item.isFirstInGroup)
     }
 
-    @ViewBuilder
+    /// Текст пузыря. Открыты ли спойлеры — состояние `ChatSpoilerReveal` с личностью по id
+    /// сообщения: ячейка, переиспользованная под другое сообщение, начинает со скрытых.
     private var textBlock: some View {
+        ChatSpoilerReveal(hasSpoilers: hasSpoilers) { revealed in
+            textContent(revealSpoilers: revealed)
+        }
+        .id(message.id)
+    }
+
+    @ViewBuilder
+    private func textContent(revealSpoilers: Bool) -> some View {
         if let segments = codeSegments {
             MessageCodeText(
                 segments: segments,
@@ -582,25 +600,28 @@ struct MessageBubbleView: View {
                 tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
                 highlight: context.highlight,
                 plainLinks: plainLinks,
+                revealSpoilers: revealSpoilers,
                 metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil,
                 onCopy: { onAction(.copyText($0)) }
             )
         } else if let blocks = textBlocks {
             MessageTextBlocksView(
                 blocks: blocks,
-                style: textStyle,
+                style: textStyle(revealSpoilers: revealSpoilers),
                 textColor: textColor,
                 tint: item.isOwn ? Palette.primaryForeground : Palette.primary,
                 metaPlaceholder: textCarriesMeta ? metaPlaceholder : nil
             )
         } else {
-            plainTextBlock
+            plainTextBlock(revealSpoilers: revealSpoilers)
         }
     }
 
-    private var plainTextBlock: some View {
+    private func plainTextBlock(revealSpoilers: Bool) -> some View {
         let placeholder = isDeleted ? deletedText : isUnsupportedKind ? unsupportedText : nil
-        let body = Text(placeholder.map { AttributedString($0) } ?? highlightedContent)
+        let style = textStyle(revealSpoilers: revealSpoilers)
+        let content = placeholder == nil ? style.attributed(message.content) : AttributedString()
+        let body = Text(placeholder.map { AttributedString($0) } ?? content)
             .font(Typography.body)
         let line = textCarriesMeta ? body + metaPlaceholder : body
         return line
@@ -608,14 +629,9 @@ struct MessageBubbleView: View {
             .tint(item.isOwn ? Palette.primaryForeground : Palette.primary)
             .italic(placeholder != nil)
             .fixedSize(horizontal: false, vertical: true)
-            // Невидимую копию времени VoiceOver прочитал бы второй раз.
-            .accessibilityLabel(Text(placeholder ?? message.content))
-    }
-
-    /// Текст с разметкой и — в режиме поиска — с подсвеченными совпадениями; в
-    /// непринятом запросе — без ссылок.
-    private var highlightedContent: AttributedString {
-        textStyle.attributed(message.content)
+            // Невидимую копию времени VoiceOver прочитал бы второй раз; скрытый спойлер он
+            // читает словами «скрытый текст», а не содержимым.
+            .accessibilityLabel(Text(placeholder ?? style.spoken(content)))
     }
 
     private var time: String {

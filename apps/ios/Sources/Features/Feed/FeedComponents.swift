@@ -345,6 +345,10 @@ struct AvatarView: View {
 /// От темы, Dynamic Type и языка результат не зависит: цвет и шрифт упоминаний —
 /// системные динамические (`Palette.primary`, `Typography.body`), разрешаются при
 /// отрисовке. Подсветка поиска накладывается на копию (значение `AttributedString`).
+///
+/// `chat: true` — разбор сообщения чата: сверх строчного Markdown ещё подчёркнутый `++…++` и
+/// спойлер `||…||` (`ChatMarkup`, PROJECT.md §3.6). У постов этих маркеров нет, поэтому кеш у
+/// сообщений свой: один и тот же текст в посте и в чате размечается по-разному.
 enum RichText {
     /// `NSCache` потокобезопасен; обёртка только сообщает это компилятору.
     private final class Storage: @unchecked Sendable {
@@ -375,32 +379,37 @@ enum RichText {
     }
 
     private static let storage = Storage()
+    private static let chatStorage = Storage()
+
+    private static func store(chat: Bool) -> Storage {
+        chat ? chatStorage : storage
+    }
 
     /// Разобранный текст: из кеша, иначе — разбор здесь же (и в кеш).
-    static func attributed(_ source: String) -> AttributedString {
-        if let known = cached(source) { return known }
-        let generation = storage.currentGeneration
-        let parsed = parse(source)
-        remember(parsed, for: source, generation: generation)
+    static func attributed(_ source: String, chat: Bool = false) -> AttributedString {
+        if let known = cached(source, chat: chat) { return known }
+        let generation = store(chat: chat).currentGeneration
+        let parsed = parse(source, chat: chat)
+        remember(parsed, for: source, chat: chat, generation: generation)
         return parsed
     }
 
     /// Готовый разбор, если он уже есть.
-    static func cached(_ source: String) -> AttributedString? {
+    static func cached(_ source: String, chat: Bool = false) -> AttributedString? {
         guard !source.isEmpty else { return nil }
-        return storage.cache.object(forKey: source as NSString)?.value
+        return store(chat: chat).cache.object(forKey: source as NSString)?.value
     }
 
     /// Разобрать заранее то, чего ещё нет в кеше. Синхронно — для фоновых задач
     /// (сборка ленты переписки); прерывается отменой задачи.
-    static func prepare<Sources: Sequence>(_ sources: Sources) where Sources.Element == String {
+    static func prepare<Sources: Sequence>(_ sources: Sources, chat: Bool = false) where Sources.Element == String {
         let signpost = Signposts.chats.beginInterval("TextPrepare")
-        let generation = storage.currentGeneration
+        let generation = store(chat: chat).currentGeneration
         var parsed = 0
         for source in sources {
-            if Task.isCancelled || storage.currentGeneration != generation { break }
-            guard !source.isEmpty, cached(source) == nil else { continue }
-            remember(parse(source), for: source, generation: generation)
+            if Task.isCancelled || store(chat: chat).currentGeneration != generation { break }
+            guard !source.isEmpty, cached(source, chat: chat) == nil else { continue }
+            remember(parse(source, chat: chat), for: source, chat: chat, generation: generation)
             parsed += 1
         }
         Signposts.chats.endInterval("TextPrepare", signpost, "parsed: \(parsed)")
@@ -415,26 +424,35 @@ enum RichText {
     /// Выход из аккаунта: тексты прежнего человека в памяти не остаются.
     static func clearCache() {
         storage.clear()
+        chatStorage.clear()
         ConcealedLinks.clear()
     }
 
     /// В кеш — только если с начала разбора его не очищали.
-    private static func remember(_ parsed: AttributedString, for source: String, generation: Int) {
-        guard !source.isEmpty, storage.currentGeneration == generation else { return }
-        storage.cache.setObject(Storage.Parsed(parsed), forKey: source as NSString, cost: source.utf16.count)
+    private static func remember(_ parsed: AttributedString, for source: String, chat: Bool, generation: Int) {
+        let target = store(chat: chat)
+        guard !source.isEmpty, target.currentGeneration == generation else { return }
+        target.cache.setObject(Storage.Parsed(parsed), forKey: source as NSString, cost: source.utf16.count)
     }
 
-    private static func parse(_ source: String) -> AttributedString {
+    private static let markdownOptions = AttributedString.MarkdownParsingOptions(
+        interpretedSyntax: .inlineOnlyPreservingWhitespace,
+        failurePolicy: .returnPartiallyParsedIfPossible
+    )
+
+    private static func parse(_ source: String, chat: Bool) -> AttributedString {
         // Разбор — только при промахе кеша: сколько раз и сколько стоит.
         let signpost = Signposts.chats.beginInterval("TextParse")
         defer { Signposts.chats.endInterval("TextParse", signpost, "chars: \(source.count)") }
-        var text = (try? AttributedString(
-            markdown: source,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace,
-                failurePolicy: .returnPartiallyParsedIfPossible
-            )
-        )) ?? AttributedString(source)
+        var text: AttributedString
+        if chat, let marked = ChatMarkup.rewrite(source) {
+            // Пары `++`/`||` — встроенными атрибутами Markdown Apple (`ChatMarkup.rewrite`).
+            text = (try? AttributedString(markdown: marked, including: \.chatMarkup, options: markdownOptions))
+                ?? AttributedString(source)
+            ChatMarkup.styleUnderlines(&text)
+        } else {
+            text = (try? AttributedString(markdown: source, options: markdownOptions)) ?? AttributedString(source)
+        }
         // Опасные схемы не открываем: сервер разрешает только http, https и mailto.
         for run in text.runs {
             if let link = run.link, !["http", "https", "mailto"].contains(link.scheme ?? "") {
