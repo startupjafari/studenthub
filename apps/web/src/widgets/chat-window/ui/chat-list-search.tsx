@@ -414,10 +414,11 @@ function MessageKindResults({
   const tCommon = useTranslations('Common')
   const unit = useByteUnitLabel()
   const enabled = term.length >= 2
-  // Ключ — свой у каждой вкладки: окно чата держит под `chatKeys.search(term)` обычный
-  // запрос, а здесь страницы; одинаковый ключ у разных форм данных сломал бы оба.
+  // Ключ свой: окно чата держит под `chatKeys.search(term)` обычный запрос, а здесь страницы —
+  // одинаковый ключ у разных форм данных сломал бы оба. «Медиа» и «Файлы» — одна выдача
+  // сообщений с вложениями, разобранная по-разному: переключение между ними не перезапрашивает.
   const q = useInfiniteQuery({
-    queryKey: [...chatKeys.search(term, undefined), 'tab', tab],
+    queryKey: [...chatKeys.search(term, undefined), 'pages', tab === 'links' ? 'text' : 'files'],
     queryFn: ({ pageParam }) =>
       searchMessages(term, undefined, pageParam, tab === 'links' ? undefined : { hasFile: true }),
     initialPageParam: undefined as string | undefined,
