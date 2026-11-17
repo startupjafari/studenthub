@@ -510,6 +510,20 @@ export async function setChatPinnedRequest(chatId: string, pinned: boolean): Pro
   else await api.delete(`/chats/${chatId}/pin`)
 }
 
+// «Пометить как непрочитанное» (Telegram-стиль): точка в строке без самих непрочитанных.
+// Персонально; любое прочтение чата снимает пометку и на сервере.
+export async function setChatMarkedUnreadRequest(chatId: string, marked: boolean): Promise<void> {
+  if (marked) await api.post(`/chats/${chatId}/unread`)
+  else await api.delete(`/chats/${chatId}/unread`)
+}
+
+// Прочитать чаты целиком одним запросом (не больше MARK_READ_BATCH_MAX): «Прочитать все» в
+// меню папки. Пометку «как новое» снимает тоже.
+export async function markChatsReadRequest(chatIds: string[]): Promise<{ updated: number }> {
+  const { data } = await api.post<{ updated: number }>('/chats/read', { chatIds })
+  return data
+}
+
 export async function fetchPresence(chatId: string): Promise<PresenceEntry[]> {
   const { data } = await api.get<PresenceEntry[]>(`/chats/${chatId}/presence`)
   return data

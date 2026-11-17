@@ -30,6 +30,8 @@ export {
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,
+  setChatMarkedUnreadRequest,
+  markChatsReadRequest,
   fetchPresence,
   fetchChatMembers,
   fetchReadReceipts,
