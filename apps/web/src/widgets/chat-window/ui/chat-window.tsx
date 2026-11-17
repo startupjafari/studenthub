@@ -10,6 +10,7 @@ import { Loader2, WifiOff } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
   canFileComplaint,
+  containsLink,
   type ChatAction,
   type CreateChatPollInput,
 } from '@studenthub/shared-schemas'
@@ -209,6 +210,8 @@ const WS_ERROR_CODES = new Set([
   'RATE_LIMIT',
   'MAINTENANCE',
   'UNIVERSITY_BLOCKED',
+  // Админ группы закрыл это право («Разрешения», §8.3): ссылки, медиа, закреп…
+  'CHAT_PERMISSION_DENIED',
   'INTERNAL_ERROR',
 ])
 
@@ -2398,6 +2401,18 @@ export function ChatWindow() {
   function send(opts: { silent?: boolean } = {}): void {
     const content = text.trim()
     if (!activeId) return
+    // Ссылки запрещены правами группы (§8.3) — говорим сразу, не отправляя: иначе пузырь
+    // повис бы «отправляется» до отказа сервера. Сервер проверяет то же самое сам.
+    if (
+      activeChat?.type === 'GROUP' &&
+      !activeChat.isAdmin &&
+      !activeChat.isOwner &&
+      activeChat.permissions?.embedLinks === false &&
+      containsLink(content)
+    ) {
+      toast.error(tErr('CHAT_PERMISSION_DENIED'))
+      return
+    }
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
     if (editing) {
       if (content && socket) {
