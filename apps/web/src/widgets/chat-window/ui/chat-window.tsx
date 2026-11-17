@@ -174,6 +174,7 @@ import {
   type ScreenStackHandle,
 } from '../../../shared/ui'
 import { ConversationList } from './conversation-list'
+import { ChatWallpaper } from './chat-wallpaper'
 import {
   avatarColor,
   chatInitials,
@@ -3616,7 +3617,8 @@ export function ChatWindow() {
       <section
         ref={chatStack.topRef}
         className={cn(
-          'relative min-w-0 flex-1 flex-col',
+          // isolate — фон переписки (ChatWallpaper, -z-10) остаётся внутри секции.
+          'relative isolate min-w-0 flex-1 flex-col',
           // Телефон: переписка — верхний экран стека, лежит поверх списка во всю площадь.
           'max-md:absolute max-md:inset-0 max-md:z-10 max-md:bg-background',
           activeId ? 'flex' : 'hidden md:flex',
@@ -3645,6 +3647,9 @@ export function ChatWindow() {
           addFiles(e.dataTransfer.files)
         }}
       >
+        {/* Обои переписки — на всю колонку и неподвижны: при смене чата меняется лента
+            поверх них, а не фон. Шапки над ними — сплошные (см. ниже). */}
+        <ChatWallpaper />
         {dropActive && (
           <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/80 duration-150 animate-in fade-in">
             <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
@@ -3662,7 +3667,13 @@ export function ChatWindow() {
           // key={activeId} — контент разговора заново проигрывает анимацию при открытии/смене чата.
           <div
             key={activeId}
-            className="flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4"
+            className={cn(
+              'flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4',
+              // Телефон: экран въезжает целиком (стек), второй сдвиг содержимого внутри лишний.
+              'max-md:animate-none',
+              // Шапки (обычная, выбора, поиска) лежат сплошной плоскостью над обоями.
+              '[&>div>header]:bg-background [&>header]:bg-background',
+            )}
           >
             {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
             {selectMode && (
