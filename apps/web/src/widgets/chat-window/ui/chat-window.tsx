@@ -3688,6 +3688,11 @@ export function ChatWindow() {
               senderName={senderName}
               onJump={focusMessage}
               onUnpin={(id) => setPin.mutate({ id, pinned: false })}
+              viewport={{
+                scrollRef: messagesScrollRef,
+                virtualizerRef,
+                messages: messages.data,
+              }}
             />
 
             <div className="relative flex min-h-0 flex-1 flex-col">

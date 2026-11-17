@@ -1,18 +1,25 @@
 'use client'
 
 import { useState, type MouseEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { List as ListIcon, PinOff, X } from 'lucide-react'
 import {
   attachmentKind,
   mediaPreview,
+  useAttachmentLinkSource,
   type AttachmentKind,
   type ChatMessage,
 } from '../../../entities/chat'
-import { plainPreview } from '../../../shared/lib'
+import { pickSource, plainPreview } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { Modal, RowContextMenu, useConfirm } from '../../../shared/ui'
 import { ChatHeaderIconButton } from './chat-header-button'
+import {
+  pinnedIndexForViewport,
+  usePinnedViewportFollow,
+  type PinnedViewport,
+} from '../lib/pinned-follow'
 
 const PREVIEW_KEY: Record<AttachmentKind, string> = {
   voice: 'previewVoice',
@@ -36,7 +43,9 @@ const TRACK_VISIBLE = 4
  * - заголовок «Закреплённое сообщение #N» (номер от самого старого), ниже — первая строка;
  * - нажатие ведёт к показанному сообщению, а полоса тут же показывает следующее, более
  *   старое; Shift+нажатие — шаг назад. После самого старого — снова самое новое;
- * - справа — список всех закреплений (если их больше одного).
+ * - справа — список всех закреплений (если их больше одного);
+ * - номер следует за прокруткой ленты (`viewport`): показано закреплённое, ближайшее сверху
+ *   к видимой области (lib/pinned-follow).
  *
  * Своё: крестик прячет полосу до следующего изменения набора закреплений (это подсказка,
  * а не само закрепление), снять закреп — из меню полосы (правый клик) или из списка.
@@ -48,9 +57,12 @@ export function ChatHeaderPinned({
   senderName,
   onJump,
   onUnpin,
+  viewport,
 }: {
   /** Закреплённые чата, от недавно закреплённых к давним — так их отдаёт сервер. */
   pinned: readonly ChatMessage[]
+  /** Лента переписки: по её прокрутке полоса выбирает, какое закрепление показать. */
+  viewport?: PinnedViewport
   senderName: (m: ChatMessage) => string
   /** Довести ленту до сообщения и подсветить его. */
   onJump: (messageId: string) => void
@@ -73,6 +85,22 @@ export function ChatHeaderPinned({
   const idx = count > 0 ? index % count : 0
   const cur = pinned[idx]
 
+  const follow = usePinnedViewportFollow(viewport, (topVisibleAt) => {
+    if (count < 2) return
+    const next = pinnedIndexForViewport(pinned, topVisibleAt)
+    if (next === idx) return
+    // Текст едет туда же, куда лента: к старым закреплениям — снизу, к новым — сверху.
+    const older =
+      new Date(pinned[next]?.createdAt ?? 0).getTime() <
+      new Date(pinned[idx]?.createdAt ?? 0).getTime()
+    setDir(older ? 1 : -1)
+    setIndex(next)
+  })
+  const jump = (messageId: string): void => {
+    follow.hold()
+    onJump(messageId)
+  }
+
   function askUnpin(messageId: string): void {
     // Закрепление общее: снимая его, человек меняет полосу всем участникам.
     void confirm({ title: t('unpinConfirm'), confirmLabel: t('unpin'), destructive: true }).then(
@@ -88,13 +116,13 @@ export function ChatHeaderPinned({
       const target = (idx - 2 + count * 2) % count
       const msg = pinned[target]
       if (!msg) return
-      onJump(msg.id)
+      jump(msg.id)
       setIndex((target + 1) % count)
       setDir(-1)
       return
     }
     if (!cur) return
-    onJump(cur.id)
+    jump(cur.id)
     if (count > 1) {
       setIndex((idx + 1) % count)
       setDir(1)
@@ -196,7 +224,7 @@ export function ChatHeaderPinned({
             setListOpen(false)
             setIndex(i)
             setDir(i >= idx ? 1 : -1)
-            onJump(id)
+            jump(id)
           }}
           onUnpin={askUnpin}
         />
@@ -251,25 +279,72 @@ function PinnedTrack({ count, index }: { count: number; index: number }) {
   )
 }
 
+/** Миниатюра 36 px на экране 2x — копия не уже этого. */
+const THUMB_MIN_W = 72
+
 /**
- * Миниатюра снимка или видео, как в Telegram. Берём заглушку медиа-системы: она приходит
- * вместе с сообщением, а за настоящей копией пришлось бы ходить отдельным запросом ради
- * квадрата в 36 px.
+ * Миниатюра снимка или видео, как в Telegram: настоящая уменьшенная копия по подписанной
+ * ссылке, а до её прихода — заглушка медиа-системы (LQIP), которая приходит вместе с
+ * сообщением. Ссылку берём тем же запросом и ключом кэша, что и лента
+ * (`useAttachmentLinkSource`): если снимок уже был на экране, второго запроса нет.
+ *
+ * Снимок без готовых копий показывается оригиналом; у видео — только кадр-постер, а без
+ * него остаётся заглушка: ролик ради квадрата в 36 px не грузим.
  */
 function PinnedThumb({ message }: { message: ChatMessage }) {
   const media = message.media.find((a) => {
     const kind = attachmentKind(a)
-    return (kind === 'photo' || kind === 'video') && !!a.placeholder
+    return kind === 'photo' || kind === 'video'
   })
-  if (!media?.placeholder) return null
+  const source = useAttachmentLinkSource()
+  const hasLocal = !!media?.localUrl
+  const link = useQuery({
+    queryKey: [source.scope, media?.id],
+    queryFn: () => source.fetch(media!.id),
+    enabled: !!media && !hasLocal && !media.id.startsWith('tmp'),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  })
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
+  if (!media) return null
+  const isVideo = attachmentKind(media) === 'video'
+  const data = link.data
+  const src = hasLocal
+    ? isVideo
+      ? undefined
+      : media.localUrl
+    : isVideo
+      ? pickSource(data?.poster, THUMB_MIN_W)?.url
+      : (pickSource(data?.sources, THUMB_MIN_W)?.url ?? data?.url)
+  const placeholder = media.placeholder ?? data?.placeholder ?? null
+  if (!src && !placeholder) return null
+  const ready = !!src && loadedSrc === src
   return (
     <span className="relative size-9 shrink-0 overflow-hidden rounded-md bg-muted" aria-hidden>
-      <img
-        src={media.placeholder}
-        alt=""
-        draggable={false}
-        className={cn('size-full object-cover', media.spoiler && 'blur-sm')}
-      />
+      {placeholder && !ready && (
+        <img
+          src={placeholder}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 size-full scale-110 object-cover blur-[2px]"
+        />
+      )}
+      {src && (
+        <img
+          // key — новая ссылка (другое закрепление) заново проходит «заглушка → снимок».
+          key={src}
+          src={src}
+          alt=""
+          draggable={false}
+          decoding="async"
+          onLoad={() => setLoadedSrc(src)}
+          className={cn(
+            'absolute inset-0 size-full object-cover transition-opacity duration-(--motion-panel) motion-reduce:transition-none',
+            ready ? 'opacity-100' : 'opacity-0',
+            media.spoiler && 'blur-sm',
+          )}
+        />
+      )}
     </span>
   )
 }
