@@ -49,6 +49,8 @@ import {
   declineChatRequestRequest,
   toggleReactionRequest,
   unpinMessageRequest,
+  useDefaultReaction,
+  useChatSettingsSync,
   AttachmentDialog,
   ALBUM_MAX_ITEMS,
   compressImages,
@@ -175,7 +177,9 @@ import { useListScrolling, useNewMessageAppear } from '../lib/use-message-list-m
 import { MessageListFab } from './message-list-fab'
 import { MessageListSwipeHint, type SwipeReplyHintHandle } from './message-list-swipe-hint'
 import { ReactionsListModal } from './reactions-list-modal'
-import { DEFAULT_REACTION } from './reactions-strip'
+import { flyReaction, type FlightPoint } from '../lib/reaction-flight'
+import { useIncomingReactionPop } from '../lib/use-incoming-reaction-pop'
+import { QuickReactionPanel } from './quick-reaction-panel'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -323,6 +327,11 @@ export function ChatWindow() {
 
   const [newChatOpen, setNewChatOpen] = useState(false)
   const [blockedOpen, setBlockedOpen] = useState(false)
+  // Экран «Быстрая реакция» в колонке чатов (настройки чатов, как в Telegram).
+  const [quickReactionOpen, setQuickReactionOpen] = useState(false)
+  // Своя быстрая реакция (`GET /chats/settings`): двойной клик, кнопка у пузыря, первая в меню.
+  const quickReaction = useDefaultReaction()
+  useChatSettingsSync()
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
@@ -728,6 +737,19 @@ export function ChatWindow() {
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     },
   })
+
+  /**
+   * Поставить или снять реакцию. Постановка с известной точкой нажатия (`origin`) — с полётом
+   * эмодзи к своему чипу (lib/reaction-flight); снятие не летит.
+   */
+  const reactTo = (messageId: string, emoji: string, origin?: FlightPoint): void => {
+    const cached = activeId
+      ? qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))?.find((m) => m.id === messageId)
+      : undefined
+    const adding = !cached?.reactions.some((r) => r.userId === myId && r.emoji === emoji)
+    react.mutate({ messageId, emoji })
+    if (adding && origin) flyReaction({ messageId, emoji, from: origin })
+  }
 
   /**
    * Пересылка (§5 карты): выбранные сообщения уходят в каждый отмеченный чат, следом за ними —
@@ -3160,6 +3182,7 @@ export function ChatWindow() {
     canRead: () => !document.hidden && peekChatIdRef.current !== activeId,
   })
   useNewMessageAppear(messagesScrollRef, activeId, messages.data)
+  useIncomingReactionPop({ chatId: activeId, myId, messages: messages.data })
   const listScrolling = useListScrolling(messagesScrollRef, activeId)
   const listGestures = useMessageListGestures({
     scrollRef: messagesScrollRef,
@@ -3167,7 +3190,7 @@ export function ChatWindow() {
     selecting: selectMode,
     selectedIds,
     disabled: chatSearchOpen || !!activeChat?.requestIncoming,
-    onDefaultReaction: (id) => react.mutate({ messageId: id, emoji: DEFAULT_REACTION }),
+    onDefaultReaction: (id, at) => reactTo(id, quickReaction.defaultReaction, at),
     onSelectionChange: (ids) => {
       setSelectedIds(ids)
       setSelectMode(ids.size > 0)
@@ -3202,7 +3225,7 @@ export function ChatWindow() {
     toggleSelect,
     enterSelect,
     onCopiedImage,
-    react,
+    reactTo,
     onMsgTouchStart,
     onMsgTouchMove,
     onMsgTouchEnd,
@@ -3222,7 +3245,7 @@ export function ChatWindow() {
     toggleSelect,
     enterSelect,
     onCopiedImage,
-    react,
+    reactTo,
     onMsgTouchStart,
     onMsgTouchMove,
     onMsgTouchEnd,
@@ -3240,7 +3263,7 @@ export function ChatWindow() {
       toggleSelect: (id) => msgHandlersRef.current.toggleSelect(id),
       startSelect: (m) => msgHandlersRef.current.enterSelect(m),
       copiedImage: (ok) => msgHandlersRef.current.onCopiedImage(ok),
-      react: (id, emoji) => msgHandlersRef.current.react.mutate({ messageId: id, emoji }),
+      react: (id, emoji, origin) => msgHandlersRef.current.reactTo(id, emoji, origin),
       touchStart: (e, m) => msgHandlersRef.current.onMsgTouchStart(e, m),
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
@@ -3264,12 +3287,13 @@ export function ChatWindow() {
   const closeChat = chatStack.close
   // Панели колонки (папки, чёрный список, новая группа) — тот же стек внутри колонки: панель
   // ложится поверх списка и уходит вправо по «назад» в своей шапке.
-  const panelOpen = foldersOpen || blockedOpen || createGroupOpen
+  const panelOpen = foldersOpen || blockedOpen || createGroupOpen || quickReactionOpen
   const panelStackRef = useRef<ScreenStackHandle | null>(null)
   const closePanelsNow = (): void => {
     setFoldersOpen(false)
     setBlockedOpen(false)
     setCreateGroupOpen(false)
+    setQuickReactionOpen(false)
   }
   const closePanel = (): void => {
     if (panelStackRef.current) panelStackRef.current.close()
@@ -3405,6 +3429,8 @@ export function ChatWindow() {
           .catch((e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')))
       }}
       onOpenBlocked={() => setBlockedOpen(true)}
+      quickReaction={quickReaction.defaultReaction}
+      onOpenQuickReaction={() => setQuickReactionOpen(true)}
       searchRaw={listSearchRaw}
       onSearchChange={setListSearchRaw}
       onClearSearch={() => {
@@ -3501,6 +3527,20 @@ export function ChatWindow() {
 
   const blockedPanel = <BlockedUsersPanel embedded={embedded} hidden={false} onClose={closePanel} />
 
+  const quickReactionPanel = (
+    <QuickReactionPanel
+      embedded={embedded}
+      hidden={false}
+      value={quickReaction.defaultReaction}
+      onChange={(emoji) =>
+        quickReaction.setDefaultReaction(emoji, {
+          onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+        })
+      }
+      onClose={closePanel}
+    />
+  )
+
   const createGroupPanel = (
     <CreateGroupPanel
       embedded={embedded}
@@ -3536,7 +3576,9 @@ export function ChatWindow() {
                   ? blockedPanel
                   : createGroupOpen
                     ? createGroupPanel
-                    : null
+                    : quickReactionOpen
+                      ? quickReactionPanel
+                      : null
             }
           />
         )
@@ -3840,6 +3882,7 @@ export function ChatWindow() {
                             m.forwardedFrom ? senderName(m.forwardedFrom) : null
                           }
                           myId={myId}
+                          quickReaction={quickReaction.defaultReaction}
                           highlightTerm={
                             chatSearchOpen && chatSearchTerm.length >= 2
                               ? chatSearchTerm
@@ -4010,8 +4053,15 @@ export function ChatWindow() {
           y={menu.y}
           anchor={menu.anchor}
           onClose={() => setMenu(null)}
+          defaultReaction={quickReaction.defaultReaction}
           actions={{
-            onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
+            onReact: (emoji, origin) => reactTo(menu.message.id, emoji, origin),
+            onSetDefaultReaction: (emoji) =>
+              quickReaction.setDefaultReaction(emoji, {
+                onSuccess: () => toast.success(t('tgReactions.quickSet', { emoji })),
+                onError: (e) =>
+                  toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+              }),
             onReply: () => startReply(menu.message, menu.selection),
             onEdit: () => startEdit(menu.message),
             // Закрепление видят все участники чата, поэтому спрашиваем в обе стороны (§4 карты):

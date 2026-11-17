@@ -44,7 +44,8 @@ import type { ChatMessage, MessageReaction } from '../model/types'
  * события, обращение в поддержку) — только то, что там бывает. Нет обработчика — нет пункта.
  */
 export interface MessageMenuActions {
-  onReact: (emoji: string) => void
+  /** `origin` — центр нажатого эмодзи: оттуда реакция вылетает к своему чипу (если умеют). */
+  onReact: (emoji: string, origin?: { x: number; y: number }) => void
   onReply: () => void
   onCopy: () => void
   onEdit?: () => void
@@ -57,6 +58,11 @@ export interface MessageMenuActions {
   onReport?: () => void
   /** Список отреагировавших (пункт «N реакций» с лицами, как в Telegram). Нет — пункта нет. */
   onShowReactors?: () => void
+  /**
+   * Сделать эмодзи своей быстрой реакцией (правый клик или долгое нажатие по нему в ряду).
+   * Нет — жеста нет: быстрая реакция есть только у чатов.
+   */
+  onSetDefaultReaction?: (emoji: string) => void
 }
 
 /**
@@ -70,6 +76,14 @@ export type MessageMenuTarget = Pick<ChatMessage, 'createdAt'> &
 
 /** Сколько лиц показать в пункте «N реакций» (Telegram — до трёх). */
 const REACTOR_FACES = 3
+
+/** Долгое нажатие по эмодзи в ряду — сделать его быстрой реакцией (как удержание в Telegram). */
+const SET_QUICK_HOLD_MS = 450
+
+const centerOf = (el: Element): { x: number; y: number } => {
+  const r = el.getBoundingClientRect()
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+}
 
 /** Пузырь, из которого выросло меню (долгое нажатие на телефоне). */
 export type MessageMenuAnchor = MenuAnchor
@@ -95,8 +109,12 @@ interface ActionDef {
  */
 function ReactionsRow({
   variant = 'menu',
+  emojis,
   chosen,
+  quick,
   onReact,
+  onSetQuick,
+  quickHint,
   onOpenPicker,
   pickerLabel,
 }: {
@@ -105,16 +123,36 @@ function ReactionsRow({
    * курсора (ПК). Обе — отдельная пилюля над списком действий, как в Telegram.
    */
   variant?: 'menu' | 'pill'
+  /** Эмодзи ряда по порядку: быстрая реакция — первой, как в Telegram. */
+  emojis: readonly string[]
   /** Эмодзи, которые я уже поставил: отмечены подложкой, нажатие их снимает. */
   chosen: ReadonlySet<string>
-  onReact: (emoji: string) => void
+  /** Своя быстрая реакция (двойной клик по сообщению) — отмечена точкой под значком. */
+  quick?: string
+  onReact: (emoji: string, origin?: { x: number; y: number }) => void
+  /** Правый клик или удержание по эмодзи — сделать его быстрой реакцией. */
+  onSetQuick?: (emoji: string) => void
+  quickHint?: string
   onOpenPicker: () => void
   pickerLabel: string
 }) {
   const row = useScrollRow<HTMLDivElement>()
   const pill = variant === 'pill'
+  // Удержание пальцем: таймер и отметка «сработало», чтобы отпускание не поставило реакцию.
+  const hold = useRef<{ timer: number | null; fired: boolean }>({ timer: null, fired: false })
+  const clearHold = (): void => {
+    if (hold.current.timer !== null) window.clearTimeout(hold.current.timer)
+    hold.current.timer = null
+  }
+  useEffect(() => clearHold, [])
+  const setQuick = (emoji: string): void => {
+    if (!onSetQuick) return
+    hold.current.fired = true
+    clearHold()
+    onSetQuick(emoji)
+  }
   const btn = cn(
-    'flex shrink-0 cursor-pointer items-center justify-center rounded-full outline-none transition-transform hover:scale-110 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 active:scale-95',
+    'relative flex shrink-0 cursor-pointer items-center justify-center rounded-full outline-none transition-transform hover:scale-110 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 active:scale-95',
     pill ? 'size-11' : 'size-10',
   )
 
@@ -133,12 +171,46 @@ function ReactionsRow({
       style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
     >
       <div className="mx-auto flex w-max items-center gap-0.5">
-        {CHAT_REACTION_EMOJIS.map((emoji, i) => (
+        {emojis.map((emoji, i) => (
           <button
             key={emoji}
             type="button"
             aria-pressed={chosen.has(emoji)}
-            onClick={() => onReact(emoji)}
+            title={onSetQuick ? quickHint : undefined}
+            onClick={(e) => {
+              // Отпускание после удержания — это выбор быстрой реакции, а не сама реакция.
+              if (hold.current.fired) {
+                hold.current.fired = false
+                return
+              }
+              onReact(emoji, centerOf(e.currentTarget))
+            }}
+            onContextMenu={
+              onSetQuick
+                ? (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    // Android шлёт contextmenu и на удержание — второй раз не выбираем.
+                    if (hold.current.fired) return
+                    setQuick(emoji)
+                    // Сразу снимаем отметку: за правым кликом мыши click не последует.
+                    hold.current.fired = false
+                  }
+                : undefined
+            }
+            onPointerDown={
+              onSetQuick
+                ? (e) => {
+                    hold.current.fired = false
+                    if (e.pointerType === 'mouse') return
+                    clearHold()
+                    hold.current.timer = window.setTimeout(() => setQuick(emoji), SET_QUICK_HOLD_MS)
+                  }
+                : undefined
+            }
+            onPointerUp={onSetQuick ? clearHold : undefined}
+            onPointerLeave={onSetQuick ? clearHold : undefined}
+            onPointerCancel={onSetQuick ? clearHold : undefined}
             // Эмодзи появляются волной слева направо (Telegram), задержка — общая шкала.
             style={{ animationDelay: `${staggerDelay(i)}ms`, animationFillMode: 'backwards' }}
             className={cn(
@@ -155,6 +227,12 @@ function ReactionsRow({
             >
               {emoji}
             </span>
+            {emoji === quick && (
+              <span
+                className="pointer-events-none absolute bottom-0.5 left-1/2 size-1 -translate-x-1/2 rounded-full bg-primary"
+                aria-hidden
+              />
+            )}
           </button>
         ))}
         {/* §11: развернуть полный набор — реакция любым emoji (стрелка вниз, как в Telegram). */}
@@ -186,8 +264,11 @@ export function MessageContextMenu({
   onClose,
   actions,
   canDelete = mine,
+  defaultReaction,
 }: {
   message: MessageMenuTarget
+  /** Своя быстрая реакция: стоит первой в ряду и отмечена точкой. Нет — порядок общий. */
+  defaultReaction?: string
   mine: boolean
   /** Кто смотрит: по нему в ряду отмечены уже поставленные реакции. */
   myId?: string
@@ -379,9 +460,32 @@ export function MessageContextMenu({
     )
   }
 
-  const reactAndClose = (emoji: string): void => {
-    actions.onReact(emoji)
+  // Точка последнего нажатия в меню: эмодзи из полного набора вылетает отсюда — у пикера
+  // нет своего узла под каждую клетку, который можно было бы измерить.
+  const lastPress = useRef<{ x: number; y: number } | undefined>(undefined)
+  const reactAndClose = (emoji: string, origin?: { x: number; y: number }): void => {
+    actions.onReact(emoji, origin ?? lastPress.current)
     dismiss()
+  }
+  const setQuickAndClose = actions.onSetDefaultReaction
+    ? (emoji: string): void => {
+        actions.onSetDefaultReaction?.(emoji)
+        dismiss()
+      }
+    : undefined
+  // Быстрая реакция — первой, как в Telegram; не из общего набора — добавляется в начало.
+  const rowEmojis: readonly string[] = defaultReaction
+    ? [defaultReaction, ...CHAT_REACTION_EMOJIS.filter((e) => e !== defaultReaction)]
+    : CHAT_REACTION_EMOJIS
+  const rowProps = {
+    emojis: rowEmojis,
+    chosen,
+    quick: defaultReaction,
+    onReact: reactAndClose,
+    onSetQuick: setQuickAndClose,
+    quickHint: t('tgReactions.setQuickHint'),
+    onOpenPicker: () => setPickerOpen(true),
+    pickerLabel: t('tgBehavior.moreReactions'),
   }
 
   return (
@@ -397,6 +501,9 @@ export function MessageContextMenu({
       role="menu"
       aria-label={t('messageActions')}
       onClick={dismiss}
+      onPointerDownCapture={(e) => {
+        lastPress.current = { x: e.clientX, y: e.clientY }
+      }}
     >
       {/* Десктоп: у точки нажатия пилюля быстрых реакций, под ней отдельной карточкой —
           действия (Telegram). Стрелка в пилюле разворачивает полный набор на месте обоих. */}
@@ -410,15 +517,10 @@ export function MessageContextMenu({
         )}
       >
         {pickerOpen ? (
-          <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={reactAndClose} />
+          <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={(e) => reactAndClose(e)} />
         ) : (
           <>
-            <ReactionsRow
-              chosen={chosen}
-              onReact={reactAndClose}
-              onOpenPicker={() => setPickerOpen(true)}
-              pickerLabel={t('tgBehavior.moreReactions')}
-            />
+            <ReactionsRow {...rowProps} />
             <div className="w-64 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg">
               {actionsList('menu')}
             </div>
@@ -441,16 +543,10 @@ export function MessageContextMenu({
             <EmojiPicker
               className="w-full"
               searchPlaceholder={t('emojiSearch')}
-              onPick={reactAndClose}
+              onPick={(e) => reactAndClose(e)}
             />
           ) : (
-            <ReactionsRow
-              variant="pill"
-              chosen={chosen}
-              onReact={reactAndClose}
-              onOpenPicker={() => setPickerOpen(true)}
-              pickerLabel={t('tgBehavior.moreReactions')}
-            />
+            <ReactionsRow variant="pill" {...rowProps} />
           )
         }
         card={pickerOpen ? null : actionsList('card')}

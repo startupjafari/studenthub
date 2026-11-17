@@ -190,3 +190,10 @@ export {
   type RichSendFields,
   type ScheduledMessage,
 } from './api/composer-api'
+export {
+  chatSettingsKey,
+  fetchChatSettings,
+  updateChatSettingsRequest,
+  useDefaultReaction,
+  useChatSettingsSync,
+} from './api/chat-settings-api'

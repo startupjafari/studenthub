@@ -501,6 +501,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             <MessageContextMenu
               message={menu.message}
               mine={menu.message.sender.id === myId}
+              myId={myId}
               // Сообщения обращения сотрудник не удаляет: переписка — материал разбора.
               canDelete={false}
               x={menu.x}
