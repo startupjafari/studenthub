@@ -1,9 +1,17 @@
 'use client'
 
+import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Quote } from 'lucide-react'
-import type { MessageReplyPreview } from '../../../entities/chat'
+import { Play, Quote } from 'lucide-react'
+import {
+  fetchAttachmentLink,
+  isViewable,
+  type MessageAttachment,
+  type MessageReplyPreview,
+  type ReplyMediaPreview,
+} from '../../../entities/chat'
 import { identityAccent, plainPreview } from '../../../shared/lib'
+import { MediaImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 export type MessageReplyQuoteProps = {
@@ -16,16 +24,75 @@ export type MessageReplyQuoteProps = {
 }
 
 /**
+ * Снимок или ролик, который годится в миниатюру цитаты: картинка или видео, не голосовое и не
+ * отправленное «файлом» — у тех в Telegram в цитате только подпись.
+ */
+export function replyThumbOf(
+  media: readonly ReplyMediaPreview[] | undefined,
+): ReplyMediaPreview | null {
+  const first = media?.[0]
+  if (!first) return null
+  // isViewable читает только вид вложения; размер ему не нужен.
+  return isViewable({ ...first, size: 0 } as MessageAttachment) ? first : null
+}
+
+/**
+ * Миниатюра медиа в цитате ответа и в плашке ответа над полем ввода (Telegram).
+ *
+ * Сначала — LQIP из самого сообщения, затем копия по ширине из медиа-системы (у ролика —
+ * постер). Ключ кэша тот же, что у вложений переписки: ссылка, уже полученная пузырём
+ * оригинала, переиспользуется. Спойлер остаётся размытым, кружок — кругом.
+ */
+export function ReplyThumb({ media, className }: { media: ReplyMediaPreview; className?: string }) {
+  const link = useQuery({
+    queryKey: ['chat-attachment', media.id],
+    queryFn: () => fetchAttachmentLink(media.id),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  })
+  const isVideo = media.mime.startsWith('video/')
+  const variants = (isVideo ? link.data?.poster : link.data?.sources) ?? []
+  // У видео оригинал — ролик, картинкой он не станет: только постер.
+  const src = isVideo ? variants[variants.length - 1]?.url : link.data?.url
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'relative size-9 shrink-0 overflow-hidden bg-foreground/10',
+        media.videoNote ? 'rounded-full' : 'rounded-[0.25rem]',
+        className,
+      )}
+    >
+      <MediaImage
+        src={src}
+        media={{ placeholder: media.placeholder, sources: variants, width: null }}
+        alt=""
+        sizes="36px"
+        className={cn('size-full', media.spoiler && 'blur-[3px]')}
+      />
+      {isVideo && !media.videoNote && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+          <Play className="size-3 fill-current" />
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
  * Встроенная цитата ответа (Telegram): плашка цветом автора оригинала — полоса слева, имя
  * тем же цветом, одна строка текста (у цитаты фрагмента — до трёх, со значком цитаты).
+ * У оригинала со снимком или роликом — миниатюра слева от текста, как в Telegram.
  * На своём (синем) пузыре цвет человека нечитаем, там плашка светлая, как в Telegram.
  */
 export function MessageReplyQuote({ replyTo, quote, name, mine, onOpen }: MessageReplyQuoteProps) {
   const t = useTranslations('Chats')
   const accent = identityAccent(replyTo.senderId)
+  const thumb = replyTo.deletedAt ? null : replyThumbOf(replyTo.media)
   const text = replyTo.deletedAt
     ? t('replyDeleted')
-    : plainPreview(quote || replyTo.content) || t('attachment')
+    : plainPreview(quote || replyTo.content) ||
+      (thumb?.videoNote ? t('tgMessage.replyRound') : t('attachment'))
   return (
     <button
       type="button"
@@ -42,6 +109,7 @@ export function MessageReplyQuote({ replyTo, quote, name, mine, onOpen }: Messag
         aria-hidden
         className={cn('w-[3px] shrink-0', mine ? 'bg-primary-foreground' : accent.bar)}
       />
+      {thumb && <ReplyThumb media={thumb} className="my-1 ml-1.5 self-center" />}
       <span className={cn('min-w-0 flex-1 py-1 pl-1.5', quote ? 'pr-5' : 'pr-2')}>
         <span
           className={cn(
