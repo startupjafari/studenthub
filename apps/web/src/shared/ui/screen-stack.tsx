@@ -488,7 +488,9 @@ export function ScreenStack({
   const stack = useScreenStack({ open, onClose })
   useImperativeHandle(handleRef, () => ({ close: stack.close }), [stack.close])
   return (
-    <div className={cn('relative isolate flex min-h-0 overflow-hidden', className)}>
+    // Без `isolate`: подложки выпадающих меню внутри экранов (`fixed inset-0`) должны ловить
+    // щелчок по всей странице, а свой контекст наложения запер бы их под соседними колонками.
+    <div className={cn('relative flex min-h-0 overflow-hidden', className)}>
       <div ref={stack.baseRef} className="relative flex min-h-0 min-w-0 flex-1">
         {base}
         <div
