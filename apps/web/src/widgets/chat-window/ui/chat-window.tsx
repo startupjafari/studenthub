@@ -130,6 +130,7 @@ import {
 import { ChatDetailsPanel } from './chat-details-panel'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
+import { messageRunPosition } from '../lib/message-run'
 import { ChatComposer } from './chat-composer'
 import { PollCreator } from './poll-creator'
 import { BlockedUsersPanel } from './blocked-users-panel'
@@ -4126,7 +4127,9 @@ export function ChatWindow() {
                       // Группировка подряд идущих сообщений одного автора: аватар/имя — только у первого в серии.
                       const arr = messages.data ?? []
                       const prevMsg = arr[i - 1]
-                      const firstOfRun = prevMsg?.senderId !== m.senderId
+                      // Серия как в Telegram (lib/message-run): рвётся на паузе > 10 мин, смене
+                      // дня, служебном сообщении и разделителе «Непрочитанные».
+                      const run = messageRunPosition(arr, i, unreadDividerId)
                       // Пометка дня: перед первым сообщением и при смене календарного дня.
                       const showDay =
                         !prevMsg ||
@@ -4156,7 +4159,9 @@ export function ChatWindow() {
                           m={m}
                           mine={mine}
                           isGroup={activeIsGroup}
-                          firstOfRun={firstOfRun}
+                          firstOfRun={run.first}
+                          lastOfRun={run.last}
+                          runStartId={run.startId}
                           showDay={showDay}
                           dayText={showDay ? dayLabel(m.createdAt) : null}
                           isFirstInList={i === 0}
