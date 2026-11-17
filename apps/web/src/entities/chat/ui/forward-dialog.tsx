@@ -58,6 +58,7 @@ export function ForwardDialog({
   titleOf,
   tabs,
   onResolveSaved,
+  onPick,
   onSubmit,
   onClose,
 }: {
@@ -71,6 +72,12 @@ export function ForwardDialog({
    * у человека может ещё не быть — создаём по первому же нажатию, как это делает Telegram.
    */
   onResolveSaved?: () => Promise<string>
+  /**
+   * Выбор одного чата обычным нажатием (Telegram, пересылка в чатах): окно лишь называет
+   * получателя, а пересылку собирает и отправляет вызывающий — над полем ввода этого чата.
+   * Нет обработчика — нажатие сразу отправляет туда (`onSubmit` с одним чатом).
+   */
+  onPick?: (chatId: string) => void
   onSubmit: (targetChatIds: string[], caption: string) => void
   onClose: () => void
 }) {
@@ -124,7 +131,8 @@ export function ForwardDialog({
       toggle(id)
       return
     }
-    onSubmit([id], '')
+    if (onPick) onPick(id)
+    else onSubmit([id], '')
     onClose()
   }
 
