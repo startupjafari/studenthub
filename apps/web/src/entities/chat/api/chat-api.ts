@@ -37,6 +37,9 @@ export const chatKeys = {
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
+  // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору.
+  searchInChat: (chatId: string, q: string, senderId?: string) =>
+    ['chats', chatId, 'search', q, senderId ?? 'any'] as const,
   media: (id: string, type: string) => ['chats', id, 'media', type] as const,
   // Ключ по месяцу: календарь листают туда-сюда, и уже виденный месяц не должен
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
@@ -154,6 +157,9 @@ export interface MessagesPage {
   // Двунаправленная пагинация (jump-to-message): курсор/наличие более НОВЫХ сообщений.
   prevCursor?: string
   hasPrev: boolean
+  // Сколько всего совпадений («3 из 57» в поиске по чату). Сервер считает только в поиске
+  // внутри одного чата; у истории сообщений и глобального поиска поля нет.
+  total?: number
 }
 
 export async function fetchMessages(
@@ -256,6 +262,7 @@ export async function searchMessages(
     cursor: res.meta?.cursor,
     hasNext: res.meta?.hasNext ?? false,
     hasPrev: false,
+    total: res.meta?.total,
   }
 }
 
