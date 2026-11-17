@@ -30,7 +30,7 @@ import {
   fetchChatMembers,
   fetchReadReceipts,
   saveChatDraft,
-  forwardMessageRequest,
+  forwardBatchRequest,
   pinMessageRequest,
   searchMessages,
   sendMessageWithAttachments,
@@ -107,7 +107,8 @@ import { RightColumn } from './right-column'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
 import { messageRunPosition } from '../lib/message-run'
-import { ChatComposer } from './chat-composer'
+import { ChatComposer, type ComposerSendOptions } from './chat-composer'
+import { forwardRequestId, useForwardDraft } from '../lib/use-forward-draft'
 import { AudioPlayerBar } from './audio-player-bar'
 import { PollCreator } from './poll-creator'
 import { ComposerDropArea, dropModeOf } from './composer-drop-area'
@@ -298,6 +299,8 @@ export function ChatWindow() {
   // #1: состояние оптимистичных сообщений по temp-id (`tmp:<nonce>`) + таймеры «не пришло эхо».
   const [sendState, setSendState] = useState<Record<string, 'pending' | 'failed'>>({})
   const sendTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // nonce сообщений, отправленных «без превью ссылки» (плашку закрыли): для повтора отправки.
+  const noPreviewNonces = useRef<Set<string>>(new Set())
 
   // Десктоп: список чатов порталим в слот сайдбара (см. AppSidebar chatsMode).
   // На мобильном слота нет — список остаётся во весь экран внутри main.
@@ -466,6 +469,15 @@ export function ChatWindow() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // Пересылка нескольких выбранных сообщений (id) — переиспользуем ForwardDialog.
   const [forwardIds, setForwardIds] = useState<string[] | null>(null)
+  // Пересылка по модели Telegram (П.32): выбор чата открывает его, а сообщения ждут над
+  // полем ввода до «Отправить». «Сменить получателя» снова открывает выбор чата.
+  const forward = useForwardDraft({
+    activeId,
+    replyToId: replyTo?.id,
+    editingId: editing?.id,
+    onError: (code) => toast.error(tErr(code)),
+  })
+  const [forwardRepick, setForwardRepick] = useState(false)
   // Свайп-действия на строке списка чатов (мобильный): вправо — «Прочитать · Закрепить»,
   // влево — «Без звука · Архив · Удалить». Жест и его физика — общий хук shared/lib
   // (та же механика у списка уведомлений).
@@ -697,11 +709,9 @@ export function ChatWindow() {
   })
 
   /**
-   * Пересылка (§5 карты): выбранные сообщения уходят в каждый отмеченный чат, следом за ними —
-   * подпись «от себя» отдельным сообщением. Последовательно и через await, а не пачкой мутаций:
-   * подпись обязана прийти ПОСЛЕ пересланного, иначе комментарий стоит раньше того, что
-   * комментирует. Своего поля для подписи у `POST /chats/:id/forward` нет — отсюда второе
-   * сообщение, а не изменение контракта.
+   * Пересылка сразу, без плашки над полем: несколько получателей из окна выбора (режим
+   * «выбрать несколько») и «Избранное». Одним запросом пачкой: подпись уходит перед
+   * пересланным, как в Telegram, а повтор после обрыва связи не задублирует сообщения.
    */
   async function sendForward(
     targetChatIds: string[],
@@ -709,17 +719,52 @@ export function ChatWindow() {
     caption: string,
   ): Promise<void> {
     try {
-      for (const targetChatId of targetChatIds) {
-        for (const messageId of messageIds) {
-          await forwardMessageRequest(targetChatId, messageId)
-        }
-        if (caption) await sendMessageWithAttachments(targetChatId, { content: caption }, [])
+      const results = await forwardBatchRequest({
+        messageIds,
+        chatIds: targetChatIds,
+        ...(caption ? { comment: caption } : {}),
+        requestId: forwardRequestId(),
+      })
+      const failed = results.find((r) => !r.ok)
+      if (failed) {
+        toast.error(tErr(failed.code ?? 'INTERNAL_ERROR'))
+        return
       }
       setForwardMsg(null)
       toast.success(t('forwarded'))
     } catch (e) {
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     }
+  }
+
+  /**
+   * Выбор одного чата в окне пересылки — модель Telegram: чат открывается, сообщения
+   * встают плашкой над полем ввода и уходят по «Отправить» вместе с дописанным текстом.
+   * «Избранное» — исключение, как и там: туда пересылают «на память» и сразу.
+   */
+  function pickForwardTarget(
+    targetChatId: string,
+    picked: ChatMessage[],
+    // «Сменить получателя»: та же пересылка с теми же «скрыть имя/подписи» — в другой чат.
+    opts: { retarget?: boolean } = {},
+  ): void {
+    const target = list.find((c) => c.id === targetChatId)
+    // Чата нет в списке — это только что заведённое «Избранное» (onResolveSaved).
+    if (!target || target.type === 'SAVED') {
+      void sendForward(
+        [targetChatId],
+        picked.map((m) => m.id),
+        '',
+      )
+      return
+    }
+    if (opts.retarget) forward.retarget(targetChatId)
+    else forward.start(targetChatId, picked)
+    setReplyTo(null)
+    setReplyQuote(null)
+    setEditing(null)
+    setActiveId(targetChatId)
+    requestAnimationFrame(() => composerRef.current?.focus())
   }
 
   /** «Избранное» как цель пересылки: чат может ещё не существовать — заводим по требованию. */
@@ -2316,10 +2361,12 @@ export function ChatWindow() {
     nonce: string,
     content: string,
     replyToId?: string,
-    opts: { replyQuote?: string; silent?: boolean } = {},
+    opts: { replyQuote?: string; silent?: boolean; noLinkPreview?: boolean } = {},
   ): void {
     const tempId = `tmp:${nonce}`
     setSendState((s) => ({ ...s, [tempId]: 'pending' }))
+    // Повтор зависшего сообщения шлёт его заново — «без превью» должно повториться тоже.
+    if (opts.noLinkPreview) noPreviewNonces.current.add(nonce)
     socket?.emit('message:send', {
       chatId,
       content,
@@ -2327,6 +2374,7 @@ export function ChatWindow() {
       // Цитата без ответа схемой запрещена — шлём только парой.
       ...(replyToId && opts.replyQuote ? { replyQuote: opts.replyQuote } : {}),
       ...(opts.silent ? { silent: true } : {}),
+      ...(opts.noLinkPreview ? { noLinkPreview: true } : {}),
       nonce,
     })
     const prev = sendTimers.current.get(nonce)
@@ -2375,20 +2423,41 @@ export function ChatWindow() {
     emitSend(m.chatId, m.id.slice(4), m.content, m.replyToId ?? undefined, {
       replyQuote: m.replyQuote ?? undefined,
       silent: m.silent,
+      noLinkPreview: noPreviewNonces.current.has(m.id.slice(4)),
     })
   }
 
-  function send(opts: { silent?: boolean } = {}): void {
+  function send(opts: { silent?: boolean } & ComposerSendOptions = {}): void {
     const content = text.trim()
     if (!activeId) return
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
     if (editing) {
       if (content && socket) {
         pendingEditRef.current = { message: editing, content }
-        socket.emit('message:edit', { messageId: editing.id, content })
+        socket.emit('message:edit', {
+          messageId: editing.id,
+          content,
+          ...(opts.noLinkPreview ? { noLinkPreview: true } : {}),
+        })
       }
       setEditing(null)
       setText('')
+      composerRef.current?.focus()
+      return
+    }
+    // Пересылка над полем (П.32): текст из поля уходит комментарием перед ней, одной пачкой.
+    // Поле чистим сразу, как при обычной отправке; не ушло — возвращаем текст на место.
+    if (forward.active) {
+      if (forward.sending) return
+      const chatId = activeId
+      void forward.send({ comment: content, noLinkPreview: opts.noLinkPreview }).then((ok) => {
+        if (!ok && content) setText((cur) => (cur ? cur : content))
+      })
+      setText('')
+      draftsRef.current.delete(chatId)
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+      void saveChatDraft(chatId, '').catch(() => undefined)
+      setMentionQuery(null)
       composerRef.current?.focus()
       return
     }
@@ -2442,6 +2511,7 @@ export function ChatWindow() {
     emitSend(activeId, nonce, content, replyTo?.id, {
       replyQuote: replyQuote ?? undefined,
       silent: opts.silent,
+      noLinkPreview: opts.noLinkPreview,
     })
     chatActions.end()
     setText('')
@@ -3886,8 +3956,19 @@ export function ChatWindow() {
                     onUnblock={() => otherId && block.mutate({ userId: otherId, blocked: true })}
                     text={text}
                     onType={onType}
-                    onSend={() => send()}
-                    onSendSilent={() => send({ silent: true })}
+                    onSend={(o) => send(o)}
+                    onSendSilent={(o) => send({ ...o, silent: true })}
+                    forward={
+                      forward.active
+                        ? {
+                            draft: forward.active,
+                            onToggleSender: forward.toggleSender,
+                            onToggleCaptions: forward.toggleCaptions,
+                            onChangeRecipient: () => setForwardRepick(true),
+                            onCancel: forward.cancel,
+                          }
+                        : null
+                    }
                     onEditLast={() => {
                       const last = lastEditableMessage(messages.data, myId)
                       if (last) startEdit(last)
@@ -4063,10 +4144,41 @@ export function ChatWindow() {
           titleOf={(c) => chatTitle(c, t)}
           tabs={forwardTabs}
           onResolveSaved={resolveSavedChatId}
+          onPick={(chatId) => pickForwardTarget(chatId, [forwardMsg])}
           onSubmit={(targetChatIds, caption) =>
             sendForward(targetChatIds, [forwardMsg.id], caption)
           }
           onClose={() => setForwardMsg(null)}
+        />
+      )}
+
+      {/* «Сменить получателя» у плашки пересылки: та же пересылка уходит в другой чат. */}
+      {forwardRepick && forward.draft && (
+        <ForwardDialog
+          chats={list}
+          currentChatId={activeId}
+          titleOf={(c) => chatTitle(c, t)}
+          tabs={forwardTabs}
+          onResolveSaved={resolveSavedChatId}
+          onPick={(chatId) => {
+            const draft = forward.draft
+            if (!draft) return
+            const target = list.find((c) => c.id === chatId)
+            // В «Избранное» — сразу, как и первый выбор; плашка при этом своё отработала.
+            if (!target || target.type === 'SAVED') forward.cancel()
+            pickForwardTarget(chatId, draft.messages, { retarget: true })
+          }}
+          onSubmit={(targetChatIds, caption) => {
+            const draft = forward.draft
+            if (!draft) return
+            forward.cancel()
+            void sendForward(
+              targetChatIds,
+              draft.messages.map((m) => m.id),
+              caption,
+            )
+          }}
+          onClose={() => setForwardRepick(false)}
         />
       )}
 
@@ -4078,6 +4190,12 @@ export function ChatWindow() {
           titleOf={(c) => chatTitle(c, t)}
           tabs={forwardTabs}
           onResolveSaved={resolveSavedChatId}
+          onPick={(chatId) =>
+            pickForwardTarget(
+              chatId,
+              (messages.data ?? []).filter((m) => forwardIds.includes(m.id)),
+            )
+          }
           onSubmit={(targetChatIds, caption) => sendForward(targetChatIds, forwardIds, caption)}
           onClose={() => {
             setForwardIds(null)
