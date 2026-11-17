@@ -1780,7 +1780,7 @@ final class ChatThreadModel {
             // свежего края и встанет на экран первым, — до показа, потом остальное.
             // Разобранное уже лежит в кеше, повторная сборка только сверяет ключи.
             let texts = visible.map(\.content)
-            RichText.prepare(texts.suffix(onScreen))
+            RichText.prepare(texts.suffix(onScreen), chat: true)
             guard !Task.isCancelled else { return nil }
             return (built, texts)
         }
@@ -1795,7 +1795,7 @@ final class ChatThreadModel {
             self.days = built
             self.daysRevision &+= 1
             Task.detached(priority: .userInitiated) {
-                RichText.prepare(texts.dropLast(onScreen).reversed())
+                RichText.prepare(texts.dropLast(onScreen).reversed(), chat: true)
             }
         }
     }

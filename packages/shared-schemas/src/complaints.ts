@@ -1,9 +1,17 @@
 import { z } from 'zod'
 import { Role } from '@studenthub/shared-types'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { vm } from './validation-messages.js'
 
 // Жалобы (docs/PROJECT.md §11, Ф11). Enum'ы дублируют Prisma ComplaintTargetType/ComplaintStatus.
-export const ComplaintTargetTypeSchema = z.enum(['POST', 'STORY', 'COMMENT', 'MESSAGE', 'USER'])
+export const ComplaintTargetTypeSchema = z.enum([
+  'POST',
+  'STORY',
+  'COMMENT',
+  'MESSAGE',
+  'USER',
+  'CHAT',
+])
 export type ComplaintTargetTypeValue = z.infer<typeof ComplaintTargetTypeSchema>
 
 export const ComplaintStatusSchema = z.enum(['PENDING', 'REVIEWING', 'RESOLVED', 'DISMISSED'])
@@ -32,6 +40,8 @@ export const COMPLAINT_PRIORITY_BY_TARGET: Record<
   MESSAGE: 'HIGH',
   POST: 'MEDIUM',
   STORY: 'MEDIUM',
+  // Группа целиком (название, фото, назначение) — публичное внутри вуза, как пост.
+  CHAT: 'MEDIUM',
   COMMENT: 'LOW',
 }
 
@@ -58,6 +68,27 @@ export const CreateComplaintSchema = z
   })
   .strict()
 export type CreateComplaintInput = z.infer<typeof CreateComplaintSchema>
+
+/** Сколько сообщений можно обжаловать одной жалобой из режима выбора. */
+export const MESSAGE_COMPLAINTS_MAX = 20
+
+/**
+ * Жалоба на несколько сообщений одного чата (`POST /complaints/messages`) — режим выбора,
+ * как в Telegram. На сервере это по жалобе на каждое сообщение (модератор разбирает их
+ * обычной очередью, с контекстом переписки), но одним запросом: десять сообщений спамера
+ * не должны съедать часовой лимит жалоб целиком.
+ */
+export const CreateMessageComplaintsSchema = z
+  .object({
+    messageIds: z.array(z.string().min(1).max(100)).min(1).max(MESSAGE_COMPLAINTS_MAX),
+    reason: z.string().min(1).max(2000),
+  })
+  .strict()
+  .refine((v) => new Set(v.messageIds).size === v.messageIds.length, {
+    path: ['messageIds'],
+    message: vm('validation.common.duplicateIds'),
+  })
+export type CreateMessageComplaintsInput = z.infer<typeof CreateMessageComplaintsSchema>
 
 // Действие модератора при разрешении жалобы (задача 11.4).
 export const ResolveComplaintSchema = z

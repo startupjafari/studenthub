@@ -33,7 +33,19 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
-    file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    file: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      delete: jest.fn(),
+    },
+    // История фото профиля (§8.3): по умолчанию пустая.
+    avatarPhoto: {
+      create: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(null),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     // Справочник специальностей вуза: проверка специальности в учебных данных.
     specialty: { findFirst: jest.fn().mockResolvedValue(null) },
     chat: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1394,6 +1406,55 @@ describe('UserService — avatar', () => {
 
     expect(files.delete).toHaveBeenCalledTimes(1)
     expect(files.delete).toHaveBeenCalledWith('mine')
+  })
+
+  it('setAvatar: новое фото — строка истории, прежнее из истории не сносится', async () => {
+    const { service, prisma, files, config } = setup()
+    withAvatarConfig(config)
+    prisma.file.findMany.mockResolvedValue([{ id: 'prev', key: 'prev.png' }])
+    // prev — строка истории: её файл держится, удаляется только то, что истории не нужно.
+    prisma.avatarPhoto.findMany.mockImplementation(({ where }: { where: { fileId?: unknown } }) =>
+      Promise.resolve(where.fileId ? [{ fileId: 'prev' }] : []),
+    )
+    files.upload.mockResolvedValue({ id: 'file-1', key: 'new-key.png' })
+    prisma.user.update.mockResolvedValue({ id: 'u' })
+
+    await service.setAvatar('u', Buffer.from('img'))
+
+    expect(prisma.avatarPhoto.create).toHaveBeenCalledWith({
+      data: { userId: 'u', fileId: 'file-1', url: 'http://localhost:9000/avatars/new-key.png' },
+    })
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('removeAvatar: текущее уходит из истории, текущим становится предыдущее (как в Telegram)', async () => {
+    const { service, prisma, files, queue, config } = setup()
+    withAvatarConfig(config)
+    prisma.user.findUnique.mockResolvedValue({ avatarUrl: 'http://localhost:9000/avatars/cur.png' })
+    prisma.avatarPhoto.findFirst
+      // строка текущего фото
+      .mockResolvedValueOnce({ id: 'p-cur', url: 'http://localhost:9000/avatars/cur.png' })
+      // самое свежее из оставшихся
+      .mockResolvedValueOnce({ url: 'http://localhost:9000/avatars/prev.png', fileId: 'f-prev' })
+    prisma.avatarPhoto.findUnique.mockResolvedValue({ fileId: 'f-cur' })
+    prisma.file.findUnique.mockResolvedValue({ id: 'f-prev', key: 'prev.png' })
+    prisma.user.update.mockResolvedValue({ id: 'u' })
+
+    await service.removeAvatar('u')
+
+    expect(files.delete).toHaveBeenCalledWith('f-cur')
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u' },
+      data: { avatarUrl: 'http://localhost:9000/avatars/prev.png', avatarThumbUrl: null },
+      select: expect.anything(),
+    })
+    // Превью вернувшемуся фото считается заново — новым jobId (прежний мог остаться в очереди).
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'file-processing',
+      'generate-thumbnail',
+      expect.objectContaining({ fileId: 'f-prev' }),
+      expect.objectContaining({ jobId: expect.stringMatching(/^thumb_f-prev_\d+$/) }),
+    )
   })
 })
 

@@ -1,1194 +1,71 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { ArrowLeft, ChevronLeft, Pencil, UserPlus, X } from 'lucide-react'
 import {
-  BadgeCheck,
-  Ban,
-  BarChart3,
-  Bell,
-  BellOff,
-  Check,
-  ChevronLeft,
-  Copy,
-  Crown,
-  Download,
-  ExternalLink,
-  FileText,
-  Image as ImageIcon,
-  ImagePlay,
-  Link2,
-  RotateCcw,
-  Loader2,
-  LogOut,
-  MessageSquare,
-  Mic,
-  MoreVertical,
-  Music,
-  Pause,
-  Pencil,
-  Play,
-  Shield,
-  ShieldOff,
-  UserCheck,
-  UserMinus,
-  UserPlus,
-  UserRound,
-  Users,
-  Save,
-  X,
-} from 'lucide-react'
-import {
-  addChatMemberRequest,
-  banChatMemberRequest,
-  blockUserRequest,
   chatKeys,
-  createChatRequest,
-  deleteChatRequest,
-  fetchAttachmentLink,
-  fetchBlockedUsers,
-  fetchChatLinks,
-  fetchChatMedia,
   fetchChatMembers,
-  fetchChatPolls,
-  fetchChatInviteCode,
-  removeChatMemberRequest,
-  resetChatInviteCode,
-  setChatAdminRequest,
-  transferOwnershipRequest,
-  unbanChatMemberRequest,
-  unblockUserRequest,
-  fileKind,
-  MediaViewer,
-  MessageContent,
-  type ChatLinkItem,
+  deleteChatPhotoRequest,
+  fetchChatPhotos,
+  fetchUserPhotos,
+  groupKeys,
   type ChatListItem,
-  type ChatMediaItem,
-  type ChatMemberInfo,
-  type ChatMessage,
-  useVoiceRate,
-  VoiceRateButton,
 } from '../../../entities/chat'
-import { ProfileLink, UserPicker } from '../../../entities/user'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  Button,
-  EmptyState,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  useConfirm,
-  MediaImage,
-  MediaViewer as PlainMediaViewer,
-  ProgressRing,
-} from '../../../shared/ui'
+import { fetchUserById, userKeys } from '../../../entities/user'
+import { Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
+import { afterOverlayClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-
-import {
-  formatBytes,
-  identityColor,
-  identityInitials,
-  useByteUnitLabel,
-  useFileDownload,
-} from '../../../shared/lib'
+import { ColumnNavigateProvider, interceptableHref } from '../lib/column-navigation'
+import { useTabSwipe } from '../lib/use-tab-swipe'
 import { isOfficialChat } from '../lib/format'
-import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
-import { PeerProfileTab } from './peer-profile-tab'
+import { ChatMembersList, lastSeenText } from './chat-members-list'
 import { EditGroupDialog } from './edit-group-dialog'
+import {
+  AddMembersScreen,
+  GroupManagement,
+  MANAGE_TITLE,
+  manageParent,
+  type ManageScreen,
+} from './group-management'
+import { ProfileHero, withViewTransition } from './profile-hero'
+import {
+  ChatActionsCard,
+  GroupInfoRows,
+  InfoCard,
+  NotificationsRow,
+  PeerInfoRows,
+} from './profile-info-card'
+import { FileTab, GifTab, LinksTab, MediaTab, PollsTab } from './shared-media'
+
+// Панель вкладки: flex-колонка не ниже экрана колонки — иначе на короткой вкладке
+// прилипшие вкладки отрывались бы от верха при переключении. `data-[state=active]:flex`,
+// а не `flex`: у неактивной вкладки Radix ставит `hidden`, и класс display его бы перебил.
+const TAB_PANE = 'mt-0 min-h-[calc(100dvh-9rem)] flex-col data-[state=active]:flex'
+
+/** Насколько надо «дотянуть» колесом вверх у самого верха, чтобы развернуть фото. */
+const OVERSCROLL_EXPAND_PX = 80
+
+type Screen = ManageScreen | 'addMembers' | null
+
+/** Кнопка шапки колонки: того же размера, что у шапки чата, — обе шапки одной высоты. */
+const HEADER_BTN =
+  'flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20 active:scale-90'
 
 /**
- * Длина описания, после которой оно сворачивается до четырёх строк. Совпадать со `line-clamp-4`
- * точно не может — строки разной длины; это порог «текст заведомо длиннее четырёх строк узкой
- * колонки», и кнопка «Ещё» не появляется там, где разворачивать нечего.
- */
-const DESCRIPTION_CLAMP = 220
-
-/** Строка карточки действий: одна высота и один отступ на все пункты панели. */
-const DETAILS_ROW =
-  'flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted'
-
-/**
- * Переключатель настройки — `role="switch"`, а не стилизованный чекбокс: скринридер
- * должен читать «включено/выключено», а не «отмечено» (идиома из DESIGN_SYSTEM).
- */
-function ToggleSwitch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean
-  onChange: (value: boolean) => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        'relative h-6 w-11 shrink-0 cursor-pointer rounded-full outline-none transition-colors focus-visible:ring-4 focus-visible:ring-ring/25',
-        checked ? 'bg-primary' : 'bg-muted',
-      )}
-    >
-      <span
-        className={cn(
-          'absolute left-0.5 top-0.5 size-5 rounded-full bg-background ring-1 ring-border transition-transform motion-reduce:transition-none',
-          checked && 'translate-x-5',
-        )}
-      />
-    </button>
-  )
-}
-
-// §17: варианты «заглушить на время».
-const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
-  { key: 'mute1h', mode: 60 },
-  { key: 'mute4h', mode: 240 },
-  { key: 'mute8h', mode: 480 },
-  { key: 'mute1d', mode: 1440 },
-  { key: 'mute3d', mode: 4320 },
-  { key: 'muteForever', mode: 'forever' },
-]
-
-// Панель вкладки: flex-колонка минимум на всю высоту скролл-контейнера — от неё
-// считают высоту пустое состояние и скелетон. `data-[state=active]:flex`, а не `flex`:
-// у неактивной вкладки Radix ставит атрибут `hidden`, и класс display его бы перебил.
-const TAB_PANE = 'mt-0 min-h-full flex-col data-[state=active]:flex'
-
-// Плейсхолдеров рисуем с запасом на любую высоту панели: контейнер скелетона —
-// `flex-1 overflow-hidden`, поэтому лишние строки обрезаются, а пустоты снизу нет.
-
-// §49: относительное «был N назад» из ISO last-seen.
-function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) => string): string {
-  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (min < 1) return t('lastSeenNow')
-  if (min < 60) return t('lastSeenMin', { count: min })
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return t('lastSeenHour', { count: hr })
-  return t('lastSeenDay', { count: Math.floor(hr / 24) })
-}
-
-// Ссылка на вложение и его варианты (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
-function useFileLink(fileId: string, enabled = true) {
-  return useQuery({
-    queryKey: ['chat-attachment', fileId],
-    queryFn: () => fetchAttachmentLink(fileId),
-    enabled,
-    staleTime: 10 * 60 * 1000,
-    gcTime: 15 * 60 * 1000,
-  })
-}
-
-// Только presigned-URL оригинала (аудио, скачивание): в кэше лежит всё описание, `select`
-// отдаёт из него ссылку, не заводя второй записи.
-function useFileUrl(fileId: string, enabled = true) {
-  return useQuery({
-    queryKey: ['chat-attachment', fileId],
-    queryFn: () => fetchAttachmentLink(fileId),
-    select: (link) => link.url,
-    enabled,
-    staleTime: 10 * 60 * 1000,
-    gcTime: 15 * 60 * 1000,
-  })
-}
-
-// Пустое состояние вкладки: обёртка — flex-колонка, чтобы `flex-1` внутри EmptyState
-// растянул пунктирный блок на всю доступную высоту панели, а не полоской у верхнего края.
-function Empty({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col p-3">
-      <EmptyState icon={icon} title={title} />
-    </div>
-  )
-}
-
-// Ошибка загрузки вкладки: сообщение и «Повторить» (FRONTEND_RULES §9).
-function TabError({ onRetry }: { onRetry: () => void }) {
-  const t = useTranslations('Chats')
-  const tCommon = useTranslations('Common')
-  return (
-    <div className="flex min-h-0 flex-1 flex-col p-3">
-      <EmptyState
-        title={t('sharedLoadError')}
-        action={
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RotateCcw className="size-4" aria-hidden />
-            {tCommon('retry')}
-          </Button>
-        }
-      />
-    </div>
-  )
-}
-
-function LoadMore({
-  onClick,
-  loading,
-  label,
-}: {
-  onClick: () => void
-  loading: boolean
-  label: string
-}) {
-  return (
-    <div className="p-2">
-      <Button variant="ghost" size="sm" className="w-full" onClick={onClick} disabled={loading}>
-        {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : label}
-      </Button>
-    </div>
-  )
-}
-
-// ── Медиа: сетка миниатюр → fullscreen viewer (§42) ──────────────────────────
-function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void }) {
-  const isVideo = item.mime.startsWith('video/')
-  const link = useFileLink(item.id)
-  // Миниатюра сетки — копия 320 (или постер видео), а не оригинал: вкладка показывает
-  // десятки снимков разом. Нет копий — оригинал, как раньше; у видео без постера — <video>.
-  const poster = link.data?.poster ?? []
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="relative aspect-square overflow-hidden rounded-md bg-muted"
-    >
-      {link.data ? (
-        isVideo && poster.length === 0 ? (
-          <video src={link.data.url} muted preload="metadata" className="size-full object-cover" />
-        ) : (
-          <MediaImage
-            src={isVideo ? poster[poster.length - 1]?.url : link.data.url}
-            media={{
-              placeholder: item.placeholder,
-              sources: isVideo ? poster : link.data.sources,
-              width: isVideo ? null : item.width,
-            }}
-            alt=""
-            sizes="120px"
-            className="size-full"
-          />
-        )
-      ) : item.placeholder ? (
-        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
-      ) : (
-        <div className="size-full animate-pulse bg-muted" />
-      )}
-      {isVideo && (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
-          <Play className="size-5" aria-hidden />
-        </span>
-      )}
-    </button>
-  )
-}
-
-function MediaTab({ chatId }: { chatId: string }) {
-  const t = useTranslations('Chats')
-  const [viewer, setViewer] = useState<number | null>(null)
-  const q = useInfiniteQuery({
-    queryKey: chatKeys.media(chatId, 'media'),
-    queryFn: ({ pageParam }) => fetchChatMedia(chatId, 'media', pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  // Пока вкладка едет — пусто. Ветка нужна не ради заглушки, а чтобы на секунду загрузки
-  // не показывалось «здесь пока пусто»: это разные сообщения, и путать их нельзя.
-  if (q.isLoading) return <div className="min-h-0 flex-1" />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <Empty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  // Для fullscreen-viewer маппим ChatMediaItem → MessageAttachment (viewer сам тянет presigned-URL).
-  const attachments = items.map((it) => ({
-    id: it.id,
-    mime: it.mime,
-    size: it.size,
-    name: it.name,
-    // Заглушка и размеры — чтобы просмотрщик показал силуэт снимка, не дожидаясь ссылки.
-    width: it.width,
-    height: it.height,
-    placeholder: it.placeholder,
-    durationMs: it.durationMs,
-  }))
-  return (
-    <>
-      <div className="grid grid-cols-3 gap-1 p-1">
-        {items.map((it, i) => (
-          <MediaThumb key={it.id} item={it} onOpen={() => setViewer(i)} />
-        ))}
-      </div>
-      {q.hasNextPage && (
-        <LoadMore
-          onClick={() => void q.fetchNextPage()}
-          loading={q.isFetchingNextPage}
-          label={t('loadMore')}
-        />
-      )}
-      {viewer !== null && (
-        <MediaViewer
-          items={attachments}
-          index={viewer}
-          onIndexChange={setViewer}
-          onClose={() => setViewer(null)}
-        />
-      )}
-    </>
-  )
-}
-
-// ── Файлы / Голос: список ────────────────────────────────────────────────────
-function FileRow({
-  item,
-  voice,
-  onJump,
-  locale,
-}: {
-  item: ChatMediaItem
-  voice: boolean
-  onJump: (id: string) => void
-  locale: string
-}) {
-  const unit = useByteUnitLabel()
-  const t = useTranslations('Chats')
-  // Для голосовых сразу подгружаем URL (нативный плеер); для файлов — по клику на скачивание.
-  const url = useFileUrl(item.id, voice)
-  const dl = useFileUrl(item.id, false)
-  // Скачивание в приложение с прогрессом — тем же ключом, что у файла в самой переписке.
-  // Ссылка подписывается по нажатию: список файлов длинный, и подписывать все заранее незачем.
-  const download = useFileDownload(`file:${item.id}`, {
-    url: () => dl.refetch().then((r) => r.data),
-    name: item.name ?? t('attachment'),
-    mime: item.mime,
-  })
-  const state = download.state
-  const date = new Date(item.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-  })
-  const kind = fileKind(item.name, item.mime)
-  return (
-    <div className="flex items-center gap-3 px-3 py-2">
-      <button
-        type="button"
-        onClick={() => onJump(item.messageId)}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        {/* Тот же значок расширения, что в ленте (§7 карты): один и тот же файл нельзя
-            показывать двумя разными способами в двух местах одного экрана. */}
-        <span
-          className={cn(
-            'flex size-9 shrink-0 items-center justify-center rounded-lg text-white',
-            voice ? 'bg-muted text-muted-foreground' : kind.className,
-          )}
-        >
-          {voice ? (
-            <Mic className="size-4" aria-hidden />
-          ) : kind.ext ? (
-            <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
-              {kind.ext}
-            </span>
-          ) : (
-            <FileText className="size-4" aria-hidden />
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{item.name ?? t('attachment')}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {formatBytes(item.size, unit)} · {date}
-          </span>
-        </span>
-      </button>
-      {voice ? (
-        url.data ? (
-          <audio src={url.data} controls preload="none" className="h-8 w-32 shrink-0" />
-        ) : (
-          <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
-        )
-      ) : (
-        // Кнопка ведёт себя как значок файла в Telegram: «↓» скачать, кольцо с «×» —
-        // идёт скачивание (нажатие отменяет), «сохранить» — файл уже в приложении.
-        <button
-          type="button"
-          aria-label={
-            state.status === 'loading'
-              ? t('downloadCancel')
-              : state.status === 'ready'
-                ? t('save')
-                : t('download')
-          }
-          title={state.status === 'error' ? t('downloadFailed') : undefined}
-          onClick={download.toggle}
-          className={cn(
-            'relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-muted',
-            state.status === 'ready'
-              ? 'text-primary'
-              : 'text-muted-foreground hover:text-foreground',
-            state.status === 'error' && 'text-destructive',
-          )}
-        >
-          {state.status === 'loading' ? (
-            <>
-              <X className="size-3.5" strokeWidth={2.5} aria-hidden />
-              <ProgressRing progress={download.progress} className="text-primary" />
-            </>
-          ) : state.status === 'ready' ? (
-            <Save className="size-4" aria-hidden />
-          ) : (
-            <Download className="size-4" aria-hidden />
-          )}
-        </button>
-      )}
-    </div>
-  )
-}
-
-/**
- * Плеер голосовых в правой панели: один транспорт на весь список.
+ * Правая колонка чата (Telegram-стиль §55): профиль, сведения и общие материалы.
  *
- * До этого у каждой строки был свой `<audio controls>`: слушать подряд было нельзя (после
- * конца записи ничего не происходило), скорость не менялась, а два случайно запущенных
- * плеера играли одновременно. Здесь один общий элемент, автопереход к следующей записи и
- * скорость — то, ради чего голосовые вообще слушают из панели, а не из ленты.
+ * Колонка прокручивается целиком, как в Telegram: сверху шапка профиля (аватар разворачивается
+ * в фото на всю ширину), под ней карточка сведений с уведомлениями, ниже — вкладки общих
+ * материалов, которые прилипают к верху, когда до них докрутили. Карандаш в шапке (у админов
+ * группы) открывает управление группой — экраны сменяют профиль внутри той же колонки.
+ *
+ * Где и как колонка показана (рядом с перепиской или поверх) — решает `RightColumn`;
+ * `variant` влияет только на значок закрытия: в доке — крестик, на телефоне — стрелка назад.
  */
-function VoicePlaylist({
-  items,
-  music = false,
-  onJump,
-  locale,
-}: {
-  items: ChatMediaItem[]
-  /** Музыка: в строке — название трека и кто прислал, а не только автор записи. */
-  music?: boolean
-  onJump: (id: string) => void
-  locale: string
-}) {
-  const t = useTranslations('Chats')
-  const unit = useByteUnitLabel()
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const [currentId, setCurrentId] = useState<string | null>(null)
-  const [playing, setPlaying] = useState(false)
-  // Скорость — общая запомненная (как у голосовых в ленте): выбрали раз — держится дальше.
-  const rate = useVoiceRate()
-  const [progress, setProgress] = useState(0)
-
-  // Presigned-ссылку берём только для играющей записи: тянуть URL для всего списка — это
-  // подпись на каждый файл впустую, а живут они недолго.
-  const url = useFileUrl(currentId ?? '', currentId != null)
-
-  // Ссылка приехала (или сменилась запись) — запускаем воспроизведение.
-  useEffect(() => {
-    const el = audioRef.current
-    if (!el || !url.data || !playing) return
-    el.playbackRate = rate
-    void el.play().catch(() => setPlaying(false))
-  }, [url.data, playing, rate])
-
-  function toggle(id: string): void {
-    if (currentId === id) {
-      const el = audioRef.current
-      if (!el) return
-      if (playing) {
-        el.pause()
-        setPlaying(false)
-      } else {
-        setPlaying(true)
-      }
-      return
-    }
-    setProgress(0)
-    setCurrentId(id)
-    setPlaying(true)
-  }
-
-  // Автопереход: конец записи → следующая по списку. Последняя просто останавливает плеер.
-  function onEnded(): void {
-    const idx = items.findIndex((i) => i.id === currentId)
-    const next = idx >= 0 ? items[idx + 1] : undefined
-    setProgress(0)
-    if (next) {
-      setCurrentId(next.id)
-      setPlaying(true)
-    } else {
-      setPlaying(false)
-      setCurrentId(null)
-    }
-  }
-
-  return (
-    <>
-      <audio
-        ref={audioRef}
-        src={url.data}
-        preload="none"
-        onTimeUpdate={(e) => {
-          const el = e.currentTarget
-          setProgress(el.duration > 0 ? el.currentTime / el.duration : 0)
-        }}
-        onEnded={onEnded}
-        className="hidden"
-      />
-      {items.map((it) => {
-        const active = currentId === it.id
-        const date = new Date(it.createdAt).toLocaleDateString(locale, {
-          day: '2-digit',
-          month: 'short',
-        })
-        return (
-          <div
-            key={it.id}
-            className={cn('flex items-center gap-3 px-3 py-2', active && 'bg-primary/5')}
-          >
-            <button
-              type="button"
-              aria-label={active && playing ? t('pause') : t('play')}
-              onClick={() => toggle(it.id)}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors hover:bg-primary/20"
-            >
-              {active && url.isFetching && !url.data ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : active && playing ? (
-                <Pause className="size-4" aria-hidden />
-              ) : (
-                <Play className="size-4" aria-hidden />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onJump(it.messageId)}
-              className="min-w-0 flex-1 text-left"
-            >
-              <span className="block truncate text-sm font-medium">
-                {music
-                  ? (it.name ?? t('attachment'))
-                  : it.sender
-                    ? `${it.sender.lastName} ${it.sender.firstName}`
-                    : t('attachment')}
-              </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {music && it.sender && `${it.sender.lastName} ${it.sender.firstName} · `}
-                {formatBytes(it.size, unit)} · {date}
-              </span>
-              {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
-              {active && (
-                <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted">
-                  <span
-                    className="block h-full bg-primary transition-[width] duration-200"
-                    style={{ width: `${Math.round(progress * 100)}%` }}
-                  />
-                </span>
-              )}
-            </button>
-            {/* Скорость — справа у играющей записи; выбор держится для следующих. */}
-            {active && <VoiceRateButton />}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-// Голосовые — только записи с микрофона (`voice_note`): `voice` отдаёт всё аудио, и музыка
-// попадала бы в список голосовых. Музыка — своя вкладка (`music`).
-const FILE_TAB_ICON = {
-  file: FileText,
-  voice_note: Mic,
-  music: Music,
-} as const
-
-function FileTab({
-  chatId,
-  type,
-  onJump,
-}: {
-  chatId: string
-  type: 'file' | 'voice_note' | 'music'
-  onJump: (id: string) => void
-}) {
-  const t = useTranslations('Chats')
-  const locale = useLocale()
-  const q = useInfiniteQuery({
-    queryKey: chatKeys.media(chatId, type),
-    queryFn: ({ pageParam }) => fetchChatMedia(chatId, type, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) return <div className="min-h-0 flex-1" />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0) {
-    const Icon = FILE_TAB_ICON[type]
-    return <Empty icon={<Icon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  }
-  return (
-    <>
-      {type !== 'file' ? (
-        <VoicePlaylist items={items} music={type === 'music'} onJump={onJump} locale={locale} />
-      ) : (
-        items.map((it) => (
-          <FileRow key={it.id} item={it} voice={false} onJump={onJump} locale={locale} />
-        ))
-      )}
-      {q.hasNextPage && (
-        <LoadMore
-          onClick={() => void q.fetchNextPage()}
-          loading={q.isFetchingNextPage}
-          label={t('loadMore')}
-        />
-      )}
-    </>
-  )
-}
-
-// ── GIF: анимированная сетка ─────────────────────────────────────────────────
-// Оригинал, а не копия: уменьшенные варианты медиа-системы статичны, и GIF в них не
-// двигается. Клик — к сообщению в переписке, как у файлов.
-function GifThumb({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const link = useFileLink(item.id)
-  return (
-    <button
-      type="button"
-      onClick={() => onJump(item.messageId)}
-      aria-label={t('goToMessage')}
-      className="relative aspect-square overflow-hidden rounded-md bg-muted"
-    >
-      {link.data ? (
-        // Подписанная ссылка на приватный бакет: next/image её не оптимизирует.
-        <img src={link.data.url} alt="" loading="lazy" className="size-full object-cover" />
-      ) : item.placeholder ? (
-        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
-      ) : (
-        <div className="size-full animate-pulse bg-muted" />
-      )}
-    </button>
-  )
-}
-
-function GifTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const q = useInfiniteQuery({
-    queryKey: chatKeys.media(chatId, 'gif'),
-    queryFn: ({ pageParam }) => fetchChatMedia(chatId, 'gif', pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) return <div className="min-h-0 flex-1" />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <Empty icon={<ImagePlay className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  return (
-    <>
-      <div className="grid grid-cols-3 gap-1 p-1">
-        {items.map((it) => (
-          <GifThumb key={it.id} item={it} onJump={onJump} />
-        ))}
-      </div>
-      {q.hasNextPage && (
-        <LoadMore
-          onClick={() => void q.fetchNextPage()}
-          loading={q.isFetchingNextPage}
-          label={t('loadMore')}
-        />
-      )}
-    </>
-  )
-}
-
-// ── Опросы: список, клик — к опросу в переписке ──────────────────────────────
-function PollRow({
-  message,
-  onJump,
-  locale,
-}: {
-  message: ChatMessage
-  onJump: (id: string) => void
-  locale: string
-}) {
-  const t = useTranslations('Chats')
-  const poll = message.poll
-  if (!poll) return null
-  const date = new Date(message.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-  })
-  const author = `${message.sender.lastName} ${message.sender.firstName}`
-  return (
-    <button
-      type="button"
-      onClick={() => onJump(message.id)}
-      className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted"
-    >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <BarChart3 className="size-4" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{poll.question}</span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {poll.closed && `${t('pollClosed')} · `}
-          {author} · {date}
-        </span>
-      </span>
-    </button>
-  )
-}
-
-function PollsTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const locale = useLocale()
-  const q = useInfiniteQuery({
-    queryKey: chatKeys.polls(chatId),
-    queryFn: ({ pageParam }) => fetchChatPolls(chatId, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) return <div className="min-h-0 flex-1" />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <Empty icon={<BarChart3 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  return (
-    <>
-      {items.map((m) => (
-        <PollRow key={m.id} message={m} onJump={onJump} locale={locale} />
-      ))}
-      {q.hasNextPage && (
-        <LoadMore
-          onClick={() => void q.fetchNextPage()}
-          loading={q.isFetchingNextPage}
-          label={t('loadMore')}
-        />
-      )}
-    </>
-  )
-}
-
-// ── Ссылки: список ───────────────────────────────────────────────────────────
-function LinkRow({
-  item,
-  onJump,
-  locale,
-}: {
-  item: ChatLinkItem
-  onJump: (id: string) => void
-  locale: string
-}) {
-  const t = useTranslations('Chats')
-  const lp = item.linkPreview
-  if (!lp) return null
-  let host = lp.url
-  try {
-    host = new URL(lp.url).hostname.replace(/^www\./, '')
-  } catch {
-    /* оставляем как есть */
-  }
-  const date = new Date(item.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-  })
-  return (
-    <div className="flex items-center gap-3 px-3 py-2">
-      <button
-        type="button"
-        onClick={() => onJump(item.messageId)}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Link2 className="size-4" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{lp.title || host}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {host} · {date}
-          </span>
-        </span>
-      </button>
-      <a
-        href={lp.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={t('openLink')}
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <ExternalLink className="size-4" aria-hidden />
-      </a>
-    </div>
-  )
-}
-
-function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const locale = useLocale()
-  const q = useInfiniteQuery({
-    queryKey: chatKeys.links(chatId),
-    queryFn: ({ pageParam }) => fetchChatLinks(chatId, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) return <div className="min-h-0 flex-1" />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <Empty icon={<Link2 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-  return (
-    <>
-      {items.map((it) => (
-        <LinkRow key={it.messageId} item={it} onJump={onJump} locale={locale} />
-      ))}
-      {q.hasNextPage && (
-        <LoadMore
-          onClick={() => void q.fetchNextPage()}
-          loading={q.isFetchingNextPage}
-          label={t('loadMore')}
-        />
-      )}
-    </>
-  )
-}
-
-// ── Участники: список + управление составом группы (§9) ──────────────────────
-function ParticipantsTab({
-  chat,
-  myId,
-  onOpenChat,
-}: {
-  chat: ChatListItem
-  myId: string | undefined
-  onOpenChat: (chatId: string) => void
-}) {
-  const t = useTranslations('Chats')
-  const tr = useTranslations('Roles')
-  const tErr = useTranslations('Errors')
-  const qc = useQueryClient()
-  const router = useRouter()
-  const confirm = useConfirm()
-  const [adding, setAdding] = useState(false)
-  // Меню действий над участником (ПКМ по строке или кнопка «три точки»).
-  const [memberMenu, setMemberMenu] = useState<{ m: ChatMemberInfo; x: number; y: number } | null>(
-    null,
-  )
-
-  const members = useQuery({
-    queryKey: chatKeys.members(chat.id),
-    queryFn: () => fetchChatMembers(chat.id),
-  })
-  const list = members.data ?? []
-  // Мои персональные блокировки — чтобы показывать «Заблокировать»/«Разблокировать» по факту.
-  const blockedQuery = useQuery({ queryKey: chatKeys.blocked(), queryFn: fetchBlockedUsers })
-  const blockedIds = new Set((blockedQuery.data ?? []).map((b) => b.id))
-
-  const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
-  const invalidateMembers = () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.members(chat.id) })
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
-  }
-
-  const addMember = useMutation({
-    mutationFn: (userId: string) => addChatMemberRequest(chat.id, userId),
-    onSuccess: () => {
-      invalidateMembers()
-      setAdding(false)
-      toast.success(t('memberAdded'))
-    },
-    onError: err,
-  })
-
-  const ban = useMutation({
-    mutationFn: ({ userId, banned }: { userId: string; banned: boolean }) =>
-      banned ? unbanChatMemberRequest(chat.id, userId) : banChatMemberRequest(chat.id, userId),
-    onSuccess: (_d, { banned }) => {
-      invalidateMembers()
-      toast.success(banned ? t('memberUnbanned') : t('memberBanned'))
-    },
-    onError: err,
-  })
-
-  const admin = useMutation({
-    mutationFn: ({ userId, makeAdmin }: { userId: string; makeAdmin: boolean }) =>
-      setChatAdminRequest(chat.id, userId, makeAdmin),
-    onSuccess: (_d, { makeAdmin }) => {
-      invalidateMembers()
-      toast.success(makeAdmin ? t('adminGranted') : t('adminRevoked'))
-    },
-    onError: err,
-  })
-
-  const transfer = useMutation({
-    mutationFn: (userId: string) => transferOwnershipRequest(chat.id, userId),
-    onSuccess: () => {
-      invalidateMembers()
-      toast.success(t('ownershipTransferred'))
-    },
-    onError: err,
-  })
-
-  const kick = useMutation({
-    mutationFn: (userId: string) => removeChatMemberRequest(chat.id, userId),
-    onSuccess: () => {
-      invalidateMembers()
-      toast.success(t('memberRemoved'))
-    },
-    onError: err,
-  })
-
-  // «Написать»: создать/найти личный чат с участником и переключиться на него.
-  const openPrivate = useMutation({
-    mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
-    onSuccess: (created) => {
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      // Про запрос на переписку (§50) не говорим: он уйдёт только с первым сообщением,
-      // и тост о нём покажет сам чат.
-      onOpenChat(created.id)
-    },
-    onError: err,
-  })
-
-  // Персональная блокировка/разблокировка пользователя (запрет личной переписки).
-  const block = useMutation({
-    mutationFn: ({ userId, blocked }: { userId: string; blocked: boolean }) =>
-      blocked ? unblockUserRequest(userId) : blockUserRequest(userId),
-    onSuccess: (_d, { blocked }) => {
-      void qc.invalidateQueries({ queryKey: chatKeys.blocked() })
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      toast.success(blocked ? t('userUnblocked') : t('userBlocked'))
-    },
-    onError: err,
-  })
-
-  // Пункты меню действий над участником — по правам смотрящего (владелец/админ) и статусу участника.
-  function memberItems(m: ChatMemberInfo): MemberMenuItem[] {
-    const items: MemberMenuItem[] = [
-      {
-        key: 'profile',
-        label: t('openProfile'),
-        icon: UserRound,
-        onClick: () => router.push(`/profile/${m.id}`),
-      },
-    ]
-    if (m.id !== myId) {
-      items.push({
-        key: 'write',
-        label: t('write'),
-        icon: MessageSquare,
-        onClick: () => openPrivate.mutate(m.id),
-      })
-    }
-    items.push({
-      key: 'copyName',
-      label: t('copyName'),
-      icon: Copy,
-      onClick: () => {
-        void navigator.clipboard?.writeText(`${m.lastName} ${m.firstName}`.trim())
-        toast.success(t('copied'))
-      },
-    })
-    items.push({
-      key: 'copyLink',
-      label: t('copyLink'),
-      icon: Link2,
-      onClick: () => {
-        void navigator.clipboard?.writeText(`${window.location.origin}/profile/${m.id}`)
-        toast.success(t('linkCopied'))
-      },
-    })
-    if (chat.isOwner && m.id !== myId && !m.banned) {
-      items.push({
-        key: 'admin',
-        label: m.isAdmin ? t('revokeAdmin') : t('grantAdmin'),
-        icon: m.isAdmin ? ShieldOff : Shield,
-        onClick: () => admin.mutate({ userId: m.id, makeAdmin: !m.isAdmin }),
-      })
-      items.push({
-        key: 'transfer',
-        label: t('transferOwnership'),
-        icon: Crown,
-        onClick: () => {
-          void confirm({ title: t('transferConfirm', { name: m.firstName }) }).then((ok) => {
-            if (ok) transfer.mutate(m.id)
-          })
-        },
-      })
-    }
-    // Бан — только создатель группы (§8.3), как и аватар.
-    if (chat.isOwner && m.id !== myId) {
-      items.push({
-        key: 'ban',
-        label: m.banned ? t('unban') : t('ban'),
-        icon: m.banned ? UserCheck : Ban,
-        onClick: () => ban.mutate({ userId: m.id, banned: m.banned }),
-        danger: !m.banned,
-      })
-    }
-    if (m.id !== myId) {
-      const isBlocked = blockedIds.has(m.id)
-      items.push({
-        key: 'block',
-        label: isBlocked ? t('unblockUser') : t('blockUser'),
-        icon: isBlocked ? UserCheck : Ban,
-        onClick: () => block.mutate({ userId: m.id, blocked: isBlocked }),
-        danger: !isBlocked,
-      })
-    }
-    if ((chat.isOwner || (chat.isAdmin && !m.isAdmin)) && m.id !== myId) {
-      items.push({
-        key: 'kick',
-        label: t('removeFromGroup'),
-        icon: UserMinus,
-        onClick: () => {
-          void confirm({
-            title: t('removeConfirm', { name: m.firstName }),
-            destructive: true,
-          }).then((ok) => {
-            if (ok) kick.mutate(m.id)
-          })
-        },
-        danger: true,
-      })
-    }
-    return items
-  }
-
-  return (
-    <>
-      {/* Шапка вкладки: счётчик + ссылка-приглашение и добавление участника (для админов). */}
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
-        <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t('participants', { count: list.length || chat.memberCount })}
-        </span>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {chat.isAdmin && (
-            <button
-              type="button"
-              aria-label={t('addMember')}
-              onClick={() => setAdding((v) => !v)}
-              className={cn(
-                'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-                adding && 'bg-muted text-foreground',
-              )}
-            >
-              <UserPlus className="size-4" aria-hidden />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {adding && (
-        <div className="shrink-0 px-3 pb-2 duration-150 animate-in fade-in slide-in-from-top-1">
-          <UserPicker value={null} onSelect={(u) => u && addMember.mutate(u.id)} />
-        </div>
-      )}
-
-      {members.isLoading ? (
-        <div className="min-h-0 flex-1" />
-      ) : list.length === 0 ? (
-        <Empty icon={<Users className="size-6" aria-hidden />} title={t('sharedEmpty')} />
-      ) : (
-        <ul>
-          {list.map((m) => {
-            const name = `${m.lastName} ${m.firstName}`.trim()
-            return (
-              <li key={m.id}>
-                <div
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setMemberMenu({ m, x: e.clientX, y: e.clientY })
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-3 px-3 py-2',
-                    m.banned && 'opacity-60',
-                  )}
-                >
-                  <ProfileLink userId={m.id} className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="relative shrink-0">
-                      <Avatar className="size-9">
-                        {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={name} />}
-                        <AvatarFallback className={cn('text-white', identityColor(m.id))}>
-                          {identityInitials(name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      {m.online && (
-                        <span
-                          className="absolute right-0 bottom-0 size-2.5 rounded-full border-2 border-background bg-success"
-                          aria-hidden
-                        />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium">
-                          {name}
-                          {m.id === myId ? ` (${t('you')})` : ''}
-                        </span>
-                        {m.isAdmin && !m.banned && (
-                          <span className="flex shrink-0 items-center gap-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[0.65rem] font-medium text-primary">
-                            <Shield className="size-3" aria-hidden />
-                            {t('adminBadge')}
-                          </span>
-                        )}
-                        {m.banned && (
-                          <span className="shrink-0 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[0.65rem] font-medium text-destructive">
-                            {t('banned')}
-                          </span>
-                        )}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {m.online
-                          ? tr(m.role)
-                          : m.lastSeenAt
-                            ? lastSeenText(m.lastSeenAt, t)
-                            : tr(m.role)}
-                      </span>
-                    </span>
-                  </ProfileLink>
-                  {/* Действия над участником — в меню (ПКМ по строке или эта кнопка). */}
-                  <button
-                    type="button"
-                    aria-label={t('memberActions')}
-                    onClick={(e) => {
-                      const r = e.currentTarget.getBoundingClientRect()
-                      setMemberMenu({ m, x: r.right - 208, y: r.bottom + 4 })
-                    }}
-                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <MoreVertical className="size-4" aria-hidden />
-                  </button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      {memberMenu && (
-        <MemberActionsMenu
-          x={memberMenu.x}
-          y={memberMenu.y}
-          items={memberItems(memberMenu.m)}
-          onClose={() => setMemberMenu(null)}
-        />
-      )}
-    </>
-  )
-}
-
-// Панель деталей чата (Telegram-стиль §55): профиль + управление + вкладки
-// Участники / Медиа / Файлы / Ссылки / Голос (§23, реальные данные из gallery-эндпоинтов).
-//
-// Одна панель на все размеры экрана — второго экрана с тем же содержимым нет:
-// `variant='column'` — докнутая третья колонка на ПК (≥xl), со своей шапкой и крестиком;
-// `variant='fullscreen'` — та же панель во весь экран на планшете и мобильном, со стрелкой
-// возврата в шапке. Именно экран, а не модальное окно: у окна остаются поля по краям и
-// затемнение, из-за которых список участников и сетка медиа живут в «окошке в окошке», а
-// в мессенджерах профиль чата — отдельный экран, из которого возвращаются назад
-// (шапку и крестик даёт Modal). Клик по материалу — onJump к сообщению-источнику.
 export function ChatDetailsPanel({
   chat,
   title,
@@ -1215,8 +92,8 @@ export function ChatDetailsPanel({
   variant?: 'column' | 'fullscreen'
   /**
    * Панель показана прямо сейчас. Колонка на ПК не размонтируется при закрытии (её
-   * ширина анимируется), поэтому без этого флага вкладка оставалась бы той, на которой
-   * панель закрыли, — а открываться она должна с начала.
+   * ширина анимируется), поэтому без этого флага она открывалась бы на той вкладке и том
+   * экране, где её закрыли, — а открываться она должна с начала.
    */
   open?: boolean
   onClose: () => void
@@ -1224,7 +101,7 @@ export function ChatDetailsPanel({
   // importantOnly — режим «только важные»: ответы мне и упоминания уведомляют и в mute.
   onMute: (mode: number | 'forever', importantOnly?: boolean) => void
   onUnmute: () => void
-  /** Собеседник личного чата — под него открывается вкладка «Профиль». */
+  /** Собеседник личного чата — о нём сведения и фото в шапке. */
   peerId?: string
   peerBlocked?: boolean
   onToggleBlock?: () => void
@@ -1235,389 +112,436 @@ export function ChatDetailsPanel({
   onOpenChat: (chatId: string) => void
 }) {
   const t = useTranslations('Chats')
-  const tErr = useTranslations('Errors')
-  const qc = useQueryClient()
   const isGroup = !isPrivate
-  const [muteMenuOpen, setMuteMenuOpen] = useState(false)
-  // Режим выбирается до срока: галочка применяется к любому выбранному сроку заглушения.
-  const [importantOnly, setImportantOnly] = useState(false)
-  // Фото и название правятся в отдельном окне (EditGroupDialog) — как в мессенджерах.
-  const [editOpen, setEditOpen] = useState(false)
-
-  const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
-  // Выход — DELETE /chats/:id, а не исключение самого себя: исключать может только админ, и у
-  // него в ленте вместо «вышел» появлялось «исключил».
-  const leave = useMutation({
-    mutationFn: () => deleteChatRequest(chat.id),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
-      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
-      onLeft()
-    },
-    onError: err,
-  })
-
-  const subtitle = isPrivate
-    ? peerOnline
-      ? t('online')
-      : t('offlineStatus')
-    : t('participants', { count: chat.memberCount })
-  // Аватар группы меняет владелец, название — любой админ. Окно редактирования
-  // открывается по любому из двух прав, внутри доступное разграничено.
-  const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
-  const canLeave = chat.type === 'GROUP' && !chat.isOwner
-  // Вкладка профиля есть только там, где есть один собеседник: у «Избранного»
-  // (личный чат с самим собой) и групп её нет. Объект, а не флаг: из него TS видит,
-  // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
+  const isSaved = chat.type === 'SAVED'
+  // Сведения о собеседнике есть только там, где он один: у «Избранного» и групп их нет.
   const peer = isPrivate && peerId && onToggleBlock ? { id: peerId, onToggleBlock } : null
+  // Аватар группы меняет владелец, название — любой админ (и участник, если владелец открыл
+  // «смену информации», §8.3): управление открывается по любому из них.
+  const canEdit =
+    isGroup &&
+    (chat.isAdmin ||
+      chat.isOwner ||
+      (chat.type === 'GROUP' && chat.permissions?.changeInfo === true))
 
-  // Аватар чата во весь экран.
-  const [avatarOpen, setAvatarOpen] = useState(false)
-  // Описание развёрнуто целиком. Сбрасывать при смене чата не нужно: панель монтируется
-  // заново на каждый чат (key={chat.id} у вызывающего).
-  const [descriptionOpen, setDescriptionOpen] = useState(false)
-
-  // Ссылка-приглашение: /join-chat/<id>?k=<код>. Код выдаёт сервер и только админу группы;
-  // один id чата больше не пускает — иначе исключённый возвращался по старой ссылке.
-  const copyInvite = useMutation({
-    mutationFn: async (reset: boolean) => {
-      const code = reset ? await resetChatInviteCode(chat.id) : await fetchChatInviteCode(chat.id)
-      const link = `${window.location.origin}/join-chat/${chat.id}?k=${encodeURIComponent(code)}`
-      await navigator.clipboard?.writeText(link)
-      return reset
-    },
-    onSuccess: (reset) => toast.success(reset ? t('inviteLinkReset') : t('linkCopied')),
-    onError: err,
-  })
-
-  // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
-  const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
-  // Тип — string, а не объединение литералов: Radix отдаёт в onValueChange обычную
-  // строку, и узкий сеттер туда не подходит.
+  const [screen, setScreen] = useState<Screen>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const firstTab = isGroup ? 'participants' : 'media'
+  // Тип — string: Radix отдаёт в onValueChange обычную строку.
   const [tab, setTab] = useState<string>(firstTab)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const tabsAnchorRef = useRef<HTMLDivElement>(null)
+
+  // Открылась заново — с начала: профиль, первая вкладка, верх колонки, фото свёрнуто.
   useEffect(() => {
-    if (open) setTab(firstTab)
+    if (!open) return
+    setTab(firstTab)
+    setScreen(null)
+    setExpanded(false)
+    scrollRef.current?.scrollTo({ top: 0 })
   }, [open, firstTab])
 
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      {/* Шапка у обоих вариантов одна по геометрии и разная по значку: в колонке панель
-          закрывают крестиком (переписка рядом остаётся), с экрана — возвращаются стрелкой.
-          Кнопка того же размера, что кнопки шапки чата: тогда обе шапки одной высоты и их
-          нижние границы идут одной линией. */}
-      <div className="flex items-center gap-1 border-b border-border px-2 py-3">
-        <button
-          type="button"
-          aria-label={variant === 'column' ? t('cancel') : t('back')}
-          onClick={onClose}
-          className="flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-        >
-          {variant === 'column' ? (
-            <X className="size-5" aria-hidden />
-          ) : (
-            <ChevronLeft className="size-5" aria-hidden />
-          )}
-        </button>
-        <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold">{t('details')}</span>
-      </div>
+  // Участники — тот же кэш, что у переписки: статус «в сети» собеседника и счётчик группы.
+  const members = useQuery({
+    queryKey: chatKeys.members(chat.id),
+    queryFn: () => fetchChatMembers(chat.id),
+  })
+  const user = useQuery({
+    queryKey: userKeys.detail(peerId ?? ''),
+    queryFn: () => fetchUserById(peerId as string),
+    enabled: peer != null,
+  })
 
-      <div className="flex shrink-0 flex-col items-center gap-2 border-b border-border p-5">
-        {/* Аватар открывается во весь экран (§3 карты) — только настоящая картинка:
-            разглядывать кружок с инициалами не за чем. */}
-        {chat.avatarUrl ? (
+  // Фото шапки — история аватаров, как в Telegram (§8.3): у собеседника его фото профиля, у
+  // группы — фото группы, текущее первым. Обложку профиля Telegram в шапке не показывает —
+  // её здесь и нет. Пока история не пришла (или старый сервер) — один текущий аватар.
+  const hasPeer = peer != null
+  const isUserGroup = chat.type === 'GROUP'
+  const current = hasPeer ? (user.data?.avatarUrl ?? chat.avatarUrl) : chat.avatarUrl
+  const history = useQuery({
+    // Текущий аватар — в ключе: сменили фото — история перечитывается сама.
+    queryKey: [
+      ...(hasPeer ? groupKeys.userPhotos(peerId ?? '') : groupKeys.chatPhotos(chat.id)),
+      current,
+    ],
+    queryFn: () => (hasPeer ? fetchUserPhotos(peerId as string) : fetchChatPhotos(chat.id)),
+    enabled: open && (hasPeer || isUserGroup),
+    staleTime: 60_000,
+  })
+  const photos = useMemo(() => {
+    const list = history.data?.length ? history.data.map((p) => p.url) : [current]
+    return [...new Set(list.filter((x): x is string => Boolean(x)))]
+  }, [history.data, current])
+
+  // Удалить фото группы из истории — только владелец (фото группы — его, §8.3). Текущее
+  // сменится предыдущим: сервер вернёт новый аватар, список и шапка перечитаются.
+  const qc = useQueryClient()
+  const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
+  const deletePhoto = useMutation({
+    mutationFn: (photoId: string) => deleteChatPhotoRequest(chat.id, photoId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: groupKeys.chatPhotos(chat.id) })
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      toast.success(t('tgGroups.photoDeleted'))
+    },
+    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+  const photoIds = history.data?.map((p) => p.id) ?? []
+  const onDeletePhoto =
+    isUserGroup && chat.isOwner && photoIds.length === photos.length
+      ? (index: number): void => {
+          const id = photoIds[index]
+          // Пустой id — аватар старше истории: удаляется только целиком, из окна правки.
+          if (!id) return
+          void confirm({ title: t('tgGroups.photoDeleteConfirm'), destructive: true }).then(
+            (ok) => {
+              if (ok) deletePhoto.mutate(id)
+            },
+          )
+        }
+      : undefined
+
+  const peerMember = peer ? members.data?.find((m) => m.id === peer.id) : undefined
+  const onlineCount = (members.data ?? []).filter((m) => m.online && !m.banned).length
+  const status = isSaved
+    ? null
+    : isPrivate
+      ? peerOnline
+        ? t('online')
+        : peerMember?.lastSeenAt
+          ? lastSeenText(peerMember.lastSeenAt, t)
+          : t('tgRight.lastSeenRecently')
+      : [
+          t('participants', { count: chat.memberCount }),
+          onlineCount > 0 ? t('membersOnline', { count: onlineCount }) : null,
+        ]
+          .filter(Boolean)
+          .join(', ')
+
+  // Смена идёт через View Transition, и состояние обновляется не сразу: колесо и прокрутка
+  // успели бы запустить переход повторно на каждом событии. Флаг держит один переход за раз.
+  const switching = useRef(false)
+  useEffect(() => {
+    switching.current = false
+  }, [expanded])
+  const setPhotoExpanded = (next: boolean): void => {
+    if (switching.current || next === expanded) return
+    if (next && photos.length === 0) return
+    switching.current = true
+    withViewTransition(() => {
+      setExpanded(next)
+      // Развёрнутое фото видно целиком: иначе первая же прокрутка свернула бы его обратно.
+      if (next) scrollRef.current?.scrollTo({ top: 0 })
+    })
+  }
+  const expand = (): void => setPhotoExpanded(true)
+  // Слушатели колеса живут в эффекте — им нужна свежая функция без переподписки.
+  const expandRef = useRef(expand)
+  expandRef.current = expand
+
+  // Развернуть фото, «дотянув» колесом или пальцем вверх у самого верха колонки — как
+  // перетягивание в Telegram. Свернуть — обычной прокруткой вниз (onScroll ниже).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || screen !== null || expanded || photos.length === 0) return
+    let pull = 0
+    let reset: number | undefined
+    let touchY: number | null = null
+    const trigger = (): void => {
+      pull = 0
+      expandRef.current()
+    }
+    const onWheel = (e: WheelEvent): void => {
+      if (el.scrollTop > 0 || e.deltaY >= 0) {
+        pull = 0
+        return
+      }
+      pull -= e.deltaY
+      window.clearTimeout(reset)
+      reset = window.setTimeout(() => (pull = 0), 250)
+      if (pull > OVERSCROLL_EXPAND_PX) trigger()
+    }
+    const onTouchStart = (e: TouchEvent): void => {
+      touchY = el.scrollTop <= 0 ? (e.touches[0]?.clientY ?? null) : null
+    }
+    const onTouchMove = (e: TouchEvent): void => {
+      if (touchY === null) return
+      const y = e.touches[0]?.clientY
+      if (y !== undefined && y - touchY > OVERSCROLL_EXPAND_PX) {
+        touchY = null
+        trigger()
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    return () => {
+      window.clearTimeout(reset)
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+    }
+  }, [screen, expanded, photos.length])
+
+  function onScroll(): void {
+    if (expanded && (scrollRef.current?.scrollTop ?? 0) > 12) setPhotoExpanded(false)
+  }
+
+  // Смена вкладки, когда вкладки уже прилипли: новая начинается с верха, под ними, а не с
+  // того места, куда долистали предыдущую.
+  function changeTab(next: string): void {
+    setTab(next)
+    const sc = scrollRef.current
+    const anchor = tabsAnchorRef.current
+    if (sc && anchor && sc.scrollTop > anchor.offsetTop) sc.scrollTop = anchor.offsetTop
+  }
+
+  function goTo(next: Screen): void {
+    setScreen(next)
+    scrollRef.current?.scrollTo({ top: 0 })
+  }
+
+  function back(): void {
+    if (screen === null) {
+      onClose()
+      return
+    }
+    goTo(screen === 'addMembers' ? null : manageParent(screen))
+  }
+
+  const headerTitle =
+    screen === null
+      ? isGroup
+        ? t('tgRight.groupInfo')
+        : t('details')
+      : screen === 'addMembers'
+        ? t('addMembers')
+        : t(MANAGE_TITLE[screen])
+
+  const showFab =
+    screen === null &&
+    isGroup &&
+    (chat.isAdmin || chat.isOwner || (isUserGroup && chat.permissions?.addMembers === true)) &&
+    tab === 'participants'
+
+  // Переход со страницы из колонки — через закрытие колонки (column-navigation.tsx): иначе
+  // снятие её записи в истории откатывало бы адрес новой страницы.
+  const router = useRouter()
+  const navigate = useCallback(
+    (href: string) => {
+      onClose()
+      afterOverlayClose(() => router.push(href))
+    },
+    [onClose, router],
+  )
+
+  // Свайп по содержимому вкладок листает вкладки (§55, как в Telegram), на пружине.
+  const tabOrder = useMemo(
+    () => [
+      ...(isGroup ? ['participants'] : []),
+      'media',
+      'files',
+      'links',
+      'music',
+      'voice',
+      'gif',
+      'polls',
+    ],
+    [isGroup],
+  )
+  const swipeRef = useTabSwipe({ tabs: tabOrder, current: tab, onChange: changeTab })
+
+  return (
+    <ColumnNavigateProvider value={navigate}>
+      <div
+        className="relative flex h-full min-h-0 flex-col bg-background"
+        onClickCapture={(e) => {
+          const href = interceptableHref(e)
+          if (!href) return
+          e.preventDefault()
+          navigate(href)
+        }}
+        onKeyDown={(e) => {
+          // Esc внутри управления — шаг назад, а не закрытие всей колонки.
+          // Открытое меню или окно Esc закрывает само — шаг назад в этот момент был бы лишним.
+          if (e.key !== 'Escape' || screen === null || e.defaultPrevented) return
+          if (!document.querySelector('[role="menu"],[role="dialog"],[role="alertdialog"]')) {
+            e.preventDefault()
+            e.stopPropagation()
+            back()
+          }
+        }}
+      >
+        <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-3">
           <button
             type="button"
-            aria-label={title}
-            onClick={() => setAvatarOpen(true)}
-            className="cursor-zoom-in rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+            aria-label={screen !== null || variant === 'fullscreen' ? t('back') : t('close')}
+            onClick={back}
+            className={HEADER_BTN}
           >
-            <Avatar className="size-20">
-              <AvatarImage src={chat.avatarUrl} alt={title} />
-              <AvatarFallback
-                className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
-              >
-                {identityInitials(title)}
-              </AvatarFallback>
-            </Avatar>
-          </button>
-        ) : (
-          <Avatar className="size-20">
-            <AvatarFallback
-              className={cn('text-2xl font-medium text-white', identityColor(chat.id))}
-            >
-              {identityInitials(title)}
-            </AvatarFallback>
-          </Avatar>
-        )}
-
-        <div className="flex min-w-0 max-w-full items-center gap-1.5">
-          <p className="min-w-0 truncate text-lg font-semibold">{title}</p>
-          {isOfficialChat(chat.type) && (
-            <BadgeCheck className="size-4 shrink-0 text-info" aria-label={t('officialChat')} />
-          )}
-          {canEdit && (
-            <button
-              type="button"
-              aria-label={t('editGroup')}
-              onClick={() => setEditOpen(true)}
-              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <Pencil className="size-3.5" aria-hidden />
-            </button>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
-
-        {/* Действия — карточкой строк, как в Telegram: уведомления переключателем, а
-            ссылка, блокировка и выход — отдельными строками, опасное красным и в конце.
-            Раньше здесь лежал ряд одинаковых кнопок-«таблеток», где «Покинуть» выглядел
-            ровно как «Заглушить», а на узкой панели ряд ломался на две строки. */}
-        <div className="mt-3 w-full overflow-hidden rounded-xl border border-border bg-card text-sm">
-          {/* Переключатель включает и выключает звук сразу, клик по самой строке открывает
-              сроки: быстрый случай — один жест, редкий — на один жест больше. */}
-          <div className="relative flex items-center gap-3 px-3 py-2.5">
-            {chat.muted ? (
-              <BellOff className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            {screen !== null ? (
+              <ArrowLeft className="size-5" aria-hidden />
+            ) : variant === 'column' ? (
+              <X className="size-5" aria-hidden />
             ) : (
-              <Bell className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            )}
-            <button
-              type="button"
-              onClick={() => (chat.muted ? onUnmute() : setMuteMenuOpen((v) => !v))}
-              className="min-w-0 flex-1 cursor-pointer text-left outline-none"
-            >
-              <span className="block truncate">{t('notificationsRow')}</span>
-              {chat.muted && (
-                <span className="block truncate text-xs text-muted-foreground">
-                  {chat.mutedImportantOnly ? t('muteImportantOnly') : t('mute')}
-                </span>
-              )}
-            </button>
-            <ToggleSwitch
-              checked={!chat.muted}
-              label={chat.muted ? t('unmute') : t('mute')}
-              onChange={(on) => (on ? onUnmute() : onMute('forever', importantOnly))}
-            />
-            {muteMenuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setMuteMenuOpen(false)} />
-                <div className="absolute left-1/2 top-full z-50 mt-1 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg">
-                  {/* §17: «только важные» — не отдельный срок, а модификатор к выбранному:
-                        чат заглушён, но ответы мне и упоминания меня всё равно уведомляют. */}
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={importantOnly}
-                    onClick={() => setImportantOnly((v) => !v)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                  >
-                    <span
-                      className={cn(
-                        'flex size-4 shrink-0 items-center justify-center rounded border',
-                        importantOnly
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border',
-                      )}
-                      aria-hidden
-                    >
-                      {importantOnly && <Check className="size-3" />}
-                    </span>
-                    {t('muteImportantOnly')}
-                  </button>
-                  <div className="my-1 h-px bg-border" aria-hidden />
-                  {MUTE_DURATIONS.map((d) => (
-                    <button
-                      key={d.key}
-                      type="button"
-                      onClick={() => {
-                        setMuteMenuOpen(false)
-                        onMute(d.mode, importantOnly)
-                      }}
-                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
-                    >
-                      {t(d.key)}
-                    </button>
-                  ))}
-                </div>
+                {/* На телефоне колонка — экран, с него возвращаются стрелкой; на планшете
+                  это остров поверх переписки, его закрывают крестиком. */}
+                <ChevronLeft className="size-5 md:hidden" aria-hidden />
+                <X className="hidden size-5 md:block" aria-hidden />
               </>
             )}
-          </div>
-
-          {canEdit && (
-            <>
-              <div className="h-px bg-border" aria-hidden />
-              {/* В буфер уходит адрес приглашения — читать в нём нечего, поэтому строка
-                  называет действие, а не показывает ссылку. Ссылку выдаёт сервер и только
-                  админам группы. */}
-              <button
-                type="button"
-                disabled={copyInvite.isPending}
-                onClick={() => copyInvite.mutate(false)}
-                className={DETAILS_ROW}
-              >
-                <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{t('inviteLink')}</span>
-              </button>
-              <button
-                type="button"
-                disabled={copyInvite.isPending}
-                onClick={() => copyInvite.mutate(true)}
-                className={DETAILS_ROW}
-              >
-                <RotateCcw className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{t('inviteLinkResetAction')}</span>
-              </button>
-            </>
-          )}
-
-          {peer && (
-            <>
-              <div className="h-px bg-border" aria-hidden />
-              <button
-                type="button"
-                onClick={peer.onToggleBlock}
-                className={cn(DETAILS_ROW, !peerBlocked && 'text-destructive')}
-              >
-                {peerBlocked ? (
-                  <UserCheck className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                ) : (
-                  <Ban className="size-4 shrink-0" aria-hidden />
-                )}
-                <span className="min-w-0 flex-1 truncate">
-                  {peerBlocked ? t('unblockUser') : t('blockUser')}
-                </span>
-              </button>
-            </>
-          )}
-
-          {/* Покинуть можно только пользовательскую группу. Создатель её не покидает, а
-              удаляет (пункт «Удалить группу» в меню шапки), официальные чаты не покидаются. */}
-          {canLeave && (
-            <>
-              <div className="h-px bg-border" aria-hidden />
-              <button
-                type="button"
-                disabled={leave.isPending}
-                onClick={() => leave.mutate()}
-                className={cn(DETAILS_ROW, 'text-destructive disabled:opacity-60')}
-              >
-                {leave.isPending ? (
-                  <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-                ) : (
-                  <LogOut className="size-4 shrink-0" aria-hidden />
-                )}
-                <span className="min-w-0 flex-1 truncate">{t('leave')}</span>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Описание группы (§3 карты): назначение, правила, ссылки. Рендерим тем же
-          markdown-компонентом, что и сообщения — ссылки и переносы строк работают так же,
-          как везде в чате, а сырой HTML он не пускает. Длинный текст свёрнут: панель узкая,
-          и полотно правил вытолкнуло бы вкладки с медиа за нижний край. */}
-      {isGroup && chat.description && (
-        <div className="shrink-0 border-b border-border px-4 py-3">
-          <div className={cn(!descriptionOpen && 'line-clamp-4')}>
-            <MessageContent content={chat.description} />
-          </div>
-          {chat.description.length > DESCRIPTION_CLAMP && (
+          </button>
+          <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">
+            {headerTitle}
+          </span>
+          {screen === null && canEdit && (
             <button
               type="button"
-              onClick={() => setDescriptionOpen((v) => !v)}
-              className="mt-1 text-xs font-medium text-primary transition-colors hover:underline"
+              aria-label={t('tgRight.manageTitle')}
+              title={t('tgRight.manageTitle')}
+              onClick={() => goTo('main')}
+              className={HEADER_BTN}
             >
-              {descriptionOpen ? t('descriptionLess') : t('descriptionMore')}
+              <Pencil className="size-5" aria-hidden />
             </button>
           )}
         </div>
-      )}
 
-      {/* Первой открывается вкладка о самом собеседнике (в группе — её участники):
-          «кто это» — вопрос раньше, чем «что здесь присылали». */}
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col">
-        <TabsList className="mx-2 mt-2 grid shrink-0 grid-flow-col justify-stretch">
-          {isGroup && (
-            <TabsTrigger value="participants" aria-label={t('tabParticipants')}>
-              <Users className="size-4" aria-hidden />
-            </TabsTrigger>
-          )}
-          {peer && (
-            <TabsTrigger value="profile" aria-label={t('openProfile')}>
-              <UserRound className="size-4" aria-hidden />
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="media" aria-label={t('tabMedia')}>
-            <ImageIcon className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="files" aria-label={t('tabFiles')}>
-            <FileText className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="links" aria-label={t('tabLinks')}>
-            <Link2 className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="voice" aria-label={t('tabVoice')}>
-            <Mic className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="music" aria-label={t('tabMusic')}>
-            <Music className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="gif" aria-label={t('tabGif')}>
-            <ImagePlay className="size-4" aria-hidden />
-          </TabsTrigger>
-          <TabsTrigger value="polls" aria-label={t('tabPolls')}>
-            <BarChart3 className="size-4" aria-hidden />
-          </TabsTrigger>
-        </TabsList>
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+        >
+          {screen === null ? (
+            <>
+              <ProfileHero
+                id={chat.id}
+                title={title}
+                photos={photos}
+                status={status}
+                online={isPrivate && peerOnline}
+                official={isOfficialChat(chat.type)}
+                officialLabel={t('officialChat')}
+                expanded={expanded}
+                onExpand={expand}
+                onDeletePhoto={onDeletePhoto}
+              />
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {isGroup && (
-            <TabsContent value="participants" className={TAB_PANE}>
-              <ParticipantsTab chat={chat} myId={myId} onOpenChat={onOpenChat} />
-            </TabsContent>
+              {(!isSaved || peer) && (
+                <InfoCard className={cn(expanded && 'mt-3')}>
+                  {peer && <PeerInfoRows userId={peer.id} />}
+                  {isGroup && <GroupInfoRows chat={chat} />}
+                  {!isSaved && <NotificationsRow chat={chat} onMute={onMute} onUnmute={onUnmute} />}
+                </InfoCard>
+              )}
+
+              <ChatActionsCard
+                chat={chat}
+                peerBlocked={peerBlocked}
+                onToggleBlock={peer?.onToggleBlock}
+                onLeft={onLeft}
+              />
+
+              {/* Общие материалы. Вкладки прилипают к верху колонки, под ними — содержимое;
+                сначала участники группы: «кто здесь» — вопрос раньше, чем «что присылали». */}
+              <Tabs value={tab} onValueChange={changeTab} className="mt-3">
+                <div ref={tabsAnchorRef} aria-hidden />
+                <div className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md">
+                  <TabsList className="w-full sm:w-full" aria-label={t('tgRight.sharedTabs')}>
+                    {isGroup && (
+                      <TabsTrigger value="participants" className="flex-none">
+                        {t('tabParticipants')}
+                      </TabsTrigger>
+                    )}
+                    <TabsTrigger value="media" className="flex-none">
+                      {t('tabMedia')}
+                    </TabsTrigger>
+                    <TabsTrigger value="files" className="flex-none">
+                      {t('tabFiles')}
+                    </TabsTrigger>
+                    <TabsTrigger value="links" className="flex-none">
+                      {t('tabLinks')}
+                    </TabsTrigger>
+                    <TabsTrigger value="music" className="flex-none">
+                      {t('tabMusic')}
+                    </TabsTrigger>
+                    <TabsTrigger value="voice" className="flex-none">
+                      {t('tabVoice')}
+                    </TabsTrigger>
+                    <TabsTrigger value="gif" className="flex-none">
+                      {t('tabGif')}
+                    </TabsTrigger>
+                    <TabsTrigger value="polls" className="flex-none">
+                      {t('tabPolls')}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <div ref={swipeRef} className="touch-pan-y">
+                  {isGroup && (
+                    <TabsContent value="participants" className={TAB_PANE}>
+                      <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} />
+                    </TabsContent>
+                  )}
+                  <TabsContent value="media" className={TAB_PANE}>
+                    <MediaTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="files" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="file" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="links" className={TAB_PANE}>
+                    <LinksTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="music" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="music" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="voice" className={TAB_PANE}>
+                    <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="gif" className={TAB_PANE}>
+                    <GifTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                  <TabsContent value="polls" className={TAB_PANE}>
+                    <PollsTab chatId={chat.id} onJump={onJump} />
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </>
+          ) : screen === 'addMembers' ? (
+            <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+          ) : (
+            <GroupManagement
+              chat={chat}
+              myId={myId}
+              screen={screen}
+              onNavigate={goTo}
+              onEditInfo={() => setEditOpen(true)}
+              onOpenChat={onOpenChat}
+              onLeft={onLeft}
+            />
           )}
-          {peer && (
-            <TabsContent value="profile" className={TAB_PANE}>
-              <PeerProfileTab userId={peer.id} />
-            </TabsContent>
-          )}
-          <TabsContent value="media" className={TAB_PANE}>
-            <MediaTab chatId={chat.id} />
-          </TabsContent>
-          <TabsContent value="files" className={TAB_PANE}>
-            <FileTab chatId={chat.id} type="file" onJump={onJump} />
-          </TabsContent>
-          <TabsContent value="links" className={TAB_PANE}>
-            <LinksTab chatId={chat.id} onJump={onJump} />
-          </TabsContent>
-          <TabsContent value="voice" className={TAB_PANE}>
-            <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
-          </TabsContent>
-          <TabsContent value="music" className={TAB_PANE}>
-            <FileTab chatId={chat.id} type="music" onJump={onJump} />
-          </TabsContent>
-          <TabsContent value="gif" className={TAB_PANE}>
-            <GifTab chatId={chat.id} onJump={onJump} />
-          </TabsContent>
-          <TabsContent value="polls" className={TAB_PANE}>
-            <PollsTab chatId={chat.id} onJump={onJump} />
-          </TabsContent>
         </div>
-      </Tabs>
 
-      {editOpen && <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />}
+        {/* Добавить участников — плавающей кнопкой на вкладке участников, как в Telegram. */}
+        {showFab && (
+          <button
+            type="button"
+            aria-label={t('addMembers')}
+            title={t('addMembers')}
+            onClick={() => goTo('addMembers')}
+            className="absolute right-4 bottom-4 z-20 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none duration-(--motion-menu) animate-in fade-in-0 zoom-in-75 hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/30"
+          >
+            <UserPlus className="size-6" aria-hidden />
+          </button>
+        )}
 
-      {avatarOpen && chat.avatarUrl && (
-        <PlainMediaViewer
-          items={[{ mime: 'image/*', name: title }]}
-          index={0}
-          src={chat.avatarUrl}
-          onIndexChange={() => undefined}
-          onClose={() => setAvatarOpen(false)}
-          downloadName={title}
-        />
-      )}
-    </div>
+        {editOpen && (
+          <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />
+        )}
+      </div>
+    </ColumnNavigateProvider>
   )
 }

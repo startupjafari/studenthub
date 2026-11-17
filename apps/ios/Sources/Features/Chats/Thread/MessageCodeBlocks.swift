@@ -137,6 +137,8 @@ struct MessageCodeText: View {
     let highlight: String?
     /// Входящее в чате-запросе: ссылки и упоминания — простой текст (IOS_RULES 10.4.12).
     var plainLinks = false
+    /// Спойлеры сообщения открыты касанием (`ChatSpoilerReveal`).
+    var revealSpoilers = false
     /// Невидимая подпись времени в конце последнего абзаца — время встаёт в его строку.
     /// `nil`, если текст кончается кодом: тогда время уходит на свою строку.
     let metaPlaceholder: Text?
@@ -175,19 +177,20 @@ struct MessageCodeText: View {
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            let body = Text(highlighted(text, rich: true)).font(Typography.body)
+            let attributed = highlighted(text, rich: true)
+            let body = Text(attributed).font(Typography.body)
             let line = isLast ? metaPlaceholder.map { body + $0 } ?? body : body
             line
                 .foregroundStyle(textColor)
                 .tint(tint)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(Text(text))
+                .accessibilityLabel(Text(style.spoken(attributed)))
         }
     }
 
     private var style: BubbleTextStyle {
-        BubbleTextStyle(isOwn: isOwn, highlight: highlight, plainLinks: plainLinks)
+        BubbleTextStyle(isOwn: isOwn, highlight: highlight, plainLinks: plainLinks, revealSpoilers: revealSpoilers)
     }
 
     private func highlighted(_ text: String, rich: Bool) -> AttributedString {

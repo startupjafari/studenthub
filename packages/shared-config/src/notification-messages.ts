@@ -58,6 +58,8 @@ const RU = {
 
   'chats.request.title': 'Запрос на переписку',
   'chats.request.body': '{name} хочет вам написать',
+  'chats.joinRequest.title': 'Заявка на вступление',
+  'chats.joinRequest.body': '{name} просит вступить в группу «{title}»',
   // Текст сообщения в уведомление не подставляется (docs/PERSONAL_DATA.md §3): оно уходит
   // в push-сервисы и почтовому провайдеру и живёт в истории уведомлений дольше сообщения.
   'chats.message.body': 'Новое сообщение',
@@ -232,6 +234,8 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'chats.request.title': 'Хат алмасу сұрауы',
   'chats.request.body': '{name} сізге жазғысы келеді',
+  'chats.joinRequest.title': 'Қосылуға өтінім',
+  'chats.joinRequest.body': '{name} «{title}» тобына қосылуды сұрайды',
   'chats.message.body': 'Жаңа хабарлама',
   'chats.scheduledFailed.title': 'Кейінге қалдырылған хабарлама жіберілмеді',
 
@@ -380,6 +384,8 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'chats.request.title': 'Message request',
   'chats.request.body': '{name} wants to message you',
+  'chats.joinRequest.title': 'Join request',
+  'chats.joinRequest.body': '{name} asks to join «{title}»',
   'chats.message.body': 'New message',
   'chats.scheduledFailed.title': 'Scheduled message was not sent',
 

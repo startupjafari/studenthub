@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Сгенерировано apps/android/scripts/import_ios_strings.py из каталога iOS. Не править руками. -->
 <resources>
+    <string name="chats_format_spoiler">Spoiler</string>
+    <string name="chats_format_underline">Underline</string>
+    <string name="chats_spoiler_hidden">hidden text</string>
+    <string name="chats_spoiler_reveal">Reveal spoiler</string>
     <string name="validation_applications_catalogCode">Latin letters, digits and hyphens, 2–60 characters</string>
     <string name="validation_applications_choiceOptionsRequired">A choice field needs at least one option</string>
     <string name="validation_applications_documentTypeRequired">Select the document type</string>

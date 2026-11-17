@@ -18,6 +18,9 @@ export {
   startChatAttachmentMultipart,
   chatAttachmentPartUrls,
   searchMessages,
+  type MessageSearchFilters,
+  fetchTopPeers,
+  type TopPeer,
   fetchPinned,
   pinMessageRequest,
   unpinMessageRequest,
@@ -29,11 +32,16 @@ export {
   exportChatFile,
   setChatMutedRequest,
   setChatPinnedRequest,
+  setPinnedChatsOrderRequest,
   setChatArchivedRequest,
+  setChatMarkedUnreadRequest,
+  markChatsReadRequest,
   fetchPresence,
   fetchChatMembers,
   fetchReadReceipts,
   saveChatDraft,
+  type SavedChatDraft,
+  fetchMessageViews,
   addChatMemberRequest,
   removeChatMemberRequest,
   banChatMemberRequest,
@@ -71,14 +79,37 @@ export {
   type ChatMediaType,
   type ChatPollsPage,
   type ChatLinksPage,
+  fetchChatAttention,
+  readChatAttentionRequest,
+  type ChatAttentionKind,
+  type ChatAttentionCounts,
+  type ChatAttentionQueue,
 } from './api/chat-api'
 export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
+export {
+  groupKeys,
+  updateChatPermissionsRequest,
+  updateChatJoinSettingsRequest,
+  fetchJoinRequests,
+  approveJoinRequest,
+  declineJoinRequest,
+  fetchRemovedMembers,
+  fetchChatPhotos,
+  deleteChatPhotoRequest,
+  fetchUserPhotos,
+  deleteMyPhotoRequest,
+  type ChatGroupSettings,
+  type JoinRequestRow,
+  type RemovedMemberRow,
+  type AvatarPhoto,
+} from './api/group-api'
 export {
   type ChatTypeValue,
   type ChatMessage,
   type ChatListItem,
   type MessageAttachment,
   type MessageReplyPreview,
+  type ReplyMediaPreview,
   type MessageForwardOrigin,
   type MessageReaction,
   type SharedPostPreview,
@@ -105,9 +136,19 @@ export { MessageLocationCard, MessageContactCard } from './ui/message-place-card
 export { MessageChecklistView } from './ui/message-checklist'
 export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
-export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
+export {
+  AttachmentLinkProvider,
+  useAttachmentLinkSource,
+  type AttachmentLinkSource,
+} from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
+export {
+  ChatMediaRailViewer,
+  type ChatMediaRailActions,
+  type ChatMediaRailContext,
+  type ChatMediaRailStart,
+} from './ui/chat-media-rail-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
 export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'
@@ -123,10 +164,18 @@ export {
   type MessageMenuTarget,
 } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
+export {
+  useRoundVideoRecorder,
+  ROUND_VIDEO_MAX_SECONDS,
+  type RoundVideoRecorderController,
+} from './lib/use-round-video-recorder'
+export { RoundVideo } from './ui/round-video'
+export { useMessageViews, formatViews } from './lib/use-message-views'
 export { fileKind, type FileKind } from './lib/file-kind'
 export {
   attachmentKind,
   isViewable,
+  isVideoNote,
   isVoice,
   mediaPreview,
   type AttachmentKind,
@@ -143,3 +192,66 @@ export {
   LIVE_LOCATION_TICK_MS,
 } from './lib/live-location'
 export { VOICE_RATES, cycleVoiceRate, getVoiceRate, useVoiceRate } from './lib/voice-rate'
+export {
+  closeAudio,
+  getAudioElement,
+  isVoiceRecording,
+  LONG_AUDIO_SEC,
+  nudgeAudio,
+  playAudioTrack,
+  playNeighbour,
+  retainAudioPlayer,
+  seekAudioRatio,
+  toggleAudio,
+  useAudioPlayer,
+  type AudioPlayerState,
+  type AudioTrack,
+} from './lib/audio-player'
+export { useAudioQueue, usePlaylistQueue } from './lib/use-audio-queue'
+export {
+  setAudioVolume,
+  toggleAudioMuted,
+  toggleAudioRepeat,
+  toggleAudioShuffle,
+  useAudioSettings,
+  type AudioRepeat,
+  type AudioSettings,
+} from './lib/audio-settings'
+export {
+  composerKeys,
+  fetchStickerSets,
+  fetchFavoriteStickers,
+  addFavoriteStickerRequest,
+  removeFavoriteStickerRequest,
+  sendStickerRequest,
+  fetchTrendingGifs,
+  searchGifs,
+  fetchRecentGifs,
+  sendCatalogGifRequest,
+  sendRecentGifRequest,
+  sendChecklistRequest,
+  fetchScheduledMessages,
+  scheduleMessageRequest,
+  cancelScheduledRequest,
+  sendScheduledNowRequest,
+  type CatalogSticker,
+  type StickerSet,
+  type CatalogGif,
+  type CatalogGifPage,
+  type RecentGif,
+  type RichSendFields,
+  type ScheduledMessage,
+} from './api/composer-api'
+export {
+  chatSettingsKey,
+  fetchChatSettings,
+  updateChatSettingsRequest,
+  useDefaultReaction,
+  useChatSettingsSync,
+} from './api/chat-settings-api'
+export {
+  composerDraftKeys,
+  fetchDraftLinkPreview,
+  forwardBatchRequest,
+  type ForwardBatchResult,
+} from './api/composer-draft-api'

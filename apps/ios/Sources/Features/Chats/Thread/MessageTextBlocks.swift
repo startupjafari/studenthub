@@ -159,28 +159,40 @@ enum MessageTextBlocks {
 
 // MARK: - Строчный вид текста в пузыре
 
-/// Как строка сообщения выглядит в пузыре: строчная разметка `RichText`, недоверенные
-/// ссылки и подсветка поиска. Одно место для обычного текста, абзацев между блоками кода,
-/// цитат и пунктов списка.
+/// Как строка сообщения выглядит в пузыре: строчная разметка `RichText` (с маркерами чата
+/// `++…++` и `||…||`, `ChatMarkup`), недоверенные ссылки, скрытые спойлеры и подсветка
+/// поиска. Одно место для обычного текста, абзацев между блоками кода, цитат и пунктов списка.
 struct BubbleTextStyle: Hashable {
     var isOwn = false
     /// Поиск в переписке: найденное подсвечивается.
     var highlight: String?
     /// Входящее в чате-запросе (IOS_RULES 10.4.12): ссылки и упоминания — простой текст.
     var plainLinks = false
+    /// Спойлеры сообщения открыты касанием (`ChatSpoilerReveal`); до того — скрыты.
+    var revealSpoilers = false
 
     func attributed(_ text: String, rich: Bool = true) -> AttributedString {
-        var result = rich ? RichText.attributed(text) : AttributedString(text)
+        var result = rich ? RichText.attributed(text, chat: true) : AttributedString(text)
         if plainLinks, rich {
             // Касание по ссылке ничего не откроет, а упоминание не выделится весом:
             // `RichText` задаёт шрифт только упоминаниям, жирный и курсив — намерением.
             result.link = nil
             result.font = nil
         }
+        if rich, !revealSpoilers {
+            ChatMarkup.conceal(&result, tint: isOwn ? Palette.primaryForeground : Palette.foreground)
+        }
         if let highlight {
             SearchHighlight.apply(highlight, to: &result, background: isOwn ? SearchHighlight.outgoing : SearchHighlight.incoming)
         }
         return result
+    }
+
+    /// Что читает VoiceOver: нарисованный текст без разметки, скрытый спойлер — словами
+    /// «скрытый текст», а не своим содержимым.
+    func spoken(_ attributed: AttributedString) -> String {
+        guard !revealSpoilers else { return String(attributed.characters) }
+        return ChatMarkup.text(of: attributed) { _ in ChatMarkup.spokenPlaceholder }
     }
 }
 
@@ -233,7 +245,7 @@ struct MessageTextBlocksView: View {
                         .fill(accent)
                         .frame(width: 3)
                 }
-                .accessibilityLabel(Text(String(attributed.characters)))
+                .accessibilityLabel(Text(style.spoken(attributed)))
                 .layoutValue(key: ChatStretches.self, value: true)
         case .list(let items):
             VStack(alignment: .leading, spacing: 2) {
@@ -260,7 +272,7 @@ struct MessageTextBlocksView: View {
         return line
             .fixedSize(horizontal: false, vertical: true)
             // Невидимую копию времени VoiceOver прочитал бы второй раз.
-            .accessibilityLabel(Text(String(attributed.characters)))
+            .accessibilityLabel(Text(style.spoken(attributed)))
     }
 
     /// На своём синем пузыре — белый, на чужом — фирменный синий, как у блока кода.

@@ -99,9 +99,11 @@ export { AppSplash } from './app-splash'
 export {
   MediaViewer,
   VIEWER_ICON_BUTTON,
+  type MediaViewerAction,
   type MediaViewerItem,
   type MediaViewerMedia,
 } from './media-viewer'
+export { AvatarViewer } from './avatar-viewer'
 export { VideoPlayer } from './video-player'
 export { MediaImage, type MediaImageData } from './media-image'
 export { DateTimeField } from './date-time-field'
@@ -181,3 +183,12 @@ export { EmojiPicker } from './emoji-picker'
 export { ProgressRing } from './progress-ring'
 export { useListboxKeys } from './use-listbox-keys'
 export { MarkdownImage } from './markdown-image'
+export {
+  BackCloseWhileOpen,
+  ScreenStack,
+  useScreenStack,
+  type ScreenStackController,
+  type ScreenStackHandle,
+  type ScreenStackOptions,
+  type ScreenStackProps,
+} from './screen-stack'

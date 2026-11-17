@@ -2,6 +2,7 @@ import type {
   ComplaintFromSupportInput,
   ComplaintListQueryInput,
   CreateComplaintInput,
+  CreateMessageComplaintsInput,
   ResolveComplaintInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged } from '../../../shared/api'
@@ -19,6 +20,18 @@ export const complaintKeys = {
 // сервер по типу цели — фронт его не передаёт и не угадывает.
 export async function createComplaintRequest(input: CreateComplaintInput): Promise<void> {
   await api.post('/complaints', input)
+}
+
+// Жалоба на несколько сообщений одного чата (режим выбора): по жалобе на каждое, одним
+// запросом. `skipped` — на них у меня жалоба уже в очереди.
+export async function createMessageComplaintsRequest(
+  input: CreateMessageComplaintsInput,
+): Promise<{ created: number; skipped: number }> {
+  const { data } = await api.post<{ created: number; skipped: number }>(
+    '/complaints/messages',
+    input,
+  )
+  return data
 }
 
 // Жалоба из обращения в поддержку (команда платформы): автором становится автор обращения,

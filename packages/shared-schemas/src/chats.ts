@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 import { vm } from './validation-messages.js'
+import { httpUrl } from './url.js'
 
 // Чаты (docs/PROJECT.md §3.6, §9; Ф9). ChatType дублирует Prisma-enum.
 
@@ -209,15 +210,58 @@ export const ChatUpdatesQuerySchema = z
   .strict()
 export type ChatUpdatesQueryInput = z.infer<typeof ChatUpdatesQuerySchema>
 
+/**
+ * Вид материала в поиске (Telegram: вкладки глобального поиска «Медиа», «Ссылки», «Файлы»,
+ * «Голосовые», «Музыка»). Сообщение подходит, если в нём есть вложение этого вида
+ * (`link` — превью ссылки или адрес в тексте).
+ */
+export const MESSAGE_SEARCH_KINDS = ['media', 'file', 'voice', 'music', 'link'] as const
+export const MessageSearchKindSchema = z.enum(MESSAGE_SEARCH_KINDS)
+export type MessageSearchKind = z.infer<typeof MessageSearchKindSchema>
+
 // Поиск сообщений (Ф9+): по подстроке; chatId задан — внутри чата, иначе — по всем чатам участника.
 // Фильтры (§4): senderId — только сообщения этого автора; hasFile — только с вложениями.
+// Аддитивно (поиск как в Telegram):
+// - q необязателен: пустая строка — то же, что его нет. Без q ищут по фильтрам — «последние
+//   материалы вида kind», «все сообщения автора senderId», «сообщения за период». Без q и без
+//   единого фильтра искать нечего — сервер отдаёт пустую страницу, а не всю историю;
+// - kind — вид материала; вместе с q совпадением считается и подпись, и имя файла этого вида
+//   (у `link` — адрес и заголовок превью);
+// - from/to — период по времени отправки (ISO, границы включительно, можно одну).
+// Старые клиенты всегда шлют q из двух и более знаков — для них ничего не меняется.
 export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
-  q: z.string().trim().min(2).max(100),
+  q: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().trim().min(2).max(100).optional(),
+  ),
   chatId: z.string().min(1).optional(),
   senderId: z.string().min(1).optional(),
   hasFile: queryBoolean.optional(),
+  kind: MessageSearchKindSchema.optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+}).refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
+  path: ['to'],
+  message: vm('validation.range.endNotBeforeStart'),
 })
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
+
+/** Есть ли в запросе поиска хоть что-то, кроме места поиска (`chatId`) и страницы. */
+export function hasMessageSearchCriteria(
+  query: Pick<MessageSearchQueryInput, 'q' | 'senderId' | 'hasFile' | 'kind' | 'from' | 'to'>,
+): boolean {
+  return !!(query.q || query.senderId || query.hasFile || query.kind || query.from || query.to)
+}
+
+/**
+ * «Часто пишете» (`GET /chats/top-peers`): личные чаты, куда смотрящий сам больше всего пишет.
+ * Потолок — один ряд над недавними в пустом поиске.
+ */
+export const TOP_PEERS_MAX = 20
+export const TopPeersQuerySchema = z
+  .object({ limit: z.coerce.number().int().positive().max(TOP_PEERS_MAX).default(12) })
+  .strict()
+export type TopPeersQueryInput = z.infer<typeof TopPeersQuerySchema>
 
 // Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
 // Потолок — год: дольше это уже «навсегда», а без предела срок вылетал за пределы даты.
@@ -470,6 +514,10 @@ export const MessageSendRestSchema = z
     // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
     // одним способом, как и выбирают его в диалоге отправки — один раз на всю отправку.
     asFiles: queryBoolean.optional(),
+    // Кружок (видеосообщение, как в Telegram): единственное вложение — ролик с камеры, который
+    // показывается кругом без пузыря. Флаг отправителя: по байтам квадратное видео от кружка
+    // не отличить. Сервер принимает его только с одним видеофайлом и без `asFiles`.
+    videoNote: queryBoolean.optional(),
     // multipart отдаёт поля строками, поэтому queryBoolean (в отличие от WS-схемы ниже):
     // `z.coerce.boolean()` читал строку "false" как true.
     silent: queryBoolean.optional(),
@@ -563,6 +611,28 @@ export const MessageReactionSchema = z
   .strict()
 export type MessageReactionInput = z.infer<typeof MessageReactionSchema>
 
+/**
+ * Личные настройки чатов (`PATCH /chats/settings`). `defaultReaction` — своя быстрая реакция,
+ * которую ставит двойной клик или двойное касание по сообщению (как «Быстрая реакция» в
+ * Telegram); `null` возвращает общую по умолчанию (DEFAULT_CHAT_REACTION в shared-config).
+ */
+export const ChatSettingsUpdateSchema = z
+  .object({
+    defaultReaction: z
+      .string()
+      .min(1)
+      .max(REACTION_EMOJI_MAX)
+      .refine(isSingleEmoji, vm('validation.chats.reactionEmoji'))
+      .nullable(),
+  })
+  .strict()
+export type ChatSettingsUpdateInput = z.infer<typeof ChatSettingsUpdateSchema>
+
+/** Ответ `GET/PATCH /chats/settings`: реакция уже с подставленным значением по умолчанию. */
+export interface ChatSettingsResponse {
+  defaultReaction: string
+}
+
 // Пересылка сообщения в текущий чат (:id — цель): messageId — источник (из любого моего чата).
 export const MessageForwardSchema = z.object({ messageId: z.string().min(1) }).strict()
 export type MessageForwardInput = z.infer<typeof MessageForwardSchema>
@@ -584,9 +654,38 @@ export const MessageForwardBatchSchema = z
     // «Скрыть имя отправителя»: копии уходят как свои сообщения пересылающего — без
     // «Переслано от» (forwardedFromId не ставится). Содержимое и вложения те же.
     hideSender: z.boolean().optional(),
+    // «Скрыть подписи»: у сообщений с вложениями текст не копируется — уходят только файлы.
+    // Как в Telegram, включает и hideSender: подпись без имени автора — уже не его слова.
+    hideCaptions: z.boolean().optional(),
+    // Комментарий уходит без превью ссылки (плашку закрыли над полем ввода).
+    noLinkPreview: z.boolean().optional(),
   })
   .strict()
 export type MessageForwardBatchInput = z.infer<typeof MessageForwardBatchSchema>
+
+/**
+ * Первая http(s)-ссылка текста — по ней строится превью сообщения. Общая для сервера (job
+ * превью отправленного) и клиента (плашка превью над полем ввода): разойдись они, человек
+ * видел бы над полем одну карточку, а под сообщением — другую.
+ */
+export function firstLinkUrl(content?: string | null): string | undefined {
+  // Маркер спойлера `||` (PROJECT.md §3.6) адресу не принадлежит: в `||https://x.kz||`
+  // адрес — `https://x.kz`.
+  return content
+    ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1]?.replace(/\|\|.*$/, '') || undefined
+    : undefined
+}
+
+/** Потолок длины ссылки для превью черновика: длиннее браузеры и сайты сами не держат. */
+export const LINK_PREVIEW_URL_MAX = 2048
+
+/**
+ * Превью ссылки для черновика (`GET /chats/link-preview?url=`): карточка над полем ввода до
+ * отправки, как в Telegram. Только http(s); остальное (приватные адреса, редиректы внутрь
+ * сети) отсекает сервер при выборке.
+ */
+export const LinkPreviewQuerySchema = z.object({ url: httpUrl(LINK_PREVIEW_URL_MAX) }).strict()
+export type LinkPreviewQueryInput = z.infer<typeof LinkPreviewQuerySchema>
 
 /**
  * Недавние файлы для листа вложений (`GET /chats/files/recent`): `document` — документы,
@@ -607,6 +706,29 @@ export const MessageIdsSchema = z
   .object({ messageIds: z.array(entityId).min(1).max(MESSAGE_BULK_MAX) })
   .strict()
 export type MessageIdsInput = z.infer<typeof MessageIdsSchema>
+
+/**
+ * Типы чатов со счётчиком просмотров у сообщений (`POST /chats/:id/messages/views`).
+ *
+ * В Telegram просмотры видны в каналах — там, где пишет один, а читают многие, и автору
+ * важен охват. У нас роль каналов играют официальные чаты вуза: группы, предмета,
+ * факультета, деканата и события, — туда пишут объявления. В личном чате счётчик бессмыслен
+ * (прочтение и так видно галочками), в «Сохранённых» и поддержке — тоже, а в
+ * пользовательских группах, как и в группах Telegram, его нет: у своих сообщений там уже
+ * есть «прочитали N».
+ */
+export const CHAT_VIEW_COUNTED_TYPES: readonly ChatTypeValue[] = [
+  'GROUP_OFFICIAL',
+  'SUBJECT',
+  'FACULTY',
+  'DEAN',
+  'EVENT',
+]
+
+/** Показывать ли у сообщений этого чата счётчик просмотров. */
+export function chatCountsViews(type: string): boolean {
+  return CHAT_VIEW_COUNTED_TYPES.includes(type as ChatTypeValue)
+}
 
 /** Общие поля отправки особых сообщений (геопозиция, контакт, чек-лист, стикер, GIF). */
 const richMessageFields = {
@@ -862,6 +984,9 @@ export const MessageSendSchema = z
     replyQuote: z.string().min(1).max(500).optional(),
     // Отправить «без звука»: сообщение доставляется, уведомление и push по нему — нет.
     silent: z.boolean().optional(),
+    // «Без превью ссылки»: человек закрыл плашку превью над полем ввода — карточку под
+    // сообщением не строим (job выборки не ставится). Нет поля — превью как раньше.
+    noLinkPreview: z.boolean().optional(),
     // Клиентский идентификатор для оптимистичной отправки (#1): сервер эхом возвращает его в
     // message:new, чтобы отправитель заменил свой временный «pending» пузырь. В БД не пишется.
     nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
@@ -875,7 +1000,12 @@ export const MessageSendSchema = z
 export type MessageSendInput = z.infer<typeof MessageSendSchema>
 
 export const MessageEditSchema = z
-  .object({ messageId: z.string().min(1), content: messageText() })
+  .object({
+    messageId: z.string().min(1),
+    content: messageText(),
+    // Превью ссылки закрыто в режиме правки: прежняя карточка снимается, новая не строится.
+    noLinkPreview: z.boolean().optional(),
+  })
   .strict()
 export type MessageEditInput = z.infer<typeof MessageEditSchema>
 
@@ -992,6 +1122,8 @@ export const MessageSendUploadedSchema = z
     silent: z.boolean().optional(),
     // §9: показывать вложения строками файлов, а не превью.
     asFiles: z.boolean().optional(),
+    // Кружок: единственное вложение — видеосообщение (см. MessageSendRestSchema.videoNote).
+    videoNote: z.boolean().optional(),
     nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
     attachments: z
       .array(
@@ -1020,3 +1152,17 @@ export const MessageSendUploadedSchema = z
     message: vm('validation.chats.quoteWithoutReply'),
   })
 export type MessageSendUploadedInput = z.infer<typeof MessageSendUploadedSchema>
+
+// Непрочитанные упоминания и реакции (Telegram: unreadMentionsCount / unreadReactionsCount).
+
+/** Сколько непрочитанных упоминаний (реакций) отдаёт `GET /chats/:id/{mentions|reactions}/unread`. */
+export const CHAT_ATTENTION_PAGE_MAX = 100
+
+/**
+ * «Прочитать» упоминания или реакции чата: `messageIds` — показанные сообщения (по одному
+ * при показе в ленте), без поля — все сразу («Прочитать всё» на кнопке ленты).
+ */
+export const ChatAttentionReadSchema = z
+  .object({ messageIds: z.array(entityId).min(1).max(MESSAGE_BULK_MAX).optional() })
+  .strict()
+export type ChatAttentionReadInput = z.infer<typeof ChatAttentionReadSchema>

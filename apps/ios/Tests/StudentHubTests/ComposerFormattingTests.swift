@@ -10,6 +10,11 @@ final class ComposerFormattingTests: XCTestCase {
         XCTAssertEqual(ComposerFormat.italic.apply(to: "слово").text, "_слово_")
         XCTAssertEqual(ComposerFormat.monospace.apply(to: "x").text, "`x`")
         XCTAssertEqual(ComposerFormat.strikethrough.apply(to: "x").text, "~~x~~")
+        XCTAssertEqual(ComposerFormat.underline.apply(to: "x").text, "++x++")
+        XCTAssertEqual(ComposerFormat.spoiler.apply(to: "ответ").text, "||ответ||")
+        XCTAssertEqual(ComposerFormat.spoiler.apply(to: "ответ").selection, NSRange(location: 2, length: 5))
+        // Повторное нажатие снимает разметку, как у жирного.
+        XCTAssertEqual(ComposerFormat.spoiler.apply(to: "||ответ||").text, "ответ")
         // Выделение остаётся на самом тексте, без разметки.
         XCTAssertEqual(ComposerFormat.bold.apply(to: "слово").selection, NSRange(location: 2, length: 5))
     }

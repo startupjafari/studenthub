@@ -57,7 +57,7 @@ import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
 import { PollVoteDto } from './dto/poll-vote.dto'
 import { MuteDto } from './dto/mute.dto'
-import { MessageSearchQueryDto } from './dto/message-search-query.dto'
+import { MessageSearchQueryDto, TopPeersQueryDto } from './dto/message-search-query.dto'
 import { RecentChatFilesQueryDto } from './dto/recent-chat-files-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
@@ -112,10 +112,26 @@ export class ChatsController {
   }
 
   @Get('search')
-  @ApiOperation({ summary: 'Поиск сообщений (в чате при chatId, иначе по всем моим чатам)' })
+  @ApiOperation({
+    summary:
+      'Поиск сообщений (в чате при chatId, иначе по всем моим чатам): q — текст; kind — вид ' +
+      'материала (media|file|voice|music|link, с q — и по имени файла / адресу ссылки); ' +
+      'senderId; from/to — период. Без q — по фильтрам; без q и фильтров — пустая страница',
+  })
   @ApiResponse({ status: 200, description: 'Страница найденных сообщений (свежие первыми)' })
   search(@CurrentUser() user: CurrentUserData, @Query() query: MessageSearchQueryDto) {
     return this.chats.searchMessages(user, query)
+  }
+
+  @Get('top-peers')
+  @ApiOperation({
+    summary:
+      '«Часто пишете»: личные чаты, куда я пишу больше всего (рейтинг моих сообщений ' +
+      'за полгода с затуханием по давности)',
+  })
+  @ApiResponse({ status: 200, description: 'Список { chatId, user, score }, лучшие первыми' })
+  topPeers(@CurrentUser() user: CurrentUserData, @Query() query: TopPeersQueryDto) {
+    return this.chats.topPeers(user, query)
   }
 
   @Get('files/recent')
@@ -357,6 +373,10 @@ export class ChatsController {
         content: { type: 'string' },
         replyToId: { type: 'string' },
         nonce: { type: 'string', description: 'Ключ повтора отправки (≤ 64), 10 минут' },
+        videoNote: {
+          type: 'string',
+          description: '"true" — кружок: единственное вложение — видео с камеры',
+        },
         file: { type: 'string', format: 'binary' },
       },
     },
@@ -377,6 +397,7 @@ export class ChatsController {
       spoiler: fields.spoiler,
       spoilerIndexes: fields.spoilerIndexes,
       asFiles: fields.asFiles,
+      videoNote: fields.videoNote,
       silent: fields.silent,
       nonce: fields.nonce,
     })
@@ -470,6 +491,24 @@ export class ChatsController {
     @Body() dto: MessageIdsDto,
   ) {
     return this.chats.hideMessages(user.sub, id, dto.messageIds)
+  }
+
+  @Post(':id/messages/views')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Просмотры сообщений официального чата (уникальные; ≤ 100 id; только участник)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '{ views: [{ id, views }] } — пусто, если у типа чата просмотров нет',
+  })
+  @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник' })
+  messageViews(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: MessageIdsDto,
+  ) {
+    return this.chats.getMessageViews(user.sub, id, dto.messageIds)
   }
 
   @Post(':id/messages/delete')

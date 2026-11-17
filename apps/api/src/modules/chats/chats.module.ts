@@ -9,6 +9,8 @@ import { SupportService } from './support.service'
 import { ChatsController } from './chats.controller'
 import { ChatFoldersService } from './chat-folders.service'
 import { ChatFoldersController } from './chat-folders.controller'
+import { ChatSettingsService } from './chat-settings.service'
+import { ChatSettingsController } from './chat-settings.controller'
 import { ChatGateway } from './chats.gateway'
 import { LinkPreviewProcessor } from './link-preview.processor'
 import { LinkPreviewService } from '../../common/link-preview/link-preview.service'
@@ -19,6 +21,12 @@ import { ChatStickersController } from './chat-stickers.controller'
 import { StickerSetsAdminController } from './sticker-sets-admin.controller'
 import { ChatGifsService } from './chat-gifs.service'
 import { ChatGifsController } from './chat-gifs.controller'
+import { ChatAttentionService } from './chat-attention.service'
+import { ChatAttentionController } from './chat-attention.controller'
+import { ChatLinkPreviewController } from './chat-link-preview.controller'
+import { ChatLinkPreviewService } from './chat-link-preview.service'
+import { ChatGroupsService } from './chat-groups.service'
+import { ChatGroupsController } from './chat-groups.controller'
 
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
@@ -26,13 +34,18 @@ import { ChatGifsController } from './chat-gifs.controller'
 @Module({
   imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
   // Контроллеры со статическим префиксом (`chats/folders`, `chats/checklists`,
-  // `chats/stickers`, `chats/gifs`) — первыми: их пути не должны попасть в `chats/:id`.
+  // `chats/stickers`, `chats/gifs`, `chats/settings`, `chats/link-preview`) — первыми: их пути
+  // не должны попасть в `chats/:id`.
   controllers: [
     ChatFoldersController,
     ChatChecklistsController,
     ChatStickersController,
     ChatGifsController,
+    ChatAttentionController,
+    ChatSettingsController,
+    ChatLinkPreviewController,
     ChatsController,
+    ChatGroupsController,
     SupportController,
     StickerSetsAdminController,
   ],
@@ -42,10 +55,14 @@ import { ChatGifsController } from './chat-gifs.controller'
     ChatGateway,
     LinkPreviewProcessor,
     LinkPreviewService,
+    ChatLinkPreviewService,
     SupportService,
     ChatChecklistsService,
     ChatStickersService,
     ChatGifsService,
+    ChatAttentionService,
+    ChatSettingsService,
+    ChatGroupsService,
   ],
   exports: [ChatsService, SupportService],
 })

@@ -8,6 +8,7 @@ import { SegmentedTabs } from '../../../shared/ui'
 import { ComponentsSection } from './components-section'
 import { FoundationsSection } from './foundations-section'
 import { PatternsSection } from './patterns-section'
+import { TgPrimitivesSection } from './tg-primitives-section'
 import { Code } from './kit'
 
 // Живая витрина дизайн-системы (docs/DESIGN_SYSTEM.md). Инструмент разработки, не
@@ -31,6 +32,7 @@ const NAV = [
   { id: 'nav', label: 'Шапка и табы' },
   { id: 'feedback', label: 'Состояния' },
   { id: 'overlays', label: 'Оверлеи' },
+  { id: 'tg-primitives', label: 'Стек и просмотрщик' },
   { id: 'row-card', label: 'Строка списка' },
   { id: 'states', label: 'Три состояния' },
   { id: 'form', label: 'Форма' },
@@ -147,6 +149,7 @@ export function DesignSystemView() {
 
           <FoundationsSection />
           <ComponentsSection />
+          <TgPrimitivesSection />
           <PatternsSection />
 
           <footer className="border-t border-border pt-4 pb-10 text-xs text-muted-foreground">

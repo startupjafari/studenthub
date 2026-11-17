@@ -4,6 +4,7 @@ import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   ComplaintListQueryInput,
   CreateComplaintInput,
+  CreateMessageComplaintsInput,
   ResolveComplaintInput,
 } from '@studenthub/shared-schemas'
 import { complaintPriorityFor } from '@studenthub/shared-schemas'
@@ -94,6 +95,7 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   POST: 'на пост',
   STORY: 'на историю',
   COMMENT: 'на комментарий',
+  CHAT: 'на группу',
 }
 
 // Ответ на невидимую цель — слово в слово как на несуществующую (getTarget).
@@ -103,6 +105,7 @@ const NOT_FOUND_MESSAGE: Record<ComplaintTargetType, string> = {
   POST: 'Пост не найден',
   STORY: 'Сторис не найдена',
   COMMENT: 'Комментарий не найден',
+  CHAT: 'Группа не найдена',
 }
 
 // Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
@@ -150,6 +153,15 @@ export class ComplaintsService {
       })
       if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
+    // На группу жалуется только её действующий участник (§8.3, пункт «Пожаловаться» в меню
+    // группы): иначе по одному id закрытой группы её существование подтверждалось бы любому.
+    if (input.targetType === ComplaintTargetType.CHAT) {
+      const member = await this.prisma.chatMember.findUnique({
+        where: { chatId_userId: { chatId: input.targetId, userId: reporter.sub } },
+        select: { bannedAt: true },
+      })
+      if (!member || member.bannedAt) throw new AppException('NOT_FOUND', 'Группа не найдена')
+    }
     await this.assertVisibleToReporter(
       reporter,
       input.targetType as ComplaintTargetType,
@@ -175,6 +187,97 @@ export class ComplaintsService {
     })
     await this.announceIfUrgent(complaint)
     return complaint
+  }
+
+  /**
+   * Жалоба на несколько сообщений одного чата (`POST /complaints/messages`, режим выбора).
+   *
+   * Заводит по обычной жалобе MESSAGE на каждое сообщение — модератор разбирает их в той же
+   * очереди и с тем же контекстом переписки, — но проверки и лимит одни на весь набор.
+   * Правила те же, что у одиночной жалобы: жалуется только участник чата, на несуществующее
+   * или удалённое сообщение — NOT_FOUND (не подтверждаем чужие id). Сообщения из разных
+   * чатов — 422: режим выбора живёт внутри одной переписки, смесь означала бы подделку.
+   *
+   * Сообщения, на которые у автора жалоба уже в очереди, пропускаются (`skipped`); если
+   * пропущены все — CONFLICT, как у повторной одиночной жалобы. Срочное уведомление команде
+   * уходит одно на весь набор, а не по штуке на сообщение.
+   */
+  async createForMessages(
+    reporter: JwtPayload,
+    input: CreateMessageComplaintsInput,
+    ctx: RequestContext,
+  ): Promise<{ created: number; skipped: number }> {
+    const ids = [...new Set(input.messageIds)]
+    const messages = await this.prisma.message.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true, chatId: true, sender: { select: { universityId: true } } },
+      take: ids.length,
+    })
+    if (messages.length !== ids.length) {
+      throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[ComplaintTargetType.MESSAGE])
+    }
+    const chatIds = new Set(messages.map((m) => m.chatId))
+    if (chatIds.size !== 1) {
+      throw new AppException('VALIDATION_ERROR', 'Сообщения из разных чатов')
+    }
+    const [chatId] = chatIds
+    const member = await this.prisma.chatMember.findFirst({
+      where: { userId: reporter.sub, chatId, bannedAt: null },
+      select: { id: true },
+    })
+    if (!member) {
+      throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[ComplaintTargetType.MESSAGE])
+    }
+
+    const byId = new Map(messages.map((m) => [m.id, m]))
+    const created: ComplaintRow[] = []
+    let skipped = 0
+    // По порядку выбора и по одному: у каждой жалобы свой advisory-лок «автор + цель».
+    for (const id of ids) {
+      const message = byId.get(id)
+      if (!message) continue
+      try {
+        created.push(
+          await this.createOnce({
+            reporterId: reporter.sub,
+            targetType: ComplaintTargetType.MESSAGE,
+            targetId: id,
+            reason: input.reason,
+            priority: complaintPriorityFor('MESSAGE') as ComplaintPriority,
+            universityId: message.sender.universityId,
+          }),
+        )
+      } catch (error) {
+        if (error instanceof AppException && error.code === 'CONFLICT') {
+          skipped += 1
+          continue
+        }
+        throw error
+      }
+    }
+    if (created.length === 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Жалоба на эти сообщения уже отправлена и ждёт рассмотрения',
+      )
+    }
+    for (const complaint of created) {
+      await this.audit.record({
+        userId: reporter.sub,
+        action: 'complaint_created',
+        entity: 'Complaint',
+        entityId: complaint.id,
+        metadata: {
+          targetType: ComplaintTargetType.MESSAGE,
+          targetId: complaint.targetId,
+          batch: created.length,
+        },
+        ...ctx,
+      })
+    }
+    const [first] = created
+    if (first) await this.announceIfUrgent(first)
+    return { created: created.length, skipped }
   }
 
   /**
@@ -549,6 +652,15 @@ export class ComplaintsService {
       if (complaint.targetType === ComplaintTargetType.USER) {
         throw new AppException('BAD_REQUEST', 'Для пользователя используйте блокировку')
       }
+      // Группу целиком модерация не удаляет: с ней ушла бы переписка всех участников, а это
+      // уже не «снять контент». Меры по группе — предупредить или заблокировать владельца;
+      // отдельные сообщения снимаются жалобами на сообщения.
+      if (complaint.targetType === ComplaintTargetType.CHAT) {
+        throw new AppException(
+          'BAD_REQUEST',
+          'Группу целиком не удаляют: предупредите или заблокируйте владельца',
+        )
+      }
       // Тот же ранг, что при удалении контента напрямую (posts/stories): по жалобе модератор
       // вуза не снимает пост админа своего вуза.
       const ownerId = await this.ownerOf(complaint)
@@ -906,6 +1018,22 @@ export class ComplaintsService {
             }
           : null
       }
+      case ComplaintTargetType.CHAT: {
+        // Название и описание группы — то, на что жалуются; переписку модератор открывает
+        // жалобами на конкретные сообщения, а не целиком по жалобе на группу.
+        const chat = await this.prisma.chat.findUnique({
+          where: { id },
+          select: { title: true, description: true, avatarUrl: true },
+        })
+        return chat
+          ? {
+              title: chat.title,
+              text: chat.description,
+              mediaCount: chat.avatarUrl ? 1 : 0,
+              deleted: false,
+            }
+          : null
+      }
       default:
         return null
     }
@@ -980,6 +1108,25 @@ export class ComplaintsService {
         })
         if (!u) throw new AppException('NOT_FOUND', 'Пользователь не найден')
         return { universityId: u.universityId, ownerId: u.id }
+      }
+      case ComplaintTargetType.CHAT: {
+        // Только пользовательские группы: официальные чаты ведёт вуз, личный — это жалоба
+        // на человека. Нарушитель — владелец группы, вуз — вуз группы или владельца.
+        const c = await this.prisma.chat.findFirst({
+          where: { id: targetId, type: 'GROUP' },
+          select: { universityId: true, createdById: true },
+        })
+        if (!c) throw new AppException('NOT_FOUND', 'Группа не найдена')
+        const owner = c.createdById
+          ? await this.prisma.user.findUnique({
+              where: { id: c.createdById },
+              select: { universityId: true },
+            })
+          : null
+        return {
+          universityId: c.universityId ?? owner?.universityId ?? null,
+          ownerId: c.createdById,
+        }
       }
       default:
         throw new AppException('BAD_REQUEST', 'Неизвестный тип цели')

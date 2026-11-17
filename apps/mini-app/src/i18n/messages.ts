@@ -62,6 +62,7 @@ const ru = {
   complaintsShowMore: 'Показать ещё',
 
   targetUser: 'На пользователя',
+  targetChat: 'На группу',
   targetMessage: 'На сообщение',
   targetPost: 'На пост',
   targetStory: 'На историю',
@@ -100,6 +101,7 @@ const ru = {
 
   // ── Поддержка ──────────────────────────────────────────────────────────
   supportTitle: 'Поддержка',
+  tgMarkupSpoiler: 'Спойлер — нажмите, чтобы показать',
   supportLoadError: 'Не удалось загрузить очередь',
   supportEmptyTitle: 'Пусто',
   supportEmptyText: 'Открытых обращений нет.',
@@ -537,6 +539,7 @@ const kk: Record<MessageKey, string> = {
   complaintsShowMore: 'Тағы көрсету',
 
   targetUser: 'Пайдаланушыға',
+  targetChat: 'Топқа',
   targetMessage: 'Хабарламаға',
   targetPost: 'Жазбаға',
   targetStory: 'Оқиғаға',
@@ -573,6 +576,7 @@ const kk: Record<MessageKey, string> = {
   complaintOpenProfile: 'Бұзушының профилі',
 
   supportTitle: 'Қолдау',
+  tgMarkupSpoiler: 'Спойлер — көрсету үшін басыңыз',
   supportLoadError: 'Кезекті жүктеу мүмкін болмады',
   supportEmptyTitle: 'Бос',
   supportEmptyText: 'Ашық өтініш жоқ.',
@@ -1006,6 +1010,7 @@ const en: Record<MessageKey, string> = {
   complaintsShowMore: 'Show more',
 
   targetUser: 'About a person',
+  targetChat: 'About a group',
   targetMessage: 'About a message',
   targetPost: 'About a post',
   targetStory: 'About a story',
@@ -1042,6 +1047,7 @@ const en: Record<MessageKey, string> = {
   complaintOpenProfile: 'Open the author’s profile',
 
   supportTitle: 'Support',
+  tgMarkupSpoiler: 'Spoiler — tap to reveal',
   supportLoadError: 'Could not load the queue',
   supportEmptyTitle: 'Empty',
   supportEmptyText: 'No open requests.',

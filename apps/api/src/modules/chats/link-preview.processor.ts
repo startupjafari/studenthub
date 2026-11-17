@@ -6,7 +6,7 @@ import { reportJobFailure } from '../../common/monitoring'
 import { QUEUES } from '../../common/queue'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
-import { LinkPreviewService } from '../../common/link-preview/link-preview.service'
+import { ChatLinkPreviewService } from './chat-link-preview.service'
 import { ChatsService } from './chats.service'
 
 interface LinkPreviewJob {
@@ -28,7 +28,7 @@ export class LinkPreviewProcessor extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly links: LinkPreviewService,
+    private readonly previews: ChatLinkPreviewService,
     private readonly realtime: RealtimeGateway,
     private readonly chats: ChatsService,
   ) {
@@ -44,14 +44,14 @@ export class LinkPreviewProcessor extends WorkerHost {
 
   async process(job: Job<LinkPreviewJob>): Promise<void> {
     const { messageId, chatId, url } = job.data
-    const fetched = await this.links.fetch(url)
+    // Тот же путь, что у превью черновика: из кеша, если ссылку уже смотрели над полем
+    // ввода, — под сообщением окажется ровно та карточка, что человек видел до отправки.
     // Пусто (нераспознано/недоступно/SSRF-блок) или без заголовка — карточку не рисуем.
-    if (!fetched?.title) return
     // Картинку OG не сохраняем (F-F29): это адрес на чужом сайте, и клиенты грузили его
     // напрямую — каждый читатель чата отдавал свой IP (и время прочтения) владельцу ссылки.
-    // Показывать её можно будет, когда появится копия в своём хранилище; до тех пор карточка
-    // — заголовок, описание и сайт. Поле остаётся в форме превью: клиенты его ждут.
-    const preview = { ...fetched, image: null }
+    // Поле остаётся в форме превью (всегда null): клиенты его ждут.
+    const preview = await this.previews.preview(url)
+    if (!preview) return
 
     // Сообщение могли удалить, пока тянули превью — обновляем только существующее и не удалённое.
     // И только пока ссылка ещё в тексте: правка, заменившая её, ставит свой job, а этот,

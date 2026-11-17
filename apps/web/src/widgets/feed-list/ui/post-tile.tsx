@@ -72,7 +72,7 @@ function PostTileView({
   // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
   const text =
     post.title ||
-    plainPreview(post.content) ||
+    plainPreview(post.content, { chatMarkup: false }) ||
     // Репост статьи без подписи — заголовком статьи (или «недоступна»).
     (post.sharedArticleId ? (post.sharedArticle?.title ?? tArticle('unavailableShort')) : '') ||
     (originalUnavailable ? t('postUnavailableTitle') : '')

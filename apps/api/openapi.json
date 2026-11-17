@@ -3916,7 +3916,34 @@
             "description": ""
           }
         },
-        "summary": "Удалить аватар",
+        "summary": "Удалить текущий аватар (текущим становится предыдущее фото из истории)",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/me/avatars/{photoId}": {
+      "delete": {
+        "operationId": "UsersController_deleteAvatarPhoto",
+        "parameters": [
+          {
+            "name": "photoId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Профиль после удаления (avatarUrl — текущее фото)"
+          },
+          "404": {
+            "description": "NOT_FOUND — такого фото в истории нет"
+          }
+        },
+        "summary": "Удалить фото из своей истории аватаров",
         "tags": [
           "Пользователи"
         ]
@@ -4301,6 +4328,30 @@
           }
         },
         "summary": "Профиль пользователя (email — по правам смотрящего)",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/{id}/avatars": {
+      "get": {
+        "operationId": "UsersController_avatars",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "[{ id, url, createdAt, current }]"
+          }
+        },
+        "summary": "История фото профиля (текущее первым; закрытый профиль — только текущее)",
         "tags": [
           "Пользователи"
         ]
@@ -21025,6 +21076,245 @@
         ]
       }
     },
+    "/chats/{id}/mentions/unread": {
+      "get": {
+        "operationId": "ChatAttentionController_unreadMentions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ messageId, seq, createdAt }], count }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Непрочитанные упоминания меня и ответы мне в чате (старые первыми, ≤ 100)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/mentions/read": {
+      "post": {
+        "operationId": "ChatAttentionController_readMentions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAttentionReadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ unreadMentionsCount, unreadReactionsCount }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прочитать упоминания: показанные (messageIds) или все; chat:attention своим устройствам",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/reactions/unread": {
+      "get": {
+        "operationId": "ChatAttentionController_unreadReactions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items: [{ messageId, seq, createdAt }], count }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои сообщения с непрочитанными чужими реакциями в чате (старые первыми, ≤ 100)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/reactions/read": {
+      "post": {
+        "operationId": "ChatAttentionController_readReactions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAttentionReadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ unreadMentionsCount, unreadReactionsCount }"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прочитать реакции: показанные (messageIds) или все; chat:attention своим устройствам",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/settings": {
+      "get": {
+        "operationId": "ChatSettingsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ defaultReaction } — уже с подставленным дефолтом"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои настройки чатов: быстрая реакция по двойному клику",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "patch": {
+        "operationId": "ChatSettingsController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatSettingsUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ defaultReaction } — новое значение"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — не ровно один эмодзи"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сменить быструю реакцию (один эмодзи); null — вернуть общую по умолчанию",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/link-preview": {
+      "get": {
+        "operationId": "ChatLinkPreviewController_preview",
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2048
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ preview: { url, title, description, image: null, siteName } | null }"
+          },
+          "401": {
+            "description": "UNAUTHORIZED — нет токена"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — не http(s)-ссылка или длиннее 2048"
+          },
+          "429": {
+            "description": "RATE_LIMIT — больше 30 запросов в минуту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Превью ссылки для черновика (заголовок, описание, сайт; картинка не отдаётся). Только http(s), приватные адреса отклоняются, ответ кешируется",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats": {
       "get": {
         "operationId": "ChatsController_list",
@@ -21123,7 +21413,7 @@
           {
             "name": "q",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "minLength": 2,
@@ -21155,6 +21445,39 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "media",
+                "file",
+                "voice",
+                "music",
+                "link"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
         ],
         "responses": {
@@ -21167,7 +21490,40 @@
             "bearer": []
           }
         ],
-        "summary": "Поиск сообщений (в чате при chatId, иначе по всем моим чатам)",
+        "summary": "Поиск сообщений (в чате при chatId, иначе по всем моим чатам): q — текст; kind — вид материала (media|file|voice|music|link, с q — и по имени файла / адресу ссылки); senderId; from/to — период. Без q — по фильтрам; без q и фильтров — пустая страница",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/top-peers": {
+      "get": {
+        "operationId": "ChatsController_topPeers",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 20,
+              "default": 12
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список { chatId, user, score }, лучшие первыми"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Часто пишете»: личные чаты, куда я пишу больше всего (рейтинг моих сообщений за полгода с затуханием по давности)",
         "tags": [
           "Чаты"
         ]
@@ -21586,6 +21942,10 @@
                   "nonce": {
                     "type": "string",
                     "description": "Ключ повтора отправки (≤ 64), 10 минут"
+                  },
+                  "videoNote": {
+                    "type": "string",
+                    "description": "\"true\" — кружок: единственное вложение — видео с камеры"
                   },
                   "file": {
                     "type": "string",
@@ -22346,6 +22706,48 @@
           }
         ],
         "summary": "«Удалить у себя»: скрыть сообщения только для себя (≤ 100)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/messages/views": {
+      "post": {
+        "operationId": "ChatsController_messageViews",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageIdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ views: [{ id, views }] } — пусто, если у типа чата просмотров нет"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — не участник"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Просмотры сообщений официального чата (уникальные; ≤ 100 id; только участник)",
         "tags": [
           "Чаты"
         ]
@@ -24372,6 +24774,288 @@
         ]
       }
     },
+    "/chats/{id}/permissions": {
+      "patch": {
+        "operationId": "ChatGroupsController_updatePermissions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChatPermissionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ chatId, permissions, joinByLink, joinApproval }"
+          },
+          "403": {
+            "description": "FORBIDDEN — не админ группы"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Разрешения участников группы (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/join-settings": {
+      "patch": {
+        "operationId": "ChatGroupsController_updateJoinSettings",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatJoinSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ chatId, permissions, joinByLink, joinApproval }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Тип группы: вступление по ссылке и одобрение заявок (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/join-requests": {
+      "get": {
+        "operationId": "ChatGroupsController_joinRequests",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Люди с временем заявки, свежие первыми"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заявки на вступление в группу (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/join-requests/{userId}/approve": {
+      "post": {
+        "operationId": "ChatGroupsController_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Человек стал участником"
+          },
+          "404": {
+            "description": "NOT_FOUND — заявки нет"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Одобрить заявку на вступление (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/join-requests/{userId}": {
+      "delete": {
+        "operationId": "ChatGroupsController_decline",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Заявка отклонена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отклонить заявку на вступление (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/removed": {
+      "get": {
+        "operationId": "ChatGroupsController_removed",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Люди с временем исключения и кто исключил"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Исключённые участники группы (только админ группы)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/avatars": {
+      "get": {
+        "operationId": "ChatGroupsController_avatars",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "[{ id, url, createdAt, current }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "История фото группы (участнику), текущее — первым",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/{id}/avatars/{photoId}": {
+      "delete": {
+        "operationId": "ChatGroupsController_deleteAvatar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "photoId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, avatarUrl } — текущее фото группы после"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить фото группы из истории (только создатель); текущее сменится предыдущим",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/support": {
       "post": {
         "operationId": "SupportController_open",
@@ -25384,6 +26068,48 @@
           }
         ],
         "summary": "Очередь жалоб (по scope: модератор вуза — только свой вуз)",
+        "tags": [
+          "Жалобы"
+        ]
+      }
+    },
+    "/complaints/messages": {
+      "post": {
+        "operationId": "ComplaintsController_createForMessages",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMessageComplaintsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ created, skipped } — заведено и уже было в очереди"
+          },
+          "404": {
+            "description": "NOT_FOUND — сообщения нет или вы не в его чате"
+          },
+          "409": {
+            "description": "CONFLICT — на все эти сообщения жалобы уже в очереди"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — сообщения из разных чатов"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Пожаловаться на несколько сообщений одного чата",
         "tags": [
           "Жалобы"
         ]
@@ -35727,6 +36453,37 @@
         ],
         "additionalProperties": false
       },
+      "ChatAttentionReadDto": {
+        "type": "object",
+        "properties": {
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatSettingsUpdateDto": {
+        "type": "object",
+        "properties": {
+          "defaultReaction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "nullable": true
+          }
+        },
+        "required": [
+          "defaultReaction"
+        ],
+        "additionalProperties": false
+      },
       "CreateChatDto": {
         "type": "object",
         "properties": {
@@ -35973,6 +36730,9 @@
             "type": "boolean"
           },
           "asFiles": {
+            "type": "boolean"
+          },
+          "videoNote": {
             "type": "boolean"
           },
           "nonce": {
@@ -36384,6 +37144,12 @@
           },
           "hideSender": {
             "type": "boolean"
+          },
+          "hideCaptions": {
+            "type": "boolean"
+          },
+          "noLinkPreview": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -36543,6 +37309,48 @@
         },
         "additionalProperties": false
       },
+      "UpdateChatPermissionsDto": {
+        "type": "object",
+        "properties": {
+          "sendMessages": {
+            "type": "boolean"
+          },
+          "sendMedia": {
+            "type": "boolean"
+          },
+          "sendStickers": {
+            "type": "boolean"
+          },
+          "embedLinks": {
+            "type": "boolean"
+          },
+          "sendPolls": {
+            "type": "boolean"
+          },
+          "addMembers": {
+            "type": "boolean"
+          },
+          "pinMessages": {
+            "type": "boolean"
+          },
+          "changeInfo": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatJoinSettingsDto": {
+        "type": "object",
+        "properties": {
+          "joinByLink": {
+            "type": "boolean"
+          },
+          "joinApproval": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "OpenSupportTicketDto": {
         "type": "object",
         "properties": {
@@ -36687,7 +37495,8 @@
               "STORY",
               "COMMENT",
               "MESSAGE",
-              "USER"
+              "USER",
+              "CHAT"
             ]
           },
           "targetId": {
@@ -36703,6 +37512,31 @@
         "required": [
           "targetType",
           "targetId",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "CreateMessageComplaintsDto": {
+        "type": "object",
+        "properties": {
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "messageIds",
           "reason"
         ],
         "additionalProperties": false

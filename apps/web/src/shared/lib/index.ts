@@ -48,7 +48,14 @@ export { useNowInTz } from './use-now-in-tz'
 export { safeNextPath } from './safe-next'
 export { isTrustedImageUrl } from './trusted-image'
 export { localMediaSrc } from './local-media-src'
-export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
+export {
+  identityAccent,
+  identityColor,
+  identityInitials,
+  IDENTITY_ACCENTS,
+  IDENTITY_COLORS,
+  type IdentityAccent,
+} from './identity-color'
 export { relativeTime } from './relative-time'
 export {
   formatBytes,
@@ -90,6 +97,7 @@ export {
 export {
   useFileDownload,
   saveBlob,
+  downloadAndSaveFiles,
   downloadKeyOf,
   downloadedUrl,
   type DownloadState,

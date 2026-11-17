@@ -1409,7 +1409,9 @@
     <string name="chats_format_menu">Форматирование</string>
     <string name="chats_format_monospace">Моноширинный</string>
     <string name="chats_format_quote">Цитата</string>
+    <string name="chats_format_spoiler">Спойлер</string>
     <string name="chats_format_strikethrough">Зачёркнутый</string>
+    <string name="chats_format_underline">Подчёркнутый</string>
     <string name="chats_forward">Переслать</string>
     <string name="chats_forward_attachment">Вложение</string>
     <string name="chats_forward_comment">Добавить комментарий…</string>
@@ -1663,6 +1665,8 @@
     <string name="chats_share_system">Поделиться через…</string>
     <string name="chats_share_title">Поделиться</string>
     <string name="chats_spoiler">Спойлер</string>
+    <string name="chats_spoiler_hidden">скрытый текст</string>
+    <string name="chats_spoiler_reveal">Показать спойлер</string>
     <string name="chats_sticker_a11y">Стикер %1$s</string>
     <string name="chats_stickers_empty">Наборов стикеров пока нет — их добавляет администратор платформы</string>
     <string name="chats_stickers_favorite">Добавить в избранное</string>

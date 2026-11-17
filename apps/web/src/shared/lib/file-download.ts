@@ -223,6 +223,56 @@ function save(key: string): void {
   void saveBlob(entry.blob, entry.name)
 }
 
+/** Пауза между сохранениями пачки на компьютере: подряд без неё браузер теряет часть файлов. */
+const BATCH_SAVE_GAP_MS = 250
+
+/**
+ * Скачать и сохранить несколько файлов разом (режим выбора в чате, как «Скачать» в Telegram).
+ *
+ * Скачивание идёт тем же общим хранилищем, что и у значков на файлах: уже скачанное не
+ * качается заново, а прогресс виден и на самих вложениях. По одному, не параллельно: пачка
+ * из двадцати роликов параллельно забила бы канал, и первым не досталось бы ничего.
+ *
+ * Сохранение — как у одиночного: на телефоне одним листом «Поделиться» со всеми файлами
+ * (если система принимает пачку), на компьютере — по скачиванию на файл с паузой.
+ *
+ * @returns сколько файлов скачать не удалось
+ */
+export async function downloadAndSaveFiles(
+  items: readonly { key: string; source: DownloadSource }[],
+): Promise<{ failed: number }> {
+  const ready: { blob: Blob; name: string }[] = []
+  let failed = 0
+  for (const { key, source } of items) {
+    await start(key, source)
+    const entry = entries.get(key)
+    if (entry?.status === 'ready') {
+      touch(key)
+      ready.push({ blob: entry.blob, name: entry.name })
+    } else {
+      failed += 1
+    }
+  }
+  if (ready.length === 0) return { failed }
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  if (coarse && ready.length > 1 && typeof navigator.canShare === 'function') {
+    const files = ready.map((f) => new File([f.blob], f.name, { type: f.blob.type }))
+    if (navigator.canShare({ files })) {
+      try {
+        await navigator.share({ files })
+        return { failed }
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return { failed }
+      }
+    }
+  }
+  for (const [i, f] of ready.entries()) {
+    if (i > 0) await new Promise((resolve) => window.setTimeout(resolve, BATCH_SAVE_GAP_MS))
+    await saveBlob(f.blob, f.name)
+  }
+  return { failed }
+}
+
 /** Ключ файла по подписанной ссылке: путь объекта без подписи — он не меняется. */
 export function downloadKeyOf(url: string): string {
   return url.split('?')[0] ?? url

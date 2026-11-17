@@ -1,4 +1,4 @@
-import type { ChatTypeValue } from '@studenthub/shared-schemas'
+import type { ChatPermissions, ChatTypeValue } from '@studenthub/shared-schemas'
 import type { MediaStatus } from '../../../shared/api'
 export type { ChatTypeValue }
 
@@ -14,6 +14,9 @@ export interface MessageAttachment {
   // Отправлено «без сжатия» (§9): показывать строкой файла с расширением и размером, а не
   // превью, даже если mime картиночный. Выбор отправителя, не свойство байтов.
   asDocument?: boolean
+  // Кружок (видеосообщение, как в Telegram): ролик рисуется кругом без пузыря, превью играет
+  // без звука, нажатие — со звуком. Флаг отправителя: по байтам квадратное видео не отличить.
+  videoNote?: boolean
   // Размеры изображения в пикселях (сервер считает их при загрузке): под снимок резервируется
   // точное место, пока идут байты. NULL/undefined — не картинка либо вложение старше полей.
   width?: number | null
@@ -33,6 +36,21 @@ export interface MessageAttachment {
   progress?: number
 }
 
+/**
+ * Первое вложение оригинала в цитате ответа — ровно то, что нужно миниатюре (как в Telegram).
+ * Ссылку на неё берём тем же `GET /chats/attachments/:id/url`, до неё рисуем LQIP.
+ */
+export interface ReplyMediaPreview {
+  id: string
+  mime: string
+  // Имя файла: по нему голосовое (`voice-…`) отличается от видео с тем же mime.
+  name?: string | null
+  placeholder?: string | null
+  spoiler?: boolean
+  asDocument?: boolean
+  videoNote?: boolean
+}
+
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
 export interface MessageReplyPreview {
   id: string
@@ -41,6 +59,8 @@ export interface MessageReplyPreview {
   deletedAt?: string | null
   senderId: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Не больше одного вложения — для миниатюры. Нет у старого сервера и у удалённого оригинала.
+  media?: ReplyMediaPreview[]
 }
 
 // Источник пересланного сообщения (Ф9+): чей текст переслали.
@@ -239,6 +259,8 @@ export interface ChatMediaItem {
   durationMs?: number | null
   createdAt: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null } | null
+  /** Текст сообщения файла — подпись в просмотрщике (только у `GET /chats/:id/media`). */
+  caption?: string | null
 }
 
 // Общие материалы: сообщение со ссылкой (linkPreview).
@@ -273,6 +295,13 @@ export interface ChatListItem {
   unread: boolean
   // Число непрочитанных сообщений (для бейджа-счётчика).
   unreadCount: number
+  // Первое непрочитанное сообщение: чат открывается на нём (история around), даже если до
+  // него больше страницы. null — непрочитанного нет. Необязательное — старый сервер не отдаёт.
+  firstUnreadId?: string | null
+  // Непрочитанные упоминания меня (и ответы мне) и чужие реакции на мои сообщения — значки
+  // «@» и «♥» в строке списка и кнопки-переходы в ленте (Telegram). Старый сервер не отдаёт.
+  unreadMentionsCount?: number
+  unreadReactionsCount?: number
   muted: boolean
   // §17: чат заглушён, но ответы мне и упоминания меня уведомление всё равно создают.
   mutedImportantOnly: boolean
@@ -281,10 +310,19 @@ export interface ChatListItem {
   // Когда закреплён — сквозную сортировку «закреплённые сверху» делает клиент поверх
   // всех загруженных страниц (см. sortChats): страница приходит по updatedAt.
   pinnedAt: string | null
+  // Место среди закреплённых, заданное руками (0 — верх); null — порядок не задан, тогда ниже
+  // упорядоченных, по pinnedAt. Необязательное — старый сервер поля не отдаёт.
+  pinnedOrder?: number | null
+  // «Пометить как непрочитанное»: точка в строке без самих непрочитанных. Снимается любым
+  // прочтением. Необязательное — старый сервер поля не отдаёт.
+  markedUnread?: boolean
   // Убран в архив «у себя»: живёт только во вкладке «Архив» и не считается в бейдже.
   archived: boolean
   // Черновик сообщения (синхронизируется с сервером): восстанавливается при открытии чата.
   draft: string | null
+  // Когда черновик сохранён: строка показывает его время и встаёт в списке по нему, если он
+  // свежее последнего сообщения (Telegram). Необязательное — старый сервер поля не отдаёт.
+  draftAt?: string | null
   // Я — создатель группы (владелец): удаление группы, передача прав, назначение админов.
   isOwner: boolean
   // Я — админ группы: бан, смена аватара/названия, управление участниками.
@@ -304,6 +342,12 @@ export interface ChatListItem {
   // написал и жду принятия: чат обычный, но с пометкой «запрос ещё не принят».
   requestIncoming: boolean
   requestOutgoing: boolean
+  // Разрешения участников пользовательской группы (§8.3) — у остальных чатов null. Админу и
+  // владельцу не мешают. Необязательные — старый сервер полей не отдаёт.
+  permissions?: ChatPermissions | null
+  // Тип группы: вступление по ссылке и через одобрение заявок (§8.3).
+  joinByLink?: boolean | null
+  joinApproval?: boolean | null
   updatedAt: string
 }
 
@@ -325,6 +369,8 @@ export interface ChatMemberInfo {
   banned: boolean
   // Админ группы (Ф9+).
   isAdmin: boolean
+  // Владелец (создатель) группы — ранг «владелец» у любого участника. Старый сервер не отдаёт.
+  isOwner?: boolean
 }
 
 // Заблокированный пользователь (экран управления блокировками).

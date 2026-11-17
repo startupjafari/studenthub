@@ -2,6 +2,7 @@ import type {
   ChatMessagesQueryInput,
   CreateChatInput,
   CreateChatPollInput,
+  MessageSearchKind,
 } from '@studenthub/shared-schemas'
 import {
   api,
@@ -36,12 +37,25 @@ export const chatKeys = {
   presence: (id: string) => ['chats', id, 'presence'] as const,
   members: (id: string) => ['chats', id, 'members'] as const,
   reads: (id: string) => ['chats', id, 'reads'] as const,
+  // Просмотры сообщений официального чата: ключ — чат и набор видимых id.
+  views: (id: string, ids: string) => ['chats', id, 'views', ids] as const,
   search: (q: string, chatId?: string) => ['chats', 'search', chatId ?? 'all', q] as const,
+  // Поиск внутри одного чата (шапка переписки): страницами, с фильтром по автору и периоду.
+  searchInChat: (chatId: string, q: string, senderId?: string, from?: string, to?: string) =>
+    ['chats', chatId, 'search', q, senderId ?? 'any', from ?? '', to ?? ''] as const,
+  // Глобальный поиск по виду материала (вкладки «Медиа», «Файлы», …): страницами; пустой
+  // запрос — последние материалы вида.
+  searchKind: (kind: MessageSearchKind, q: string) =>
+    ['chats', 'search', 'all', 'kind', kind, q] as const,
+  // «Часто пишете» в пустом поиске.
+  topPeers: () => ['chats', 'top-peers'] as const,
   media: (id: string, type: string) => ['chats', id, 'media', type] as const,
   // Ключ по месяцу: календарь листают туда-сюда, и уже виденный месяц не должен
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
   mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
+  // Код ссылки-приглашения группы (только админам): правая колонка показывает ссылку целиком.
+  invite: (id: string) => ['chats', id, 'invite'] as const,
   // Опросы чата для вкладки общих материалов (полные сообщения, свежие первыми).
   polls: (id: string) => ['chats', id, 'polls'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
@@ -49,6 +63,8 @@ export const chatKeys = {
   blocked: () => ['chats', 'blocked'] as const,
   unread: () => ['chats', 'unread'] as const,
   folders: () => ['chats', 'folders'] as const,
+  // Очередь непрочитанных упоминаний / реакций чата — цели кнопок «@» и «♥» в ленте.
+  attention: (id: string, kind: ChatAttentionKind) => ['chats', id, 'attention', kind] as const,
 }
 
 // Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
@@ -139,8 +155,9 @@ export async function setChatArchivedRequest(chatId: string, archived: boolean):
 export async function joinChatRequest(
   chatId: string,
   code: string,
-): Promise<{ id: string; title: string | null }> {
-  const { data } = await api.post<{ id: string; title: string | null }>(
+  // requested — у группы включено одобрение (§8.3): ушла заявка, участником человек ещё не стал.
+): Promise<{ id: string; title: string | null; requested?: boolean }> {
+  const { data } = await api.post<{ id: string; title: string | null; requested?: boolean }>(
     `/chats/${encodeURIComponent(chatId)}/join`,
     { code },
   )
@@ -154,6 +171,9 @@ export interface MessagesPage {
   // Двунаправленная пагинация (jump-to-message): курсор/наличие более НОВЫХ сообщений.
   prevCursor?: string
   hasPrev: boolean
+  // Сколько всего совпадений («3 из 57» в поиске по чату). Сервер считает только в поиске
+  // внутри одного чата; у истории сообщений и глобального поиска поля нет.
+  total?: number
 }
 
 export async function fetchMessages(
@@ -212,6 +232,8 @@ export async function sendMessageWithAttachments(
     spoilerIndexes?: number[]
     asFiles?: boolean
     silent?: boolean
+    /** Кружок: единственное вложение — видеосообщение. */
+    videoNote?: boolean
   },
   files: File[],
   onProgress?: (fraction: number) => void,
@@ -226,6 +248,7 @@ export async function sendMessageWithAttachments(
   if (input.spoiler) form.append('spoiler', 'true')
   if (input.spoilerIndexes?.length) form.append('spoilerIndexes', input.spoilerIndexes.join(','))
   if (input.asFiles) form.append('asFiles', 'true')
+  if (input.videoNote) form.append('videoNote', 'true')
   if (input.silent) form.append('silent', 'true')
   for (const file of files) form.append('file', file)
   const { data } = await api.post<ChatMessage>(`/chats/${chatId}/messages`, form, {
@@ -237,17 +260,34 @@ export async function sendMessageWithAttachments(
   return data
 }
 
+/** Фильтры поиска сообщений: автор, «с вложениями», вид материала и период (ISO, включительно). */
+export interface MessageSearchFilters {
+  senderId?: string
+  hasFile?: boolean
+  kind?: MessageSearchKind
+  from?: string
+  to?: string
+}
+
+/**
+ * Поиск сообщений (`GET /chats/search`). Пустой `q` не отправляется: сервер тогда ищет по
+ * одним фильтрам — «последние материалы вида», «все сообщения автора», «за период».
+ */
 export async function searchMessages(
   q: string,
   chatId?: string,
   cursor?: string,
-  filters?: { senderId?: string; hasFile?: boolean },
+  filters?: MessageSearchFilters,
 ): Promise<MessagesPage> {
-  const params: Record<string, string | number | boolean> = { q, limit: 30 }
+  const params: Record<string, string | number | boolean> = { limit: 30 }
+  if (q) params.q = q
   if (chatId) params.chatId = chatId
   if (cursor) params.cursor = cursor
   if (filters?.senderId) params.senderId = filters.senderId
   if (filters?.hasFile) params.hasFile = true
+  if (filters?.kind) params.kind = filters.kind
+  if (filters?.from) params.from = filters.from
+  if (filters?.to) params.to = filters.to
   const res = (await api.get<ChatMessage[]>('/chats/search', { params })) as ResponseWithMeta & {
     data: ChatMessage[]
   }
@@ -256,7 +296,21 @@ export async function searchMessages(
     cursor: res.meta?.cursor,
     hasNext: res.meta?.hasNext ?? false,
     hasPrev: false,
+    total: res.meta?.total,
   }
+}
+
+/** Собеседник из «Часто пишете»: личный чат и его второй участник. */
+export interface TopPeer {
+  chatId: string
+  user: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  score: number
+}
+
+/** «Часто пишете» — личные чаты, куда я пишу больше всего (рейтинг считает сервер). */
+export async function fetchTopPeers(limit = 12): Promise<TopPeer[]> {
+  const { data } = await api.get<TopPeer[]>('/chats/top-peers', { params: { limit } })
+  return data
 }
 
 export async function fetchPinned(chatId: string): Promise<ChatMessage[]> {
@@ -362,6 +416,9 @@ export interface ChatMediaPage {
   items: ChatMediaItem[]
   cursor?: string
   hasNext: boolean
+  /** Только у `direction: 'newer'`: граница ещё более новых и есть ли они. */
+  prevCursor?: string
+  hasPrev?: boolean
 }
 /**
  * Вид общих материалов: `voice` — всё аудио, `voice_note` — только голосовые, `music` — аудио
@@ -369,17 +426,42 @@ export interface ChatMediaPage {
  */
 export type ChatMediaType = 'media' | 'file' | 'voice' | 'voice_note' | 'music' | 'gif'
 
+/**
+ * Страница материалов: свежие первыми. `older` (по умолчанию) — старше курсора, `newer` —
+ * новее курсора (просмотрщик, открытый на кадре из середины, листает в обе стороны).
+ */
 export async function fetchChatMedia(
   chatId: string,
   type: ChatMediaType,
   cursor?: string,
+  direction: 'older' | 'newer' = 'older',
 ): Promise<ChatMediaPage> {
   const params: Record<string, string | number> = { type, limit: 30 }
   if (cursor) params.cursor = cursor
+  if (direction === 'newer') params.direction = 'newer'
   const res = (await api.get<ChatMediaItem[]>(`/chats/${chatId}/media`, {
     params,
   })) as ResponseWithMeta & { data: ChatMediaItem[] }
-  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    prevCursor: res.meta?.prevCursor,
+    hasPrev: res.meta?.hasPrev,
+  }
+}
+
+/** Место файла среди материалов вкладки: `index` — 1 у самого старого, `total` — всего. */
+export async function fetchChatMediaPosition(
+  chatId: string,
+  fileId: string,
+  type: ChatMediaType,
+): Promise<{ index: number; total: number }> {
+  const { data } = await api.get<{ index: number; total: number }>(
+    `/chats/${chatId}/media/${fileId}/position`,
+    { params: { type } },
+  )
+  return data
 }
 
 // Опросы чата (§38): сообщения с опросом, свежие первыми; курсор — id сообщения.
@@ -510,6 +592,62 @@ export async function setChatPinnedRequest(chatId: string, pinned: boolean): Pro
   else await api.delete(`/chats/${chatId}/pin`)
 }
 
+// Порядок закреплённых чатов сверху вниз (перетаскивание в списке). Не перечисленные
+// закреплённые сервер оставит ниже в прежнем порядке; незакреплённый id — 422.
+export async function setPinnedChatsOrderRequest(chatIds: string[]): Promise<void> {
+  await api.put('/chats/pinned/order', { chatIds })
+}
+
+// «Пометить как непрочитанное» (Telegram-стиль): точка в строке без самих непрочитанных.
+// Персонально; любое прочтение чата снимает пометку и на сервере.
+export async function setChatMarkedUnreadRequest(chatId: string, marked: boolean): Promise<void> {
+  if (marked) await api.post(`/chats/${chatId}/unread`)
+  else await api.delete(`/chats/${chatId}/unread`)
+}
+
+// Прочитать чаты целиком одним запросом (не больше MARK_READ_BATCH_MAX): «Прочитать все» в
+// меню папки. Пометку «как новое» снимает тоже.
+export async function markChatsReadRequest(chatIds: string[]): Promise<{ updated: number }> {
+  const { data } = await api.post<{ updated: number }>('/chats/read', { chatIds })
+  return data
+}
+
+// Непрочитанные упоминания и реакции (Telegram: unreadMentionsCount / unreadReactionsCount).
+export type ChatAttentionKind = 'mentions' | 'reactions'
+
+/** Счётчики «@» и «♥» чата — ответ на прочтение и событие `chat:attention`. */
+export interface ChatAttentionCounts {
+  unreadMentionsCount: number
+  unreadReactionsCount: number
+}
+
+/** Очередь непрочитанных: сообщения по порядку ленты (старые первыми) и сколько их всего. */
+export interface ChatAttentionQueue {
+  items: { messageId: string; seq: number; createdAt: string }[]
+  count: number
+}
+
+export async function fetchChatAttention(
+  chatId: string,
+  kind: ChatAttentionKind,
+): Promise<ChatAttentionQueue> {
+  const { data } = await api.get<ChatAttentionQueue>(`/chats/${chatId}/${kind}/unread`)
+  return data
+}
+
+/** Прочитать показанные сообщения (`messageIds`) или все упоминания / реакции чата. */
+export async function readChatAttentionRequest(
+  chatId: string,
+  kind: ChatAttentionKind,
+  messageIds?: string[],
+): Promise<ChatAttentionCounts> {
+  const { data } = await api.post<ChatAttentionCounts>(
+    `/chats/${chatId}/${kind}/read`,
+    messageIds ? { messageIds } : {},
+  )
+  return data
+}
+
 export async function fetchPresence(chatId: string): Promise<PresenceEntry[]> {
   const { data } = await api.get<PresenceEntry[]>(`/chats/${chatId}/presence`)
   return data
@@ -526,9 +664,33 @@ export async function fetchReadReceipts(chatId: string): Promise<ChatReadReceipt
   return data
 }
 
+/** Ответ сохранения черновика: время сохранения — для строки списка (время и порядок). */
+export interface SavedChatDraft {
+  chatId: string
+  draft: string | null
+  // Старый сервер поля не отдаёт.
+  draftAt?: string | null
+}
+
 // Сохранить/очистить черновик сообщения на сервере (#3, синхронизация между устройствами).
-export async function saveChatDraft(chatId: string, text: string): Promise<void> {
-  await api.put(`/chats/${chatId}/draft`, { text })
+export async function saveChatDraft(chatId: string, text: string): Promise<SavedChatDraft> {
+  const { data } = await api.put<SavedChatDraft>(`/chats/${chatId}/draft`, { text })
+  return data
+}
+
+/**
+ * Просмотры сообщений официального чата (как у постов канала Telegram): уникальные, по
+ * отметкам прочтения. У чатов без просмотров сервер отдаёт пустой список.
+ */
+export async function fetchMessageViews(
+  chatId: string,
+  messageIds: string[],
+): Promise<{ id: string; views: number }[]> {
+  const { data } = await api.post<{ views: { id: string; views: number }[] }>(
+    `/chats/${chatId}/messages/views`,
+    { messageIds },
+  )
+  return data.views
 }
 
 export async function addChatMemberRequest(chatId: string, userId: string): Promise<void> {
@@ -649,6 +811,7 @@ export async function sendMessageWithUploaded(
     replyQuote?: string
     silent?: boolean
     asFiles?: boolean
+    videoNote?: boolean
     attachments: {
       key: string
       uploadId?: string

@@ -221,7 +221,9 @@ export class ChatGateway {
     if (!(await this.realtime.admitSocket(client, 'message:edit'))) return
     if (await this.halted(client, 'message:edit')) return
     try {
-      const message = await this.chats.editMessage(uid, data.messageId, data.content)
+      const message = await this.chats.editMessage(uid, data.messageId, data.content, {
+        noLinkPreview: data.noLinkPreview,
+      })
       this.server
         .to(`chat:${message.chatId}`)
         .emit('message:updated', { message, chatId: message.chatId })

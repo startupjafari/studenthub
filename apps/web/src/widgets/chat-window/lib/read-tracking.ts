@@ -27,6 +27,60 @@ export function firstUnreadIndex(
   return seen > 0 ? 0 : null
 }
 
+/** Страница первичной загрузки ленты (и половина окна вокруг первого непрочитанного). */
+export const OPEN_PAGE = 30
+
+/** Что о непрочитанном чата знает элемент списка. `firstUnreadId` — у нового сервера. */
+interface UnreadInfo {
+  unreadCount: number
+  firstUnreadId?: string | null
+}
+
+export type OpenAnchor = { kind: 'bottom' } | { kind: 'around'; messageId: string }
+
+/**
+ * Где открыть чат. Непрочитанных не меньше страницы — первое из них в последнюю страницу
+ * точно не попадёт, и чат сразу грузится окном вокруг него (Telegram), а не низом истории
+ * с плашкой на самом раннем из загруженного. Иначе — у низа, как раньше.
+ */
+export function openAnchor(chat: UnreadInfo | undefined, page: number): OpenAnchor {
+  if (chat?.firstUnreadId && chat.unreadCount >= page) {
+    return { kind: 'around', messageId: chat.firstUnreadId }
+  }
+  return { kind: 'bottom' }
+}
+
+/**
+ * Первое непрочитанное не попало в загруженную последнюю страницу, а история старше есть:
+ * чужих непрочитанных меньше страницы, но между ними много своих сообщений. Нужно окно
+ * вокруг него.
+ */
+export function needsWindow(
+  page: { items: readonly { id: string }[]; hasNext: boolean },
+  firstUnreadId: string | null | undefined,
+): boolean {
+  return !!firstUnreadId && page.hasNext && !page.items.some((m) => m.id === firstUnreadId)
+}
+
+/**
+ * Место плашки «Непрочитанные сообщения» в загруженной ленте: по id первого непрочитанного,
+ * если сервер его прислал и оно загружено, иначе — отсчётом чужих сообщений с конца
+ * (`firstUnreadIndex`).
+ */
+export function firstUnreadPosition(
+  list: readonly (Row & { id: string })[],
+  chat: UnreadInfo | undefined,
+  myId: string | undefined,
+): number | null {
+  const unread = chat?.unreadCount ?? 0
+  if (unread <= 0) return null
+  if (chat?.firstUnreadId) {
+    const at = list.findIndex((m) => m.id === chat.firstUnreadId)
+    if (at >= 0) return at
+  }
+  return firstUnreadIndex(list, unread, myId)
+}
+
 /**
  * Сколько чужих сообщений новее отметки «прочитано до» — число на кнопке «вниз» и в списке
  * чатов. `readUpTo` пустой строкой — не прочитано ничего из загруженного; null — отметки

@@ -356,8 +356,13 @@ export function ComplaintDetailModal({
               className="grid gap-2 sm:grid-cols-2"
             >
               {DECISIONS.filter(
-                // Снимать нечего, когда жалоба на самого человека.
-                (d) => !(d.action === 'DELETE_CONTENT' && complaint.targetType === 'USER'),
+                // Снимать нечего, когда жалоба на самого человека; группу целиком модерация
+                // не удаляет — меры к её владельцу (сервер отвечает BAD_REQUEST).
+                (d) =>
+                  !(
+                    d.action === 'DELETE_CONTENT' &&
+                    (complaint.targetType === 'USER' || complaint.targetType === 'CHAT')
+                  ),
               ).map((d) => {
                 const checked = decision === d.action
                 return (

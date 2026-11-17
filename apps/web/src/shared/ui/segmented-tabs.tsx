@@ -31,6 +31,12 @@ export interface SegmentedTabItem<T extends string> {
   label: ReactNode
   /** Счётчик справа от подписи (например число новых жалоб). 0 не показывается. */
   count?: number
+  /**
+   * Тон счётчика. Без него — прежний нейтральный (в активной вкладке — оттенок акцента).
+   * `accent` — сплошной акцент: «здесь ждут ответа» (папки чатов, как в Telegram);
+   * `muted` — сплошной серый: непрочитанное есть, но всё оно в заглушённых чатах.
+   */
+  countTone?: 'accent' | 'muted'
   icon?: LucideIcon
 }
 
@@ -110,10 +116,16 @@ export function SegmentedTabs<T extends string>({
     return () => window.removeEventListener('keydown', onKey)
   }, [menuOpen])
 
-  function countPill(isActive: boolean): string {
+  function countPill(isActive: boolean, tone?: SegmentedTabItem<T>['countTone']): string {
     return cn(
       'shrink-0 rounded-full px-1.5 py-px text-center text-[0.6875rem] font-semibold tabular-nums',
-      isActive ? 'bg-primary/15 text-primary' : 'bg-foreground/10 text-muted-foreground',
+      tone === 'accent'
+        ? 'bg-primary text-primary-foreground'
+        : tone === 'muted'
+          ? 'bg-muted-foreground/60 text-white'
+          : isActive
+            ? 'bg-primary/15 text-primary'
+            : 'bg-foreground/10 text-muted-foreground',
     )
   }
 
@@ -133,7 +145,9 @@ export function SegmentedTabs<T extends string>({
           {ActiveIcon && <ActiveIcon className="size-4 shrink-0" aria-hidden />}
           <span className="min-w-0 truncate">{active?.label}</span>
           {!!active?.count && (
-            <span className={countPill(true)}>{active.count > 99 ? '99+' : active.count}</span>
+            <span className={countPill(true, active.countTone)}>
+              {active.count > 99 ? '99+' : active.count}
+            </span>
           )}
           <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
         </button>
@@ -193,7 +207,7 @@ export function SegmentedTabs<T extends string>({
                       {Icon && <Icon className="size-5 shrink-0 opacity-80" aria-hidden />}
                       <span className="min-w-0 flex-1 truncate">{item.label}</span>
                       {!!item.count && (
-                        <span className={countPill(isActive)}>
+                        <span className={countPill(isActive, item.countTone)}>
                           {item.count > 99 ? '99+' : item.count}
                         </span>
                       )}
@@ -255,7 +269,9 @@ export function SegmentedTabs<T extends string>({
             {Icon && <Icon className="size-4 shrink-0" aria-hidden />}
             {item.label}
             {!!item.count && (
-              <span className={countPill(isActive)}>{item.count > 99 ? '99+' : item.count}</span>
+              <span className={countPill(isActive, item.countTone)}>
+                {item.count > 99 ? '99+' : item.count}
+              </span>
             )}
           </button>
         )

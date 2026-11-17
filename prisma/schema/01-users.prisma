@@ -41,6 +41,10 @@ model User {
   deletedAt            DateTime? @map("deleted_at")
   // Последняя активность (§49, last-seen): обновляется при отключении последнего WS-соединения.
   lastSeenAt           DateTime? @map("last_seen_at")
+  // Своя быстрая реакция в чатах: её ставит двойной клик/касание по сообщению (как «Быстрая
+  // реакция» в Telegram). NULL — общая по умолчанию (DEFAULT_CHAT_REACTION в shared-config):
+  // не храним копию дефолта в каждой строке, чтобы его можно было сменить без миграции данных.
+  chatDefaultReaction  String?   @map("chat_default_reaction")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -188,6 +192,12 @@ model User {
   checklistItemsDone ChatChecklistItem[] @relation("ChecklistItemDoneBy")
   // Наборы стикеров, заведённые платформенным администратором (StickerSet.createdById).
   stickerSets        StickerSet[]
+  // Группы (38-chat-groups.prisma): мои заявки на вступление, исключения из групп (меня и
+  // мной) и история моих фото профиля.
+  chatJoinRequests   ChatJoinRequest[]
+  chatRemovals       ChatRemovedMember[] @relation("ChatRemovedUser")
+  chatRemovalsMade   ChatRemovedMember[] @relation("ChatRemovedBy")
+  avatarPhotos       AvatarPhoto[]
 
   // События (Ф10): организованные события и участия.
   eventsOrganized       Event[]                @relation("EventOrganizer")

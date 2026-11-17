@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { EditorContent, Extension, useEditor, type Editor } from '@tiptap/react'
 import { BubbleMenu, FloatingMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
@@ -12,6 +12,7 @@ import { Markdown, type MarkdownStorage } from 'tiptap-markdown'
 import {
   Bold,
   Code,
+  EyeOff,
   Heading2,
   Image as ImageIcon,
   Italic,
@@ -21,9 +22,12 @@ import {
   Quote,
   Strikethrough,
   Table as TableIcon,
+  Underline,
 } from 'lucide-react'
 import { PromptDialog } from './prompt-dialog'
+import { ChatSpoiler, ChatUnderline } from './rich-text-chat-marks'
 import { useScrollRow } from '../lib/use-scroll-row'
+import { lastGraphemeLength } from '../lib/grapheme'
 import { cn } from '../lib/utils'
 import {
   MARKDOWN_ACTIONS_TEXT,
@@ -77,6 +81,12 @@ const ACTIONS: {
     isActive: (e) => e.isActive('italic'),
   },
   {
+    key: 'underline',
+    icon: Underline,
+    run: (e) => void e.chain().focus().toggleMark('underline').run(),
+    isActive: (e) => e.isActive('underline'),
+  },
+  {
     key: 'strike',
     icon: Strikethrough,
     run: (e) => void e.chain().focus().toggleStrike().run(),
@@ -87,6 +97,12 @@ const ACTIONS: {
     icon: Code,
     run: (e) => void e.chain().focus().toggleCode().run(),
     isActive: (e) => e.isActive('code'),
+  },
+  {
+    key: 'spoiler',
+    icon: EyeOff,
+    run: (e) => void e.chain().focus().toggleMark('spoiler').run(),
+    isActive: (e) => e.isActive('spoiler'),
   },
   {
     key: 'heading',
@@ -122,6 +138,12 @@ const ACTIONS: {
   },
 ]
 
+/** Подписи кнопок, добавленных вместе с маркерами чата (PROJECT.md §3.6), — в `Editor.tgMarkup`. */
+const LABEL_KEY: Partial<Record<MarkdownActionKey, string>> = {
+  underline: 'tgMarkup.underline',
+  spoiler: 'tgMarkup.spoiler',
+}
+
 /** Ряд кнопок панели. Одна строка всегда: перенос читался бы как две панели. */
 function ActionRow({
   editor,
@@ -150,8 +172,8 @@ function ActionRow({
         <button
           key={key}
           type="button"
-          aria-label={t(key)}
-          title={t(key)}
+          aria-label={t(LABEL_KEY[key] ?? key)}
+          title={t(LABEL_KEY[key] ?? key)}
           aria-pressed={isActive(editor)}
           // Нажатие не должно уводить фокус из поля: иначе выделение слетает и
           // форматировать становится нечего.
@@ -194,6 +216,14 @@ export function RichTextEditor({
   // Последнее значение, которое поле само отдало наружу: с ним сверяем входящий `value`,
   // чтобы не пересобирать документ на каждое нажатие (курсор прыгал бы в конец).
   const emitted = useRef(value)
+  // Ctrl/Cmd+K открывает диалог ссылки — через ref: расширение создаётся вместе с редактором.
+  const linkPromptRef = useRef<(() => boolean) | null>(null)
+  linkPromptRef.current = actions.includes('link')
+    ? () => {
+        setPrompt('link')
+        return true
+      }
+    : null
 
   const editor = useEditor({
     // SSR: Next.js рендерит страницу на сервере, где DOM нет — первый кадр рисуем в браузере.
@@ -202,13 +232,31 @@ export function RichTextEditor({
       // Узлы включены все, даже если кнопки для них нет: иначе правка сообщения или
       // статьи, где список уже есть, потеряла бы его при разборе markdown.
       StarterKit.configure({
-        // Подчёркивания в markdown нет — оно уехало бы на сервер как HTML.
+        // Подчёркивание StarterKit пишет в markdown HTML-тегом `<u>`, которого в контрактах
+        // нет; в чате подчёркнутый — своя метка `++…++` (ChatUnderline ниже).
         underline: false,
         link: { openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer nofollow' } },
       }),
       Image.configure({ inline: false }),
       TableKit.configure({ table: { resizable: false } }),
       Placeholder.configure({ placeholder: placeholder ?? '' }),
+      // Подчёркнутый и спойлер — только там, где для них есть кнопки (поле чата, PROJECT.md
+      // §3.6): в постах и статьях этих маркеров нет, и `++`/`||` там остаются текстом.
+      ...(actions.includes('underline') ? [ChatUnderline] : []),
+      ...(actions.includes('spoiler') ? [ChatSpoiler] : []),
+      // Горячие клавиши Telegram поверх стандартных tiptap (Ctrl+B, Ctrl+I, Ctrl+Shift+S,
+      // Ctrl+E): зачёркнутый — Ctrl+Shift+X, моноширинный — Ctrl+Shift+M, ссылка — Ctrl+K;
+      // подчёркнутый (Ctrl+U) и спойлер (Ctrl+Shift+P) — в своих метках.
+      Extension.create({
+        name: 'telegramShortcuts',
+        addKeyboardShortcuts() {
+          return {
+            'Mod-Shift-x': () => this.editor.commands.toggleStrike(),
+            'Mod-Shift-m': () => this.editor.commands.toggleCode(),
+            'Mod-k': () => linkPromptRef.current?.() ?? false,
+          }
+        },
+      }),
       // html: false — сырой HTML из вставки не попадёт ни в документ, ни на сервер.
       Markdown.configure({
         html: false,
@@ -261,6 +309,27 @@ export function RichTextEditor({
         editor.chain().focus().insertContentAt({ from, to }, { type: 'text', text }).run()
       },
       textBefore: () => editor.state.doc.textBetween(0, editor.state.selection.from, '\n', '\n'),
+      deleteBackward: () => {
+        const { selection } = editor.state
+        if (!selection.empty) {
+          editor.chain().focus().deleteSelection().run()
+          return
+        }
+        const { $from } = selection
+        // Текст абзаца до курсора; неотекстовый узел (перенос строки) — одним знаком, как
+        // и в позициях редактора, чтобы длина графемы совпала с диапазоном удаления.
+        const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+        if (!before) {
+          editor.chain().focus().joinBackward().run()
+          return
+        }
+        const length = lastGraphemeLength(before)
+        editor
+          .chain()
+          .focus()
+          .deleteRange({ from: selection.from - length, to: selection.from })
+          .run()
+      },
     }
     return () => {
       handle.current = null

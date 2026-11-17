@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { firstUnreadIndex, unreadAfter, withReceipt } from './read-tracking'
+import {
+  OPEN_PAGE,
+  firstUnreadIndex,
+  firstUnreadPosition,
+  needsWindow,
+  openAnchor,
+  unreadAfter,
+  withReceipt,
+} from './read-tracking'
 
 const ME = 'me'
 const row = (senderId: string, minute: number) => ({
@@ -71,5 +79,40 @@ describe('withReceipt', () => {
 
   it('незнакомый участник — список тот же', () => {
     expect(withReceipt(receipts, 'zzz', '2026-09-01T10:05:00.000Z')).toBe(receipts)
+  })
+})
+
+describe('открытие чата на первом непрочитанном (P.8)', () => {
+  const idRow = (id: string, senderId: string, minute: number) => ({ id, ...row(senderId, minute) })
+
+  it('непрочитанных не меньше страницы — сразу окно вокруг первого', () => {
+    expect(openAnchor({ unreadCount: OPEN_PAGE, firstUnreadId: 'm1' }, OPEN_PAGE)).toEqual({
+      kind: 'around',
+      messageId: 'm1',
+    })
+    expect(openAnchor({ unreadCount: 5, firstUnreadId: 'm1' }, OPEN_PAGE)).toEqual({
+      kind: 'bottom',
+    })
+    // Старый сервер без firstUnreadId — как раньше, у низа.
+    expect(openAnchor({ unreadCount: 99 }, OPEN_PAGE)).toEqual({ kind: 'bottom' })
+    expect(openAnchor(undefined, OPEN_PAGE)).toEqual({ kind: 'bottom' })
+  })
+
+  it('первое непрочитанное не попало в последнюю страницу — нужно окно', () => {
+    const items = [{ id: 'a' }, { id: 'b' }]
+    expect(needsWindow({ items, hasNext: true }, 'x')).toBe(true)
+    expect(needsWindow({ items, hasNext: true }, 'a')).toBe(false)
+    // Истории старше нет — искать негде, первое непрочитанное и есть начало чата.
+    expect(needsWindow({ items, hasNext: false }, 'x')).toBe(false)
+    expect(needsWindow({ items, hasNext: true }, null)).toBe(false)
+  })
+
+  it('плашка — по id первого непрочитанного, без него — отсчётом с конца', () => {
+    const list = [idRow('a', 'u2', 1), idRow('b', 'u2', 2), idRow('c', ME, 3), idRow('d', 'u2', 4)]
+    expect(firstUnreadPosition(list, { unreadCount: 2, firstUnreadId: 'a' }, ME)).toBe(0)
+    expect(firstUnreadPosition(list, { unreadCount: 2 }, ME)).toBe(1)
+    // id есть, но в ленте его нет (окно не загрузилось) — отсчёт с конца.
+    expect(firstUnreadPosition(list, { unreadCount: 1, firstUnreadId: 'zzz' }, ME)).toBe(3)
+    expect(firstUnreadPosition(list, { unreadCount: 0, firstUnreadId: 'a' }, ME)).toBeNull()
   })
 })

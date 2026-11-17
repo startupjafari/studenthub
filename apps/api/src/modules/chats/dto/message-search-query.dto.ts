@@ -1,4 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
-import { MessageSearchQuerySchema } from '@studenthub/shared-schemas'
+import { MessageSearchQuerySchema, TopPeersQuerySchema } from '@studenthub/shared-schemas'
 
 export class MessageSearchQueryDto extends createZodDto(MessageSearchQuerySchema) {}
+
+export class TopPeersQueryDto extends createZodDto(TopPeersQuerySchema) {}

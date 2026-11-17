@@ -81,6 +81,11 @@ export const ErrorCode = {
   // Трансляция геопозиции уже закончилась (истёк срок или её остановили): точку больше не
   // двигают. Отдельно от CONFLICT: клиент гасит трансляцию у себя, а не показывает ошибку.
   LIVE_LOCATION_ENDED: 'LIVE_LOCATION_ENDED',
+  // Админ группы запретил участникам этот вид отправки или действия (экран «Разрешения»:
+  // медиа, стикеры, ссылки, опросы, закрепление…). Какое право — в details[0].field.
+  // Отдельно от FORBIDDEN: клиент пишет «в этой группе запрещено …» и прячет пункт, а не
+  // «недостаточно прав». Старые клиенты показывают message — он тоже человеческий.
+  CHAT_PERMISSION_DENIED: 'CHAT_PERMISSION_DENIED',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -136,6 +141,7 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   // 503 — функция недоступна на этом сервере (не настроена), а не сломана.
   FEATURE_DISABLED: 503,
   LIVE_LOCATION_ENDED: 409,
+  CHAT_PERMISSION_DENIED: 403,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

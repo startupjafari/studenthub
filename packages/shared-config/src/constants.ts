@@ -134,6 +134,12 @@ export const PROFILE_MEDIA_QUOTA_FIELD = 'profileMediaQuota'
  */
 export const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢', '🔥', '👀'] as const
 
+/**
+ * Быстрая реакция по умолчанию: её ставит двойной клик или двойное касание по сообщению, пока
+ * человек не выбрал свою (`PATCH /chats/settings`). Сервер отдаёт уже подставленное значение.
+ */
+export const DEFAULT_CHAT_REACTION = '🔥'
+
 /** Окно редактирования сообщения после отправки (Ф9+), мс. Единый источник для бэка и фронта. */
 export const MESSAGE_EDIT_WINDOW_MS = 10 * 60 * 1000
 
