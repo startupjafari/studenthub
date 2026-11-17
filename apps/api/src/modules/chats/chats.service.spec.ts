@@ -2416,13 +2416,25 @@ describe('ChatsService — общие материалы (§23)', () => {
         posterKey: null,
         createdAt: new Date(),
         messageId: `msg${i}`,
-        message: { createdAt: new Date(), senderId: 'u2', sender: { id: 'u2' } },
+        message: {
+          createdAt: new Date(),
+          senderId: 'u2',
+          content: i === 0 ? 'Подпись' : '',
+          sender: { id: 'u2' },
+        },
       })),
     )
     const res = await service.listChatMedia(user('u1'), 'c1', { limit: 20, type: 'media' })
     expect(res.items).toHaveLength(20)
     expect(res.meta.hasNext).toBe(true)
-    expect(res.items[0]).toMatchObject({ id: 'f0', messageId: 'msg0', hasPoster: false })
+    // Подпись — текст сообщения; пустой текст — не подпись.
+    expect(res.items[0]).toMatchObject({
+      id: 'f0',
+      messageId: 'msg0',
+      hasPoster: false,
+      caption: 'Подпись',
+    })
+    expect(res.items[1]?.caption).toBeNull()
     const where = prisma.file.findMany.mock.calls[0][0].where
     expect(where.OR).toEqual([
       { mime: { startsWith: 'image/' } },

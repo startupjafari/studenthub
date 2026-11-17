@@ -371,6 +371,11 @@ type ChatMediaRow = {
   durationMs: number | null
   createdAt: Date
   sender: MediaSenderRow | null
+  /**
+   * Подпись к медиа — текст сообщения (только в `GET /chats/:id/media`): просмотрщик, листающий
+   * все медиа чата, показывает её и у кадров вне загруженной истории.
+   */
+  caption?: string | null
 }
 type ChatLinkRow = {
   messageId: string
@@ -1952,7 +1957,9 @@ export class ChatsService implements OnModuleInit {
         mediaStatus: true,
         createdAt: true,
         messageId: true,
-        message: { select: { createdAt: true, senderId: true, sender: SENDER_SELECT } },
+        message: {
+          select: { createdAt: true, senderId: true, content: true, sender: SENDER_SELECT },
+        },
       },
       orderBy: newer
         ? [{ createdAt: 'asc' }, { id: 'asc' }]
@@ -1977,6 +1984,7 @@ export class ChatsService implements OnModuleInit {
       durationMs: f.durationMs,
       createdAt: f.message?.createdAt ?? f.createdAt,
       sender: f.message?.sender ?? null,
+      caption: f.message?.content || null,
     }))
     if (newer) return new Paginated(items, { prevCursor: items[0]?.id, hasPrev: more })
     return new Paginated(items, {
