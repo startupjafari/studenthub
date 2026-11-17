@@ -3411,6 +3411,8 @@ export function ChatWindow() {
       chatById={chatById}
       chats={list}
       chatsLoading={chats.isLoading}
+      chatsError={chats.isError}
+      onRetryChats={() => void chats.refetch()}
       myId={myId}
       locale={locale}
       returning={listReturning}
@@ -3441,6 +3443,7 @@ export function ChatWindow() {
       }}
       onTogglePin={(c) => pin.mutate({ chatId: c.id, pinned: !c.pinned })}
       onToggleMute={(c) => mute.mutate({ chatId: c.id, muted: !c.muted })}
+      onMuteFor={(c, minutes) => mute.mutate({ chatId: c.id, muted: true, minutes })}
       onToggleArchive={(c) => archive.mutate({ chatId: c.id, archived: !c.archived })}
       onDeleteChat={(c) => {
         const msg =
