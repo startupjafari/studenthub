@@ -86,7 +86,9 @@ function radiusOf(el: Element): number {
   return Number.isFinite(v) ? v : 0
 }
 
-interface Frame {
+// Тип, а не интерфейс: кадр уходит в `Element.animate`, а тот ждёт запись с индексной
+// сигнатурой — интерфейс к ней неявно не приводится.
+type Frame = {
   transform: string
   clipPath: string
   opacity?: number
