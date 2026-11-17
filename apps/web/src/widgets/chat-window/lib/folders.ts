@@ -113,3 +113,26 @@ export function filterChatsByTab(
 export function folderTabLabel(tab: FolderTab, t: (key: string) => string): string {
   return tab.kind === 'user' ? tab.name : t(tab.id)
 }
+
+/**
+ * Счётчик вкладки папки, как в Telegram: число чатов с непрочитанным и его тон. Акцентный —
+ * есть хоть один незаглушённый непрочитанный чат; серый — всё непрочитанное в заглушённых
+ * (человек сам попросил не беспокоить, и звать туда акцентом незачем). У «Запросов» —
+ * число самих запросов, и оно всегда акцентное: каждый ждёт ответа.
+ */
+export function folderBadge(
+  chatsInTab: readonly ChatListItem[],
+  opts: { requests?: boolean } = {},
+): { count: number; tone: 'accent' | 'muted' | undefined } {
+  if (opts.requests) {
+    return { count: chatsInTab.length, tone: chatsInTab.length > 0 ? 'accent' : undefined }
+  }
+  let count = 0
+  let loud = false
+  for (const c of chatsInTab) {
+    if (c.unreadCount <= 0 && !c.markedUnread) continue
+    count += 1
+    if (!c.muted) loud = true
+  }
+  return { count, tone: count === 0 ? undefined : loud ? 'accent' : 'muted' }
+}

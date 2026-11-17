@@ -42,7 +42,13 @@ import {
 } from '../../../shared/ui'
 import { useBackClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { buildFolderTabs, filterChatsByTab, folderTabLabel, type FolderTab } from '../lib/folders'
+import {
+  buildFolderTabs,
+  filterChatsByTab,
+  folderBadge,
+  folderTabLabel,
+  type FolderTab,
+} from '../lib/folders'
 import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
 import { canDeleteChat } from '../lib/chat-kind'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
@@ -332,14 +338,14 @@ export function ConversationList({
 
   // Счётчик у каждой папки — число чатов с непрочитанным, как в Telegram: по ряду вкладок
   // видно, куда заглянуть. У «Запросов» — сами запросы: непрочитанных в них не бывает, а
-  // ждут они ответа все.
+  // ждут они ответа все. Счётчик серый, если всё непрочитанное папки — в заглушённых чатах.
   const folderItems: SegmentedTabItem<string>[] = useMemo(
     () =>
       folderTabs.map((f) => {
-        const inTab = filterChatsByTab(chats, f)
-        const count =
-          f.kind === 'builtin' && f.requests ? inTab.length : inTab.filter(isChatUnread).length
-        return { value: f.id, label: folderTabLabel(f, t), count }
+        const { count, tone } = folderBadge(filterChatsByTab(chats, f), {
+          requests: f.kind === 'builtin' && !!f.requests,
+        })
+        return { value: f.id, label: folderTabLabel(f, t), count, countTone: tone }
       }),
     [folderTabs, chats, t],
   )
