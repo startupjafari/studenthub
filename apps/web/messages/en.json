@@ -2631,6 +2631,13 @@
     "forward": "Forward",
     "forwardTo": "Forward to chat",
     "forwardedFrom": "Forwarded from {name}",
+    "tgBubbles": {
+      "edited": "edited",
+      "statusSent": "Sent",
+      "statusRead": "Read",
+      "replyTo": "Reply to: {name}",
+      "forwardedFrom": "Forwarded from <b>{name}</b>"
+    },
     "forwarded": "Forwarded",
     "forwardCaption": "Add a caption…",
     "sharedProfileLabel": "Profile",

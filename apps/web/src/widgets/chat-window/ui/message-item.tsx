@@ -1,11 +1,11 @@
 'use client'
 
-import { memo } from 'react'
+import { memo, type CSSProperties, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertCircle, Check, CheckCheck, ChevronDown, Forward, Loader2, Pin } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import {
   ChatPollView,
-  LinkPreviewCard,
+  isViewable,
   MessageAttachments,
   MessageChecklistView,
   MessageContactCard,
@@ -22,8 +22,21 @@ import {
   ChatSharedStory,
   parseProfileShare,
 } from './shared-cards'
-import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
+import { identityAccent } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { emojiOnlyCount } from '../lib/message-emoji'
+import { MessageForwarded } from './message-forwarded'
+import { MessageGroupAvatar } from './message-group-avatar'
+import {
+  META_SPACER_CLASS,
+  MessageMeta,
+  messageTime,
+  metaSpacerStyle,
+  type MessageMetaVariant,
+} from './message-meta'
+import { MessageReplyQuote } from './message-reply-quote'
+import { MessageTail } from './message-tail'
+import { MessageWebPage } from './message-web-page'
 
 // Эмодзи быстрой реакции в углу пузыря. Один на весь продукт: кнопка одна, и выбирать
 // «свой» эмодзи здесь негде — остальные ставятся из контекстного меню сообщения.
@@ -84,13 +97,17 @@ export type MessageItemProps = {
    * один и так в шапке, как в Telegram.
    */
   isGroup: boolean
+  /** Первое сообщение серии одного автора (lib/message-run): у него имя автора. */
   firstOfRun: boolean
-  // Первое сообщение в списке — без верхнего отступа серии.
+  /** Последнее сообщение серии: у него хвостик пузыря и аватар автора. */
+  lastOfRun: boolean
+  /** id первого сообщения серии — только у последнего: до него «прилипает» аватар. */
+  runStartId?: string
   /** Первое сообщение календарного дня — перед ним идёт пометка даты. */
   showDay: boolean
   dayText: string | null
+  // Первое сообщение в списке — без верхнего отступа серии.
   isFirstInList: boolean
-  // Разделитель дня перед сообщением.
   // Разделитель «Непрочитанные» перед этим сообщением.
   isUnreadDivider: boolean
   highlighted: boolean
@@ -111,6 +128,26 @@ export type MessageItemProps = {
   actions: MessageActions
 }
 
+// Скругления пузыря, как в Telegram: большой радиус снаружи серии, малый — на стыке соседних
+// сообщений одного автора, прямой угол — там, где из пузыря растёт хвостик.
+const R_BIG = 'var(--radius-2xl)'
+const R_SMALL = 'var(--radius-sm)'
+
+type Corners = { tl: string; tr: string; br: string; bl: string }
+
+function bubbleCorners(mine: boolean, first: boolean, last: boolean, tail: boolean): Corners {
+  const top = first ? R_BIG : R_SMALL
+  const bottom = last ? (tail ? '0' : R_SMALL) : R_SMALL
+  return mine
+    ? { tl: R_BIG, tr: top, br: bottom, bl: R_BIG }
+    : { tl: top, tr: R_BIG, br: R_BIG, bl: bottom }
+}
+
+const radius = (c: Corners): string => `${c.tl} ${c.tr} ${c.br} ${c.bl}`
+
+// Крупные эмодзи без пузыря (Telegram): один — крупнее всего, три — мельче.
+const BIG_EMOJI_SIZE = ['', 'text-[5rem]', 'text-[4rem]', 'text-[3.5rem]'] as const
+
 // Единый корневой узел на сообщение (день-пилюля + разделитель + строка) — обязательно для
 // виртуализации (virtua): каждый ребёнок списка = один измеряемый элемент.
 function MessageItemInner({
@@ -118,6 +155,8 @@ function MessageItemInner({
   mine,
   isGroup,
   firstOfRun,
+  lastOfRun,
+  runStartId,
   showDay,
   dayText,
   isFirstInList,
@@ -150,6 +189,265 @@ function MessageItemInner({
   const storyCard = !!m.sharedStory || !!m.sharedStoryReply
   const profileShare = m.sharedPost || m.poll || storyCard ? null : parseProfileShare(m.content)
 
+  // ── Из чего состоит пузырь — от этого зависят форма, отступы и место времени ──
+  const special = !!(m.poll || m.sticker || m.location || m.contact || m.checklist || profileShare)
+  const hasText = !special && !!m.content
+  const hasPreview = !!m.linkPreview && !profileShare
+  const showName = !mine && isGroup && firstOfRun
+  const hasHeader = showName || !!m.forwardedFrom || !!m.replyTo
+  const hasReactions = m.reactions.length > 0
+  // Сообщение из 1–3 эмодзи — крупно и без пузыря (Telegram).
+  const bigEmoji =
+    hasText &&
+    m.media.length === 0 &&
+    !hasPreview &&
+    !m.sharedPost &&
+    !storyCard &&
+    !m.forwardedFrom
+      ? emojiOnlyCount(m.content)
+      : 0
+  // Стикер и крупные эмодзи живут без пузыря: подложка у них — только под временем.
+  const bare = bigEmoji > 0 || (!!m.sticker && m.media.length === 0)
+  // Снимки и видео без файлов — от края до края пузыря, как в Telegram.
+  const mediaOnly = m.media.length > 0 && m.media.every(isViewable)
+  const hasBelowMedia = hasText || special || !!m.sharedPost || storyCard || hasPreview
+  // Снимок — последнее в пузыре (ни подписи, ни реакций под ним): время лежит плашкой на кадре.
+  const mediaLast = mediaOnly && !hasBelowMedia && !hasReactions
+  // А если над ним нет и шапки — пузыря нет вовсе, только сам кадр.
+  const mediaBare = mediaLast && !hasHeader
+  // Хвостик — у пузыря с краем снизу. Кадр в нижнем углу его не носит: синий хвостик,
+  // торчащий из фотографии, читался бы как ошибка вёрстки.
+  const tail = lastOfRun && !bare && !mediaLast
+  const corners = bubbleCorners(mine, firstOfRun, lastOfRun, tail)
+
+  // Где время: в последней строке текста, плашкой на кадре, капсулой под стикером или
+  // отдельной строкой (под карточкой, превью ссылки, рядом с реакциями).
+  const metaVariant: MessageMetaVariant = bare
+    ? 'float'
+    : mediaLast
+      ? 'media'
+      : hasText && !hasPreview && !hasReactions
+        ? 'text'
+        : 'flow'
+  const editedLabel = m.editedAt ? t('tgBubbles.edited') : null
+  const meta = (variant: MessageMetaVariant): ReactNode => (
+    <MessageMeta
+      createdAt={m.createdAt}
+      edited={!!m.editedAt}
+      pinned={!!m.pinnedAt}
+      mine={mine}
+      readState={readState}
+      readCount={readCount}
+      locale={locale}
+      variant={variant}
+      onRetry={() => actions.retry(m)}
+    />
+  )
+  const spacerStyle: CSSProperties | undefined =
+    metaVariant === 'text'
+      ? metaSpacerStyle({
+          time: messageTime(m.createdAt, locale),
+          editedLabel,
+          pinned: !!m.pinnedAt,
+          mine,
+          readState,
+          readCount,
+        })
+      : undefined
+
+  // Шапка пузыря: имя автора цветом человека, «Переслано от», цитата ответа. У стикера и
+  // крупных эмодзи пузыря нет — шапка встаёт над ними отдельной плашкой, и цвета там
+  // «чужого» пузыря: светлое на светлом было бы нечитаемо.
+  const headerMine = mine && !bare
+  const header = hasHeader && (
+    <div
+      className={cn(
+        'min-w-0',
+        // Шапка не раздвигает пузырь шире снимка: ширину задаёт кадр (см. mediaOnly ниже).
+        mediaOnly && '[contain:inline-size]',
+        bare && 'mb-1 max-w-64 rounded-xl bg-muted/90 px-2 py-1 backdrop-blur',
+      )}
+    >
+      {showName && (
+        <p className="mb-0.5 flex min-w-0 items-center gap-1.5 text-[0.8125rem] leading-snug">
+          <ProfileLink
+            userId={m.senderId}
+            className={cn(
+              'truncate font-semibold hover:underline',
+              identityAccent(m.senderId).text,
+            )}
+          >
+            {senderNameText}
+          </ProfileLink>
+          {senderBadge && (
+            <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[0.6rem] font-medium text-primary">
+              {senderBadge}
+            </span>
+          )}
+        </p>
+      )}
+      {m.forwardedFrom && (
+        <MessageForwarded origin={m.forwardedFrom} name={forwardedFromNameText} mine={headerMine} />
+      )}
+      {m.replyTo && (
+        <MessageReplyQuote
+          replyTo={m.replyTo}
+          quote={m.replyQuote}
+          name={replyToNameText}
+          mine={headerMine}
+          onOpen={actions.focus}
+        />
+      )}
+    </div>
+  )
+
+  const attachments = m.media.length > 0 && (
+    <MessageAttachments
+      media={m.media}
+      mine={mine}
+      // Отменять есть что только у своего, ещё не доехавшего сообщения.
+      // Упавшее отменять нечего — там повтор.
+      onCancel={
+        readState !== 'failed' && m.id.startsWith('tmp:') && m.media.some((a) => a.uploading)
+          ? () => actions.cancelUpload(m)
+          : undefined
+      }
+      // Пузырь знает, что отправка упала, — вложения обязаны узнать тоже.
+      // Без этого они навсегда оставались со спиннером на «0 / 312.8 МБ».
+      sendFailed={mine && readState === 'failed'}
+      onRetry={() => actions.retry(m)}
+      viewerMeta={{
+        senderName: senderNameText,
+        createdAt: m.createdAt,
+        mine,
+        caption: m.content,
+      }}
+      viewerActions={{
+        onGoTo: () => actions.focus(m.id),
+        onCopy: () => actions.copy(m),
+        onCopiedImage: (ok) => actions.copiedImage(ok),
+        onForward: () => actions.forward(m),
+        onDelete: () => actions.del(m),
+      }}
+    />
+  )
+
+  let body: ReactNode
+  if (bigEmoji > 0) {
+    body = (
+      <>
+        {header}
+        {/* Без markdown: эмодзи и есть всё сообщение. Отступ снизу — под капсулу времени. */}
+        <p className={cn('pb-5 leading-none tracking-tight select-text', BIG_EMOJI_SIZE[bigEmoji])}>
+          {m.content.replace(/\s+/g, '')}
+        </p>
+      </>
+    )
+  } else if (bare && m.sticker) {
+    body = (
+      <>
+        {header}
+        <MessageStickerView sticker={m.sticker} />
+      </>
+    )
+  } else {
+    body = (
+      <>
+        {header}
+        {/* Медиа/вложения сверху, подпись — всегда снизу (как в Telegram). Снимки и видео
+            выходят на края пузыря: их углы повторяют углы пузыря, а там, где к ним
+            примыкает шапка или подпись, — прямые. */}
+        {attachments &&
+          (mediaOnly && !mediaBare ? (
+            <div
+              className={cn(
+                '-mx-2 overflow-hidden [&_.rounded-lg]:rounded-none [&>div]:mt-0',
+                hasHeader ? 'mt-1' : '-mt-1.25',
+                hasBelowMedia ? 'mb-1' : hasReactions ? 'mb-0.5' : '-mb-1.5',
+              )}
+              style={{
+                borderRadius: radius({
+                  tl: hasHeader ? '0' : corners.tl,
+                  tr: hasHeader ? '0' : corners.tr,
+                  br: hasBelowMedia || hasReactions ? '0' : corners.br,
+                  bl: hasBelowMedia || hasReactions ? '0' : corners.bl,
+                }),
+              }}
+            >
+              {attachments}
+            </div>
+          ) : mediaBare ? (
+            <div
+              className="overflow-hidden [&_.rounded-lg]:rounded-none [&>div]:mt-0"
+              style={{ borderRadius: radius(corners) }}
+            >
+              {attachments}
+            </div>
+          ) : (
+            attachments
+          ))}
+        {m.sharedPost && (
+          <div className={cn(m.media.length > 0 && 'mt-1')}>
+            <ChatSharedPost post={m.sharedPost} mine={mine} />
+          </div>
+        )}
+        {storyCard && (
+          <div className={cn(m.media.length > 0 && 'mt-1')}>
+            <ChatSharedStory story={m.sharedStory} reply={!!m.sharedStoryReply} mine={mine} />
+          </div>
+        )}
+        {m.poll ? (
+          <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
+        ) : m.sticker ? (
+          <MessageStickerView sticker={m.sticker} />
+        ) : m.location ? (
+          <MessageLocationCard
+            location={m.location}
+            mine={mine}
+            messageId={m.id}
+            chatId={m.chatId}
+          />
+        ) : m.contact ? (
+          <MessageContactCard contact={m.contact} mine={mine} />
+        ) : m.checklist ? (
+          <MessageChecklistView
+            checklist={m.checklist}
+            mine={mine}
+            chatId={m.chatId}
+            viewerId={myId}
+          />
+        ) : profileShare ? (
+          // Пересланный профиль — карточкой вместо сырого «Имя + ссылка».
+          <div className={cn(m.media.length > 0 && 'mt-1')}>
+            <ChatSharedProfile userId={profileShare.userId} name={profileShare.name} mine={mine} />
+          </div>
+        ) : (
+          hasText && (
+            // select-text точечно снимает select-none со строки: он там ради тач-жестов
+            // (свайп-ответ, long-press), а выделять нужно именно текст — из него делается
+            // цитата при ответе. Распорка в конце последнего абзаца держит место под время.
+            <div
+              className={cn(
+                'select-text',
+                metaVariant === 'text' && META_SPACER_CLASS,
+                ((m.media.length > 0 && !mediaOnly) || m.sharedPost || storyCard) && 'mt-1',
+              )}
+              style={spacerStyle}
+            >
+              <MessageContent content={m.content} highlight={highlightTerm} />
+            </div>
+          )
+        )}
+        {/* Превью ссылки у пересланного профиля не нужно: карточка уже и есть превью. */}
+        {hasPreview && m.linkPreview && (
+          <div className={cn(mediaOnly && '[contain:inline-size]')}>
+            <MessageWebPage preview={m.linkPreview} mine={mine} />
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <div>
       {/* Пометка дня идёт в потоке ленты, а прилипший заголовок вверху подхватывает её,
@@ -180,8 +478,11 @@ function MessageItemInner({
         </div>
       )}
       {m.systemType ? (
+        // Служебное сообщение (Telegram): капсула по центру ленты, без автора и времени.
+        // Скругление не «full»: длинный текст переносится, и у двухстрочной капсулы-таблетки
+        // края съедали бы буквы.
         <div className="my-1.5 flex justify-center px-4">
-          <span className="max-w-[85%] rounded-full bg-muted/70 px-3 py-1 text-center text-xs text-muted-foreground">
+          <span className="max-w-[min(85%,28rem)] rounded-2xl bg-muted/80 px-2.5 py-1 text-center text-[0.8125rem] leading-snug font-medium text-muted-foreground [overflow-wrap:anywhere]">
             {systemText}
           </span>
         </div>
@@ -191,7 +492,9 @@ function MessageItemInner({
           className={cn(
             // -mx-4/px-4 — фон подсветки на всю ширину чата; select-none + touch-action:pan-y — для тач-жестов.
             'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-(--motion-control) select-none',
-            !isFirstInList && (firstOfRun ? 'mt-2' : 'mt-0.5'),
+            // Интервалы Telegram: внутри серии пузыри почти касаются, между сериями — заметный
+            // зазор (на телефоне плотнее).
+            !isFirstInList && (firstOfRun ? 'mt-0.75 sm:mt-1.5' : 'sm:mt-0.5'),
             mine && 'flex-row-reverse',
             (highlighted || (selecting && selected)) && 'bg-primary/10',
             !selecting && menuActive && 'bg-primary/5',
@@ -244,26 +547,32 @@ function MessageItemInner({
           )}
           {!mine &&
             isGroup &&
-            (firstOfRun ? (
-              <ProfileLink userId={m.senderId} className="shrink-0 self-end">
-                <Avatar className="size-7">
-                  {m.sender.avatarUrl && <AvatarImage src={m.sender.avatarUrl} alt="" />}
-                  <AvatarFallback>
-                    {(m.sender.lastName[0] ?? '') + (m.sender.firstName[0] ?? '')}
-                  </AvatarFallback>
-                </Avatar>
-              </ProfileLink>
+            (lastOfRun ? (
+              // Аватар — у нижнего сообщения серии и прилипает к низу ленты (Telegram).
+              <MessageGroupAvatar sender={m.sender} runStartId={runStartId} />
             ) : (
               // Спейсер сохраняет место аватара — пузыри серии остаются выровненными.
-              <span className="size-7 shrink-0" aria-hidden />
+              <span className="w-8 shrink-0" aria-hidden />
             ))}
           <div
             data-bubble
             className={cn(
-              'relative max-w-[75%] rounded-2xl px-3 py-2 text-sm',
-              mine ? 'bg-primary text-primary-foreground' : 'bg-muted',
+              'relative max-w-[min(30rem,85%)] min-w-0 text-sm',
+              !bare &&
+                !mediaBare &&
+                cn(
+                  'px-2 pt-1.25 pb-1.5',
+                  mine ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+                ),
+              // Подпись и шапка не раздвигают пузырь шире снимка — ширину задаёт кадр.
+              mediaOnly && 'w-min',
+              mediaOnly && !mediaBare && 'min-w-[min(15rem,100%)]',
+              bare && 'flex flex-col items-start',
+              bare && mine && 'items-end',
             )}
+            style={bare ? undefined : { borderRadius: radius(corners) }}
           >
+            {tail && <MessageTail mine={mine} />}
             {/* Быстрая реакция при наведении: один клик — «огонь», повторный снимает её.
                 У своих — слева, у чужих — справа. Раньше здесь была кнопка «Ответить», но
                 ответ и так висит на свайпе и в контекстном меню, а поставить реакцию мышью
@@ -279,6 +588,8 @@ function MessageItemInner({
               className={cn(
                 'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 focus-visible:opacity-100 active:scale-95 group-hover:opacity-100',
                 mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
+                // Хвостик торчит из пузыря на 8px — кнопка встаёт за ним, а не на нём.
+                tail && (mine ? 'mr-3.5' : 'ml-3.5'),
               )}
             >
               <span aria-hidden>{QUICK_REACTION}</span>
@@ -296,198 +607,38 @@ function MessageItemInner({
               className={cn(
                 'absolute bottom-7 z-10 flex size-6 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100',
                 mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
+                tail && (mine ? 'mr-3.5' : 'ml-3.5'),
               )}
             >
               <ChevronDown className="size-4" aria-hidden />
             </button>
-            {!mine && isGroup && firstOfRun && (
-              <p className="mb-0.5 flex items-center gap-1.5 text-xs">
-                <ProfileLink
-                  userId={m.senderId}
-                  className="truncate font-medium opacity-70 hover:underline"
-                >
-                  {senderNameText}
-                </ProfileLink>
-                {senderBadge && (
-                  <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[0.6rem] font-medium text-primary">
-                    {senderBadge}
-                  </span>
-                )}
-              </p>
-            )}
-            {m.replyTo && (
-              <button
-                type="button"
-                onClick={() => m.replyTo && actions.focus(m.replyTo.id)}
-                className={cn(
-                  'mb-1 block w-full rounded-md border-l-2 py-0.5 pl-2 text-left text-xs transition-colors',
-                  mine
-                    ? 'border-primary-foreground/50 opacity-80 hover:bg-primary-foreground/10'
-                    : 'border-primary/50 opacity-75 hover:bg-primary/10',
-                )}
-              >
-                <span className="font-medium">{replyToNameText}</span>
-                {/* Цитата фрагмента заменяет начало оригинала: отвечают именно на неё. */}
-                <p className="line-clamp-2">
-                  {m.replyTo.deletedAt
-                    ? t('replyDeleted')
-                    : m.replyQuote || m.replyTo.content || t('attachment')}
-                </p>
-              </button>
-            )}
-            {m.forwardedFrom && (
-              // §8: «Переслано от @User» → переход к профилю исходного автора (ProfileLink чтит приватность).
-              <ProfileLink
-                userId={m.forwardedFrom.senderId}
-                className="mb-0.5 flex items-center gap-1 text-xs italic opacity-70 hover:underline"
-              >
-                <Forward className="size-3" aria-hidden />
-                {t('forwardedFrom', { name: forwardedFromNameText ?? '' })}
-              </ProfileLink>
-            )}
-            {/* Медиа/вложения сверху, подпись — всегда снизу (как в Telegram). */}
-            {m.media.length > 0 && (
-              <MessageAttachments
-                media={m.media}
-                mine={mine}
-                // Отменять есть что только у своего, ещё не доехавшего сообщения.
-                // Упавшее отменять нечего — там повтор.
-                onCancel={
-                  readState !== 'failed' &&
-                  m.id.startsWith('tmp:') &&
-                  m.media.some((a) => a.uploading)
-                    ? () => actions.cancelUpload(m)
-                    : undefined
-                }
-                // Пузырь знает, что отправка упала, — вложения обязаны узнать тоже.
-                // Без этого они навсегда оставались со спиннером на «0 / 312.8 МБ».
-                sendFailed={mine && readState === 'failed'}
-                onRetry={() => actions.retry(m)}
-                viewerMeta={{
-                  senderName: senderNameText,
-                  createdAt: m.createdAt,
-                  mine,
-                  caption: m.content,
-                }}
-                viewerActions={{
-                  onGoTo: () => actions.focus(m.id),
-                  onCopy: () => actions.copy(m),
-                  onCopiedImage: (ok) => actions.copiedImage(ok),
-                  onForward: () => actions.forward(m),
-                  onDelete: () => actions.del(m),
-                }}
-              />
-            )}
-            {m.sharedPost && (
-              <div className={cn(m.media.length > 0 && 'mt-1')}>
-                <ChatSharedPost post={m.sharedPost} mine={mine} />
-              </div>
-            )}
-            {storyCard && (
-              <div className={cn(m.media.length > 0 && 'mt-1')}>
-                <ChatSharedStory story={m.sharedStory} reply={!!m.sharedStoryReply} mine={mine} />
-              </div>
-            )}
-            {m.poll ? (
-              <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
-            ) : m.sticker ? (
-              <MessageStickerView sticker={m.sticker} />
-            ) : m.location ? (
-              <MessageLocationCard
-                location={m.location}
-                mine={mine}
-                messageId={m.id}
-                chatId={m.chatId}
-              />
-            ) : m.contact ? (
-              <MessageContactCard contact={m.contact} mine={mine} />
-            ) : m.checklist ? (
-              <MessageChecklistView
-                checklist={m.checklist}
-                mine={mine}
-                chatId={m.chatId}
-                viewerId={myId}
-              />
-            ) : profileShare ? (
-              // Пересланный профиль — карточкой вместо сырого «Имя + ссылка».
-              <div className={cn(m.media.length > 0 && 'mt-1')}>
-                <ChatSharedProfile
-                  userId={profileShare.userId}
-                  name={profileShare.name}
-                  mine={mine}
-                />
+            {bare ? (
+              <div className="relative">
+                {body}
+                {meta('float')}
               </div>
             ) : (
-              m.content && (
-                // select-text точечно снимает select-none со строки: он там ради тач-жестов
-                // (свайп-ответ, long-press), а выделять нужно именно текст — из него делается
-                // цитата при ответе.
-                <div
-                  className={cn(
-                    'select-text',
-                    (m.media.length > 0 || m.sharedPost || storyCard) && 'mt-1',
-                  )}
-                >
-                  <MessageContent content={m.content} highlight={highlightTerm} />
-                </div>
+              body
+            )}
+            {metaVariant === 'media' && meta('media')}
+            {metaVariant === 'text' && meta('text')}
+            {/* Реакции — строкой под содержимым, время — в той же строке справа (Telegram).
+                Много реакций переносятся, время остаётся в последней строке. */}
+            {hasReactions ? (
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <ReactionBar
+                  reactions={m.reactions}
+                  myId={myId}
+                  ownBubble={mine && !bare}
+                  onToggle={(emoji) => actions.react(m.id, emoji)}
+                />
+                {metaVariant === 'flow' && meta('flow')}
+              </div>
+            ) : (
+              metaVariant === 'flow' && (
+                <div className="mt-0.5 flex justify-end">{meta('flow')}</div>
               )
             )}
-            {/* Превью ссылки у пересланного профиля не нужно: карточка уже и есть превью. */}
-            {m.linkPreview && !profileShare && (
-              <LinkPreviewCard preview={m.linkPreview} mine={mine} />
-            )}
-            {/* Нижняя строка пузыря — как в Telegram: реакции слева, время и галочки справа.
-                Высота строки заранее равна высоте чипа реакции: раньше реакции шли отдельной
-                строкой под временем, и первая же реакция увеличивала пузырь на строку — лента
-                под ним прыгала. Много реакций переносятся, время остаётся в последней строке. */}
-            <div className="mt-0.5 flex min-h-[22px] flex-wrap items-center gap-x-2 gap-y-1">
-              <ReactionBar
-                reactions={m.reactions}
-                myId={myId}
-                ownBubble={mine}
-                onToggle={(emoji) => actions.react(m.id, emoji)}
-              />
-              <span className="ml-auto flex shrink-0 items-center gap-1 text-[0.65rem]">
-                {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
-                <span className="opacity-60">
-                  {new Date(m.createdAt).toLocaleTimeString(locale, {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                  {m.editedAt && ` · ${t('edited')}`}
-                </span>
-                {mine && readState === 'pending' && (
-                  <Loader2 className="size-3 animate-spin opacity-60" aria-label={t('sending')} />
-                )}
-                {mine && readState === 'failed' && (
-                  <button
-                    type="button"
-                    onClick={() => actions.retry(m)}
-                    aria-label={t('sendFailedRetry')}
-                    title={t('sendFailedRetry')}
-                  >
-                    <AlertCircle className="size-3.5 text-destructive" aria-hidden />
-                  </button>
-                )}
-                {mine && readState === 'read' && (
-                  <span
-                    className="flex items-center gap-0.5"
-                    title={readCount > 0 ? t('readByCount', { count: readCount }) : undefined}
-                  >
-                    <CheckCheck className="size-3.5" aria-hidden />
-                    {readCount > 0 && (
-                      <span className="text-[10px] leading-none opacity-70">{readCount}</span>
-                    )}
-                  </span>
-                )}
-                {mine && readState === 'delivered' && (
-                  <CheckCheck className="size-3.5 opacity-60" aria-hidden />
-                )}
-                {mine && readState === 'sent' && (
-                  <Check className="size-3.5 opacity-60" aria-hidden />
-                )}
-              </span>
-            </div>
           </div>
         </div>
       )}

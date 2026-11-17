@@ -2631,6 +2631,13 @@
     "forward": "Переслать",
     "forwardTo": "Переслать в чат",
     "forwardedFrom": "Переслано от {name}",
+    "tgBubbles": {
+      "edited": "изм.",
+      "statusSent": "Отправлено",
+      "statusRead": "Прочитано",
+      "replyTo": "Ответ на сообщение: {name}",
+      "forwardedFrom": "Переслано от <b>{name}</b>"
+    },
     "forwarded": "Переслано",
     "forwardCaption": "Добавить подпись…",
     "sharedProfileLabel": "Профиль",

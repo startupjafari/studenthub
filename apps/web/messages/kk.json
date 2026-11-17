@@ -2631,6 +2631,13 @@
     "forward": "Қайта жіберу",
     "forwardTo": "Чатқа қайта жіберу",
     "forwardedFrom": "{name} қайта жіберді",
+    "tgBubbles": {
+      "edited": "өзг.",
+      "statusSent": "Жіберілді",
+      "statusRead": "Оқылды",
+      "replyTo": "Хабарламаға жауап: {name}",
+      "forwardedFrom": "<b>{name}</b> қайта жіберді"
+    },
     "forwarded": "Қайта жіберілді",
     "forwardCaption": "Жазба қосу…",
     "sharedProfileLabel": "Профиль",
