@@ -185,3 +185,9 @@ export {
   type RichSendFields,
   type ScheduledMessage,
 } from './api/composer-api'
+export {
+  composerDraftKeys,
+  fetchDraftLinkPreview,
+  forwardBatchRequest,
+  type ForwardBatchResult,
+} from './api/composer-draft-api'
