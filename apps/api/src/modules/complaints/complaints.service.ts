@@ -4,6 +4,7 @@ import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   ComplaintListQueryInput,
   CreateComplaintInput,
+  CreateMessageComplaintsInput,
   ResolveComplaintInput,
 } from '@studenthub/shared-schemas'
 import { complaintPriorityFor } from '@studenthub/shared-schemas'
@@ -175,6 +176,97 @@ export class ComplaintsService {
     })
     await this.announceIfUrgent(complaint)
     return complaint
+  }
+
+  /**
+   * Жалоба на несколько сообщений одного чата (`POST /complaints/messages`, режим выбора).
+   *
+   * Заводит по обычной жалобе MESSAGE на каждое сообщение — модератор разбирает их в той же
+   * очереди и с тем же контекстом переписки, — но проверки и лимит одни на весь набор.
+   * Правила те же, что у одиночной жалобы: жалуется только участник чата, на несуществующее
+   * или удалённое сообщение — NOT_FOUND (не подтверждаем чужие id). Сообщения из разных
+   * чатов — 422: режим выбора живёт внутри одной переписки, смесь означала бы подделку.
+   *
+   * Сообщения, на которые у автора жалоба уже в очереди, пропускаются (`skipped`); если
+   * пропущены все — CONFLICT, как у повторной одиночной жалобы. Срочное уведомление команде
+   * уходит одно на весь набор, а не по штуке на сообщение.
+   */
+  async createForMessages(
+    reporter: JwtPayload,
+    input: CreateMessageComplaintsInput,
+    ctx: RequestContext,
+  ): Promise<{ created: number; skipped: number }> {
+    const ids = [...new Set(input.messageIds)]
+    const messages = await this.prisma.message.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true, chatId: true, sender: { select: { universityId: true } } },
+      take: ids.length,
+    })
+    if (messages.length !== ids.length) {
+      throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[ComplaintTargetType.MESSAGE])
+    }
+    const chatIds = new Set(messages.map((m) => m.chatId))
+    if (chatIds.size !== 1) {
+      throw new AppException('VALIDATION_ERROR', 'Сообщения из разных чатов')
+    }
+    const [chatId] = chatIds
+    const member = await this.prisma.chatMember.findFirst({
+      where: { userId: reporter.sub, chatId, bannedAt: null },
+      select: { id: true },
+    })
+    if (!member) {
+      throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[ComplaintTargetType.MESSAGE])
+    }
+
+    const byId = new Map(messages.map((m) => [m.id, m]))
+    const created: ComplaintRow[] = []
+    let skipped = 0
+    // По порядку выбора и по одному: у каждой жалобы свой advisory-лок «автор + цель».
+    for (const id of ids) {
+      const message = byId.get(id)
+      if (!message) continue
+      try {
+        created.push(
+          await this.createOnce({
+            reporterId: reporter.sub,
+            targetType: ComplaintTargetType.MESSAGE,
+            targetId: id,
+            reason: input.reason,
+            priority: complaintPriorityFor('MESSAGE') as ComplaintPriority,
+            universityId: message.sender.universityId,
+          }),
+        )
+      } catch (error) {
+        if (error instanceof AppException && error.code === 'CONFLICT') {
+          skipped += 1
+          continue
+        }
+        throw error
+      }
+    }
+    if (created.length === 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Жалоба на эти сообщения уже отправлена и ждёт рассмотрения',
+      )
+    }
+    for (const complaint of created) {
+      await this.audit.record({
+        userId: reporter.sub,
+        action: 'complaint_created',
+        entity: 'Complaint',
+        entityId: complaint.id,
+        metadata: {
+          targetType: ComplaintTargetType.MESSAGE,
+          targetId: complaint.targetId,
+          batch: created.length,
+        },
+        ...ctx,
+      })
+    }
+    const [first] = created
+    if (first) await this.announceIfUrgent(first)
+    return { created: created.length, skipped }
   }
 
   /**

@@ -946,3 +946,92 @@ describe('ComplaintsService.take', () => {
     expect(err.code).toBe('CONFLICT')
   })
 })
+
+describe('ComplaintsService.createForMessages (жалоба из режима выбора)', () => {
+  const msg = (id: string, chatId = 'chat1') => ({
+    id,
+    chatId,
+    sender: { universityId: 'uni1' },
+  })
+
+  it('заводит по жалобе на каждое сообщение, срочное уведомление — одно', async () => {
+    const { service, prisma, audit, telegram } = setup()
+    prisma.message.findMany.mockResolvedValue([msg('m1'), msg('m2')])
+    prisma.complaint.create
+      .mockResolvedValueOnce({ id: 'c1', targetId: 'm1', priority: 'HIGH' })
+      .mockResolvedValueOnce({ id: 'c2', targetId: 'm2', priority: 'HIGH' })
+    const res = await service.createForMessages(
+      user(Role.STUDENT),
+      { messageIds: ['m1', 'm2'], reason: 'спам' },
+      ctx,
+    )
+    expect(res).toEqual({ created: 2, skipped: 0 })
+    expect(prisma.complaint.create).toHaveBeenCalledTimes(2)
+    expect(prisma.complaint.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          targetType: 'MESSAGE',
+          targetId: 'm2',
+          priority: 'HIGH',
+          universityId: 'uni1',
+        }),
+      }),
+    )
+    expect(audit.record).toHaveBeenCalledTimes(2)
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+  })
+
+  it('удалённое или чужое сообщение → NOT_FOUND, ничего не заводится', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findMany.mockResolvedValue([msg('m1')])
+    const err = await service
+      .createForMessages(user(Role.STUDENT), { messageIds: ['m1', 'm2'], reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
+  })
+
+  it('не участник чата → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findMany.mockResolvedValue([msg('m1')])
+    prisma.chatMember.findFirst.mockResolvedValue(null)
+    const err = await service
+      .createForMessages(user(Role.STUDENT), { messageIds: ['m1'], reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
+  })
+
+  it('сообщения из разных чатов → VALIDATION_ERROR', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findMany.mockResolvedValue([msg('m1', 'a'), msg('m2', 'b')])
+    const err = await service
+      .createForMessages(user(Role.STUDENT), { messageIds: ['m1', 'm2'], reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('уже обжалованные пропускаются; если все — CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findMany.mockResolvedValue([msg('m1'), msg('m2')])
+    // m1 уже в очереди у этого автора.
+    prisma.complaint.findFirst.mockImplementation(
+      async (args: { where?: { targetId?: string } }) =>
+        args?.where?.targetId === 'm1' ? { id: 'old' } : null,
+    )
+    const res = await service.createForMessages(
+      user(Role.STUDENT),
+      { messageIds: ['m1', 'm2'], reason: 'x' },
+      ctx,
+    )
+    expect(res).toEqual({ created: 1, skipped: 1 })
+
+    const again = setup()
+    again.prisma.message.findMany.mockResolvedValue([msg('m1')])
+    again.prisma.complaint.findFirst.mockResolvedValue({ id: 'old' })
+    const err = await again.service
+      .createForMessages(user(Role.STUDENT), { messageIds: ['m1'], reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+})
