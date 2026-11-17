@@ -12,6 +12,7 @@ import {
   CheckCheck,
   Eraser,
   ExternalLink,
+  Eye,
   EyeOff,
   Folder,
   FolderCog,
@@ -54,6 +55,7 @@ import { canDeleteChat } from '../lib/chat-kind'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
 import { useChatListActions } from '../lib/use-chat-list-actions'
 import { useListReorder } from '../lib/use-list-reorder'
+import { useArchiveRowMode } from '../lib/archive-row-mode'
 import { ChatListRow, isChatUnread } from './chat-list-row'
 import { ChatListArchiveRow } from './chat-list-archive-row'
 import { ChatListFab } from './chat-list-fab'
@@ -318,6 +320,8 @@ export function ConversationList({
   const [focusIn, setFocusIn] = useState(false)
   // Архив — не вкладка среди папок, а строка над «Все» и свой экран (Telegram-стиль).
   const [archiveOpen, setArchiveOpen] = useState(false)
+  // Вид строки «Архив»: развёрнута, свёрнута в полоску или скрыта в меню списка.
+  const [archiveMode, setArchiveMode] = useArchiveRowMode()
   const allTabs = useMemo(() => buildFolderTabs(chats, folders), [chats, folders])
   const archiveTab = allTabs.find((f) => f.kind === 'builtin' && f.archive)
   const folderTabs = useMemo(
@@ -329,6 +333,7 @@ export function ConversationList({
     () => (archiveTab ? filterChatsByTab(chats, archiveTab) : []),
     [chats, archiveTab],
   )
+  const archivedUnread = useMemo(() => archivedChats.filter(isChatUnread).length, [archivedChats])
   // Архив опустел (вернули последний чат) — экран архива закрывается сам.
   const showArchive = archiveOpen && archivedChats.length > 0
   const currentTab: FolderTab | undefined = showArchive
@@ -592,6 +597,18 @@ export function ConversationList({
                 {showArchive ? t('tgList.archiveTitle') : t('title')}
               </span>
             )}
+            {/* Архив скрыт в меню — отсюда его можно вернуть строкой в список. */}
+            {showArchive && archiveMode === 'hidden' && (
+              <button
+                type="button"
+                aria-label={t('tgListHeader.archiveShow')}
+                title={t('tgListHeader.archiveShow')}
+                onClick={() => setArchiveMode('expanded')}
+                className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+              >
+                <Eye className="size-5" aria-hidden />
+              </button>
+            )}
             <button
               type="button"
               aria-label={t('search')}
@@ -628,6 +645,25 @@ export function ConversationList({
                   <Bookmark className="size-4 shrink-0 opacity-80" aria-hidden />
                   {t('savedMessages')}
                 </button>
+                {/* Скрытая строка «Архив» живёт здесь, как в главном меню Telegram. */}
+                {archiveMode === 'hidden' && archivedChats.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCloseNewChat()
+                      setArchiveOpen(true)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                  >
+                    <Archive className="size-4 shrink-0 opacity-80" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{t('tgList.archiveTitle')}</span>
+                    {archivedUnread > 0 && (
+                      <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-muted-foreground/60 px-1.5 text-xs font-medium tabular-nums text-white">
+                        {archivedUnread}
+                      </span>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -758,9 +794,17 @@ export function ConversationList({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col lg:px-1.5 lg:pt-1" onKeyDown={onListKeyDown}>
             {/* Строка «Архив» — над списком «Все», как в Telegram. */}
-            {!showArchive && folder === 'folderAll' && archivedChats.length > 0 && (
-              <ChatListArchiveRow chats={archivedChats} onOpen={() => setArchiveOpen(true)} />
-            )}
+            {!showArchive &&
+              folder === 'folderAll' &&
+              archivedChats.length > 0 &&
+              archiveMode !== 'hidden' && (
+                <ChatListArchiveRow
+                  chats={archivedChats}
+                  mode={archiveMode}
+                  onOpen={() => setArchiveOpen(true)}
+                  onModeChange={setArchiveMode}
+                />
+              )}
             {visibleChats.length === 0 ? (
               <div className="flex min-h-0 flex-1 flex-col p-3">
                 <EmptyState

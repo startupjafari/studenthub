@@ -3029,6 +3029,19 @@
     "close": "Close",
     "openCalendar": "Open calendar: {date}",
     "clearDayConfirm": "Clear messages from {day}? Only for you — others keep the conversation.",
+    "tgListHeader": {
+      "archiveCollapse": "Collapse",
+      "archiveExpand": "Expand",
+      "archiveHide": "Move to main menu",
+      "archiveShow": "Show in chat list",
+      "pinMoveUp": "Move up",
+      "pinMoveDown": "Move down",
+      "pinReorderHint": "Pinned chat: drag or press Alt+Shift+↑/↓ to reorder",
+      "pinMoved": "Position {n} of {total}",
+      "selectionActions": "Actions with selected messages",
+      "downloadingSelected": "Downloading files: {count}",
+      "downloadFailedSome": "Failed to download files: {count}"
+    },
     "tgShell": {
       "waitingForNetwork": "Waiting for network…",
       "connecting": "Connecting…",
@@ -5703,7 +5716,9 @@
     "detailsPlaceholder": "What exactly is wrong — this helps the moderator decide faster",
     "hint": "A university moderator reviews the report. The author will not learn who filed it.",
     "send": "Send report",
-    "sent": "Report sent"
+    "sent": "Report sent",
+    "selectedMessages": "Messages in report: {count}",
+    "sentPartial": "Report sent. Some of these messages were already reported and are awaiting review"
   },
   "Editor": {
     "bold": "Bold",
