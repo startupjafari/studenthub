@@ -177,6 +177,8 @@ import { ConversationList } from './conversation-list'
 import { ChatWallpaper } from './chat-wallpaper'
 import { ConnectionStatusTitle } from './connection-status'
 import { useConnectionStatus } from '../lib/use-connection-status'
+import { ChatListRail, ChatListResizeHandle } from './chat-list-rail'
+import { useChatListWidth } from '../lib/use-list-width'
 import {
   avatarColor,
   chatInitials,
@@ -3320,6 +3322,8 @@ export function ChatWindow() {
   }
   // Статус связи вместо заголовка списка: «Ожидание сети…», «Соединение…», «Обновление…».
   const connectionStatus = useConnectionStatus(connected)
+  // ПК: ширина колонки списка тянется за край и запоминается; совсем узкая — одни аватары.
+  const listWidth = useChatListWidth(embedded)
 
   // Горячие клавиши каркаса (как в Telegram Web). Esc снимает верхний слой: меню шапки,
   // панель деталей, режим выбора, поиск по переписке — и только потом саму переписку или
@@ -3599,7 +3603,24 @@ export function ChatWindow() {
             }
           />
         )
-        if (embedded && listSlot) return createPortal(column, listSlot)
+        if (embedded && listSlot) {
+          return createPortal(
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {listWidth.compact ? (
+                <ChatListRail
+                  chats={filterChatsByTab(list, undefined)}
+                  activeId={activeId}
+                  onOpenChat={setActiveId}
+                  onExpand={listWidth.expand}
+                />
+              ) : (
+                column
+              )}
+              <ChatListResizeHandle listWidth={listWidth} />
+            </div>,
+            listSlot,
+          )
+        }
         // Телефон: колонка — нижний экран под открытой перепиской (отступает и темнеет).
         return (
           <div
