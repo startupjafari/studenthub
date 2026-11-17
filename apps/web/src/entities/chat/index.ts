@@ -29,6 +29,7 @@ export {
   exportChatFile,
   setChatMutedRequest,
   setChatPinnedRequest,
+  setPinnedChatsOrderRequest,
   setChatArchivedRequest,
   setChatMarkedUnreadRequest,
   markChatsReadRequest,

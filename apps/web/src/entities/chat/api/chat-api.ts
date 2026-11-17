@@ -519,6 +519,12 @@ export async function setChatPinnedRequest(chatId: string, pinned: boolean): Pro
   else await api.delete(`/chats/${chatId}/pin`)
 }
 
+// Порядок закреплённых чатов сверху вниз (перетаскивание в списке). Не перечисленные
+// закреплённые сервер оставит ниже в прежнем порядке; незакреплённый id — 422.
+export async function setPinnedChatsOrderRequest(chatIds: string[]): Promise<void> {
+  await api.put('/chats/pinned/order', { chatIds })
+}
+
 // «Пометить как непрочитанное» (Telegram-стиль): точка в строке без самих непрочитанных.
 // Персонально; любое прочтение чата снимает пометку и на сервере.
 export async function setChatMarkedUnreadRequest(chatId: string, marked: boolean): Promise<void> {
