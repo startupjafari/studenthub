@@ -209,15 +209,58 @@ export const ChatUpdatesQuerySchema = z
   .strict()
 export type ChatUpdatesQueryInput = z.infer<typeof ChatUpdatesQuerySchema>
 
+/**
+ * Вид материала в поиске (Telegram: вкладки глобального поиска «Медиа», «Ссылки», «Файлы»,
+ * «Голосовые», «Музыка»). Сообщение подходит, если в нём есть вложение этого вида
+ * (`link` — превью ссылки или адрес в тексте).
+ */
+export const MESSAGE_SEARCH_KINDS = ['media', 'file', 'voice', 'music', 'link'] as const
+export const MessageSearchKindSchema = z.enum(MESSAGE_SEARCH_KINDS)
+export type MessageSearchKind = z.infer<typeof MessageSearchKindSchema>
+
 // Поиск сообщений (Ф9+): по подстроке; chatId задан — внутри чата, иначе — по всем чатам участника.
 // Фильтры (§4): senderId — только сообщения этого автора; hasFile — только с вложениями.
+// Аддитивно (поиск как в Telegram):
+// - q необязателен: пустая строка — то же, что его нет. Без q ищут по фильтрам — «последние
+//   материалы вида kind», «все сообщения автора senderId», «сообщения за период». Без q и без
+//   единого фильтра искать нечего — сервер отдаёт пустую страницу, а не всю историю;
+// - kind — вид материала; вместе с q совпадением считается и подпись, и имя файла этого вида
+//   (у `link` — адрес и заголовок превью);
+// - from/to — период по времени отправки (ISO, границы включительно, можно одну).
+// Старые клиенты всегда шлют q из двух и более знаков — для них ничего не меняется.
 export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
-  q: z.string().trim().min(2).max(100),
+  q: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().trim().min(2).max(100).optional(),
+  ),
   chatId: z.string().min(1).optional(),
   senderId: z.string().min(1).optional(),
   hasFile: queryBoolean.optional(),
+  kind: MessageSearchKindSchema.optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+}).refine((v) => !v.from || !v.to || new Date(v.from) <= new Date(v.to), {
+  path: ['to'],
+  message: vm('validation.range.endNotBeforeStart'),
 })
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
+
+/** Есть ли в запросе поиска хоть что-то, кроме места поиска (`chatId`) и страницы. */
+export function hasMessageSearchCriteria(
+  query: Pick<MessageSearchQueryInput, 'q' | 'senderId' | 'hasFile' | 'kind' | 'from' | 'to'>,
+): boolean {
+  return !!(query.q || query.senderId || query.hasFile || query.kind || query.from || query.to)
+}
+
+/**
+ * «Часто пишете» (`GET /chats/top-peers`): личные чаты, куда смотрящий сам больше всего пишет.
+ * Потолок — один ряд над недавними в пустом поиске.
+ */
+export const TOP_PEERS_MAX = 20
+export const TopPeersQuerySchema = z
+  .object({ limit: z.coerce.number().int().positive().max(TOP_PEERS_MAX).default(12) })
+  .strict()
+export type TopPeersQueryInput = z.infer<typeof TopPeersQuerySchema>
 
 // Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
 // Потолок — год: дольше это уже «навсегда», а без предела срок вылетал за пределы даты.
