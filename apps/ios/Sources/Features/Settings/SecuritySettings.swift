@@ -42,8 +42,11 @@ struct SecuritySettingsView: View {
                     Button(String(localized: "settings.2fa.backupCodes", defaultValue: "Новые резервные коды")) {
                         twoFactorFlow = .backupCodes
                     }
-                    Button(String(localized: "settings.2fa.disable", defaultValue: "Отключить"), role: .destructive) {
-                        twoFactorFlow = .disable
+                    // Роли 2FA обязательна — отключение сервер отклонит, кнопки нет (как в вебе).
+                    if session.token?.role.requiresTwoFactor != true {
+                        Button(String(localized: "settings.2fa.disable", defaultValue: "Отключить"), role: .destructive) {
+                            twoFactorFlow = .disable
+                        }
                     }
                 } else {
                     Button {

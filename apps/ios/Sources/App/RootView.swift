@@ -21,6 +21,7 @@ struct RootView: View {
             // Смена экрана — движение, а не украшение, но человеку с включённым
             // «уменьшением движения» оно показывается сразу конечным состоянием.
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: session.state)
+            .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: session.needsTwoFactorSetup)
             .animation(Motion.respecting(Motion.calm, reduceMotion: reduceMotion), value: update.state)
             // Экран загрузки — поверх содержимого, а не веткой в нём: так его уход
             // анимируется сам по себе, а смена экранов под ним идёт прежним порядком.
@@ -100,9 +101,13 @@ struct RootView: View {
         case .signedOut:
             LoginView(session: session, pendingLink: $authLink)
         case .signedIn(let token):
-            // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
-            // чем показать оболочку с пятью пустыми вкладками.
-            if token.role.isSupportedOnPhone {
+            if session.needsTwoFactorSetup {
+                // Обязательная 2FA — до оболочки: без неё сервер отклоняет всё, кроме
+                // её настройки.
+                TwoFactorSetupGateView(session: session, role: token.role)
+            } else if token.role.isSupportedOnPhone {
+                // Роли вне MVP приложение не ведёт: им честнее сказать про браузер,
+                // чем показать оболочку с пятью пустыми вкладками.
                 AppShellView(session: session, viewer: token)
             } else {
                 UnsupportedRoleView(session: session)

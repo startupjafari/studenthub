@@ -21,6 +21,9 @@ final class AppSessionModel {
     }
 
     private(set) var state: State = .restoring
+    /// Сервер ответил `TWO_FACTOR_SETUP_REQUIRED`, хотя по токену 2FA включена:
+    /// администратор сбросил её, пока человек был внутри.
+    private(set) var twoFactorSetupDemanded = false
     /// Сервер отказал в продлении, пока интерфейс ещё открывался (фоновое продление
     /// успело раньше `state = .signedIn`): выход доводится сразу после открытия.
     @ObservationIgnored private var endedWhileRestoring = false
@@ -37,10 +40,22 @@ final class AppSessionModel {
         return nil
     }
 
+    /// Вошедшему без 2FA, которой его роли требует сервер, приложение показывает только
+    /// её настройку: остальное сервер всё равно отклонит (`TwoFactorGuard`). Сразу после
+    /// входа, а не после первого отказа — иначе человек попадал в оболочку с пустыми
+    /// экранами и искал 2FA в настройках сам.
+    var needsTwoFactorSetup: Bool {
+        guard let token else { return false }
+        return twoFactorSetupDemanded || token.needsTwoFactorSetup
+    }
+
     @MainActor
     func restore() async {
         await store.onSessionEnded { [weak self] in
             Task { @MainActor in await self?.sessionDidEnd() }
+        }
+        await store.onTwoFactorSetupRequired { [weak self] in
+            Task { @MainActor in await self?.demandTwoFactorSetup() }
         }
         // Прежние сборки держали refresh-cookie в системном хранилище — на диске, в
         // резервной копии. Значение давно в связке ключей; файл больше не нужен.
@@ -96,8 +111,39 @@ final class AppSessionModel {
         LiveLocationSharing.shared.resume(for: token.subject)
         // Сбои этого человека — под его id, а не под id того, кто входил до него.
         Observability.identify(userID: token.subject)
+        twoFactorSetupDemanded = false
         state = .signedIn(token)
         return true
+    }
+
+    /// 2FA включена — продлить сессию за токеном с ней и открыть приложение. `false` —
+    /// продление не удалось (нет связи) или в токене 2FA всё ещё нет: экран настройки
+    /// остаётся и предлагает повторить.
+    ///
+    /// Две попытки: первое продление могло уже лететь до включения и вернуть токен без
+    /// неё — второе заводится заново и застаёт базу с включённой 2FA.
+    @MainActor
+    func completeTwoFactorSetup() async -> Bool {
+        guard case .signedIn = state else { return false }
+        for _ in 0..<2 {
+            guard let fresh = await store.refreshedToken() else { return false }
+            guard case .signedIn = state else { return false }
+            if fresh.twoFactorEnabled {
+                twoFactorSetupDemanded = false
+                state = .signedIn(fresh)
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Сервер требует 2FA посреди работы: оболочку закрываем, вместо неё — настройка.
+    /// Реальное время гасим: сокет на каждое событие получал бы тот же отказ.
+    @MainActor
+    private func demandTwoFactorSetup() async {
+        guard case .signedIn = state, !twoFactorSetupDemanded else { return }
+        twoFactorSetupDemanded = true
+        await AppServices.realtime.stop()
     }
 
     /// Сессию закрыл сервер, а не человек. Без этого интерфейс оставался «вошедшим»:
@@ -115,6 +161,7 @@ final class AppSessionModel {
         AppServices.router.reset()
         GifPanelCache.shared.clear()
         Observability.identify(userID: nil)
+        twoFactorSetupDemanded = false
         state = .signedOut
     }
 
@@ -146,6 +193,7 @@ final class AppSessionModel {
         AppServices.router.reset()
         GifPanelCache.shared.clear()
         Observability.identify(userID: nil)
+        twoFactorSetupDemanded = false
         state = .signedOut
     }
 }

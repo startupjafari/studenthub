@@ -71,6 +71,8 @@ actor SessionStore: AuthorizationProvider {
     private var refreshUndecided = false
     /// Сервер окончательно отказал в продлении: интерфейсу пора на экран входа.
     private var sessionEnded: (@Sendable () -> Void)?
+    /// Сервер требует настроить 2FA: интерфейсу пора на её настройку.
+    private var twoFactorDemanded: (@Sendable () -> Void)?
 
     init(
         auth: SessionRefreshing = AuthAPI(),
@@ -248,6 +250,21 @@ actor SessionStore: AuthorizationProvider {
     /// отозвали (выход на другом устройстве, смена пароля) или он истёк.
     func onSessionEnded(_ handler: @escaping @Sendable () -> Void) {
         sessionEnded = handler
+    }
+
+    /// Подписка на `TWO_FACTOR_SETUP_REQUIRED` от сервера (`twoFactorSetupRequired`).
+    func onTwoFactorSetupRequired(_ handler: @escaping @Sendable () -> Void) {
+        twoFactorDemanded = handler
+    }
+
+    func twoFactorSetupRequired() {
+        twoFactorDemanded?()
+    }
+
+    /// Продлить и вернуть разобранный токен: флаг 2FA в токене меняет только продление
+    /// (сервер собирает его заново из базы), поэтому после включения 2FA — сюда.
+    func refreshedToken() async -> AccessToken? {
+        await startRefresh().value
     }
 
     // MARK: - Жизненный цикл сессии
