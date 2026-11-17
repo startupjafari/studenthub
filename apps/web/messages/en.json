@@ -2445,6 +2445,18 @@
     "uploadingPercent": "Uploading media… {percent}%"
   },
   "Chats": {
+    "tgBehavior": {
+      "nextMention": "Next mention",
+      "nextReaction": "Next reaction",
+      "markAllRead": "Mark all as read",
+      "scrollDownUnread": "Scroll to bottom, {count, plural, one {# unread} other {# unread}}",
+      "reactionChip": "Reaction {emoji}: {count}",
+      "reactorsTitle": "{count, plural, one {# reaction} other {# reactions}}",
+      "reactorsAll": "All",
+      "reactorsFilter": "Filter by reaction",
+      "moreReactions": "All reactions",
+      "unreadDivider": "Unread messages"
+    },
     "tabMusic": "Music",
     "tabGif": "GIFs",
     "tabPolls": "Polls",

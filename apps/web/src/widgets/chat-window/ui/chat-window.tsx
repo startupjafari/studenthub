@@ -178,6 +178,8 @@ import {
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { canDeleteChat } from '../lib/chat-kind'
+// Лента сообщений в духе Telegram: реакции и список отреагировавших.
+import { ReactionsListModal } from './reactions-list-modal'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -3234,6 +3236,18 @@ export function ChatWindow() {
       }
     : null
 
+  // ── Лента в духе Telegram (lib/use-message-list-*, ui/message-list-*) ─────────
+  // Окно «кто отреагировал»: id, а не снимок сообщения — живые реакции обновляют его на месте.
+  const [reactorsFor, setReactorsFor] = useState<{
+    chatId: string
+    id: string
+    emoji?: string
+  } | null>(null)
+  const reactorsMessage =
+    reactorsFor && reactorsFor.chatId === activeId
+      ? messages.data?.find((m) => m.id === reactorsFor.id)
+      : undefined
+
   // Стабильный диспетчер действий над сообщением (см. MessageItem). Всегда зовёт свежие
   // обработчики через ref — идентичность объекта не меняется между рендерами, поэтому memo
   // реально пропускает перерисовку невизуально-изменившихся пузырей (#57).
@@ -3295,6 +3309,7 @@ export function ChatWindow() {
       touchMove: (e) => msgHandlersRef.current.onMsgTouchMove(e),
       touchEnd: (e) => msgHandlersRef.current.onMsgTouchEnd(e),
       openCalendar: (ymd) => setCalendarDay(ymd),
+      showReactors: (m, emoji) => setReactorsFor({ chatId: m.chatId, id: m.id, emoji }),
     }),
     [],
   )
@@ -4424,6 +4439,7 @@ export function ChatWindow() {
         <MessageContextMenu
           message={menu.message}
           mine={menu.message.senderId === myId}
+          myId={myId}
           x={menu.x}
           y={menu.y}
           anchor={menu.anchor}
@@ -4454,7 +4470,18 @@ export function ChatWindow() {
               canReport && !menu.message.systemType && !menu.message.id.startsWith('tmp:')
                 ? () => setReportMsg(menu.message)
                 : undefined,
+            onShowReactors: () =>
+              setReactorsFor({ chatId: menu.message.chatId, id: menu.message.id }),
           }}
+        />
+      )}
+
+      {reactorsFor && reactorsMessage && reactorsMessage.reactions.length > 0 && (
+        <ReactionsListModal
+          reactions={reactorsMessage.reactions}
+          myId={myId}
+          initialEmoji={reactorsFor.emoji}
+          onClose={() => setReactorsFor(null)}
         />
       )}
 

@@ -12,7 +12,6 @@ import {
   MessageContent,
   MessageLocationCard,
   MessageStickerView,
-  ReactionBar,
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
@@ -22,6 +21,7 @@ import {
   ChatSharedStory,
   parseProfileShare,
 } from './shared-cards'
+import { ReactionsStrip } from './reactions-strip'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -71,6 +71,8 @@ export type MessageActions = {
   /** Снимок лёг в буфер обмена (или не лёг) — сообщить об этом умеет только приложение. */
   copiedImage: (ok: boolean) => void
   react: (id: string, emoji: string) => void
+  /** Кто отреагировал (правый клик по чипу реакции) — окно со списком, с вкладкой эмодзи. */
+  showReactors?: (m: ChatMessage, emoji?: string) => void
   touchStart: (e: React.TouchEvent<HTMLDivElement>, m: ChatMessage) => void
   touchMove: (e: React.TouchEvent<HTMLDivElement>) => void
   touchEnd: (e: React.TouchEvent<HTMLDivElement>) => void
@@ -441,11 +443,14 @@ function MessageItemInner({
                 строкой под временем, и первая же реакция увеличивала пузырь на строку — лента
                 под ним прыгала. Много реакций переносятся, время остаётся в последней строке. */}
             <div className="mt-0.5 flex min-h-[22px] flex-wrap items-center gap-x-2 gap-y-1">
-              <ReactionBar
+              <ReactionsStrip
                 reactions={m.reactions}
                 myId={myId}
                 ownBubble={mine}
                 onToggle={(emoji) => actions.react(m.id, emoji)}
+                onShowReactors={
+                  actions.showReactors ? (emoji) => actions.showReactors?.(m, emoji) : undefined
+                }
               />
               <span className="ml-auto flex shrink-0 items-center gap-1 text-[0.65rem]">
                 {m.pinnedAt && <Pin className="size-2.5 opacity-60" aria-hidden />}
