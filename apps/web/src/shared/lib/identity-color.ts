@@ -92,7 +92,7 @@ export type IdentityAccent = (typeof IDENTITY_ACCENTS)[number]
 
 /** Акцент по идентификатору — тот же хэш, что у identityColor, значит и тот же оттенок. */
 export function identityAccent(id: string): IdentityAccent {
-  const i = IDENTITY_COLORS.indexOf(identityColor(id))
+  const i = (IDENTITY_COLORS as readonly string[]).indexOf(identityColor(id))
   return IDENTITY_ACCENTS[i] ?? IDENTITY_ACCENTS[5]
 }
 
