@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   Ban,
@@ -62,6 +62,26 @@ import { ComposerSymbolMenu, type PickedGif, type SymbolTab } from './composer-s
 import { ComposerScheduleDialog } from './composer-schedule-dialog'
 import { ComposerScheduledPanel } from './composer-scheduled-panel'
 import { ComposerChecklistCreator } from './composer-checklist-creator'
+import { ComposerLinkPreview } from './composer-link-preview'
+import { ComposerEmojiTooltip } from './composer-emoji-tooltip'
+import { ComposerForwardBar } from './composer-forward-bar'
+import { useDraftLinkPreview } from '../lib/use-draft-link-preview'
+import { useEmojiSuggestions } from '../lib/use-emoji-suggestions'
+import type { ForwardDraft } from '../lib/use-forward-draft'
+
+/** Что поле ввода решило про отправку сверх текста: превью ссылки закрыли крестиком. */
+export interface ComposerSendOptions {
+  noLinkPreview?: boolean
+}
+
+/** Пересылка, собранная над полем этого чата (см. useForwardDraft). */
+export interface ComposerForward {
+  draft: ForwardDraft
+  onToggleSender: () => void
+  onToggleCaptions: () => void
+  onChangeRecipient: () => void
+  onCancel: () => void
+}
 
 // Сколько курсор может быть «мимо» до закрытия поповера. Ноль означал бы, что панель
 // захлопывается на любом дрожании руки по дороге к ней; полсекунды — что она висит уже
@@ -190,7 +210,7 @@ export type ChatComposerProps = {
   requestPending: boolean
   text: string
   onType: (v: string) => void
-  onSend: () => void
+  onSend: (opts?: ComposerSendOptions) => void
   showSend: boolean
   connected: boolean
   // Не ссылка на DOM-поле: поле форматированного текста отдаёт наружу свои операции
@@ -217,7 +237,9 @@ export type ChatComposerProps = {
    */
   chatId?: string | null
   /** «Отправить без звука» из меню кнопки отправки. Нет обработчика — пункта нет. */
-  onSendSilent?: () => void
+  onSendSilent?: (opts?: ComposerSendOptions) => void
+  /** Пересылка в этот чат ждёт отправки: плашка над полем вместо ответа. */
+  forward?: ComposerForward | null
   /**
    * ↑ в пустом поле — правка последнего своего сообщения (Telegram). `true` — нашлось и
    * правка началась; `false` — стрелка остаётся стрелкой.
@@ -257,8 +279,10 @@ export function ChatComposer({
   chatId = null,
   onSendSilent,
   onEditLast,
+  forward = null,
 }: ChatComposerProps) {
   const t = useTranslations('Chats')
+  const locale = useLocale()
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
   const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
   const tErr = useTranslations('Errors')
@@ -280,6 +304,13 @@ export function ChatComposer({
   const mentionIndex = mentionPick.key === mentionKey ? mentionPick.index : 0
   const setMentionIndex = (index: number): void => setMentionPick({ key: mentionKey, index })
   const mentionListId = useId()
+  const emojiTipId = useId()
+  // Превью ссылки до отправки (П.5) и подсказка эмодзи по слову (П.31) — как в Telegram.
+  const linkPreview = useDraftLinkPreview(text, connected && !blocked && !requestPending)
+  const emojiTip = useEmojiSuggestions(locale, composerRef)
+  const sendOpts = (): ComposerSendOptions =>
+    linkPreview.noLinkPreview ? { noLinkPreview: true } : {}
+  const submit = (): void => onSend(sendOpts())
   // Что пишет кнопка записи: голосовое или кружок. Последний выбор помним в браузере — как в
   // Telegram, где кнопка остаётся камерой, если ей пользовались последней.
   // Читаем после монтирования: на сервере хранилища нет, и разметка разошлась бы с клиентской.
@@ -351,6 +382,10 @@ export function ChatComposer({
   // Вставка emoji из пикера (§12) в позицию курсора поля ввода.
   function insertEmoji(emoji: string): void {
     composerRef.current?.insertText(emoji)
+  }
+  // ⌫ панели эмодзи (Telegram): стирает знак перед курсором — графему целиком.
+  function backspace(): void {
+    composerRef.current?.deleteBackward()
   }
 
   const onApiError = (e: unknown): void => {
@@ -448,6 +483,8 @@ export function ChatComposer({
         return true
       }
     }
+    // Подсказка эмодзи: по `:запросу` стрелки и Enter — её, по слову — только Tab и Esc.
+    if (mentionCandidates.length === 0 && emojiTip.onKey(e)) return true
     const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
     // ↑ в пустом поле — править последнее своё (Telegram).
     // Текст правки приходит в поле следующим рендером — курсор ставим в конец уже после него.
@@ -465,10 +502,14 @@ export function ChatComposer({
         onCancelReply()
         return true
       }
+      if (forward) {
+        forward.onCancel()
+        return true
+      }
     }
     // Enter отправляет, Shift+Enter — перенос строки (это делает редактор).
     if (e.key === 'Enter' && !e.shiftKey) {
-      onSend()
+      submit()
       return true
     }
     return false
@@ -481,7 +522,8 @@ export function ChatComposer({
     ? 'send'
     : editing
       ? 'edit'
-      : showSend
+      : // Пересылка уходит и без текста — кнопка сразу «отправить», а не микрофон.
+        showSend || forward
         ? 'send'
         : 'record'
 
@@ -543,6 +585,15 @@ export function ChatComposer({
           вон то сообщение», что у цитаты в пузыре; без неё панель читалась как обычная
           подсказка над полем. Превью — без markdown: звёздочки и обратные кавычки в
           однострочной справке не значат ничего, а строку засоряют. */}
+      {/* Превью ссылки до отправки (Telegram WebPagePreview) — над плашками ответа и правки:
+          оно про текст в поле, а они про то, к чему этот текст относится. */}
+      {linkPreview.preview && !voice.recording && (
+        <ComposerLinkPreview
+          className={island}
+          preview={linkPreview.preview}
+          onDismiss={linkPreview.dismiss}
+        />
+      )}
       {editing && (
         <div
           className={cn(
@@ -649,6 +700,18 @@ export function ChatComposer({
         </div>
       )}
 
+      {/* Пересылка в этот чат ждёт отправки: дописанный текст уйдёт комментарием перед ней. */}
+      {forward && !editing && !replyTo && (
+        <ComposerForwardBar
+          className={island}
+          draft={forward.draft}
+          onToggleSender={forward.onToggleSender}
+          onToggleCaptions={forward.onToggleCaptions}
+          onChangeRecipient={forward.onChangeRecipient}
+          onCancel={forward.onCancel}
+        />
+      )}
+
       {blocked ? (
         <div
           className={cn(
@@ -691,6 +754,16 @@ export function ChatComposer({
               myId={myId}
               onPick={onInsertMention}
               onHover={setMentionIndex}
+            />
+          )}
+          {emojiTip.suggestions && mentionCandidates.length === 0 && !voice.recording && (
+            <ComposerEmojiTooltip
+              id={emojiTipId}
+              items={emojiTip.suggestions.items}
+              activeIndex={Math.min(emojiTip.activeIndex, emojiTip.suggestions.items.length - 1)}
+              showActive={emojiTip.suggestions.mode === 'colon'}
+              onPick={emojiTip.pick}
+              onHover={emojiTip.setActiveIndex}
             />
           )}
           <input
@@ -900,7 +973,10 @@ export function ChatComposer({
                   bare
                   handle={composerRef}
                   value={text}
-                  onChange={onType}
+                  onChange={(v) => {
+                    onType(v)
+                    emojiTip.update()
+                  }}
                   actions={MARKDOWN_ACTIONS_INLINE}
                   wrapperClassName="min-w-0 flex-1"
                   className="max-h-32 overflow-y-auto py-2.5 pl-4 pr-1 lg:py-2 lg:pl-3.5"
@@ -957,6 +1033,7 @@ export function ChatComposer({
                         onEmoji={insertEmoji}
                         onSticker={pickSticker}
                         onGif={pickGif}
+                        onBackspace={backspace}
                       />
                     </div>
                   )}
@@ -997,10 +1074,11 @@ export function ChatComposer({
               onClick={() => {
                 if (voiceLocked) recorder.finish()
                 else if (mainMode === 'record') void recorder.start()
-                else onSend()
+                else submit()
               }}
               onMenu={
-                mainMode === 'send' && !voiceLocked && !editing
+                // Пересылка уходит пачкой: «без звука» и «позже» у неё нет.
+                mainMode === 'send' && !voiceLocked && !editing && !forward
                   ? (x, y) => setSendMenu({ x, y })
                   : undefined
               }
@@ -1020,7 +1098,7 @@ export function ChatComposer({
                         key: 'silent',
                         icon: BellOff,
                         label: t('tgComposer.sendSilent'),
-                        onClick: onSendSilent,
+                        onClick: () => onSendSilent(sendOpts()),
                       },
                     ]
                   : []),
@@ -1057,6 +1135,7 @@ export function ChatComposer({
             onEmoji={insertEmoji}
             onSticker={pickSticker}
             onGif={pickGif}
+            onBackspace={backspace}
           />
         </div>
       )}

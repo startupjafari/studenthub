@@ -33,6 +33,7 @@ import {
   CHAT_CHECKLIST_LIMITS,
   CLEARED_RANGES_MAX,
   chatCountsViews,
+  firstLinkUrl,
   isSingleEmoji,
 } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
@@ -224,11 +225,6 @@ function quoteMatches(content: string, quote: string): boolean {
   const wanted = letters(quote)
   if (wanted.length === 0) return content.includes(quote.trim())
   return letters(content).includes(wanted)
-}
-
-/** Первая http(s)-ссылка текста — по ней строится превью сообщения. */
-function firstLinkUrl(content?: string): string | undefined {
-  return content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
 }
 
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
@@ -637,6 +633,14 @@ const FORWARD_SOURCE_SELECT = {
 } satisfies Prisma.MessageSelect
 
 type ForwardSource = Prisma.MessageGetPayload<{ select: typeof FORWARD_SOURCE_SELECT }>
+
+/** Как уходят копии при пересылке пачкой (см. MessageForwardBatchSchema). */
+interface ForwardOptions {
+  hideSender?: boolean
+  hideCaptions?: boolean
+  /** Только для комментария: копиям превью переносится от оригинала. */
+  noLinkPreview?: boolean
+}
 
 /**
  * Связанные записи пересланной копии. Опрос и чек-лист пересылаются новыми — со своими голосами
@@ -3021,7 +3025,10 @@ export class ChatsService implements OnModuleInit {
         )
         const sent = toClientMessage(created)
         await this.bumpChat(input.chatId)
-        await this.enqueueLinkPreview(sent.id, input.chatId, input.content)
+        // Плашку превью над полем закрыли — карточку под сообщением не строим.
+        if (!input.noLinkPreview) {
+          await this.enqueueLinkPreview(sent.id, input.chatId, input.content)
+        }
         recipientIds = await this.notifyNewMessage(input.chatId, senderId, sent)
         return sent
       },
@@ -3669,7 +3676,12 @@ export class ChatsService implements OnModuleInit {
    * забаненный автор ещё десять минут мог переписать сообщение — например, на оскорбление
    * сразу после бана, — а `message:updated` уходил всей комнате.
    */
-  async editMessage(senderId: string, messageId: string, content: string): Promise<MessageRow> {
+  async editMessage(
+    senderId: string,
+    messageId: string,
+    content: string,
+    opts: { noLinkPreview?: boolean } = {},
+  ): Promise<MessageRow> {
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, deletedAt: null },
       select: {
@@ -3722,14 +3734,17 @@ export class ChatsService implements OnModuleInit {
     }
     // Ссылку заменили — карточка старой больше не про это сообщение: под ней можно было
     // выдать легитимный заголовок за подменённую ссылку. Сбрасываем и тянем новую.
-    const linkChanged = firstLinkUrl(msg.content ?? undefined) !== firstLinkUrl(content)
+    const linkChanged = firstLinkUrl(msg.content) !== firstLinkUrl(content)
+    // Превью закрыли в режиме правки — карточку снимаем и новую не строим, даже если ссылка
+    // та же: человек явно сказал, что она под сообщением не нужна.
+    const dropPreview = linkChanged || opts.noLinkPreview === true
     const editedAt = new Date()
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { content, editedAt, ...(linkChanged ? { linkPreview: Prisma.DbNull } : {}) },
+      data: { content, editedAt, ...(dropPreview ? { linkPreview: Prisma.DbNull } : {}) },
       select: MESSAGE_SELECT,
     })
-    if (linkChanged) {
+    if (linkChanged && !opts.noLinkPreview) {
       await this.enqueueLinkPreview(messageId, updated.chatId, content, editedAt.getTime())
     }
     const edited = toClientMessage(updated)
@@ -4507,13 +4522,13 @@ export class ChatsService implements OnModuleInit {
     const results: ForwardBatchResult[] = []
     for (const chatId of chatIds) {
       results.push(
-        await this.forwardIntoChat(
-          userId,
-          chatId,
-          sources,
-          input.comment,
-          input.hideSender ?? false,
-        ),
+        await this.forwardIntoChat(userId, chatId, sources, input.comment, {
+          // «Скрыть подписи» без «скрыть имя» не бывает (как в Telegram): подпись без
+          // автора — уже не его слова, а пересылающего.
+          hideSender: input.hideSender === true || input.hideCaptions === true,
+          hideCaptions: input.hideCaptions === true,
+          noLinkPreview: input.noLinkPreview === true,
+        }),
       )
     }
     return { results }
@@ -4533,7 +4548,7 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     sources: ForwardSource[],
     comment: string | undefined,
-    hideSender = false,
+    opts: ForwardOptions = {},
   ): Promise<ForwardBatchResult> {
     const created: MessageRow[] = []
     let failure: string | undefined
@@ -4544,12 +4559,14 @@ export class ChatsService implements OnModuleInit {
         count: sources.length + (comment ? 1 : 0),
       })
       if (comment) {
-        const message = await this.insertTextMessage(userId, chatId, comment)
+        const message = await this.insertTextMessage(userId, chatId, comment, {
+          noLinkPreview: opts.noLinkPreview,
+        })
         created.push(message)
         this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
       }
       for (const source of sources) {
-        const message = await this.copyForward(userId, chatId, source, hideSender)
+        const message = await this.copyForward(userId, chatId, source, opts)
         created.push(message)
         this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
       }
@@ -4575,6 +4592,7 @@ export class ChatsService implements OnModuleInit {
     senderId: string,
     chatId: string,
     content: string,
+    opts: { noLinkPreview?: boolean } = {},
   ): Promise<MessageRow> {
     const created = await this.prisma.$transaction(async (tx) =>
       tx.message.create({
@@ -4582,7 +4600,7 @@ export class ChatsService implements OnModuleInit {
         select: MESSAGE_SELECT,
       }),
     )
-    await this.enqueueLinkPreview(created.id, chatId, content)
+    if (!opts.noLinkPreview) await this.enqueueLinkPreview(created.id, chatId, content)
     return toClientMessage(created)
   }
 
@@ -4597,8 +4615,14 @@ export class ChatsService implements OnModuleInit {
     userId: string,
     targetChatId: string,
     source: ForwardSource,
-    hideSender = false,
+    opts: ForwardOptions = {},
   ): Promise<MessageRow> {
+    const hideSender = opts.hideSender === true
+    // «Скрыть подписи» снимает текст только с сообщений-вложений: у текстового сообщения
+    // текст и есть содержимое, и без него пересылать было бы нечего.
+    const dropCaption = opts.hideCaptions === true && source.media.length > 0
+    const content = dropCaption ? '' : source.content
+    const linkPreview = dropCaption ? null : source.linkPreview
     const copies: PendingAttachment[] = []
     let created: { id: string }
     try {
@@ -4611,13 +4635,12 @@ export class ChatsService implements OnModuleInit {
         {
           chatId: targetChatId,
           senderId: userId,
-          content: source.content,
+          content,
           // «Скрыть имя отправителя» — копия без ссылки на оригинал, как своё сообщение.
           forwardedFromId: hideSender ? undefined : source.id,
           // Превью переносим готовым: ссылка та же, второй поход в сеть за тем же
           // результатом не нужен. Если у оригинала его нет — доберём job'ом ниже.
-          linkPreview:
-            source.linkPreview === null ? undefined : (source.linkPreview as Prisma.InputJsonValue),
+          linkPreview: linkPreview === null ? undefined : (linkPreview as Prisma.InputJsonValue),
           sharedPostId: source.sharedPostId,
           // Стикер — ссылка на каталог, копировать нечего.
           stickerId: source.stickerId,
@@ -4639,8 +4662,8 @@ export class ChatsService implements OnModuleInit {
     )
     // У оригинала превью могло не быть (сообщение старше фичи, job не успел, ссылка была
     // недоступна) — тогда пробуем сами: пересланная ссылка ничем не хуже отправленной.
-    if (source.linkPreview === null) {
-      await this.enqueueLinkPreview(created.id, targetChatId, source.content ?? undefined)
+    if (linkPreview === null && !dropCaption) {
+      await this.enqueueLinkPreview(created.id, targetChatId, content ?? undefined)
     }
     return message
   }

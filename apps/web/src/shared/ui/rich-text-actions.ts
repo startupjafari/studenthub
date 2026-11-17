@@ -58,6 +58,12 @@ export interface RichTextHandle {
   insertText: (text: string, deleteBefore?: number) => void
   /** Текст от начала до курсора — по нему чат ищет `@запрос` для автодополнения. */
   textBefore: () => string
+  /**
+   * Стереть знак перед курсором, как Backspace: выделение — целиком, иначе одну графему
+   * (эмодзи-семья или флаг — одним нажатием), в начале абзаца — склеить с предыдущим.
+   * Кнопка ⌫ панели эмодзи (Telegram).
+   */
+  deleteBackward: () => void
 }
 
 export interface RichTextFieldProps {

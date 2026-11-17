@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Clock, Loader2, Search, Smile, Star, Sticker } from 'lucide-react'
+import { Clock, Delete, Loader2, Search, Smile, Star, Sticker } from 'lucide-react'
 import {
   addFavoriteStickerRequest,
   composerKeys,
@@ -47,6 +47,7 @@ export function ComposerSymbolMenu({
   onEmoji,
   onSticker,
   onGif,
+  onBackspace,
 }: {
   variant: 'popover' | 'dock'
   tab: SymbolTab
@@ -56,9 +57,12 @@ export function ComposerSymbolMenu({
   onEmoji: (emoji: string) => void
   onSticker: (sticker: CatalogSticker) => void
   onGif: (gif: PickedGif) => void
+  /** Кнопка ⌫ на вкладке эмодзи (Telegram): стереть знак перед курсором поля ввода. */
+  onBackspace?: () => void
 }) {
   const t = useTranslations('Chats')
   const active: SymbolTab = allowMedia ? tab : 'emoji'
+  const showBackspace = active === 'emoji' && !!onBackspace
   const tabs: { key: SymbolTab; label: string; icon: React.ReactNode }[] = [
     { key: 'emoji', label: t('emoji'), icon: <Smile className="size-5" aria-hidden /> },
     ...(allowMedia
@@ -105,45 +109,104 @@ export function ComposerSymbolMenu({
           <GifsTab onPick={onGif} />
         )}
       </div>
-      {tabs.length > 1 && (
-        <div
-          role="tablist"
-          aria-label={t('tgComposer.symbolTabs')}
-          className="flex shrink-0 items-center justify-center gap-1 border-t border-border px-2 py-1"
-          onKeyDown={(e) => {
-            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-            e.preventDefault()
-            const i = tabs.findIndex((x) => x.key === active)
-            const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
-            if (next) onTabChange(next.key)
-          }}
-        >
-          {tabs.map((x) => (
-            <button
-              key={x.key}
-              type="button"
-              role="tab"
-              aria-selected={active === x.key}
-              aria-label={x.label}
-              title={x.label}
-              tabIndex={active === x.key ? 0 : -1}
-              // Нажатие по вкладке не уводит фокус из поля ввода: на телефоне иначе
-              // поднималась бы и сразу пряталась клавиатура.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onTabChange(x.key)}
-              className={cn(
-                'flex size-9 cursor-pointer items-center justify-center rounded-lg outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
-                active === x.key
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
+      {(tabs.length > 1 || showBackspace) && (
+        // Нижняя полоса: вкладки по центру, ⌫ — у правого края, как в Telegram.
+        <div className="relative flex min-h-11 shrink-0 items-center justify-center border-t border-border px-2 py-1">
+          {tabs.length > 1 && (
+            <div
+              role="tablist"
+              aria-label={t('tgComposer.symbolTabs')}
+              className="flex items-center justify-center gap-1"
+              onKeyDown={(e) => {
+                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+                e.preventDefault()
+                const i = tabs.findIndex((x) => x.key === active)
+                const next =
+                  tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
+                if (next) onTabChange(next.key)
+              }}
             >
-              {x.icon}
-            </button>
-          ))}
+              {tabs.map((x) => (
+                <button
+                  key={x.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active === x.key}
+                  aria-label={x.label}
+                  title={x.label}
+                  tabIndex={active === x.key ? 0 : -1}
+                  // Нажатие по вкладке не уводит фокус из поля ввода: на телефоне иначе
+                  // поднималась бы и сразу пряталась клавиатура.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onTabChange(x.key)}
+                  className={cn(
+                    'flex size-9 cursor-pointer items-center justify-center rounded-lg outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
+                    active === x.key
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {x.icon}
+                </button>
+              ))}
+            </div>
+          )}
+          {showBackspace && onBackspace && (
+            <BackspaceButton label={t('tgComposer2.backspace')} onPress={onBackspace} />
+          )}
         </div>
       )}
     </div>
+  )
+}
+
+/** Задержка до автоповтора и его шаг — как у клавиши Backspace на клавиатуре. */
+const REPEAT_DELAY_MS = 400
+const REPEAT_EVERY_MS = 70
+
+/**
+ * ⌫ панели эмодзи. Нажатие стирает один знак, удержание — стирает подряд, как клавиша на
+ * клавиатуре. Фокус из поля не уводит: на телефоне иначе спрятавшаяся клавиатура тут же
+ * поднималась бы снова, а курсор терял место.
+ */
+function BackspaceButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pressRef = useRef(onPress)
+  pressRef.current = onPress
+  const stop = (): void => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  useEffect(() => stop, [])
+  const repeat = (): void => {
+    pressRef.current()
+    timer.current = setTimeout(repeat, REPEAT_EVERY_MS)
+  }
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onMouseDown={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        stop()
+        pressRef.current()
+        timer.current = setTimeout(repeat, REPEAT_DELAY_MS)
+      }}
+      onPointerUp={stop}
+      onPointerLeave={stop}
+      onPointerCancel={stop}
+      // Клавиатура: Enter/Space дают click без pointerdown — стираем по нему.
+      onClick={(e) => {
+        if (e.detail === 0) pressRef.current()
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+      className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 cursor-pointer touch-none items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20"
+    >
+      <Delete className="size-5" aria-hidden />
+    </button>
   )
 }
 

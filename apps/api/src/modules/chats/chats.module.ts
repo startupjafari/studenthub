@@ -23,6 +23,8 @@ import { ChatGifsService } from './chat-gifs.service'
 import { ChatGifsController } from './chat-gifs.controller'
 import { ChatAttentionService } from './chat-attention.service'
 import { ChatAttentionController } from './chat-attention.controller'
+import { ChatLinkPreviewController } from './chat-link-preview.controller'
+import { ChatLinkPreviewService } from './chat-link-preview.service'
 
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
@@ -30,8 +32,8 @@ import { ChatAttentionController } from './chat-attention.controller'
 @Module({
   imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
   // Контроллеры со статическим префиксом (`chats/folders`, `chats/checklists`,
-  // `chats/stickers`, `chats/gifs`, `chats/settings`) — первыми: их пути не должны попасть
-  // в `chats/:id`.
+  // `chats/stickers`, `chats/gifs`, `chats/settings`, `chats/link-preview`) — первыми: их пути
+  // не должны попасть в `chats/:id`.
   controllers: [
     ChatFoldersController,
     ChatChecklistsController,
@@ -39,6 +41,7 @@ import { ChatAttentionController } from './chat-attention.controller'
     ChatGifsController,
     ChatAttentionController,
     ChatSettingsController,
+    ChatLinkPreviewController,
     ChatsController,
     SupportController,
     StickerSetsAdminController,
@@ -49,6 +52,7 @@ import { ChatAttentionController } from './chat-attention.controller'
     ChatGateway,
     LinkPreviewProcessor,
     LinkPreviewService,
+    ChatLinkPreviewService,
     SupportService,
     ChatChecklistsService,
     ChatStickersService,

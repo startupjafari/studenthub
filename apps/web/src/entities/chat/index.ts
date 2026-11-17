@@ -229,3 +229,9 @@ export {
   useDefaultReaction,
   useChatSettingsSync,
 } from './api/chat-settings-api'
+export {
+  composerDraftKeys,
+  fetchDraftLinkPreview,
+  forwardBatchRequest,
+  type ForwardBatchResult,
+} from './api/composer-draft-api'

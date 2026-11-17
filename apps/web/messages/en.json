@@ -3078,6 +3078,22 @@
       "downloadingSelected": "Downloading files: {count}",
       "downloadFailedSome": "Failed to download files: {count}"
     },
+    "tgComposer2": {
+      "backspace": "Delete",
+      "emojiSuggestions": "Suggested emoji",
+      "linkPreviewRemove": "Send without link preview",
+      "forwardSenderHidden": "Sender's name hidden",
+      "forwardCount": "Forwarded messages ({count})",
+      "forwardNamesHidden": "Sender names hidden",
+      "forwardFrom": "From: {names}",
+      "forwardOptions": "Forwarding options",
+      "forwardCancel": "Do not forward",
+      "forwardShowSender": "{count, plural, one {Show sender's name} other {Show senders' names}}",
+      "forwardHideSender": "{count, plural, one {Hide sender's name} other {Hide senders' names}}",
+      "forwardShowCaptions": "{count, plural, one {Show caption} other {Show captions}}",
+      "forwardHideCaptions": "{count, plural, one {Hide caption} other {Hide captions}}",
+      "forwardChangeRecipient": "Change recipient"
+    },
     "tgShell": {
       "waitingForNetwork": "Waiting for network…",
       "connecting": "Connecting…",
