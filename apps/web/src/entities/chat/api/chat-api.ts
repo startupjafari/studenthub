@@ -42,6 +42,8 @@ export const chatKeys = {
   // перезапрашиваться. Подписанные URL живут дольше сеанса листания.
   mediaCalendar: (id: string, month: string) => ['chats', id, 'media-calendar', month] as const,
   links: (id: string) => ['chats', id, 'links'] as const,
+  // Код ссылки-приглашения группы (только админам): правая колонка показывает ссылку целиком.
+  invite: (id: string) => ['chats', id, 'invite'] as const,
   // Опросы чата для вкладки общих материалов (полные сообщения, свежие первыми).
   polls: (id: string) => ['chats', id, 'polls'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
