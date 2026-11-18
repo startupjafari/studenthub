@@ -21,6 +21,8 @@ export interface CatalogSticker {
   emoji: string | null
   width: number | null
   height: number | null
+  /** Анимированный WebP (свои стикеры из GIF и видео); у старых ответов поля нет. */
+  animated?: boolean
   url: string
   expiresAt: string
 }

@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { AnimatedImage } from '../../../shared/ui'
 import { chatKeys, fetchStickerUrl } from '../api/chat-api'
 import type { MessageSticker } from '../model/types'
 
@@ -9,10 +10,20 @@ import type { MessageSticker } from '../model/types'
 const STICKER_SIZE = 160
 
 /**
- * Стикер каталога: картинка по подписанной ссылке. Ссылку перезапрашиваем раньше её срока —
- * подпись живёт 10–15 минут (BACKEND_RULES §8).
+ * Стикер каталога или своего набора: картинка по подписанной ссылке. Ссылку перезапрашиваем
+ * раньше её срока — подпись живёт 10–15 минут (BACKEND_RULES §8). Анимированный WebP играет
+ * сам; при «уменьшении движения» — первый кадр.
+ *
+ * `onOpen` — нажатие открывает набор стикера (как в Telegram): из окна набора его можно
+ * добавить себе.
  */
-export function MessageStickerView({ sticker }: { sticker: MessageSticker }) {
+export function MessageStickerView({
+  sticker,
+  onOpen,
+}: {
+  sticker: MessageSticker
+  onOpen?: () => void
+}) {
   const t = useTranslations('Chats')
   const link = useQuery({
     queryKey: chatKeys.stickerUrl(sticker.id),
@@ -33,15 +44,31 @@ export function MessageStickerView({ sticker }: { sticker: MessageSticker }) {
       />
     )
   }
-  return (
+  const image = (
     // Подписанная ссылка на приватный бакет — обычный img: next/image её не оптимизирует.
-    <img
+    <AnimatedImage
       src={link.data.url}
-      alt={alt}
+      animated={!!sticker.animated}
+      alt={onOpen ? '' : alt}
       width={width}
       height={height}
       loading="lazy"
+      draggable={false}
       className="object-contain"
     />
+  )
+  if (!onOpen) return image
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onOpen()
+      }}
+      aria-label={t('tgStickers.openSet', { sticker: alt })}
+      className="block cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    >
+      {image}
+    </button>
   )
 }

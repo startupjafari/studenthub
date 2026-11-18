@@ -4,7 +4,19 @@ import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Clock, Delete, Loader2, Search, Smile, Star, Sticker } from 'lucide-react'
+import {
+  Camera,
+  Clock,
+  Delete,
+  FolderOpen,
+  Loader2,
+  Plus,
+  Search,
+  Settings2,
+  Smile,
+  Star,
+  Sticker,
+} from 'lucide-react'
 import {
   addFavoriteStickerRequest,
   composerKeys,
@@ -18,8 +30,22 @@ import {
   type CatalogSticker,
   type RecentGif,
 } from '../../../entities/chat'
-import { EmojiPicker } from '../../../shared/ui'
+import {
+  fetchAddedStickerSets,
+  openMyStickerSets,
+  openStickerEditor,
+  userStickerKeys,
+} from '../../../entities/sticker-set'
+import {
+  AnimatedImage,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  EmojiPicker,
+} from '../../../shared/ui'
 import { prefersReducedMotion, useInfiniteScroll } from '../../../shared/lib'
+import { useRealtimeEvent } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
 
 export type SymbolTab = 'emoji' | 'stickers' | 'gifs'
@@ -275,14 +301,89 @@ function StickerCell({
       title={hint}
       className="flex aspect-square cursor-pointer select-none items-center justify-center rounded-lg p-1 outline-none [-webkit-touch-callout:none] hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 motion-safe:active:scale-95"
     >
-      <img
+      <AnimatedImage
         src={sticker.url}
+        animated={!!sticker.animated}
         alt=""
         loading="lazy"
         draggable={false}
         className="size-full object-contain"
       />
     </button>
+  )
+}
+
+/** Исходник стикера с устройства: картинка, GIF или короткое видео. */
+const STICKER_SOURCE_ACCEPT =
+  'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime'
+
+/**
+ * «Создать стикер» и «Мои наборы» в начале полосы наборов (Telegram 2024: стикеры прямо в
+ * приложении, без бота). Файл или снимок с камеры открывают редактор поверх чата.
+ */
+function StickerTools() {
+  const t = useTranslations('Chats')
+  const fileRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const pick = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) openStickerEditor({ kind: 'file', file })
+  }
+  const toolClass =
+    'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
+  return (
+    <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept={STICKER_SOURCE_ACCEPT}
+        className="hidden"
+        onChange={pick}
+      />
+      {/* Снимок с камеры: на телефоне сразу открывает камеру, на ПК — обычный выбор файла. */}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="user"
+        className="hidden"
+        onChange={pick}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={t('tgStickers.create')}
+            title={t('tgStickers.create')}
+            onMouseDown={(e) => e.preventDefault()}
+            className={toolClass}
+          >
+            <Plus className="size-5" aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
+            <FolderOpen aria-hidden />
+            {t('tgStickers.createFromFile')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => cameraRef.current?.click()}>
+            <Camera aria-hidden />
+            {t('tgStickers.createFromCamera')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <button
+        type="button"
+        aria-label={t('tgStickers.manageTitle')}
+        title={t('tgStickers.manageTitle')}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={openMyStickerSets}
+        className={toolClass}
+      >
+        <Settings2 className="size-5" aria-hidden />
+      </button>
+    </>
   )
 }
 
@@ -302,7 +403,20 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
     queryFn: fetchFavoriteStickers,
     staleTime: CATALOG_STALE_MS,
   })
+  // Свои и добавленные по ссылке наборы — между избранным и каталогом платформы.
+  const added = useQuery({
+    queryKey: userStickerKeys.added(),
+    queryFn: fetchAddedStickerSets,
+    staleTime: CATALOG_STALE_MS,
+  })
   const favoriteIds = new Set((favorites.data ?? []).map((s) => s.id))
+  // Наборы и избранное поменялись на другом устройстве (или в «Моих наборах») — перечитать.
+  useRealtimeEvent('stickers:sets-changed', () => {
+    void qc.invalidateQueries({ queryKey: userStickerKeys.all })
+  })
+  useRealtimeEvent('stickers:favorites-changed', () => {
+    void qc.invalidateQueries({ queryKey: composerKeys.stickerFavorites() })
+  })
 
   const toggleFavorite = useMutation({
     mutationFn: ({ id, on }: { id: string; on: boolean }) =>
@@ -349,14 +463,15 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
           },
         ]
       : []),
+    ...(added.data ?? []).filter((s) => s.stickers.length > 0),
     ...sets.data.filter((s) => s.stickers.length > 0),
   ]
-  if (sections.length === 0) return <PanelMessage text={t('tgComposer.stickersEmpty')} />
 
   return (
     <div className="flex h-full flex-col">
       {/* Обложки наборов — переход к разделу; первый стикер набора и есть обложка. */}
       <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-1 [scrollbar-width:none]">
+        <StickerTools />
         {sections.map((s) => (
           <button
             key={s.id}
@@ -380,6 +495,11 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
         ))}
       </div>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+        {sections.length === 0 && (
+          <PanelMessage text={t('tgComposer.stickersEmpty')}>
+            <span className="text-xs">{t('tgStickers.emptyPanelHint')}</span>
+          </PanelMessage>
+        )}
         {sections.map((s) => (
           <section key={s.id} data-set={s.id} aria-label={s.title} className="scroll-mt-1">
             <h3 className="sticky top-0 z-10 bg-popover px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
