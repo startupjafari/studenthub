@@ -69,6 +69,7 @@ import {
   createRefreshCoalescer,
   scheduleChatsUnreadRefresh,
   applyLocationUpdate,
+  useSavedGifMenu,
   type ChatFolder,
   type ChatGroupSettings,
   type ChatListItem,
@@ -346,6 +347,8 @@ export function ChatWindow() {
   // Своя быстрая реакция (`GET /chats/settings`): двойной клик, кнопка у пузыря, первая в меню.
   const quickReaction = useDefaultReaction()
   useChatSettingsSync()
+  // «Сохранить в GIF» / «Убрать из GIF» в меню сообщения с GIF.
+  const savedGifMenu = useSavedGifMenu()
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
@@ -4279,6 +4282,7 @@ export function ChatWindow() {
               })
             },
             onCopy: () => copyText(menu.message),
+            gif: savedGifMenu(menu.message),
             onCopyLink: () => copyLink(menu.message),
             onForward: () => setForwardMsg(menu.message),
             onDelete: () => deleteMessage(menu.message),

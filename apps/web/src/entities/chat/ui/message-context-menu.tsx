@@ -9,6 +9,8 @@ import {
   Flag,
   Forward,
   Heart,
+  ImageMinus,
+  ImagePlus,
   Link2,
   Pencil,
   Pin,
@@ -63,6 +65,10 @@ export interface MessageMenuActions {
    * Нет — жеста нет: быстрая реакция есть только у чатов.
    */
   onSetDefaultReaction?: (emoji: string) => void
+  /**
+   * «Сохранить в GIF» / «Убрать из GIF» у сообщения с GIF (useSavedGifMenu). Нет — пункта нет.
+   */
+  gif?: { saved: boolean; onToggle: () => void }
 }
 
 /**
@@ -392,6 +398,12 @@ export function MessageContextMenu({
       actions.onPin,
     ),
     { key: 'copy', label: t('copyText'), icon: Copy, onClick: actions.onCopy },
+    ...optional(
+      'gif',
+      actions.gif?.saved ? t('tgGifs.unsave') : t('tgGifs.save'),
+      actions.gif?.saved ? ImageMinus : ImagePlus,
+      actions.gif?.onToggle,
+    ),
     ...optional('link', t('copyLink'), Link2, actions.onCopyLink),
     ...optional('forward', t('forward'), Forward, actions.onForward),
     ...optional('select', t('select'), CheckCheck, actions.onSelect),

@@ -3034,6 +3034,23 @@
       "replyRound": "Бейнехабар",
       "views": "{count, plural, one {# қаралым} other {# қаралым}}"
     },
+    "tgGifs": {
+      "badge": "GIF",
+      "open": "GIF ашу",
+      "preview": "{n, plural, one {GIF} other {# GIF}}",
+      "saved": "Сақталғандар",
+      "recent": "Соңғылар",
+      "trending": "Танымал",
+      "search": "GIF іздеу",
+      "empty": "Хат алмасудағы GIF-терді сақтаңыз — олар осында шығады",
+      "poweredBy": "Powered by GIPHY",
+      "savedHint": "Оң жақ батырма немесе ұзақ басу — сақталғандардан алып тастау",
+      "recentHint": "Оң жақ батырма немесе ұзақ басу — сақтау",
+      "save": "GIF-ке сақтау",
+      "unsave": "GIF-тен алып тастау",
+      "savedToast": "GIF сақталды",
+      "removedToast": "GIF сақталғандардан алынды"
+    },
     "tgComposer": {
       "attachChecklist": "Чек-тізім",
       "checklistTitle": "Жаңа чек-тізім",

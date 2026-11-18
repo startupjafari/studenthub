@@ -90,6 +90,14 @@ export interface RecentGif {
   height: number | null
   url: string
   expiresAt: string
+  /** video/mp4 с `animation` — GIF, переведённый в MP4 (рисуется <video>); image/gif — старый. */
+  mime?: string
+  animation?: boolean
+  /** Постер MP4 — до первого кадра. */
+  poster?: string | null
+  placeholder?: string | null
+  /** `<size>:<width>:<height>` — тот же GIF среди сохранённых. */
+  fingerprint?: string
 }
 
 export async function fetchTrendingGifs(offset = 0): Promise<CatalogGifPage> {

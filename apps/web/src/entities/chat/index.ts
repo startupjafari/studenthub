@@ -174,6 +174,8 @@ export { useMessageViews, formatViews } from './lib/use-message-views'
 export { fileKind, type FileKind } from './lib/file-kind'
 export {
   attachmentKind,
+  isAnimation,
+  isGif,
   isViewable,
   isVideoNote,
   isVoice,
@@ -217,6 +219,21 @@ export {
   type AudioRepeat,
   type AudioSettings,
 } from './lib/audio-settings'
+export {
+  gifKeys,
+  fetchSavedGifs,
+  saveGifRequest,
+  removeSavedGifRequest,
+  type SavedGif,
+} from './api/gifs-api'
+export {
+  useSavedGifs,
+  useSavedGifActions,
+  useSavedGifMenu,
+  findSavedGif,
+  type SavedGifMenuItem,
+} from './lib/use-saved-gifs'
+export { GifVideo } from './ui/gif-video'
 export {
   composerKeys,
   fetchStickerSets,

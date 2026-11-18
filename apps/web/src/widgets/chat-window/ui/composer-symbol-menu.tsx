@@ -1,31 +1,27 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Clock, Delete, Loader2, Search, Smile, Star, Sticker } from 'lucide-react'
+import { Delete, Smile, Star, Sticker } from 'lucide-react'
 import {
   addFavoriteStickerRequest,
   composerKeys,
   fetchFavoriteStickers,
-  fetchRecentGifs,
   fetchStickerSets,
-  fetchTrendingGifs,
   removeFavoriteStickerRequest,
-  searchGifs,
-  type CatalogGif,
   type CatalogSticker,
-  type RecentGif,
 } from '../../../entities/chat'
 import { EmojiPicker } from '../../../shared/ui'
-import { prefersReducedMotion, useInfiniteScroll } from '../../../shared/lib'
+import { prefersReducedMotion } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { GifsTab, type PickedGif } from './composer-gifs-tab'
 
 export type SymbolTab = 'emoji' | 'stickers' | 'gifs'
 
-/** Что выбрали в панели GIF: запись каталога (по id) или свой уже отправленный файл. */
-export type PickedGif = { kind: 'catalog'; id: string } | { kind: 'recent'; fileId: string }
+// Вкладка GIF живёт в composer-gifs-tab.tsx: «Сохранённые», «Недавние», каталог GIPHY.
+export type { PickedGif } from './composer-gifs-tab'
 
 // Ссылки на стикеры и GIF подписаны на час и больше: держать выдачу свежей дольше незачем,
 // а повторное открытие панели не должно каждый раз перезапрашивать каталог.
@@ -410,160 +406,6 @@ function PanelMessage({ text, children }: { text: string; children?: React.React
     <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
       <span>{text}</span>
       {children}
-    </div>
-  )
-}
-
-/** Плитка GIF: соотношение сторон резервируется заранее, чтобы колонка не прыгала. */
-function GifTile({
-  src,
-  width,
-  height,
-  label,
-  onPick,
-}: {
-  src: string
-  width: number | null
-  height: number | null
-  label: string
-  onPick: () => void
-}) {
-  const ratio = width && height ? `${width} / ${height}` : '1 / 1'
-  return (
-    <button
-      type="button"
-      onClick={onPick}
-      aria-label={label}
-      className="mb-1 block w-full cursor-pointer break-inside-avoid overflow-hidden rounded-lg bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-      style={{ aspectRatio: ratio }}
-    >
-      <img src={src} alt="" loading="lazy" draggable={false} className="size-full object-cover" />
-    </button>
-  )
-}
-
-function GifsTab({ onPick }: { onPick: (gif: PickedGif) => void }) {
-  const t = useTranslations('Chats')
-  const [raw, setRaw] = useState('')
-  const [query, setQuery] = useState('')
-  useEffect(() => {
-    const id = setTimeout(() => setQuery(raw.trim()), 350)
-    return () => clearTimeout(id)
-  }, [raw])
-
-  const recent = useQuery({
-    queryKey: composerKeys.gifsRecent(),
-    queryFn: fetchRecentGifs,
-    staleTime: CATALOG_STALE_MS,
-  })
-  const catalog = useInfiniteQuery({
-    queryKey: query ? composerKeys.gifsSearch(query) : composerKeys.gifsTrending(),
-    queryFn: ({ pageParam }) =>
-      query ? searchGifs(query, pageParam) : fetchTrendingGifs(pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (last) => last.nextOffset ?? undefined,
-    staleTime: CATALOG_STALE_MS,
-    retry: (count, e) => (e as { code?: string }).code !== 'FEATURE_DISABLED' && count < 2,
-  })
-  const sentinel = useInfiniteScroll<HTMLDivElement>({
-    hasNext: !!catalog.hasNextPage,
-    loading: catalog.isFetchingNextPage,
-    onLoad: () => void catalog.fetchNextPage(),
-  })
-
-  const catalogItems: CatalogGif[] = catalog.data?.pages.flatMap((p) => p.items) ?? []
-  const recentItems: RecentGif[] = query ? [] : (recent.data ?? [])
-  const disabled = (catalog.error as { code?: string } | null)?.code === 'FEATURE_DISABLED'
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="relative m-2 shrink-0">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          placeholder={t('tgComposer.gifsSearch')}
-          aria-label={t('tgComposer.gifsSearch')}
-          className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
-        />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {recentItems.length > 0 && (
-          <>
-            <h3 className="flex items-center gap-1 pb-1 text-xs font-medium text-muted-foreground">
-              <Clock className="size-3.5" aria-hidden />
-              {t('tgComposer.gifsRecent')}
-            </h3>
-            <div className="mb-2 columns-2 gap-1">
-              {recentItems.map((g) => (
-                <GifTile
-                  key={g.fileId}
-                  src={g.url}
-                  width={g.width}
-                  height={g.height}
-                  label={t('tgComposer.gifSend')}
-                  onPick={() => onPick({ kind: 'recent', fileId: g.fileId })}
-                />
-              ))}
-            </div>
-          </>
-        )}
-        {catalog.isPending ? (
-          <div className="columns-2 gap-1" aria-busy>
-            {[120, 90, 140, 100, 80, 130].map((h, i) => (
-              <div
-                key={i}
-                className="mb-1 animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
-                style={{ height: h }}
-              />
-            ))}
-          </div>
-        ) : disabled ? (
-          recentItems.length === 0 && <PanelMessage text={t('tgComposer.gifsDisabled')} />
-        ) : catalog.isError ? (
-          <PanelMessage text={t('tgComposer.gifsLoadError')}>
-            <button
-              type="button"
-              onClick={() => void catalog.refetch()}
-              className="cursor-pointer text-sm font-medium text-primary hover:underline"
-            >
-              {t('tgComposer.retry')}
-            </button>
-          </PanelMessage>
-        ) : catalogItems.length === 0 ? (
-          <PanelMessage text={t('tgComposer.gifsEmpty')} />
-        ) : (
-          <>
-            {!query && recentItems.length > 0 && (
-              <h3 className="pb-1 text-xs font-medium text-muted-foreground">
-                {t('tgComposer.gifsTrending')}
-              </h3>
-            )}
-            <div className="columns-2 gap-1">
-              {catalogItems.map((g) => (
-                <GifTile
-                  key={g.id}
-                  src={g.previewUrl}
-                  width={g.previewWidth}
-                  height={g.previewHeight}
-                  label={g.title || t('tgComposer.gifSend')}
-                  onPick={() => onPick({ kind: 'catalog', id: g.id })}
-                />
-              ))}
-            </div>
-            <div ref={sentinel} className="h-px" />
-            {catalog.isFetchingNextPage && (
-              <div className="flex justify-center py-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              </div>
-            )}
-          </>
-        )}
-      </div>
     </div>
   )
 }

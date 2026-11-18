@@ -3034,6 +3034,23 @@
       "replyRound": "Video message",
       "views": "{count, plural, one {# view} other {# views}}"
     },
+    "tgGifs": {
+      "badge": "GIF",
+      "open": "Open GIF",
+      "preview": "{n, plural, one {GIF} other {# GIFs}}",
+      "saved": "Saved",
+      "recent": "Recent",
+      "trending": "Trending",
+      "search": "Search GIFs",
+      "empty": "Save GIFs from your chats — they will appear here",
+      "poweredBy": "Powered by GIPHY",
+      "savedHint": "Right-click or long-press to remove from saved",
+      "recentHint": "Right-click or long-press to save",
+      "save": "Save to GIFs",
+      "unsave": "Remove from GIFs",
+      "savedToast": "GIF saved",
+      "removedToast": "GIF removed from saved"
+    },
     "tgComposer": {
       "attachChecklist": "Checklist",
       "checklistTitle": "New checklist",

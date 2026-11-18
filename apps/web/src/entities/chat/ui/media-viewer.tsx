@@ -266,7 +266,12 @@ export function MediaViewer({
 
   return (
     <BaseMediaViewer
-      items={items.map((a) => ({ mime: a.mime, name: a.name }))}
+      // mime текущего — из ссылки, если она его знает: GIF воркер переводит в MP4 уже после
+      // рассылки сообщения, и ссылка тогда ведёт на ролик, а не на картинку.
+      items={items.map((a, i) => ({
+        mime: i === index && link?.mime ? link.mime : a.mime,
+        name: a.name,
+      }))}
       index={index}
       src={url}
       // Заглушка из списка сообщений видна сразу, варианты и HLS — когда пришла ссылка.
@@ -277,6 +282,7 @@ export function MediaViewer({
         sources: link?.sources,
         poster: link?.poster,
         hls: local ? null : link?.hls,
+        animation: link?.animation ?? cur.animation,
       }}
       onIndexChange={onIndexChange}
       onClose={onClose}

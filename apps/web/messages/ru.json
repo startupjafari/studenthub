@@ -3034,6 +3034,23 @@
       "replyRound": "Видеосообщение",
       "views": "{count, plural, one {# просмотр} few {# просмотра} many {# просмотров} other {# просмотра}}"
     },
+    "tgGifs": {
+      "badge": "GIF",
+      "open": "Открыть GIF",
+      "preview": "{n, plural, one {GIF} few {# GIF} many {# GIF} other {# GIF}}",
+      "saved": "Сохранённые",
+      "recent": "Недавние",
+      "trending": "Популярные",
+      "search": "Поиск GIF",
+      "empty": "Сохраняйте GIF из переписки — они появятся здесь",
+      "poweredBy": "Powered by GIPHY",
+      "savedHint": "Правый клик или долгое нажатие — убрать из сохранённых",
+      "recentHint": "Правый клик или долгое нажатие — сохранить",
+      "save": "Сохранить в GIF",
+      "unsave": "Убрать из GIF",
+      "savedToast": "GIF сохранён",
+      "removedToast": "GIF убран из сохранённых"
+    },
     "tgComposer": {
       "attachChecklist": "Чек-лист",
       "checklistTitle": "Новый чек-лист",

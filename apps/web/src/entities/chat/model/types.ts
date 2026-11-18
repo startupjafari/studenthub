@@ -17,6 +17,9 @@ export interface MessageAttachment {
   // Кружок (видеосообщение, как в Telegram): ролик рисуется кругом без пузыря, превью играет
   // без звука, нажатие — со звуком. Флаг отправителя: по байтам квадратное видео не отличить.
   videoNote?: boolean
+  // Анимация (GIF как в Telegram): сервер перевёл GIF в беззвучный MP4 (или взял готовый из
+  // GIPHY). Рисуется как GIF — автоплей без звука, по кругу, без панели плеера, с подписью.
+  animation?: boolean
   // Размеры изображения в пикселях (сервер считает их при загрузке): под снимок резервируется
   // точное место, пока идут байты. NULL/undefined — не картинка либо вложение старше полей.
   width?: number | null
@@ -49,6 +52,7 @@ export interface ReplyMediaPreview {
   spoiler?: boolean
   asDocument?: boolean
   videoNote?: boolean
+  animation?: boolean
 }
 
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
@@ -253,6 +257,8 @@ export interface ChatMediaItem {
   mime: string
   size: number
   hasPoster: boolean
+  /** GIF, переведённый в MP4 (`GET /chats/:id/media`). */
+  animation?: boolean
   width?: number | null
   height?: number | null
   placeholder?: string | null
