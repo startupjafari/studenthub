@@ -634,7 +634,8 @@ export class ChatsController {
   @ApiResponse({
     status: 200,
     description:
-      '[{ fileId, mime, animation, width, height, url, poster, placeholder, expiresAt }] — ' +
+      '[{ fileId, mime, animation, width, height, url, poster, placeholder, expiresAt, ' +
+      'fingerprint }] — ' +
       'работает и без GIPHY_API_KEY',
   })
   recentGifs(@CurrentUser() user: CurrentUserData, @Query() query: ChatGifRecentQueryDto) {

@@ -434,6 +434,8 @@ type ChatMediaRow = {
   mime: string
   size: number
   hasPoster: boolean
+  /** GIF, переведённый в MP4: в сетке — постер с подписью «GIF», в просмотрщике — по кругу. */
+  animation?: boolean
   width: number | null
   height: number | null
   placeholder: string | null
@@ -2174,6 +2176,7 @@ export class ChatsService implements OnModuleInit {
         mime: true,
         size: true,
         posterKey: true,
+        animation: true,
         width: true,
         height: true,
         placeholder: true,
@@ -2202,6 +2205,7 @@ export class ChatsService implements OnModuleInit {
       size: f.size,
       // Постер у видео чата готовит медиа-система; posterKey — прежний путь медиа профиля.
       hasPoster: !!f.posterKey || (f.mediaStatus === 'READY' && f.mime.startsWith('video/')),
+      animation: f.animation,
       width: f.width,
       height: f.height,
       placeholder: f.placeholder,

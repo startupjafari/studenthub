@@ -51,6 +51,8 @@ export interface GifItemDto {
   poster: string | null
   placeholder: string | null
   expiresAt: string
+  /** Отпечаток содержимого (`gifFingerprint`): клиент не показывает недавний, если он сохранён. */
+  fingerprint: string
 }
 
 /** Плитки GIF по строкам файлов; файл без ссылки (объект пропал) пропускается. */
@@ -79,6 +81,7 @@ export async function toGifItems(
       poster: described.get(row.id)?.poster[0]?.url ?? null,
       placeholder: row.placeholder,
       expiresAt,
+      fingerprint: gifFingerprint(row),
     })
   }
   return out
