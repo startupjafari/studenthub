@@ -213,6 +213,82 @@ export async function cutSegment(params: {
 }
 
 /**
+ * GIF → беззвучный MP4 (H.264 + yuv420p) — анимация как в Telegram: в разы легче GIF и
+ * играет аппаратным декодером. Вход — только локальный файл и только демультиплексор `gif`:
+ * ссылок изнутри файла ffmpeg не откроет.
+ *
+ * Прозрачность GIF кладётся на белую подложку: yuv420p альфы не знает, а без подложки
+ * прозрачные точки получали бы случайный цвет из палитры. Подложка — тот же кадр, залитый
+ * белым (`drawbox`), а не отдельный источник `color`: у источника своя частота кадров, и
+ * переменные задержки кадров GIF выровнялись бы под неё с дублями.
+ *
+ * `fps` — потолок частоты (кадры сверх него выбрасываются); `null` — тайминг GIF как есть.
+ * Чётные стороны кадра считает вызывающий (`planAnimation`): yuv420p требует их.
+ * `+faststart` — индекс в начале, ролик начинает играть до полной загрузки.
+ */
+export async function transcodeAnimation(params: {
+  ffmpeg: string
+  inputPath: string
+  outPath: string
+  width: number
+  height: number
+  fps: number | null
+  maxSeconds: number
+  crf: number
+  timeoutMs: number
+}): Promise<void> {
+  const fps = params.fps ? `fps=fps=${params.fps},` : ''
+  const graph =
+    `[0:v]${fps}format=rgba,split[fg][under];` +
+    '[under]drawbox=x=0:y=0:w=iw:h=ih:color=white@1:t=fill:replace=1[bg];' +
+    `[bg][fg]overlay=format=auto,scale=${params.width}:${params.height}:flags=lanczos,` +
+    'setsar=1,format=yuv420p[v]'
+  await run(
+    params.ffmpeg,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-protocol_whitelist',
+      'file',
+      '-format_whitelist',
+      'gif',
+      // Повтор GIF не разворачиваем в длину ролика: зацикливает клиент.
+      '-ignore_loop',
+      '1',
+      '-i',
+      params.inputPath,
+      '-t',
+      String(params.maxSeconds),
+      '-filter_complex',
+      graph,
+      '-map',
+      '[v]',
+      '-an',
+      '-sn',
+      '-dn',
+      '-map_metadata',
+      '-1',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'medium',
+      '-profile:v',
+      'main',
+      '-crf',
+      String(params.crf),
+      '-pix_fmt',
+      'yuv420p',
+      '-movflags',
+      '+faststart',
+      params.outPath,
+    ],
+    params.timeoutMs,
+  )
+}
+
+/**
  * Перекодирование в HLS одним проходом: вход читается один раз, `split` раздаёт кадры на
  * все ступени. Рендишн `<short>` пишется в `<outDir>/<short>/index.m3u8` + `seg-NNNN.ts`.
  *

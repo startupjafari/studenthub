@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
 import { Readable } from 'node:stream'
 import { MediaStatus, MediaVariantKind, Prisma } from '@prisma/client'
 import sharp from 'sharp'
@@ -35,7 +37,10 @@ function setup(file: Record<string, unknown> | null) {
     presignedGetObject: jest.fn().mockResolvedValue('http://minio/source') as Mock,
   }
   const config = {
-    get: jest.fn((k: string) => ({ FFMPEG_PATH: 'ffmpeg', FFPROBE_PATH: 'ffprobe' })[k]),
+    get: jest.fn(
+      (k: string) =>
+        ({ FFMPEG_PATH: 'ffmpeg', FFPROBE_PATH: 'ffprobe', MINIO_BUCKET_CHAT: 'chat-media' })[k],
+    ),
   }
   const service = new MediaProcessingService(prisma as never, config as never, minio as never)
   return { service, prisma, minio, tx }
@@ -262,5 +267,160 @@ describe('MediaProcessingService.markFailed', () => {
 
     expect(minio.listObjectsV2).not.toHaveBeenCalled()
     expect(minio.removeObjects).not.toHaveBeenCalled()
+  })
+})
+
+// Перевод GIF в MP4 — настоящим ffmpeg (без бинарника набор пропускается, как ffmpeg.spec).
+function ffmpegInstalled(): boolean {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' })
+    execFileSync('ffprobe', ['-version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function gifBytes(frames: number): Buffer {
+  return execFileSync('ffmpeg', [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    `testsrc2=size=96x64:rate=10:duration=${frames / 10}`,
+    '-frames:v',
+    String(frames),
+    '-f',
+    'gif',
+    '-',
+  ])
+}
+
+;(ffmpegInstalled() ? describe : describe.skip)('MediaProcessingService.process — GIF чата', () => {
+  const gifFile = { ...imageFile, key: 'u/funny.gif', mime: 'image/gif', animation: false }
+
+  afterEach(() => jest.restoreAllMocks())
+
+  function withUploads(file: Record<string, unknown>) {
+    const ctx = setup(file)
+    Object.assign(ctx.minio, {
+      fPutObject: jest.fn().mockResolvedValue({}) as Mock,
+      removeObject: jest.fn().mockResolvedValue(undefined) as Mock,
+    })
+    return ctx as typeof ctx & {
+      minio: typeof ctx.minio & { fPutObject: Mock; removeObject: Mock }
+    }
+  }
+
+  it('переводит в MP4: новый ключ, video/mp4, флаг анимации, постер и LQIP', async () => {
+    const { service, prisma, minio } = withUploads(gifFile)
+    await service.onModuleInit()
+    minio.getObject.mockResolvedValue(Readable.from([gifBytes(20)]))
+
+    await service.process(FILE_ID)
+
+    expect(minio.fPutObject).toHaveBeenCalledWith(
+      'chat-media',
+      expect.stringMatching(/\.mp4$/),
+      expect.any(String),
+      { 'Content-Type': 'video/mp4' },
+    )
+    const switched = prisma.file.updateMany.mock.calls.find(
+      (c) => (c[0] as { data: { mime?: string } }).data.mime === 'video/mp4',
+    )?.[0] as { where: unknown; data: Record<string, unknown> }
+    expect(switched.where).toEqual({ id: FILE_ID, key: 'u/funny.gif' })
+    expect(switched.data).toMatchObject({ mime: 'video/mp4', animation: true })
+    expect(switched.data.size).toBeGreaterThan(0)
+    // Оригинал GIF не трогаем: ссылки на него уже у клиентов, ничей объект снимет ночная чистка.
+    expect(minio.removeObject).not.toHaveBeenCalled()
+    const rows = prisma.fileVariant.createMany.mock.calls[0][0].data as { kind: string }[]
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows.every((r) => r.kind === MediaVariantKind.POSTER)).toBe(true)
+    const update = prisma.file.update.mock.calls[0][0]
+    expect(update.data).toMatchObject({ mediaStatus: MediaStatus.READY, width: 96, height: 64 })
+    expect(update.data.durationMs).toBeGreaterThan(1500)
+    expect(update.data.placeholder).toMatch(/^data:image\/webp;base64,/)
+  }, 60_000)
+
+  it('файл переключили или удалили — новый MP4 убирается', async () => {
+    const { service, prisma, minio } = withUploads(gifFile)
+    await service.onModuleInit()
+    minio.getObject.mockResolvedValue(Readable.from([gifBytes(10)]))
+    prisma.file.updateMany.mockImplementation(async (args: { data: { mime?: string } }) => ({
+      count: args.data.mime === 'video/mp4' ? 0 : 1,
+    }))
+
+    await service.process(FILE_ID)
+
+    expect(minio.removeObject).toHaveBeenCalledWith('chat-media', expect.stringMatching(/\.mp4$/))
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('GIF из одного кадра остаётся картинкой', async () => {
+    const { service, prisma, minio } = withUploads(gifFile)
+    minio.getObject.mockResolvedValue(Readable.from([gifBytes(1)]))
+
+    await service.process(FILE_ID)
+
+    expect(minio.fPutObject).not.toHaveBeenCalled()
+    const update = prisma.file.update.mock.calls[0][0]
+    expect(update.data).toMatchObject({ mediaStatus: MediaStatus.READY, width: 96, height: 64 })
+  }, 60_000)
+
+  it('без ffmpeg — картинкой, как раньше, а не в ожидании', async () => {
+    jest.spyOn(ffmpeg, 'isAvailable').mockResolvedValue(false)
+    const { service, prisma, minio } = withUploads(gifFile)
+    minio.getObject.mockResolvedValue(Readable.from([gifBytes(10)]))
+
+    await service.process(FILE_ID)
+
+    expect(minio.fPutObject).not.toHaveBeenCalled()
+    expect(prisma.file.update.mock.calls[0][0].data).toMatchObject({
+      mediaStatus: MediaStatus.READY,
+    })
+  }, 60_000)
+
+  it('GIF не из чата (лента) — картинка, без перевода', async () => {
+    const { service, minio } = withUploads({ ...gifFile, bucket: 'posts-media' })
+    minio.getObject.mockResolvedValue(Readable.from([gifBytes(10)]))
+    await service.process(FILE_ID)
+    expect(minio.fPutObject).not.toHaveBeenCalled()
+  }, 60_000)
+
+  it('готовая MP4-анимация (GIPHY) — постер без HLS', async () => {
+    jest.spyOn(ffmpeg, 'isAvailable').mockResolvedValue(true)
+    jest
+      .spyOn(ffmpeg, 'probe')
+      .mockResolvedValue({ width: 480, height: 270, durationMs: 3000, hasAudio: false })
+    const hls = jest.spyOn(ffmpeg, 'transcodeHls')
+    const frame = await sharp({
+      create: { width: 480, height: 270, channels: 3, background: '#468' },
+    })
+      .jpeg()
+      .toBuffer()
+    jest.spyOn(ffmpeg, 'extractFrame').mockImplementation(async (_bin, _in, _at, out) => {
+      writeFileSync(out, frame)
+    })
+    const { service, prisma } = withUploads({
+      ...gifFile,
+      key: 'u/giphy.mp4',
+      mime: 'video/mp4',
+      animation: true,
+    })
+    await service.onModuleInit()
+
+    await service.process(FILE_ID)
+
+    expect(hls).not.toHaveBeenCalled()
+    const rows = prisma.fileVariant.createMany.mock.calls[0][0].data as { kind: string }[]
+    expect(rows.every((r) => r.kind === MediaVariantKind.POSTER)).toBe(true)
+    expect(prisma.file.update.mock.calls[0][0].data).toMatchObject({
+      mediaStatus: MediaStatus.READY,
+      width: 480,
+      height: 270,
+      durationMs: 3000,
+    })
   })
 })

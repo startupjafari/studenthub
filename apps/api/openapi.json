@@ -21076,6 +21076,87 @@
         ]
       }
     },
+    "/chats/gifs/saved": {
+      "get": {
+        "operationId": "ChatGifsController_listSaved",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, fileId, sourceFileId, fingerprint, mime, animation, width, height, url, poster, placeholder, expiresAt, createdAt }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Мои GIF»: сохранённые, свежие сверху, не больше 200",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "post": {
+        "description": "Повтор того же GIF поднимает его наверх; сверх 200 вытесняется самый давний. Своим устройствам — WS gifs:saved-changed.",
+        "operationId": "ChatGifsController_save",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatSavedGifCreateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, fileId, sourceFileId, fingerprint, mime, animation, width, height, url, poster, placeholder, expiresAt, createdAt }"
+          },
+          "404": {
+            "description": "NOT_FOUND — файла нет, это не GIF или нет доступа"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сохранить GIF себе (вложение сообщения из чата, где я участник)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/gifs/saved/{id}": {
+      "delete": {
+        "operationId": "ChatGifsController_removeSaved",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Убран (или его там не было)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать GIF из «Моих GIF» (WS gifs:saved-changed)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/{id}/mentions/unread": {
       "get": {
         "operationId": "ChatAttentionController_unreadMentions",
@@ -21815,7 +21896,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{ url, expiresAt, …MediaInfo } — оригинал и варианты"
+            "description": "{ url, expiresAt, mime, animation, …MediaInfo } — оригинал и варианты; mime/animation текущие (GIF после перевода в MP4 — video/mp4 + animation)"
           },
           "403": {
             "description": "WRONG_SCOPE — не участник чата"
@@ -23091,7 +23172,7 @@
         ],
         "responses": {
           "200": {
-            "description": "[{ fileId, width, height, url, expiresAt }]"
+            "description": "[{ fileId, mime, animation, width, height, url, poster, placeholder, expiresAt, fingerprint }] — работает и без GIPHY_API_KEY"
           }
         },
         "security": [
@@ -36450,6 +36531,20 @@
         },
         "required": [
           "done"
+        ],
+        "additionalProperties": false
+      },
+      "ChatSavedGifCreateDto": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "fileId"
         ],
         "additionalProperties": false
       },

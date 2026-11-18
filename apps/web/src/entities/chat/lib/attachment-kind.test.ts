@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageAttachment } from '../model/types'
-import { attachmentKind, isVideoNote, isVoice, mediaPreview } from './attachment-kind'
+import { attachmentKind, isAnimation, isVideoNote, isVoice, mediaPreview } from './attachment-kind'
 
 const att = (over: Partial<MessageAttachment>): MessageAttachment =>
   ({ id: 'a', mime: 'application/zip', size: 1, ...over }) as MessageAttachment
@@ -19,6 +19,16 @@ describe('attachmentKind', () => {
   it('фото и видео', () => {
     expect(attachmentKind(att({ mime: 'image/png' }))).toBe('photo')
     expect(attachmentKind(att({ mime: 'video/mp4' }))).toBe('video')
+  })
+
+  // GIF как в Telegram: и переведённый в MP4, и старый image/gif — «GIF», а не «Видео»/«Фото».
+  it('GIF — анимация-MP4 и старый image/gif', () => {
+    expect(attachmentKind(att({ mime: 'video/mp4', animation: true }))).toBe('gif')
+    expect(attachmentKind(att({ mime: 'image/gif' }))).toBe('gif')
+    expect(isAnimation(att({ mime: 'video/mp4', animation: true }))).toBe(true)
+    expect(isAnimation(att({ mime: 'image/gif', animation: true }))).toBe(false)
+    // «Без сжатия» перевешивает: строка файла.
+    expect(attachmentKind(att({ mime: 'image/gif', asDocument: true }))).toBe('file')
   })
 
   // Снимок, отправленный «без сжатия», получатель видит строкой файла — превью обязано

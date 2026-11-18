@@ -69,6 +69,14 @@ import { mentionsName } from './chat-mentions'
 import type { ChatAttentionCounts, ChatAttentionHook } from './chat-attention.types'
 import { mergeSearchPages, messageSearchArms, messageSearchWhere } from './chat-search'
 import { CHECKLIST_SELECT, toChecklistDto, type ChecklistDto } from './checklist-dto'
+import {
+  GIF_FILE_SELECT,
+  GIF_FILE_WHERE,
+  gifFingerprint,
+  isGifFile,
+  toGifItems,
+  type GifItemDto,
+} from './chat-gif-items'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -405,7 +413,8 @@ function mediaMimeWhere(type: ChatMediaQueryInput['type']): Prisma.FileWhereInpu
       OR: [{ name: null }, { NOT: { name: { startsWith: VOICE_NOTE_PREFIX } } }],
     }
   }
-  if (type === 'gif') return { mime: 'image/gif' }
+  // GIF — и старые image/gif, и переведённые в MP4 (анимации).
+  if (type === 'gif') return { OR: [{ mime: 'image/gif' }, { animation: true }] }
   if (type === 'media')
     return { OR: [{ mime: { startsWith: 'image/' } }, { mime: { startsWith: 'video/' } }] }
   return {
@@ -425,6 +434,8 @@ type ChatMediaRow = {
   mime: string
   size: number
   hasPoster: boolean
+  /** GIF, переведённый в MP4: в сетке — постер с подписью «GIF», в просмотрщике — по кругу. */
+  animation?: boolean
   width: number | null
   height: number | null
   placeholder: string | null
@@ -483,6 +494,8 @@ const REPLY_MEDIA_SELECT = {
   spoiler: true,
   asDocument: true,
   videoNote: true,
+  // GIF как MP4: миниатюра цитаты — постер, подпись «GIF».
+  animation: true,
 } satisfies Prisma.FileSelect
 
 const MESSAGE_SELECT = {
@@ -514,6 +527,8 @@ const MESSAGE_SELECT = {
       asDocument: true,
       // Кружок: клиент рисует ролик кругом без пузыря (превью без звука, по нажатию — со звуком).
       videoNote: true,
+      // Анимация (GIF, переведённый в MP4): автоплей без звука по кругу, подпись «GIF».
+      animation: true,
       width: true,
       height: true,
       ...MEDIA_PREVIEW_SELECT,
@@ -697,6 +712,7 @@ const FORWARD_SOURCE_SELECT = {
       spoiler: true,
       asDocument: true,
       videoNote: true,
+      animation: true,
     },
   },
 } satisfies Prisma.MessageSelect
@@ -2160,6 +2176,7 @@ export class ChatsService implements OnModuleInit {
         mime: true,
         size: true,
         posterKey: true,
+        animation: true,
         width: true,
         height: true,
         placeholder: true,
@@ -2188,6 +2205,7 @@ export class ChatsService implements OnModuleInit {
       size: f.size,
       // Постер у видео чата готовит медиа-система; posterKey — прежний путь медиа профиля.
       hasPoster: !!f.posterKey || (f.mediaStatus === 'READY' && f.mime.startsWith('video/')),
+      animation: f.animation,
       width: f.width,
       height: f.height,
       placeholder: f.placeholder,
@@ -4333,7 +4351,7 @@ export class ChatsService implements OnModuleInit {
   async getAttachmentUrl(
     userId: string,
     fileId: string,
-  ): Promise<MediaInfo & { url: string; expiresAt: string }> {
+  ): Promise<MediaInfo & { url: string; expiresAt: string; mime: string; animation: boolean }> {
     const file = await this.files.findOrThrow(fileId)
     if (!file.messageId) throw new AppException('NOT_FOUND', 'Файл не является вложением сообщения')
     const msg = await this.prisma.message.findUnique({
@@ -4357,14 +4375,23 @@ export class ChatsService implements OnModuleInit {
     const now = Date.now()
     const [url, mediaFile] = await Promise.all([
       this.files.getPresignedUrl(fileId),
-      this.prisma.file.findUniqueOrThrow({ where: { id: fileId }, select: MEDIA_FILE_SELECT }),
+      this.prisma.file.findUniqueOrThrow({
+        where: { id: fileId },
+        select: { ...MEDIA_FILE_SELECT, animation: true },
+      }),
     ])
     // Варианты (srcset, постер, HLS) — той же проверкой доступа, что и оригинал; поля
     // описания лежат рядом с `url`, одной формой для всех модулей.
+    //
+    // mime и `animation` — текущие, а не те, что у клиента в сообщении: GIF воркер переводит
+    // в MP4 уже после рассылки, и ссылка, взятая через пару секунд, ведёт на MP4. Клиент
+    // рисует вложение по этим полям, иначе MP4 попал бы в <img>.
     return {
       ...(await this.media.describeOne(mediaFile, now)),
       url,
       expiresAt: signingWindow(now).expiresAt.toISOString(),
+      mime: mediaFile.mime,
+      animation: mediaFile.animation,
     }
   }
 
@@ -5211,51 +5238,38 @@ export class ChatsService implements OnModuleInit {
    * байтов они совпадают, а у разных GIF совпасть всем трём почти невозможно. Только из чатов,
    * где человек ещё участник: из остальных повторить GIF ему не дадут (`sendGif`).
    */
-  async recentGifs(
-    userId: string,
-    query: ChatGifRecentQueryInput,
-  ): Promise<
-    {
-      fileId: string
-      width: number | null
-      height: number | null
-      url: string
-      expiresAt: string
-    }[]
-  > {
+  async recentGifs(userId: string, query: ChatGifRecentQueryInput): Promise<GifItemDto[]> {
     const rows = await this.prisma.file.findMany({
       where: {
-        mime: 'image/gif',
+        // И старые image/gif, и переведённые в MP4.
+        ...GIF_FILE_WHERE,
         message: {
           senderId: userId,
           deletedAt: null,
           chat: { members: { some: { userId, bannedAt: null } } },
         },
       },
-      select: { id: true, size: true, width: true, height: true },
+      select: GIF_FILE_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit * GIF_RECENT_SCAN_FACTOR,
     })
     const seen = new Set<string>()
     const picked = rows.filter((row) => {
-      const fingerprint = `${row.size}:${row.width ?? ''}:${row.height ?? ''}`
+      const fingerprint = gifFingerprint(row)
       if (seen.has(fingerprint)) return false
       seen.add(fingerprint)
       return true
     })
     picked.length = Math.min(picked.length, query.limit)
-    const urls = await this.files.getPresignedUrls(picked.map((row) => row.id))
-    const expiresAt = signingWindow(Date.now()).expiresAt.toISOString()
-    return picked.flatMap((row) => {
-      const url = urls.get(row.id)
-      return url ? [{ fileId: row.id, width: row.width, height: row.height, url, expiresAt }] : []
-    })
+    const items = await toGifItems(picked, this.files, this.media)
+    return picked.flatMap((row) => items.get(row.id) ?? [])
   }
 
   /**
    * Повторить GIF (`POST /chats/:id/gif`): файл должен быть вложением живого сообщения в чате,
-   * где отправитель участник, — по тому же правилу, что ссылка на вложение. Копия — новая
-   * запись File на новый ключ, как при пересылке.
+   * где отправитель участник, — по тому же правилу, что ссылка на вложение, — или его же
+   * GIF из «Моих GIF». Копия — новая запись File на новый ключ, как при пересылке; флаг
+   * анимации копия наследует.
    */
   async sendGif(
     senderId: string,
@@ -5273,13 +5287,21 @@ export class ChatsService implements OnModuleInit {
         name: true,
         width: true,
         height: true,
+        animation: true,
         message: { select: { chatId: true, deletedAt: true } },
+        savedGif: { select: { userId: true } },
       },
     })
-    if (!file || file.mime !== 'image/gif' || !file.message || file.message.deletedAt) {
+    if (!file || !isGifFile({ mime: file.mime, animation: file.animation === true })) {
       throw new AppException('NOT_FOUND', 'GIF не найден')
     }
-    await this.assertMembership(senderId, file.message.chatId)
+    // Свой сохранённый GIF — без чата: он у человека, даже когда источник удалили.
+    if (file.savedGif?.userId !== senderId) {
+      if (!file.message || file.message.deletedAt) {
+        throw new AppException('NOT_FOUND', 'GIF не найден')
+      }
+      await this.assertMembership(senderId, file.message.chatId)
+    }
     return this.sendRichMessage(senderId, chatId, {
       replyToId: input.replyToId,
       nonce: input.nonce,

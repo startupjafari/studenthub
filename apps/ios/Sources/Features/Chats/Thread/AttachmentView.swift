@@ -27,6 +27,15 @@ extension AttachmentRecord {
         let kind = chatKind
         return kind == .photo || kind == .video
     }
+
+    /// Своя копия GIF-ролика на диске, если её можно играть. После отправки там лежит
+    /// исходный `.gif`, а сервер хранит уже MP4: такую копию `AVPlayer` не сыграет, и
+    /// ролик берётся по ссылке.
+    var localAnimationFile: URL? {
+        guard isAnimation, let localPath, FileManager.default.fileExists(atPath: localPath) else { return nil }
+        let file = URL(filePath: localPath)
+        return ["mp4", "m4v", "mov"].contains(file.pathExtension.lowercased()) ? file : nil
+    }
 }
 
 /// Вложения в пузыре.
@@ -184,6 +193,13 @@ struct ChatMediaTile: View {
     @State private var revealRadius: CGFloat = 0
     /// Размытое превью разбирается один раз на плитку, а не на каждый кадр.
     @State private var preview: UIImage?
+    /// Откуда играть GIF беззвучным MP4: свой ролик на диске или подписанная ссылка.
+    /// Сбрасывается, когда плитка уходит с экрана: плеер с декодером не живёт вне экрана,
+    /// а ссылка к возвращению могла протухнуть (новую даст кеш ссылок).
+    @State private var animationURL: URL?
+    /// Ссылка сказала, что `image/gif` уже переведён в MP4 (`AttachmentMedia.animation`):
+    /// сообщение пришло раньше, чем медиа-система закончила.
+    @State private var linkAnimation = false
     @Environment(\.displayScale) private var displayScale
     @Environment(\.motionReduced) private var reduceMotion
     /// Углы снимка без подписи — по форме пузыря (`MessageBubbleView`).
@@ -234,6 +250,8 @@ struct ChatMediaTile: View {
     }
 
     private var isVideo: Bool { attachment.chatKind == .video }
+    /// GIF беззвучным MP4: играет сам по кругу, без «играть» и длительности, с подписью GIF.
+    private var isAnimation: Bool { attachment.isAnimation || linkAnimation }
     private var isHidden: Bool { attachment.spoiler && !revealed }
     private var points: CGFloat { Self.pixelPoints(attachment, size: nominal) }
     private var cacheKey: String { Self.cacheKey(attachment, points: points) }
@@ -301,17 +319,27 @@ struct ChatMediaTile: View {
     var body: some View {
         picture
             .overlay {
+                // GIF играет поверх своего постера: до первого кадра постер виден сквозь
+                // плеер. Под спойлером и при «уменьшении движения» — только постер.
+                if isAnimation, !isHidden, !reduceMotion, upload == nil, let animationURL {
+                    LoopingVideoView(url: animationURL)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .overlay {
                 if isHidden { spoilerCover }
             }
             .overlay {
                 // У ролика «играть» по центру; пока там кольцо загрузки или «скачать» — они.
-                if isVideo, !isHidden, upload == nil, loadControl == nil {
+                // GIF играет сам — кнопки у него нет.
+                if isVideo, !isAnimation, !isHidden, upload == nil, loadControl == nil {
                     playGlyph
                         .transition(.opacity)
                 }
             }
             .overlay(alignment: .topLeading) {
-                if isVideo, !isHidden, let badge = videoBadge {
+                if isVideo || isAnimation, !isHidden, let badge = videoBadge {
                     Text(verbatim: badge)
                         .font(Typography.tabular(.caption2.weight(.semibold)))
                         .foregroundStyle(.white)
@@ -329,6 +357,9 @@ struct ChatMediaTile: View {
                 tap(at: location)
             }
             .task(id: "\(cacheKey)#\(attempt)") { await load() }
+            // «Уменьшение движения» выключили — плитка должна заиграть без прокрутки.
+            .task(id: "\(attachment.id)#\(reduceMotion)") { await resolveAnimation() }
+            .onDisappear { animationURL = nil }
             .accessibilityElement()
             .accessibilityLabel(Text(accessibilityLabel))
             .accessibilityValue(Text(accessibilityValue))
@@ -491,7 +522,9 @@ struct ChatMediaTile: View {
     }
 
     /// Ролик: длительность, а пока не загружен кадр — и размер файла, как в Telegram.
+    /// GIF — только подпись «GIF»: длительность у него ничего не значит.
     private var videoBadge: String? {
+        if isAnimation { return String(localized: "chats.preview.gif", defaultValue: "GIF") }
         let duration = attachment.durationMs.flatMap { $0 > 0 ? VoiceWave.time(Double($0) / 1000) : nil }
         let size = image == nil
             ? attachment.size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
@@ -532,6 +565,7 @@ struct ChatMediaTile: View {
 
     private var accessibilityLabel: String {
         if isHidden { return String(localized: "chats.spoiler", defaultValue: "Спойлер") }
+        if isAnimation { return String(localized: "chats.preview.gif", defaultValue: "GIF") }
         guard isVideo else { return String(localized: "chats.photo", defaultValue: "Фотография") }
         let title = String(localized: "chats.preview.video", defaultValue: "Видео")
         guard let duration = attachment.durationMs, duration > 0 else { return title }
@@ -549,6 +583,30 @@ struct ChatMediaTile: View {
         case nil:
             return ""
         }
+    }
+
+    /// Откуда играть GIF беззвучным MP4. Свой ролик на диске — сразу; своя копия
+    /// отправленного GIF — это исходный `.gif`, его `AVPlayer` не играет, поэтому тогда по
+    /// ссылке. У `image/gif` ссылка проверяется тоже: файл мог уже стать MP4
+    /// (`AttachmentMedia.animation`), и тогда плитка рисует его как GIF-ролик.
+    private func resolveAnimation() async {
+        guard animationURL == nil, attachment.isAnimation || attachment.mime == "image/gif" else { return }
+        if let file = attachment.localAnimationFile {
+            if !reduceMotion { animationURL = file }
+            return
+        }
+        // Свой GIF на диске плитка рисует сама, как картинку.
+        if !attachment.isAnimation, let path = attachment.localPath, FileManager.default.fileExists(atPath: path) {
+            return
+        }
+        guard let media = try? await AppServices.attachmentURLs.media(for: attachment.id), !Task.isCancelled else {
+            return
+        }
+        if !attachment.isAnimation {
+            guard media.animation else { return }
+            linkAnimation = true
+        }
+        if !reduceMotion { animationURL = media.url }
     }
 
     private func load() async {
@@ -981,10 +1039,16 @@ enum ChatMediaImages {
         allowsVideoOriginal: Bool = true
     ) async -> Outcome {
         let pixels = points * scale
+        var isVideo = attachment.mime.hasPrefix("video/")
         if attachment.mime == "image/gif" {
-            return await gif(attachment, maxPixelSize: pixels, key: key, progress: progress)
+            // Медиа-система уже перевела GIF в беззвучный MP4, а сообщение ещё говорит
+            // `image/gif`: ссылка ведёт на ролик — кадр берём как у видео (постер). Уже
+            // разобранный GIF ссылку не спрашивает.
+            guard AnimatedGIF.cached(key) == nil, await linkIsAnimation(attachment) else {
+                return await gif(attachment, maxPixelSize: pixels, key: key, progress: progress)
+            }
+            isVideo = true
         }
-        let isVideo = attachment.mime.hasPrefix("video/")
         if let path = attachment.localPath, FileManager.default.fileExists(atPath: path) {
             let file = URL(filePath: path)
             let local = isVideo
@@ -1031,6 +1095,14 @@ enum ChatMediaImages {
         }
         if !Task.isCancelled { await urls.invalidate(attachment.id) }
         return .failed(retryable: true)
+    }
+
+    /// Ссылка на `image/gif` ведёт уже на беззвучный MP4. Своя копия на диске — сам GIF;
+    /// ссылку не получили — решит обычный путь GIF со своей обработкой ошибки (запрос
+    /// той же ссылки сведётся с этим в один или возьмётся из кеша).
+    static func linkIsAnimation(_ attachment: AttachmentRecord) async -> Bool {
+        if let path = attachment.localPath, FileManager.default.fileExists(atPath: path) { return false }
+        return (try? await AppServices.attachmentURLs.media(for: attachment.id))?.animation == true
     }
 
     /// Повторять ли самим: «нет файла», «не участник», «не то прочли» — нет; сеть, лимит

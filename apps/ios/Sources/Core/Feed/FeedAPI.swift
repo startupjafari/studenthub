@@ -34,6 +34,9 @@ struct PostDTO: Decodable, Equatable, Identifiable {
         var hls: String? = nil
         /// `READY`, `PROCESSING`, `FAILED`, …
         var status: String? = nil
+        /// GIF беззвучным MP4 (вложение чата с `animation`): просмотр крутит его по кругу
+        /// без контролов. Лента поля не шлёт.
+        var animation: Bool? = nil
     }
 
     /// Организация вместо человека: пост страницы вуза или компании.

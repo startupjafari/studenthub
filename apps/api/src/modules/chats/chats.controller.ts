@@ -221,7 +221,12 @@ export class ChatsController {
 
   @Get('attachments/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к вложению сообщения (по членству в чате)' })
-  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ url, expiresAt, mime, animation, …MediaInfo } — оригинал и варианты; mime/animation ' +
+      'текущие (GIF после перевода в MP4 — video/mp4 + animation)',
+  })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник чата' })
   attachmentUrl(@CurrentUser() user: CurrentUserData, @Param('fileId') fileId: string) {
     return this.chats.getAttachmentUrl(user.sub, fileId)
@@ -626,7 +631,13 @@ export class ChatsController {
 
   @Get('gifs/recent')
   @ApiOperation({ summary: 'Недавние GIF, которые я отправлял (свежие первыми, ≤ 50)' })
-  @ApiResponse({ status: 200, description: '[{ fileId, width, height, url, expiresAt }]' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '[{ fileId, mime, animation, width, height, url, poster, placeholder, expiresAt, ' +
+      'fingerprint }] — ' +
+      'работает и без GIPHY_API_KEY',
+  })
   recentGifs(@CurrentUser() user: CurrentUserData, @Query() query: ChatGifRecentQueryDto) {
     return this.chats.recentGifs(user.sub, query)
   }

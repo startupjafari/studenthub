@@ -48,6 +48,8 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
     var lastAttachmentHeight: Int? = nil
     var lastAttachmentAsDocument: Bool? = nil
     var lastAttachmentSpoiler: Bool? = nil
+    /// GIF беззвучным MP4 — превью «GIF», а не «Видео».
+    var lastAttachmentAnimation: Bool? = nil
 
     var kind: ChatKind { ChatKind.from(type) }
     var isPinned: Bool { pinnedAt != nil }
@@ -74,7 +76,8 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
             height: lastAttachmentHeight,
             localPath: lastAttachmentLocalPath,
             placeholder: lastAttachmentPlaceholder,
-            spoiler: lastAttachmentSpoiler ?? false
+            spoiler: lastAttachmentSpoiler ?? false,
+            animation: lastAttachmentAnimation ?? false
         )
     }
 
@@ -103,7 +106,9 @@ struct ChatListRow: FetchableRecord, Decodable, Identifiable, Equatable {
         if mime.hasPrefix("audio/") {
             return lastAttachmentName ?? String(localized: "chats.preview.audio", defaultValue: "Аудио")
         }
-        if mime == "image/gif" { return String(localized: "chats.preview.gif", defaultValue: "GIF") }
+        if mime == "image/gif" || (lastAttachmentAnimation == true && mime.hasPrefix("video/")) {
+            return String(localized: "chats.preview.gif", defaultValue: "GIF")
+        }
         if mime.hasPrefix("image/") { return String(localized: "chats.preview.photo", defaultValue: "Фото") }
         if mime.hasPrefix("video/") { return String(localized: "chats.preview.video", defaultValue: "Видео") }
         return lastAttachmentName ?? String(localized: "chats.preview.file", defaultValue: "Файл")
@@ -231,7 +236,8 @@ enum ChatListQuery {
                 a.width AS lastAttachmentWidth,
                 a.height AS lastAttachmentHeight,
                 a.asDocument AS lastAttachmentAsDocument,
-                a.spoiler AS lastAttachmentSpoiler
+                a.spoiler AS lastAttachmentSpoiler,
+                a.animation AS lastAttachmentAnimation
             FROM chat c
             LEFT JOIN draft d ON d.chatId = c.id
             LEFT JOIN message m ON m.id = c.lastMessageId

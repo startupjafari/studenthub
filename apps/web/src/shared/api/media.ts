@@ -31,7 +31,17 @@ export interface MediaInfo {
 }
 
 /** Ответ «ссылка на файл»: оригинал и описание его вариантов. */
-export type MediaLink = MediaInfo & { url: string; expiresAt: string }
+export type MediaLink = MediaInfo & {
+  url: string
+  expiresAt: string
+  /**
+   * Текущий тип файла (ссылка на вложение чата). Может отличаться от того, что в сообщении:
+   * GIF после отправки переводится в MP4 — тогда здесь video/mp4 и `animation`.
+   */
+  mime?: string
+  /** Анимация — GIF как беззвучный MP4: показывать по кругу без звука. */
+  animation?: boolean
+}
 
 /**
  * Поля превью в списках (сообщения, лента, материалы): приходят без подписанных ссылок,
@@ -72,5 +82,7 @@ export function toMediaLink(data: string | (Partial<MediaLink> & { url: string }
     sources: raw.sources ?? [],
     poster: raw.poster ?? [],
     hls: raw.hls ?? null,
+    ...(raw.mime ? { mime: raw.mime } : {}),
+    ...(raw.animation !== undefined ? { animation: raw.animation } : {}),
   }
 }
