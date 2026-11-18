@@ -2,7 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { MessageReactionSchema, isSingleEmoji } from '@studenthub/shared-schemas'
 import { ChatsService } from './chats.service'
 import { ChatChecklistsService } from './chat-checklists.service'
-import { ChatStickersService } from './chat-stickers.service'
+import { ChatStickersService, USABLE_STICKER_WHERE } from './chat-stickers.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -719,7 +719,8 @@ describe('Стикеры', () => {
     prisma.sticker.findFirst.mockResolvedValue({ id: 'st1' })
     await service.send('u1', 'c1', { stickerId: 'st1', nonce: 'n1' })
     expect(prisma.sticker.findFirst).toHaveBeenCalledWith({
-      where: { id: 'st1', set: { isPublished: true } },
+      // Опубликованный каталог или живой личный набор (свои стикеры), готовый стикер.
+      where: { id: 'st1', ...USABLE_STICKER_WHERE },
       select: { id: true },
     })
     expect(chats.sendRichMessage).toHaveBeenCalledWith('u1', 'c1', {
