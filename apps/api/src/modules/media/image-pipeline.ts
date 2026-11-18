@@ -85,6 +85,19 @@ export async function buildImageVariants(
   return { width, height, placeholder, variants }
 }
 
+/** Кадры анимированного изображения: размер одного кадра, их число и задержки (мс). */
+export async function animationFrames(
+  input: Buffer,
+): Promise<{ width: number; height: number; frames: number; delaysMs: number[] }> {
+  const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
+  return {
+    width: meta.width ?? 0,
+    height: meta.pageHeight ?? meta.height ?? 0,
+    frames: meta.pages ?? 1,
+    delaysMs: meta.delay ?? [],
+  }
+}
+
 /** Постер видео из кадра (JPEG от ffmpeg): ступени WebP и LQIP. */
 export async function buildPosterVariants(frame: Buffer): Promise<ImagePipelineResult> {
   const { width, height } = await orientedSize(frame)

@@ -1,4 +1,10 @@
-import { planHlsLadder, planImageWidths, planPosterWidths, posterTimestamp } from './media-plan'
+import {
+  planAnimation,
+  planHlsLadder,
+  planImageWidths,
+  planPosterWidths,
+  posterTimestamp,
+} from './media-plan'
 import { imageVariantKey, variantOwnerId, variantPrefix } from './media-keys'
 
 describe('planImageWidths', () => {
@@ -67,5 +73,35 @@ describe('media-keys', () => {
   it('чужие ключи и мусор в префиксе — не варианты', () => {
     expect(variantOwnerId(`${id}/photo.jpg`)).toBeNull()
     expect(variantOwnerId('variants/../etc/passwd')).toBeNull()
+  })
+})
+
+describe('planAnimation', () => {
+  const delays = (n: number, ms: number) => Array<number>(n).fill(ms)
+
+  it('один кадр — не анимация', () => {
+    expect(planAnimation(320, 240, 1, [100])).toBeNull()
+    expect(planAnimation(0, 240, 10)).toBeNull()
+  })
+
+  it('стороны чётные, длинная — не больше 720', () => {
+    expect(planAnimation(101, 77, 10, delays(10, 100))).toMatchObject({ width: 102, height: 78 })
+    expect(planAnimation(1440, 810, 10, delays(10, 100))).toMatchObject({
+      width: 720,
+      height: 406,
+    })
+    expect(planAnimation(400, 1000, 10, delays(10, 100))).toMatchObject({
+      width: 288,
+      height: 720,
+    })
+  })
+
+  it('частота выше 30 к/с срезается, ниже — тайминг GIF как есть', () => {
+    expect(planAnimation(100, 100, 50, delays(50, 20))?.fps).toBe(30)
+    expect(planAnimation(100, 100, 10, delays(10, 100))?.fps).toBeNull()
+  })
+
+  it('задержка короче 20 мс считается за 100 мс, как в браузере', () => {
+    expect(planAnimation(100, 100, 10, delays(10, 0))?.fps).toBeNull()
   })
 })
