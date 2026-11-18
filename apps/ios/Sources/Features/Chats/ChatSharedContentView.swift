@@ -195,14 +195,16 @@ private extension ChatMediaItemDTO {
         PostDTO.Media(
             id: id,
             url: signed.url.absoluteString,
-            mime: mime,
+            // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
+            mime: signed.mime ?? mime,
             width: width,
             height: height,
             placeholder: placeholder,
             durationMs: durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls
+            hls: signed.hls,
+            animation: isAnimation || signed.animation
         )
     }
 
@@ -519,37 +521,64 @@ struct ChatContentList: View {
 }
 
 /// Плитка вкладки GIF — анимированная, из оригинала (уменьшенные копии анимацию теряют).
+/// GIF, который сервер хранит беззвучным MP4 (`animation`), — ролик по кругу поверх
+/// постера; при «уменьшении движения» ролик стоит, виден постер.
 private struct ChatGifThumb: View {
     let item: ChatMediaItemDTO
 
     @State private var image: UIImage?
+    /// Ролик GIF беззвучным MP4 — вместо разбора GIF.
+    @State private var animationURL: URL?
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.motionReduced) private var reduceMotion
 
     var body: some View {
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .overlay {
-                if let image {
-                    AnimatedImageView(image: image)
-                } else {
-                    Palette.muted
+                ZStack {
+                    if let image {
+                        if image.images != nil {
+                            AnimatedImageView(image: image)
+                        } else {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                    } else {
+                        Palette.muted
+                    }
+                    if let animationURL, !reduceMotion {
+                        LoopingVideoView(url: animationURL)
+                            .allowsHitTesting(false)
+                    }
                 }
             }
             .clipped()
             .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
-            .task(id: item.id) {
-                let key = "gif-tab:\(item.id)"
-                if let cached = AnimatedGIF.cached(key) {
-                    image = cached
-                    return
-                }
-                guard
-                    let url = try? await AppServices.attachmentURLs.media(for: item.id).url,
-                    let (data, _) = try? await URLSession.shared.data(from: url)
-                else { return }
-                image = await Task.detached(priority: .utility) {
-                    AnimatedGIF.decode(data, maxPixelSize: 300, key: key)
-                }.value
+            .task(id: item.id) { await load() }
+    }
+
+    private func load() async {
+        let key = "gif-tab:\(item.id)"
+        if !item.isAnimation, let cached = AnimatedGIF.cached(key) {
+            image = cached
+            return
+        }
+        guard let media = try? await AppServices.attachmentURLs.media(for: item.id) else { return }
+        // Ссылка новее ответа вкладки: `image/gif` мог уже стать беззвучным MP4.
+        if item.isAnimation || media.animation {
+            animationURL = media.url
+            // Постер под роликом — его же берёт сетка «Медиа» (`ChatMediaThumbnails`).
+            if item.isAnimation {
+                image = await ChatMediaThumbnails.shared.image(for: item, pixels: ChatMediaThumbnails.points * displayScale)
             }
+            return
+        }
+        guard let (data, _) = try? await URLSession.shared.data(from: media.url) else { return }
+        image = await Task.detached(priority: .utility) {
+            AnimatedGIF.decode(data, maxPixelSize: 300, key: key)
+        }.value
     }
 }
 
@@ -602,7 +631,16 @@ private struct ChatMediaThumb: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if item.isVideo {
+                if item.isAnimation {
+                    // GIF беззвучным MP4: подпись «GIF», а не «играть» с длительностью.
+                    Text(String(localized: "chats.preview.gif", defaultValue: "GIF"))
+                        .font(Typography.tabular(.caption2.weight(.semibold)))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Spacing.xs)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.45), in: Capsule())
+                        .padding(Spacing.xs)
+                } else if item.isVideo {
                     HStack(spacing: 2) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 8, weight: .bold))
@@ -630,9 +668,11 @@ private struct ChatMediaThumb: View {
                 }
             }
             .accessibilityElement()
-            .accessibilityLabel(Text(item.isVideo
-                ? String(localized: "chats.preview.video", defaultValue: "Видео")
-                : String(localized: "chats.preview.photo", defaultValue: "Фото")))
+            .accessibilityLabel(Text(item.isAnimation
+                ? String(localized: "chats.preview.gif", defaultValue: "GIF")
+                : item.isVideo
+                    ? String(localized: "chats.preview.video", defaultValue: "Видео")
+                    : String(localized: "chats.preview.photo", defaultValue: "Фото")))
             .accessibilityAddTraits(.isButton)
     }
 

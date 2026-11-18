@@ -284,6 +284,14 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("chatsGifs_attachmentAnimation") { db in
+            // GIF, который сервер хранит беззвучным MP4: играет в пузыре сам. Старые
+            // записи — обычное видео до следующей подгрузки переписки.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.add(column: "animation", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

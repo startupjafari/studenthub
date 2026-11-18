@@ -73,8 +73,12 @@ struct ChatMediaItemDTO: Decodable, Equatable, Identifiable {
     let createdAt: Date
     /// Кто прислал — подпись строки голосового.
     var sender: ChatPersonDTO? = nil
+    /// GIF беззвучным MP4 — как у вложения сообщения; старый сервер поля не шлёт.
+    var animation: Bool? = nil
 
     var isVideo: Bool { mime.hasPrefix("video/") }
+    /// GIF в виде ролика: плитка вкладки GIF играет его сама, а не разбирает как GIF.
+    var isAnimation: Bool { animation == true && isVideo }
 }
 
 /// Недавний файл для листа вложений (`GET /chats/files/recent`): свои отправленные
