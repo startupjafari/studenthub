@@ -107,6 +107,9 @@ export const envSchema = z.object({
   MINIO_USE_SSL: booleanFromString,
   MINIO_ACCESS_KEY: z.string().min(1),
   MINIO_SECRET_KEY: z.string().min(1),
+  // Регион бакетов. У MinIO по умолчанию us-east-1; менять, только если сервер MinIO
+  // запущен с другим MINIO_REGION — иначе подписи ссылок не сойдутся.
+  MINIO_REGION: z.string().min(1).default('us-east-1'),
   MINIO_BUCKET_AVATARS: z.string().default('avatars'),
   MINIO_BUCKET_POSTS: z.string().default('posts-media'),
   MINIO_BUCKET_STORIES: z.string().default('stories-media'),
