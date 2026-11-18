@@ -84,7 +84,8 @@ interface ChatDao {
                 m.senderId AS lastSenderId,
                 m.createdAt AS lastCreatedAt,
                 m.deletedAt AS lastDeletedAt,
-                EXISTS (SELECT 1 FROM attachment a WHERE a.messageId = m.id) AS lastHasMedia
+                EXISTS (SELECT 1 FROM attachment a WHERE a.messageId = m.id) AS lastHasMedia,
+                EXISTS (SELECT 1 FROM attachment a WHERE a.messageId = m.id AND a.animation = 1 AND a.mime LIKE 'video/%') AS lastHasAnimation
             FROM chat c
             LEFT JOIN draft d ON d.chatId = c.id
             LEFT JOIN message m ON m.id = c.lastMessageId

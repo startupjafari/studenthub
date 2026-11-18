@@ -149,8 +149,13 @@ data class AttachmentEntity(
     val height: Int?,
     /** Файл на устройстве: у своих до отправки и у скачанных. Ключ кэша — id, не ссылка. */
     val localPath: String?,
+    /** Флаг сервера `animation`: GIF, перекодированный в беззвучный MP4 (столбец с версии 4). */
+    @ColumnInfo(defaultValue = "0") val animation: Boolean = false,
 ) {
     val isImage: Boolean get() = mime.startsWith("image/")
+
+    /** GIF в виде MP4: в пузыре играет сам, без звука и по кругу. Старый `image/gif` — картинка. */
+    val isGifVideo: Boolean get() = animation && mime.startsWith("video/")
 
     /**
      * Голосовое узнаётся по имени (`voice-…`), как и в вебе (`attachment-kind.ts`):
@@ -186,6 +191,7 @@ data class ChatListRow(
     val lastCreatedAt: Instant?,
     val lastDeletedAt: Instant?,
     @ColumnInfo(name = "lastHasMedia") val lastHasMedia: Boolean = false,
+    @ColumnInfo(name = "lastHasAnimation") val lastHasAnimation: Boolean = false,
 ) {
     val kind: ChatKind get() = ChatKind.from(type)
     val isPinned: Boolean get() = pinnedAt != null

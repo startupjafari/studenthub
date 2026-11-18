@@ -256,13 +256,15 @@ private fun ReplyQuote(text: String, isOwn: Boolean) {
 fun AttachmentView(attachment: AttachmentEntity, isOwn: Boolean) {
     when {
         attachment.isVoice -> VoiceAttachment(attachment, isOwn)
+        attachment.isGifVideo -> AnimationAttachment(attachment)
+        attachment.mime.equals("image/gif", ignoreCase = true) -> LegacyGifAttachment(attachment)
         attachment.isImage -> ImageAttachment(attachment)
         else -> FileAttachment(attachment, isOwn)
     }
 }
 
 @Composable
-private fun rememberAttachmentSource(attachment: AttachmentEntity): String? {
+internal fun rememberAttachmentSource(attachment: AttachmentEntity): String? {
     val services = LocalServices.current
     val local = attachment.localPath?.takeIf { File(it).exists() }
     var remote by remember(attachment.id) { mutableStateOf<String?>(null) }
@@ -273,7 +275,7 @@ private fun rememberAttachmentSource(attachment: AttachmentEntity): String? {
 }
 
 @Composable
-private fun ImageAttachment(attachment: AttachmentEntity) {
+internal fun ImageAttachment(attachment: AttachmentEntity) {
     val context = LocalContext.current
     val source = rememberAttachmentSource(attachment)
     val label = stringResource(R.string.chats_photo)

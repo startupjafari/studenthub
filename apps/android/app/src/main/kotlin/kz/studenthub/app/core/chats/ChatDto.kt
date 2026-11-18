@@ -45,6 +45,11 @@ data class ChatAttachmentDto(
     val asDocument: Boolean? = null,
     val width: Int? = null,
     val height: Int? = null,
+    /**
+     * GIF, который сервер перекодировал в беззвучный MP4: играет в пузыре сам и по кругу.
+     * Старые сообщения поля не шлют.
+     */
+    val animation: Boolean = false,
 )
 
 @Serializable
