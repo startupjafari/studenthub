@@ -22,11 +22,15 @@ export { MINIO_CLIENT, MINIO_PUBLIC_CLIENT }
           useSSL: config.get('MINIO_USE_SSL', { infer: true }),
           accessKey: config.get('MINIO_ACCESS_KEY', { infer: true }),
           secretKey: config.get('MINIO_SECRET_KEY', { infer: true }),
+          region: config.get('MINIO_REGION', { infer: true }),
         }),
     },
     {
       // Клиент для presigned-ссылок в браузер: если задан MINIO_PUBLIC_ENDPOINT —
       // подписываем на публичный адрес, иначе повторяем внутренний (dev без изменений).
+      // Регион задан явно: без него minio-js перед КАЖДОЙ подписью идёт по сети на этот
+      // адрес узнать регион бакета. Публичный адрес из сервера бывает недоступен (домен
+      // за прокси, раздача Wi-Fi для телефона) — и запрос со ссылками висел до таймаута.
       provide: MINIO_PUBLIC_CLIENT,
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvVars, true>) => {
@@ -41,6 +45,7 @@ export { MINIO_CLIENT, MINIO_PUBLIC_CLIENT }
             : config.get('MINIO_USE_SSL', { infer: true }),
           accessKey: config.get('MINIO_ACCESS_KEY', { infer: true }),
           secretKey: config.get('MINIO_SECRET_KEY', { infer: true }),
+          region: config.get('MINIO_REGION', { infer: true }),
         })
       },
     },
