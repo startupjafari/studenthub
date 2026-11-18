@@ -20835,6 +20835,456 @@
         ]
       }
     },
+    "/chats/stickers/mine": {
+      "get": {
+        "operationId": "UserStickersController_listMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои наборы стикеров: со статусом сборки каждого стикера",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "post": {
+        "operationId": "UserStickersController_createMine",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStickerSetCreateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "409": {
+            "description": "STICKER_LIMIT_REACHED — своих наборов 10 или в панели 50 (details[0].field)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать свой набор (сразу добавляется в панель)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/mine/{setId}": {
+      "get": {
+        "operationId": "UserStickersController_getMine",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет или он не мой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Свой набор (перечитывать, пока стикеры собираются)",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "patch": {
+        "operationId": "UserStickersController_renameMine",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStickerSetUpdateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "403": {
+            "description": "FORBIDDEN — набор снят модерацией"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет или он не мой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переименовать свой набор",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "UserStickersController_deleteMine",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалён"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет или он не мой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить свой набор: пропадает у добавивших, отправленные стикеры остаются",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/mine/{setId}/stickers": {
+      "post": {
+        "operationId": "UserStickersController_addSticker",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "PNG, JPEG, WebP, GIF или видео (mp4/webm/mov), ≤ 10 МБ"
+                  },
+                  "overlay": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Прозрачный PNG поверх анимации (надпись)"
+                  },
+                  "sourceFileId": {
+                    "type": "string",
+                    "description": "Вместо file: вложение переписки"
+                  },
+                  "emoji": {
+                    "type": "string",
+                    "description": "Один эмодзи — метка стикера"
+                  },
+                  "startMs": {
+                    "type": "number",
+                    "description": "Начало отрезка анимации, мс"
+                  },
+                  "durationMs": {
+                    "type": "number",
+                    "description": "Длина отрезка, 300–3000 мс"
+                  },
+                  "cropX": {
+                    "type": "number",
+                    "description": "Кадрирование анимации: доли кадра 0…1"
+                  },
+                  "cropY": {
+                    "type": "number"
+                  },
+                  "cropW": {
+                    "type": "number"
+                  },
+                  "cropH": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "409": {
+            "description": "STICKER_LIMIT_REACHED — в наборе уже 120 стикеров"
+          },
+          "422": {
+            "description": "STICKER_SOURCE_INVALID — не картинка/GIF/видео, «бомба» или не уложился в 512 КБ"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить стикер в свой набор: статика → WebP 512 сразу, GIF/видео → анимированный WebP в воркере",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/mine/{setId}/order": {
+      "put": {
+        "operationId": "UserStickersController_reorder",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserStickerReorderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — список не совпадает с набором"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переставить стикеры своего набора (все живые id по разу)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/mine/{setId}/stickers/{stickerId}": {
+      "delete": {
+        "operationId": "UserStickersController_deleteSticker",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stickerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, removed, createdAt, stickers: [{ id, emoji, width, height, animated, status, url, expiresAt }] }"
+          },
+          "404": {
+            "description": "NOT_FOUND — стикера нет в наборе"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать стикер из своего набора (отправленные остаются видимыми)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/added": {
+      "get": {
+        "operationId": "UserStickersController_listAdded",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, title, slug, isMine, stickers: [{ id, emoji, width, height, animated, url, expiresAt }] }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Личные наборы в моей панели (свои и чужие по ссылке)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/added/{setId}": {
+      "post": {
+        "operationId": "UserStickersController_addSet",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Добавлен (повтор поднимает наверх)"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет, удалён или снят"
+          },
+          "409": {
+            "description": "STICKER_LIMIT_REACHED — в панели уже 50 наборов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить личный набор себе в панель",
+        "tags": [
+          "Чаты"
+        ]
+      },
+      "delete": {
+        "operationId": "UserStickersController_removeSet",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Убран (или его там не было)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать набор из своей панели (свой набор не удаляется)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/preview": {
+      "get": {
+        "operationId": "UserStickersController_preview",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "setId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, kind, isMine, isAdded, stickers: [...] } — автор не раскрывается"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет, удалён или снят"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Превью набора по короткому имени (ссылка /addstickers/<slug>) или по id набора",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/stickers/sets": {
       "get": {
         "operationId": "ChatStickersController_sets",
@@ -36534,6 +36984,53 @@
         ],
         "additionalProperties": false
       },
+      "UserStickerSetCreateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "UserStickerSetUpdateDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "UserStickerReorderDto": {
+        "type": "object",
+        "properties": {
+          "stickerIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 120
+          }
+        },
+        "required": [
+          "stickerIds"
+        ],
+        "additionalProperties": false
+      },
       "ChatSavedGifCreateDto": {
         "type": "object",
         "properties": {
@@ -37591,7 +38088,8 @@
               "COMMENT",
               "MESSAGE",
               "USER",
-              "CHAT"
+              "CHAT",
+              "STICKER_SET"
             ]
           },
           "targetId": {

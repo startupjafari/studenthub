@@ -76,6 +76,7 @@ const TARGET_KEY: Record<ComplaintTargetTypeValue, string> = {
   MESSAGE: 'targetMESSAGE',
   USER: 'targetUSER',
   CHAT: 'targetCHAT',
+  STICKER_SET: 'targetSTICKER_SET',
 }
 const PRIORITY_KEY: Record<ComplaintPriorityValue, string> = {
   HIGH: 'priorityHIGH',

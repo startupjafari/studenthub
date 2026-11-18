@@ -231,13 +231,16 @@ export interface MessageChecklist {
   items: MessageChecklistItem[]
 }
 
-// Стикер каталога: картинку отдаёт подписанной ссылкой GET /chats/stickers/:id/url.
+// Стикер каталога или своего набора: картинку отдаёт подписанной ссылкой
+// GET /chats/stickers/:id/url. По `setId` открывается окно набора.
 export interface MessageSticker {
   id: string
   setId: string
   emoji: string | null
   width: number | null
   height: number | null
+  /** Анимированный WebP (свой стикер из GIF или видео). У старых ответов поля нет. */
+  animated?: boolean
 }
 
 // Инлайн-превью ссылки (OG-мета) в сообщении.

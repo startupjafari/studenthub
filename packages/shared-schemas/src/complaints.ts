@@ -11,6 +11,7 @@ export const ComplaintTargetTypeSchema = z.enum([
   'MESSAGE',
   'USER',
   'CHAT',
+  'STICKER_SET',
 ])
 export type ComplaintTargetTypeValue = z.infer<typeof ComplaintTargetTypeSchema>
 
@@ -42,6 +43,8 @@ export const COMPLAINT_PRIORITY_BY_TARGET: Record<
   STORY: 'MEDIUM',
   // Группа целиком (название, фото, назначение) — публичное внутри вуза, как пост.
   CHAT: 'MEDIUM',
+  // Личный набор стикеров: виден всем, у кого ссылка, — публичный контент, как пост.
+  STICKER_SET: 'MEDIUM',
   COMMENT: 'LOW',
 }
 

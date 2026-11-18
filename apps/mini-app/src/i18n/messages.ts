@@ -63,6 +63,7 @@ const ru = {
 
   targetUser: 'На пользователя',
   targetChat: 'На группу',
+  targetStickerSet: 'На набор стикеров',
   targetMessage: 'На сообщение',
   targetPost: 'На пост',
   targetStory: 'На историю',
@@ -540,6 +541,7 @@ const kk: Record<MessageKey, string> = {
 
   targetUser: 'Пайдаланушыға',
   targetChat: 'Топқа',
+  targetStickerSet: 'Стикерлер жинағына',
   targetMessage: 'Хабарламаға',
   targetPost: 'Жазбаға',
   targetStory: 'Оқиғаға',
@@ -1011,6 +1013,7 @@ const en: Record<MessageKey, string> = {
 
   targetUser: 'About a person',
   targetChat: 'About a group',
+  targetStickerSet: 'About a sticker set',
   targetMessage: 'About a message',
   targetPost: 'About a post',
   targetStory: 'About a story',

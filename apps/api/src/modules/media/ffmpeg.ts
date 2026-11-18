@@ -20,7 +20,7 @@ export class FfmpegError extends Error {
   }
 }
 
-function run(bin: string, args: string[], timeoutMs: number): Promise<string> {
+export function run(bin: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     const stdout: Buffer[] = []

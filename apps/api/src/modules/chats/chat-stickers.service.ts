@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { Prisma } from '@prisma/client'
+import { MediaStatus, Prisma, StickerSetKind } from '@prisma/client'
 import {
   FAVORITE_STICKERS_MAX,
   STICKER_LIMITS,
@@ -17,16 +17,17 @@ import type { EnvVars } from '../../config/env.schema'
 import { FileService } from '../files/file.service'
 import { ChatsService, type MessageRow } from './chats.service'
 
-const STICKER_SELECT = {
+export const STICKER_SELECT = {
   id: true,
   emoji: true,
   width: true,
   height: true,
   order: true,
   fileId: true,
+  animated: true,
 } satisfies Prisma.StickerSelect
 
-type StickerRow = Prisma.StickerGetPayload<{ select: typeof STICKER_SELECT }>
+export type StickerRow = Prisma.StickerGetPayload<{ select: typeof STICKER_SELECT }>
 
 /** Стикер в выдаче каталога: подписанная ссылка на картинку и её срок. */
 export interface StickerDto {
@@ -34,9 +35,44 @@ export interface StickerDto {
   emoji: string | null
   width: number | null
   height: number | null
+  /** Анимированный WebP (свои стикеры из GIF и видео). У каталога — false. */
+  animated: boolean
   url: string
   expiresAt: string
 }
+
+/**
+ * Стикер можно отправить, добавить в избранное и показать в панели: готов, не убран
+ * владельцем, набор опубликован (каталог) или жив (личный).
+ */
+export const USABLE_STICKER_WHERE = {
+  status: MediaStatus.READY,
+  deletedAt: null,
+  set: {
+    OR: [
+      { kind: StickerSetKind.CATALOG, isPublished: true },
+      { kind: StickerSetKind.USER, deletedAt: null, removedAt: null },
+    ],
+  },
+} satisfies Prisma.StickerWhereInput
+
+/**
+ * Стикер можно показать в переписке (`GET /chats/stickers/:id/url`). Шире, чем «можно
+ * отправить»: удалённый владельцем стикер или набор у уже отправленных сообщений остаётся
+ * видимым (как в Telegram). Снятый модерацией набор не показывается нигде.
+ */
+const VISIBLE_STICKER_WHERE = {
+  status: MediaStatus.READY,
+  set: {
+    OR: [
+      { kind: StickerSetKind.CATALOG, isPublished: true },
+      { kind: StickerSetKind.USER, removedAt: null },
+    ],
+  },
+} satisfies Prisma.StickerWhereInput
+
+/** Только каталог платформы: личные наборы админка не видит и не меняет. */
+const CATALOG_WHERE = { kind: StickerSetKind.CATALOG } satisfies Prisma.StickerSetWhereInput
 
 export interface StickerSetDto {
   id: string
@@ -92,7 +128,7 @@ export class ChatStickersService {
   /** Опубликованные наборы по порядку, со стикерами и ссылками на картинки. */
   async listPublished(): Promise<StickerSetDto[]> {
     const sets = await this.prisma.stickerSet.findMany({
-      where: { isPublished: true },
+      where: { ...CATALOG_WHERE, isPublished: true },
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       take: STICKER_LIMITS.SETS_MAX,
       select: {
@@ -115,10 +151,13 @@ export class ChatStickersService {
     }))
   }
 
-  /** Свежая ссылка на картинку одного стикера (опубликованного набора). */
+  /**
+   * Свежая ссылка на картинку одного стикера: каталога (опубликованного) или личного набора
+   * (в том числе удалённого владельцем — отправленные стикеры остаются видимыми).
+   */
   async stickerUrl(stickerId: string): Promise<{ url: string; expiresAt: string }> {
     const sticker = await this.prisma.sticker.findFirst({
-      where: { id: stickerId, set: { isPublished: true } },
+      where: { id: stickerId, ...VISIBLE_STICKER_WHERE },
       select: STICKER_SELECT,
     })
     if (!sticker) throw new AppException('NOT_FOUND', 'Стикер не найден')
@@ -127,10 +166,14 @@ export class ChatStickersService {
     return { url: dto.url, expiresAt: dto.expiresAt }
   }
 
-  /** Отправить стикер (`POST /chats/:id/sticker`) — только из опубликованного набора. */
+  /**
+   * Отправить стикер (`POST /chats/:id/sticker`) — из опубликованного набора каталога или из
+   * живого личного набора (своего или чужого: стикер, увиденный в переписке, отправить можно,
+   * как в Telegram). Права группы (`sendStickers`) проверяет sendRichMessage.
+   */
   async send(senderId: string, chatId: string, input: ChatStickerSendInput): Promise<MessageRow> {
     const sticker = await this.prisma.sticker.findFirst({
-      where: { id: input.stickerId, set: { isPublished: true } },
+      where: { id: input.stickerId, ...USABLE_STICKER_WHERE },
       select: { id: true },
     })
     if (!sticker) throw new AppException('NOT_FOUND', 'Стикер не найден')
@@ -146,12 +189,12 @@ export class ChatStickersService {
   // Личный список: свежие сверху, не больше FAVORITE_STICKERS_MAX. Своим устройствам —
   // сигнал `stickers:favorites-changed`, клиент перечитывает список.
 
-  /** Мои избранные — только из опубликованных наборов, в форме стикера каталога. */
+  /** Мои избранные — только стикеры, которыми можно пользоваться, в форме стикера каталога. */
   async listFavorites(userId: string): Promise<StickerDto[]> {
     const rows = await this.prisma.favoriteSticker.findMany({
-      // Снятый с публикации набор из выдачи уходит, строка остаётся: вернут набор — вернётся
-      // и избранное, как было.
-      where: { userId, sticker: { set: { isPublished: true } } },
+      // Снятый с публикации (удалённый, снятый модерацией) набор из выдачи уходит, строка
+      // остаётся: вернут набор — вернётся и избранное, как было.
+      where: { userId, sticker: USABLE_STICKER_WHERE },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: FAVORITE_STICKERS_MAX,
       select: { sticker: { select: STICKER_SELECT } },
@@ -167,7 +210,7 @@ export class ChatStickersService {
    */
   async addFavorite(userId: string, stickerId: string): Promise<void> {
     const sticker = await this.prisma.sticker.findFirst({
-      where: { id: stickerId, set: { isPublished: true } },
+      where: { id: stickerId, ...USABLE_STICKER_WHERE },
       select: { id: true },
     })
     if (!sticker) throw new AppException('NOT_FOUND', 'Стикер не найден')
@@ -201,6 +244,7 @@ export class ChatStickersService {
 
   async listAll(): Promise<StickerSetAdminDto[]> {
     const sets = await this.prisma.stickerSet.findMany({
+      where: CATALOG_WHERE,
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       take: STICKER_LIMITS.SETS_MAX,
       select: {
@@ -227,6 +271,7 @@ export class ChatStickersService {
 
   async createSet(actorId: string, input: StickerSetCreateInput): Promise<StickerSetAdminDto> {
     const last = await this.prisma.stickerSet.findFirst({
+      where: CATALOG_WHERE,
       orderBy: { order: 'desc' },
       select: { order: true },
     })
@@ -294,7 +339,7 @@ export class ChatStickersService {
       take: STICKER_LIMITS.STICKERS_PER_SET_MAX,
     })
     await this.prisma.stickerSet.delete({ where: { id: setId } })
-    await this.removeFiles(stickers.map((sticker) => sticker.fileId))
+    await this.removeFiles(stickers.flatMap((sticker) => sticker.fileId ?? []))
     await this.audit.record({
       userId: actorId,
       action: AUDIT_ACTION.setDeleted,
@@ -368,13 +413,14 @@ export class ChatStickersService {
     stickerId: string,
   ): Promise<StickerSetAdminDto> {
     const sticker = await this.prisma.sticker.findFirst({
-      where: { id: stickerId, setId },
+      where: { id: stickerId, setId, set: CATALOG_WHERE },
       select: { id: true, fileId: true },
     })
     if (!sticker) throw new AppException('NOT_FOUND', 'Стикер не найден')
     // Запись стикера уходит каскадом вместе с File (Sticker.file onDelete: Cascade). Здесь
     // сбой не глушим: иначе стикер остался бы в наборе, а ответ сказал бы «удалён».
-    await this.files.delete(sticker.fileId)
+    if (sticker.fileId) await this.files.delete(sticker.fileId)
+    else await this.prisma.sticker.delete({ where: { id: sticker.id } })
     await this.audit.record({
       userId: actorId,
       action: AUDIT_ACTION.stickerDeleted,
@@ -386,8 +432,8 @@ export class ChatStickersService {
   }
 
   private async findSet(setId: string): Promise<void> {
-    const set = await this.prisma.stickerSet.findUnique({
-      where: { id: setId },
+    const set = await this.prisma.stickerSet.findFirst({
+      where: { id: setId, ...CATALOG_WHERE },
       select: { id: true },
     })
     if (!set) throw new AppException('NOT_FOUND', 'Набор стикеров не найден')
@@ -416,19 +462,26 @@ export class ChatStickersService {
     return { ...rest, stickers: stickers.flatMap((sticker) => signed.get(sticker.id) ?? []) }
   }
 
-  /** Подписанные ссылки на картинки — одной пачкой на весь каталог. */
-  private async sign(stickers: StickerRow[]): Promise<Map<string, StickerDto>> {
-    const urls = await this.files.getPresignedUrls(stickers.map((sticker) => sticker.fileId))
+  /**
+   * Подписанные ссылки на картинки — одной пачкой на весь каталог. Стикер без готовой
+   * картинки (личный, ещё собирается) в выдачу не попадает. Общий и для личных наборов
+   * (UserStickersService).
+   */
+  async sign(stickers: StickerRow[]): Promise<Map<string, StickerDto>> {
+    const urls = await this.files.getPresignedUrls(
+      stickers.flatMap((sticker) => sticker.fileId ?? []),
+    )
     const expiresAt = signingWindow(Date.now()).expiresAt.toISOString()
     const out = new Map<string, StickerDto>()
     for (const sticker of stickers) {
-      const url = urls.get(sticker.fileId)
+      const url = sticker.fileId ? urls.get(sticker.fileId) : undefined
       if (!url) continue
       out.set(sticker.id, {
         id: sticker.id,
         emoji: sticker.emoji,
         width: sticker.width,
         height: sticker.height,
+        animated: sticker.animated,
         url,
         expiresAt,
       })

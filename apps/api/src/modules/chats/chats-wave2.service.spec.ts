@@ -8,7 +8,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { ChatsService, type MessageRow } from './chats.service'
 import { ChatFoldersService } from './chat-folders.service'
-import { ChatStickersService } from './chat-stickers.service'
+import { ChatStickersService, USABLE_STICKER_WHERE } from './chat-stickers.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -972,8 +972,9 @@ describe('Избранные стикеры', () => {
     await expect(service.addFavorite('u1', 'st-скрытый')).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
+    // Опубликованный каталог или живой личный набор, готовый и не убранный стикер.
     expect(prisma.sticker.findFirst).toHaveBeenCalledWith({
-      where: { id: 'st-скрытый', set: { isPublished: true } },
+      where: { id: 'st-скрытый', ...USABLE_STICKER_WHERE },
       select: { id: true },
     })
     expect(prisma.favoriteSticker.upsert).not.toHaveBeenCalled()
@@ -981,12 +982,20 @@ describe('Избранные стикеры', () => {
 
   it('список — только опубликованные, свежие сверху, не больше 30, в форме стикера каталога', async () => {
     const { service, prisma, files } = stickersSetup()
-    const sticker = { id: 'st1', emoji: '😀', width: 512, height: 512, order: 0, fileId: 'file1' }
+    const sticker = {
+      id: 'st1',
+      emoji: '😀',
+      width: 512,
+      height: 512,
+      order: 0,
+      fileId: 'file1',
+      animated: false,
+    }
     prisma.favoriteSticker.findMany.mockResolvedValue([{ sticker }])
     files.getPresignedUrls.mockResolvedValue(new Map([['file1', 'https://s/1']]))
     const list = await service.listFavorites('u1')
     expect(prisma.favoriteSticker.findMany.mock.calls[0][0]).toMatchObject({
-      where: { userId: 'u1', sticker: { set: { isPublished: true } } },
+      where: { userId: 'u1', sticker: USABLE_STICKER_WHERE },
       take: FAVORITE_STICKERS_MAX,
     })
     expect(list).toEqual([
@@ -995,6 +1004,7 @@ describe('Избранные стикеры', () => {
         emoji: '😀',
         width: 512,
         height: 512,
+        animated: false,
         url: 'https://s/1',
         expiresAt: expect.any(String),
       },

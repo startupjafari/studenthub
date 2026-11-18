@@ -16,6 +16,7 @@ import {
   Pin,
   PinOff,
   Reply,
+  Sticker,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -56,6 +57,11 @@ export interface MessageMenuActions {
   onForward?: () => void
   onDelete?: () => void
   onSelect?: () => void
+  /**
+   * «Сделать стикером» — у сообщения с фото, GIF или видео: открывает редактор своего
+   * стикера. Нет — пункта нет.
+   */
+  onMakeSticker?: () => void
   /** Пожаловаться на чужое сообщение. Нет — пункта нет (роль жалоб не подаёт). */
   onReport?: () => void
   /** Список отреагировавших (пункт «N реакций» с лицами, как в Telegram). Нет — пункта нет. */
@@ -406,6 +412,7 @@ export function MessageContextMenu({
     ),
     ...optional('link', t('copyLink'), Link2, actions.onCopyLink),
     ...optional('forward', t('forward'), Forward, actions.onForward),
+    ...optional('sticker', t('tgStickers.makeSticker'), Sticker, actions.onMakeSticker),
     ...optional('select', t('select'), CheckCheck, actions.onSelect),
     ...(!mine ? optional('report', t('report'), Flag, actions.onReport, true) : []),
     ...(canDelete ? optional('delete', t('delete'), Trash2, actions.onDelete, true) : []),

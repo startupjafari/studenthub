@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { Copy, Eye, Forward, ImageDown, Trash2 } from 'lucide-react'
+import { Copy, Eye, Forward, ImageDown, Sticker, Trash2 } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -64,6 +64,11 @@ export interface MediaViewerActions {
   /** Нет — пересылать отсюда нечем (правая панель, сообщение вне истории). */
   onForward?: () => void
   onDelete?: () => void
+  /**
+   * «Сделать стикером» из текущего кадра (фото, GIF, видео). Получает сам кадр: в ленте всех
+   * медиа чата он может быть из другого сообщения. Нет — пункта нет.
+   */
+  onMakeSticker?: (attachment: MessageAttachment) => void
 }
 
 // Просмотр медиа сообщений (Ф9+). Тонкая обёртка над общим shared/ui MediaViewer:
@@ -248,6 +253,21 @@ export function MediaViewer({
           : []),
         ...(actions.onForward
           ? [{ key: 'forward', label: t('forward'), icon: Forward, onSelect: actions.onForward }]
+          : []),
+        // Своё вложение без сервера (ещё грузится) стикером не сделать — файла там ещё нет.
+        ...(actions.onMakeSticker &&
+        !cur.uploading &&
+        !cur.id.startsWith('tmp') &&
+        (cur.mime.startsWith('image/') || cur.mime.startsWith('video/'))
+          ? [
+              {
+                key: 'sticker',
+                label: t('tgStickers.makeSticker'),
+                icon: Sticker,
+                onSelect: () => actions.onMakeSticker?.(cur),
+                closes: true,
+              },
+            ]
           : []),
         ...(meta?.mine && actions.onDelete
           ? [
