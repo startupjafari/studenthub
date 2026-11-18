@@ -848,6 +848,16 @@ export const ChatGifRecentQuerySchema = z
   .strict()
 export type ChatGifRecentQueryInput = z.infer<typeof ChatGifRecentQuerySchema>
 
+/** «Мои GIF» как в Telegram: не больше 200, сверх лимита вытесняется самый давний. */
+export const SAVED_GIFS_LIMIT = 200
+
+/**
+ * Сохранить GIF себе (`POST /chats/gifs/saved`): `fileId` — GIF-вложение сообщения в чате,
+ * где я участник (старый image/gif или анимация-MP4).
+ */
+export const ChatSavedGifCreateSchema = z.object({ fileId: entityId }).strict()
+export type ChatSavedGifCreateInput = z.infer<typeof ChatSavedGifCreateSchema>
+
 /** Поиск GIF во внешнем каталоге: потолок выдачи за раз и длина запроса. */
 export const GIF_SEARCH_LIMITS = { LIMIT_MAX: 50, LIMIT_DEFAULT: 24, QUERY_MAX: 50 } as const
 

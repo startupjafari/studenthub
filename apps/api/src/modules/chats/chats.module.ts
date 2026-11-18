@@ -20,6 +20,7 @@ import { ChatStickersService } from './chat-stickers.service'
 import { ChatStickersController } from './chat-stickers.controller'
 import { StickerSetsAdminController } from './sticker-sets-admin.controller'
 import { ChatGifsService } from './chat-gifs.service'
+import { ChatSavedGifsService } from './chat-saved-gifs.service'
 import { ChatGifsController } from './chat-gifs.controller'
 import { ChatAttentionService } from './chat-attention.service'
 import { ChatAttentionController } from './chat-attention.controller'
@@ -60,6 +61,7 @@ import { ChatGroupsController } from './chat-groups.controller'
     ChatChecklistsService,
     ChatStickersService,
     ChatGifsService,
+    ChatSavedGifsService,
     ChatAttentionService,
     ChatSettingsService,
     ChatGroupsService,
