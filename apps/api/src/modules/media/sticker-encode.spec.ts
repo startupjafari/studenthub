@@ -122,6 +122,31 @@ describe('encodeStaticSticker', () => {
     expect(out).toMatchObject({ width: 512, height: 256 })
   })
 
+  it('кадрирование и надпись поверх — на сервере (снимок из переписки)', async () => {
+    const photo = await sharp({
+      create: { width: 400, height: 200, channels: 3, background: '#000' },
+    })
+      .png()
+      .toBuffer()
+    // Белая надпись на весь стикер: после наложения центр стикера — белый.
+    const overlay = await sharp({
+      create: { width: 50, height: 50, channels: 4, background: '#ffff' },
+    })
+      .png()
+      .toBuffer()
+    const out = await encodeStaticSticker(photo, {
+      crop: { x: 0, y: 0, w: 0.5, h: 1 },
+      overlay,
+    })
+    // Половина кадра 400×200 — квадрат 200×200 → 512×512.
+    expect(out).toMatchObject({ width: 512, height: 512 })
+    const { data } = await sharp(out.buffer)
+      .extract({ left: 256, top: 256, width: 1, height: 1 })
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    expect(data[0]).toBeGreaterThan(200)
+  })
+
   it('шумная фотография укладывается в 512 КБ снижением качества', async () => {
     const noise = Buffer.alloc(1024 * 1024 * 4)
     for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24

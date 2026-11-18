@@ -266,9 +266,17 @@ export class UserStickersService {
 
     if (source.kind === 'png' || source.kind === 'jpeg' || source.kind === 'static-webp') {
       const buffer = source.buffer ?? (await this.files.getObjectBuffer(source.bucket, source.key))
+      if (upload.overlay && sniffStickerSource(upload.overlay) !== 'png') {
+        throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Надпись поверх — только PNG')
+      }
+      const f = upload.fields
+      const crop =
+        f.cropX !== undefined && f.cropY !== undefined && f.cropW !== undefined
+          ? { x: f.cropX, y: f.cropY, w: f.cropW, h: f.cropH ?? 1 }
+          : undefined
       let encoded
       try {
-        encoded = await encodeStaticSticker(buffer)
+        encoded = await encodeStaticSticker(buffer, { crop, overlay: upload.overlay })
       } catch (error) {
         if (error instanceof StickerSourceError) throw sourceInvalid(error.problem)
         throw error

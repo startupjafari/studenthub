@@ -129,12 +129,20 @@ export async function isAnimatedWebp(input: Buffer): Promise<boolean> {
 }
 
 /**
- * Статичный стикер: поворот по EXIF, большая сторона → 512 px (меньшие картинки
- * растягиваются — стикеры в чате одного размера), WebP с альфа-каналом. Качество снижается
- * ступенями, пока файл не уложится в 512 КБ. Анимированный исходник сюда не приходит —
- * у GIF и анимированного WebP взялся бы только первый кадр.
+ * Статичный стикер: поворот по EXIF, кадрирование (если задано), большая сторона → 512 px
+ * (меньшие картинки растягиваются — стикеры в чате одного размера), надпись поверх, WebP с
+ * альфа-каналом. Качество снижается ступенями, пока файл не уложится в 512 КБ.
+ * Анимированный исходник сюда не приходит — у GIF и анимированного WebP взялся бы только
+ * первый кадр.
+ *
+ * Обычно клиент присылает уже готовую картинку (обрезка, обводка, надпись — на устройстве),
+ * и `crop`/`overlay` не нужны. Они — для снимка из переписки, который браузер не смог
+ * нарисовать у себя: тогда кадрирует и кладёт надпись сервер.
  */
-export async function encodeStaticSticker(input: Buffer): Promise<EncodedSticker> {
+export async function encodeStaticSticker(
+  input: Buffer,
+  opts: { crop?: CropFraction; overlay?: Buffer } = {},
+): Promise<EncodedSticker> {
   let meta: Metadata
   try {
     meta = await sharp(input, { limitInputPixels: false }).metadata()
@@ -143,16 +151,33 @@ export async function encodeStaticSticker(input: Buffer): Promise<EncodedSticker
   }
   if (!meta.width || !meta.height) throw new StickerSourceError('decode')
   if (meta.width * meta.height > STATIC_MAX_PIXELS) throw new StickerSourceError('pixels')
+  // Стороны после поворота по EXIF (ориентации 5–8 меняют их местами).
+  const turned = (meta.orientation ?? 1) >= 5
+  const frameW = turned ? meta.height : meta.width
+  const frameH = turned ? meta.width : meta.height
+  const crop = cropToPixels(opts.crop, frameW, frameH)
+  const out = fitStickerSide(crop.width, crop.height)
 
   // Раскладка в 512 px — один раз, в «сырые» пиксели: ступени качества кодируют уже их.
   let raw: { data: Buffer; info: OutputInfo }
   try {
-    raw = await sharp(input, { failOn: 'none', limitInputPixels: STATIC_MAX_PIXELS })
-      .rotate()
-      .resize(SIDE_PX, SIDE_PX, { fit: 'inside' })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true })
+    let pipeline = sharp(input, { failOn: 'none', limitInputPixels: STATIC_MAX_PIXELS }).rotate()
+    if (opts.crop) pipeline = pipeline.extract(crop)
+    pipeline = pipeline.resize(out.width, out.height, { fit: 'fill' }).ensureAlpha()
+    if (opts.overlay) {
+      // Размер PNG от клиента не доверяем: приводим к размеру стикера.
+      const overlay = await sharp(opts.overlay, { limitInputPixels: STATIC_MAX_PIXELS })
+        .resize(out.width, out.height, { fit: 'fill' })
+        .ensureAlpha()
+        .png()
+        .toBuffer()
+      // Кадрирование и масштаб применяются до наложения: composite в sharp идёт последним.
+      const base = await pipeline.png().toBuffer()
+      pipeline = sharp(base)
+        .composite([{ input: overlay, top: 0, left: 0 }])
+        .ensureAlpha()
+    }
+    raw = await pipeline.raw().toBuffer({ resolveWithObject: true })
   } catch {
     throw new StickerSourceError('decode')
   }
