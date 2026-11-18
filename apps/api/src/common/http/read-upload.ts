@@ -49,14 +49,18 @@ export async function readNamedUpload(
  */
 export async function readUploadWithFields(req: FastifyRequest): Promise<{
   fields: Record<string, string>
-  files: { buffer: Buffer; filename: string }[]
+  files: { buffer: Buffer; filename: string; fieldname: string }[]
 }> {
   const fields: Record<string, string> = {}
-  const files: { buffer: Buffer; filename: string }[] = []
+  const files: { buffer: Buffer; filename: string; fieldname: string }[] = []
   try {
     for await (const part of req.parts()) {
       if (part.type === 'file') {
-        files.push({ buffer: await part.toBuffer(), filename: part.filename })
+        files.push({
+          buffer: await part.toBuffer(),
+          filename: part.filename,
+          fieldname: part.fieldname,
+        })
       } else if (typeof part.value === 'string') {
         fields[part.fieldname] = part.value
       }

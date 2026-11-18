@@ -590,7 +590,9 @@ const MESSAGE_SELECT = {
   location: { select: LOCATION_SELECT },
   contact: { select: { name: true, phones: true, emails: true, userId: true } },
   checklist: { select: CHECKLIST_SELECT },
-  sticker: { select: { id: true, setId: true, emoji: true, width: true, height: true } },
+  sticker: {
+    select: { id: true, setId: true, emoji: true, width: true, height: true, animated: true },
+  },
 } satisfies Prisma.MessageSelect
 
 type MessageDbRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
