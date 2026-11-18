@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  GifVideo,
   chatKeys,
   fetchAttachmentLink,
   fetchChatLinks,
@@ -232,11 +233,17 @@ function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void 
       )}
       {/* Видео отличается от снимка длительностью в углу, как в Telegram: значок «▶»
           поверх каждой второй плитки превращал сетку в стену кнопок. */}
-      {isVideo && (
-        <span className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded bg-black/55 px-1 py-px text-[0.6875rem] font-medium tabular-nums text-white">
-          <Play className="size-2.5 fill-current" aria-hidden />
-          {item.durationMs ? formatDuration(item.durationMs) : null}
+      {isVideo && item.animation ? (
+        <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1 py-px text-[0.6875rem] font-semibold uppercase text-white">
+          {t('tgGifs.badge')}
         </span>
+      ) : (
+        isVideo && (
+          <span className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded bg-black/55 px-1 py-px text-[0.6875rem] font-medium tabular-nums text-white">
+            <Play className="size-2.5 fill-current" aria-hidden />
+            {item.durationMs ? formatDuration(item.durationMs) : null}
+          </span>
+        )
       )}
     </button>
   )
@@ -557,7 +564,14 @@ function GifThumb({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) 
       aria-label={t('goToMessage')}
       className="relative aspect-square overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      {link.data ? (
+      {link.data && (link.data.mime ?? item.mime).startsWith('video/') ? (
+        // GIF, переведённый в MP4: ролик по кругу без звука, вне экрана — на паузе.
+        <GifVideo
+          src={link.data.url}
+          poster={link.data.poster[0]?.url}
+          className="size-full object-cover"
+        />
+      ) : link.data ? (
         // Подписанная ссылка на приватный бакет: next/image её не оптимизирует.
         <img src={link.data.url} alt="" loading="lazy" className="size-full object-cover" />
       ) : item.placeholder ? (
