@@ -26,6 +26,7 @@ const PREVIEW_KEY: Record<AttachmentKind, string> = {
   round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
+  gif: 'tgGifs.preview',
   file: 'previewFile',
 }
 
@@ -295,7 +296,7 @@ const THUMB_MIN_W = 72
 function PinnedThumb({ message }: { message: ChatMessage }) {
   const media = message.media.find((a) => {
     const kind = attachmentKind(a)
-    return kind === 'photo' || kind === 'video'
+    return kind === 'photo' || kind === 'video' || kind === 'gif'
   })
   const source = useAttachmentLinkSource()
   const hasLocal = !!media?.localUrl
@@ -308,7 +309,9 @@ function PinnedThumb({ message }: { message: ChatMessage }) {
   })
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   if (!media) return null
-  const isVideo = attachmentKind(media) === 'video'
+  // GIF-анимация — тоже ролик: миниатюра — её постер. Тип — по ссылке, если она его знает
+  // (GIF переводится в MP4 после отправки).
+  const isVideo = (link.data?.mime ?? media.mime).startsWith('video/')
   const data = link.data
   const src = hasLocal
     ? isVideo

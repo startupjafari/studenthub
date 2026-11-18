@@ -19,7 +19,10 @@ import { ChatChecklistsController } from './chat-checklists.controller'
 import { ChatStickersService } from './chat-stickers.service'
 import { ChatStickersController } from './chat-stickers.controller'
 import { StickerSetsAdminController } from './sticker-sets-admin.controller'
+import { UserStickersService } from './user-stickers.service'
+import { UserStickersController } from './user-stickers.controller'
 import { ChatGifsService } from './chat-gifs.service'
+import { ChatSavedGifsService } from './chat-saved-gifs.service'
 import { ChatGifsController } from './chat-gifs.controller'
 import { ChatAttentionService } from './chat-attention.service'
 import { ChatAttentionController } from './chat-attention.controller'
@@ -39,6 +42,7 @@ import { ChatGroupsController } from './chat-groups.controller'
   controllers: [
     ChatFoldersController,
     ChatChecklistsController,
+    UserStickersController,
     ChatStickersController,
     ChatGifsController,
     ChatAttentionController,
@@ -59,7 +63,9 @@ import { ChatGroupsController } from './chat-groups.controller'
     SupportService,
     ChatChecklistsService,
     ChatStickersService,
+    UserStickersService,
     ChatGifsService,
+    ChatSavedGifsService,
     ChatAttentionService,
     ChatSettingsService,
     ChatGroupsService,

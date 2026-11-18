@@ -216,7 +216,7 @@ class MessageStore(private val db: AppDatabase, private val now: () -> Instant =
             dao.deleteAttachments(messageId)
             dao.insertAttachments(
                 media.map {
-                    AttachmentEntity(it.id, messageId, it.mime, it.name, it.size, it.width, it.height, paths[it.id])
+                    AttachmentEntity(it.id, messageId, it.mime, it.name, it.size, it.width, it.height, paths[it.id], it.animation)
                 },
             )
         }

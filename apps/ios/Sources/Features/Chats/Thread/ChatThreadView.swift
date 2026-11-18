@@ -1232,7 +1232,9 @@ struct ChatThreadView: View {
     /// Снимок для просмотра: свой файл на диске — сразу, чужой — по свежей подписанной
     /// ссылке с уменьшенными копиями и HLS ролика.
     private static func viewerMedia(_ file: AttachmentRecord) async -> PostDTO.Media? {
-        if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
+        // Своя копия GIF-ролика — исходный `.gif`: его просмотр не сыграет, берём MP4 по ссылке.
+        if let path = file.localPath, FileManager.default.fileExists(atPath: path),
+           !file.isAnimation || file.localAnimationFile != nil {
             return PostDTO.Media(
                 id: file.id,
                 url: URL(filePath: path).absoluteString,
@@ -1240,21 +1242,24 @@ struct ChatThreadView: View {
                 width: file.width,
                 height: file.height,
                 placeholder: file.placeholder,
-                durationMs: file.durationMs
+                durationMs: file.durationMs,
+                animation: file.isAnimation
             )
         }
         guard let signed = try? await AppServices.attachmentURLs.media(for: file.id) else { return nil }
+        // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
         return PostDTO.Media(
             id: file.id,
             url: signed.url.absoluteString,
-            mime: file.mime,
+            mime: signed.mime ?? file.mime,
             width: file.width,
             height: file.height,
             placeholder: file.placeholder,
             durationMs: file.durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls
+            hls: signed.hls,
+            animation: file.isAnimation || signed.animation
         )
     }
 

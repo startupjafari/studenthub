@@ -51,6 +51,7 @@
     "Today",
     "University"
   ],
+  "addstickers": ["Chats", "Report"],
   "c": ["LibraryCatalog"],
   "campus-editor": ["Campus", "CampusEditor", "CampusMap", "CampusSite"],
   "dean": [

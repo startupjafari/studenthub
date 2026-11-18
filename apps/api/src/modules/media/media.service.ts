@@ -52,6 +52,7 @@ export class MediaService {
   private readonly logger = new Logger(MediaService.name)
   private readonly mediaBuckets: Set<string>
   private readonly publicBuckets: Set<string>
+  private readonly chatBucket: string
   private readonly tokenSecret: string
   private readonly apiPrefix: string
 
@@ -67,6 +68,7 @@ export class MediaService {
     this.publicBuckets = new Set(
       PUBLIC_MEDIA_BUCKET_KEYS.map((k) => this.config.get(k, { infer: true })),
     )
+    this.chatBucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
     // Свой секрет, а не JWT_ACCESS_SECRET как есть: токен плейлиста, подписанный ключом
     // access-токенов, прошёл бы проверку подписи в JwtStrategy.
     this.tokenSecret =
@@ -81,6 +83,22 @@ export class MediaService {
     if (mime.startsWith('image/')) return 'image'
     if (mime.startsWith('video/')) return 'video'
     return null
+  }
+
+  /**
+   * GIF вложения чата, который воркер переведёт в беззвучный MP4 (анимация как в Telegram).
+   * Только чат: лента, сторисы и профиль показывают GIF картинкой, их клиенты флага не знают.
+   */
+  isAnimationSource(bucket: string, mime: string): boolean {
+    return bucket === this.chatBucket && mime === 'image/gif'
+  }
+
+  /**
+   * Очередь обработки. GIF чата идёт в очередь видео: это ffmpeg на секунды-минуты, а у
+   * очереди фото короткая блокировка job'а (см. scheduleCopy).
+   */
+  private queueOf(kind: 'image' | 'video', bucket: string, mime: string): 'image' | 'video' {
+    return this.isAnimationSource(bucket, mime) ? 'video' : kind
   }
 
   /**
@@ -119,7 +137,12 @@ export class MediaService {
       data.trimEndMs = String(trim.endMs)
       data.trimSourceKey = file.key
     }
-    await this.enqueue(kind, MEDIA_JOBS.PROCESS, data, `media_${file.id}`)
+    await this.enqueue(
+      this.queueOf(kind, file.bucket, file.mime),
+      MEDIA_JOBS.PROCESS,
+      data,
+      `media_${file.id}`,
+    )
   }
 
   /**
@@ -138,7 +161,13 @@ export class MediaService {
     // на минуты в очереди фото держал снимки, а с её lockDuration в 30 с BullMQ отдавал
     // job второму воркеру — ролик кодировался дважды. Такая копия идёт в очередь видео:
     // там она встаёт за кодированием источника и обычно застаёт его готовым.
-    const queueKind = kind === 'video' && !(await this.isReady(sourceId)) ? 'video' : 'image'
+    // GIF чата при копировании переводится в MP4 заново (MediaProcessingService.copy) — тоже
+    // в очередь видео.
+    const queueKind =
+      this.isAnimationSource(target.bucket, target.mime) ||
+      (kind === 'video' && !(await this.isReady(sourceId)))
+        ? 'video'
+        : 'image'
     await this.enqueue(
       queueKind,
       MEDIA_JOBS.COPY,
@@ -225,7 +254,9 @@ export class MediaService {
     ])
     for (const f of stuck) {
       const kind = this.kindOf(f.bucket, f.mime)
-      if (kind) await this.enqueue(kind, MEDIA_JOBS.PROCESS, { fileId: f.id }, `media_${f.id}`)
+      if (!kind) continue
+      const queue = this.queueOf(kind, f.bucket, f.mime)
+      await this.enqueue(queue, MEDIA_JOBS.PROCESS, { fileId: f.id }, `media_${f.id}`)
     }
     for (const f of fresh) await this.schedule(f)
     return { resumed: stuck.length, backfilled: fresh.length }

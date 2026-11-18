@@ -565,6 +565,7 @@ describe('FileService.deleteDetached', () => {
     documentTemplateVersion: null,
     sticker: null,
     avatarPhoto: null,
+    savedGif: null,
     _count: { stories: 0, albumsCovered: 0 },
   }
 
@@ -613,6 +614,7 @@ describe('FileService.deleteDetached', () => {
     ['страница документа', { documentId: 'd1' }],
     ['исходник шаблона документа', { documentTemplateVersion: { id: 'v1' } }],
     ['картинка стикера каталога', { sticker: { id: 'st-1' } }],
+    ['GIF из «Моих GIF»', { savedGif: { id: 'sg-1' } }],
     ['файл сданной работы', { submissionId: 's1' }],
     ['медиа сториса', { _count: { stories: 1, albumsCovered: 0 } }],
     ['обложка альбома', { _count: { stories: 0, albumsCovered: 1 } }],

@@ -30,6 +30,12 @@ export interface UploadFileParams {
   name?: string
   /** Принимать архивы (категория «по приглашению», см. FILE_UPLOAD.OPT_IN_CATEGORIES). */
   allowArchives?: boolean
+  /**
+   * Анимация (GIF как MP4): ставит сервер, когда сам знает, что ролик — GIF (готовый MP4 из
+   * GIPHY). Только при `video/*`: флаг выставляется до постановки в обработку, и воркер
+   * готовит постер, а не HLS.
+   */
+  animation?: boolean
 }
 
 /**
@@ -96,6 +102,8 @@ export const DETACHED_WHERE = {
   sticker: { is: null },
   // Фото из истории аватаров (§8.3): снимает только удаление фото из истории.
   avatarPhoto: { is: null },
+  // «Мои GIF»: снимает только «Убрать из GIF».
+  savedGif: { is: null },
 } satisfies Prisma.FileWhereInput
 
 const ATTACHMENT_SELECT = {
@@ -112,6 +120,7 @@ const ATTACHMENT_SELECT = {
   documentTemplateVersion: { select: { id: true } },
   sticker: { select: { id: true } },
   avatarPhoto: { select: { id: true } },
+  savedGif: { select: { id: true } },
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
@@ -133,7 +142,8 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file._count.bookCovers > 0 ||
     file.documentTemplateVersion !== null ||
     file.sticker !== null ||
-    file.avatarPhoto !== null
+    file.avatarPhoto !== null ||
+    file.savedGif !== null
   )
 }
 
@@ -194,6 +204,7 @@ export class FileService {
     messageId,
     name,
     allowArchives,
+    animation,
   }: UploadFileParams) {
     const detected = await detectAllowedFileType(buffer)
     if (!detected) {
@@ -244,6 +255,7 @@ export class FileService {
         height: dims?.height,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.
         name: name?.slice(0, 255) || null,
+        animation: animation === true && detected.category === 'VIDEO',
         mediaStatus: this.media.initialStatus(bucket, detected.mime),
       },
       select: FILE_SELECT,
@@ -648,6 +660,8 @@ export class FileService {
       // Размеры оригинала: у копии тот же объект, повторно считать нечего.
       width?: number | null
       height?: number | null
+      // Анимация (GIF в MP4) — свойство содержимого: копия показывается так же.
+      animation?: boolean
     },
     ownerId: string,
     messageId?: string,
@@ -666,6 +680,7 @@ export class FileService {
         width: source.width ?? null,
         height: source.height ?? null,
         name: source.name ?? null,
+        animation: source.animation ?? false,
         mediaStatus: this.media.initialStatus(source.bucket, source.mime),
       },
       select: FILE_SELECT,
@@ -673,6 +688,47 @@ export class FileService {
     // Варианты копируются, а не готовятся заново: пересланное видео не перекодируется.
     if (source.id) await this.media.scheduleCopy(source.id, copy)
     else await this.media.schedule(copy)
+    return copy
+  }
+
+  /**
+   * Вторая запись File на тот же объект хранилища — без копирования байтов («Мои GIF»).
+   * Запись живёт своей жизнью: удаление источника объект не снимет, пока на него ссылается
+   * эта запись (FileService.delete, cleanOrphanFiles считают ссылки по ключу). Варианты медиа
+   * у каждой записи свои — копируются из готовых источника.
+   */
+  async cloneRecord(
+    source: {
+      id: string
+      bucket: string
+      key: string
+      mime: string
+      size: number
+      name?: string | null
+      width?: number | null
+      height?: number | null
+      durationMs?: number | null
+      animation?: boolean
+    },
+    ownerId: string,
+  ) {
+    const copy = await this.prisma.file.create({
+      data: {
+        bucket: source.bucket,
+        key: source.key,
+        mime: source.mime,
+        size: source.size,
+        ownerId,
+        name: source.name ?? null,
+        width: source.width ?? null,
+        height: source.height ?? null,
+        durationMs: source.durationMs ?? null,
+        animation: source.animation ?? false,
+        mediaStatus: this.media.initialStatus(source.bucket, source.mime),
+      },
+      select: FILE_SELECT,
+    })
+    await this.media.scheduleCopy(source.id, copy)
     return copy
   }
 

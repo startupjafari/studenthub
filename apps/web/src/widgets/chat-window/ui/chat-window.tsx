@@ -17,6 +17,13 @@ import {
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import { ReportModal } from '../../../features/report-content'
+import { StickerEditorHost } from '../../../features/create-sticker'
+import { MyStickerSetsHost, StickerSetPreviewHost } from '../../../features/sticker-sets'
+import {
+  attachmentStickerSource,
+  canMakeSticker,
+  openStickerEditor,
+} from '../../../entities/sticker-set'
 import { useRealtimeSocket, useRealtimeEvent, SELF_RESYNC_META } from '../../../shared/realtime'
 import {
   chatKeys,
@@ -69,6 +76,7 @@ import {
   createRefreshCoalescer,
   scheduleChatsUnreadRefresh,
   applyLocationUpdate,
+  useSavedGifMenu,
   type ChatFolder,
   type ChatGroupSettings,
   type ChatListItem,
@@ -346,6 +354,8 @@ export function ChatWindow() {
   // Своя быстрая реакция (`GET /chats/settings`): двойной клик, кнопка у пузыря, первая в меню.
   const quickReaction = useDefaultReaction()
   useChatSettingsSync()
+  // «Сохранить в GIF» / «Убрать из GIF» в меню сообщения с GIF.
+  const savedGifMenu = useSavedGifMenu()
   const [createGroupOpen, setCreateGroupOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
@@ -455,6 +465,8 @@ export function ChatWindow() {
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
   const [reportMsg, setReportMsg] = useState<ChatMessage | null>(null)
+  // Жалоба на набор стикеров из окна набора (цель STICKER_SET).
+  const [reportStickerSet, setReportStickerSet] = useState<string | null>(null)
   // Присутствие участников открытого чата — вне состояния окна: событие о человеке не
   // перерисовывает ленту, а о постороннем для чата — вообще ничего (F-F12).
   const [presenceStore] = useState(createPresenceStore)
@@ -4279,8 +4291,13 @@ export function ChatWindow() {
               })
             },
             onCopy: () => copyText(menu.message),
+            gif: savedGifMenu(menu.message),
             onCopyLink: () => copyLink(menu.message),
             onForward: () => setForwardMsg(menu.message),
+            onMakeSticker: (() => {
+              const att = menu.message.media.find(canMakeSticker)
+              return att ? () => openStickerEditor(attachmentStickerSource(att)) : undefined
+            })(),
             onDelete: () => deleteMessage(menu.message),
             onSelect: () => enterSelect(menu.message),
             onReport:
@@ -4303,6 +4320,19 @@ export function ChatWindow() {
       )}
       {/* Значок «Ответить» при свайпе сообщения влево (тач). */}
       <MessageListSwipeHint ref={swipeHintRef} />
+
+      {/* Свои стикеры: редактор, «Мои наборы» и окно набора открываются отовсюду из чата
+          (entities/sticker-set) и рисуются здесь по одному разу. */}
+      <StickerEditorHost />
+      <MyStickerSetsHost />
+      <StickerSetPreviewHost onReport={canReport ? setReportStickerSet : undefined} />
+      {reportStickerSet && (
+        <ReportModal
+          targetType="STICKER_SET"
+          targetId={reportStickerSet}
+          onClose={() => setReportStickerSet(null)}
+        />
+      )}
 
       {reportMsg && (
         <ReportModal

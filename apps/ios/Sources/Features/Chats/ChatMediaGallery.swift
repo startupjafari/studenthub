@@ -336,7 +336,9 @@ final class ChatMediaGallery {
         guard let entry = window.entry(id), !entry.isResolved, resolving.insert(id).inserted else { return }
         defer { resolving.remove(id) }
         let stored = try? await ChatListQueries(database: AppServices.database).fetchAttachment(id: id)
-        if let path = stored?.localPath, FileManager.default.fileExists(atPath: path) {
+        // Своя копия GIF-ролика — исходный `.gif`: его просмотр не сыграет, берём MP4 по ссылке.
+        if let stored, let path = stored.localPath, FileManager.default.fileExists(atPath: path),
+           !stored.isAnimation || stored.localAnimationFile != nil {
             let media = PostDTO.Media(
                 id: entry.media.id,
                 url: URL(filePath: path).absoluteString,
@@ -344,7 +346,8 @@ final class ChatMediaGallery {
                 width: entry.media.width,
                 height: entry.media.height,
                 placeholder: entry.media.placeholder,
-                durationMs: entry.media.durationMs
+                durationMs: entry.media.durationMs,
+                animation: entry.media.animation
             )
             window.resolve(id, with: media)
             return
@@ -354,14 +357,16 @@ final class ChatMediaGallery {
         window.resolve(id, with: PostDTO.Media(
             id: media.id,
             url: signed.url.absoluteString,
-            mime: media.mime,
+            // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
+            mime: signed.mime ?? media.mime,
             width: media.width,
             height: media.height,
             placeholder: media.placeholder,
             durationMs: media.durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls
+            hls: signed.hls,
+            animation: media.animation == true || signed.animation
         ))
     }
 
@@ -375,7 +380,8 @@ final class ChatMediaGallery {
                 width: item.width,
                 height: item.height,
                 placeholder: item.placeholder,
-                durationMs: item.durationMs
+                durationMs: item.durationMs,
+                animation: item.animation
             ),
             messageID: item.messageId.isEmpty ? nil : item.messageId,
             senderID: item.sender?.id,

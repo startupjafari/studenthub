@@ -10,6 +10,7 @@ import {
   ChatLocationSchema,
   LiveLocationUpdateSchema,
   ChatPollsQuerySchema,
+  ChatSavedGifCreateSchema,
   ChatStickerSendSchema,
 } from '@studenthub/shared-schemas'
 
@@ -25,3 +26,4 @@ export class LiveLocationUpdateDto extends createZodDto(LiveLocationUpdateSchema
 export class ChatGifTrendingQueryDto extends createZodDto(ChatGifTrendingQuerySchema) {}
 export class ChatGifSearchQueryDto extends createZodDto(ChatGifSearchQuerySchema) {}
 export class ChatGifExternalSendDto extends createZodDto(ChatGifExternalSendSchema) {}
+export class ChatSavedGifCreateDto extends createZodDto(ChatSavedGifCreateSchema) {}

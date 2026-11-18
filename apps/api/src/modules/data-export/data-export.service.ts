@@ -495,7 +495,7 @@ export class DataExportService {
     userId: string,
     take: number,
   ): Promise<Record<string, ExportSection>> {
-    const [avatarPhotos, chatJoinRequests, chatRemovals] = await Promise.all([
+    const [avatarPhotos, chatJoinRequests, chatRemovals, stickerSets] = await Promise.all([
       this.prisma.avatarPhoto.findMany({
         where: { userId },
         select: { url: true, createdAt: true },
@@ -514,11 +514,27 @@ export class DataExportService {
         orderBy: { removedAt: 'desc' },
         take,
       }),
+      // Свои наборы стикеров (личные, kind USER) — и удалённые, и снятые модерацией: это
+      // созданное человеком содержимое. Наборы каталога, заведённые админом, — его работа.
+      this.prisma.stickerSet.findMany({
+        where: { createdById: userId, kind: 'USER' },
+        select: {
+          title: true,
+          slug: true,
+          createdAt: true,
+          deletedAt: true,
+          removedAt: true,
+          _count: { select: { stickers: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
     ])
     return {
       avatarPhotos: section(avatarPhotos, SECTION_LIMIT),
       chatJoinRequests: section(chatJoinRequests, SECTION_LIMIT),
       chatRemovals: section(chatRemovals, SECTION_LIMIT),
+      stickerSets: section(stickerSets, SECTION_LIMIT),
     }
   }
 
@@ -1358,9 +1374,19 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'ChatContact.userId': {
       excluded: 'карточка контакта, которую отправил другой человек; сервер поле не заполняет',
     },
-    'StickerSet.createdById': { excluded: STAFF_WORK },
+    // Свои наборы стикеров — раздел; наборы каталога, заведённые админом, туда не попадают.
+    'StickerSet.createdById': { section: 'stickerSets' },
+    'StickerSet.removedById': {
+      excluded: 'решение модератора о чужом наборе — данные автора набора и вуза',
+    },
+    'UserStickerSet.userId': {
+      excluded: 'служебная настройка панели: какие наборы стикеров показывать, только id наборов',
+    },
     'FavoriteSticker.userId': {
       excluded: 'служебная настройка интерфейса: только id стикеров каталога платформы',
+    },
+    'SavedGif.userId': {
+      excluded: 'подборка «Мои GIF»: копии чужих анимаций из переписки, своего содержимого нет',
     },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
     'AvatarPhoto.userId': { section: 'avatarPhotos' },
@@ -1478,6 +1504,7 @@ export const SCALAR_ID_FIELDS: Readonly<
   },
   'DocumentEvent.actorId': { section: 'documentEvents' },
   'DocumentExport.userId': { section: 'exports' },
+  'SavedGif.sourceFileId': { notUser: 'id вложения-источника «Моих GIF», не человек' },
   'Chat.createdById': { section: 'supportTickets' },
   'Chat.requestPendingForId': {
     excluded: 'служебная отметка запроса на переписку; сам чат — в разделе chats',

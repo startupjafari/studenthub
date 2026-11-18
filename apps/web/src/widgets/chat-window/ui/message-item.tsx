@@ -18,6 +18,11 @@ import {
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import {
+  attachmentStickerSource,
+  openStickerEditor,
+  openStickerSetPreview,
+} from '../../../entities/sticker-set'
+import {
   ChatSharedPost,
   ChatSharedProfile,
   ChatSharedStory,
@@ -356,6 +361,7 @@ function MessageItemInner({
         onCopiedImage: (ok) => actions.copiedImage(ok),
         onForward: () => actions.forward(m),
         onDelete: () => actions.del(m),
+        onMakeSticker: (att) => openStickerEditor(attachmentStickerSource(att)),
       }}
       // Просмотрщик листает все фото и видео чата, а не только вложения этого сообщения.
       messageId={m.id}
@@ -383,10 +389,14 @@ function MessageItemInner({
       </>
     )
   } else if (bare && m.sticker) {
+    const sticker = m.sticker
     body = (
       <>
         {header}
-        <MessageStickerView sticker={m.sticker} />
+        <MessageStickerView
+          sticker={sticker}
+          onOpen={() => openStickerSetPreview({ setId: sticker.setId })}
+        />
       </>
     )
   } else {
@@ -438,7 +448,10 @@ function MessageItemInner({
         {m.poll ? (
           <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
         ) : m.sticker ? (
-          <MessageStickerView sticker={m.sticker} />
+          <MessageStickerView
+            sticker={m.sticker}
+            onOpen={() => m.sticker && openStickerSetPreview({ setId: m.sticker.setId })}
+          />
         ) : m.location ? (
           <MessageLocationCard
             location={m.location}

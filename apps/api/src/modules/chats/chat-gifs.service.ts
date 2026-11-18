@@ -36,6 +36,9 @@ interface GiphyRendition {
   width?: string
   height?: string
   size?: string
+  /** Та же копия готовым MP4 (H.264, без звука) — у большинства копий она есть. */
+  mp4?: string
+  mp4_size?: string
 }
 
 interface GiphyGif {
@@ -75,6 +78,9 @@ const SEND_RENDITIONS = [
   'downsized',
   'fixed_width',
 ] as const
+// Готовые MP4 каталога — от лучшей к худшей. GIF в чате всё равно становится MP4
+// (медиа-воркер), и если каталог отдаёт его сам, перекодировать нечего.
+const SEND_MP4_RENDITIONS = ['original_mp4', 'original', 'downsized_small', 'fixed_width'] as const
 
 /**
  * Адрес копии GIF, которому можно доверять: только https и только хосты GIPHY. Ответ API
@@ -101,6 +107,11 @@ export function isGifBytes(buffer: Buffer): boolean {
   if (buffer.length < 6) return false
   const head = buffer.subarray(0, 6).toString('latin1')
   return head === 'GIF87a' || head === 'GIF89a'
+}
+
+/** MP4 (ISO BMFF): атом `ftyp` сразу за четырьмя байтами его длины. */
+export function isMp4Bytes(buffer: Buffer): boolean {
+  return buffer.length >= 12 && buffer.subarray(4, 8).toString('latin1') === 'ftyp'
 }
 
 function toInt(value: string | undefined): number {
@@ -130,10 +141,12 @@ function toItem(gif: GiphyGif): GifSearchItem | null {
  * Поиск GIF во внешнем каталоге (GIPHY) — прокси на сервере.
  *
  * Ключ GIPHY клиентам не уходит: приложения ходят только в наш API. Отправка выбранного GIF
- * (`POST /chats/:id/gif/external`) берёт у клиента только id — адрес картинки сервер узнаёт у
- * каталога сам, качает её лишь с хостов GIPHY с потолком размера и сроком и сохраняет обычным
- * вложением чата (запись File, image/gif). Сообщение дальше живёт без GIPHY: ссылка не протухнет,
- * а приватный бакет отдаёт её подписанной, как любое вложение.
+ * (`POST /chats/:id/gif/external`) берёт у клиента только id — адрес сервер узнаёт у каталога
+ * сам, качает лишь с хостов GIPHY с потолком размера и сроком и сохраняет обычным вложением
+ * чата. Сначала — готовый MP4 каталога (запись File video/mp4 с `animation`: показывается как
+ * GIF, воркер готовит только постер); нет его или не подошёл — сам GIF (image/gif), который
+ * воркер переведёт в MP4. Сообщение дальше живёт без GIPHY: ссылка не протухнет, а приватный
+ * бакет отдаёт её подписанной, как любое вложение.
  *
  * Нет `GIPHY_API_KEY` — поиск выключен целиком, все три ручки отвечают `503 FEATURE_DISABLED`.
  */
@@ -183,12 +196,14 @@ export class ChatGifsService {
       data: {},
       attachments: async () => {
         const gif = await this.lookup(key, input.id)
-        const buffer = await this.downloadBest(gif)
+        const mp4 = await this.downloadMp4(gif)
+        const buffer = mp4 ?? (await this.downloadBest(gif))
         const file = await this.files.upload({
           buffer,
           bucket: this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
           ownerId: senderId,
-          name: `giphy-${input.id}.gif`,
+          name: `giphy-${input.id}.${mp4 ? 'mp4' : 'gif'}`,
+          animation: mp4 !== null,
         })
         return [{ id: file.id }]
       },
@@ -304,12 +319,41 @@ export class ChatGifsService {
     }
     for (const url of [...new Set(candidates)]) {
       const buffer = await this.download(url)
-      if (buffer) return buffer
+      if (!buffer) continue
+      if (!isGifBytes(buffer)) {
+        throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Каталог отдал не GIF')
+      }
+      return buffer
     }
     throw this.tooBig()
   }
 
-  /** Байты копии с потолком и сроком. `null` — копия оказалась больше лимита. */
+  /**
+   * Готовый MP4 каталога, что влезает в лимит. `null` — подходящего нет (нет копий, все
+   * больше лимита, сбой скачивания или не MP4 по содержимому): тогда отправляется сам GIF.
+   */
+  private async downloadMp4(gif: GiphyGif): Promise<Buffer | null> {
+    const images = gif.images ?? {}
+    const candidates = SEND_MP4_RENDITIONS.flatMap((name) => {
+      const r = images[name]
+      if (!isGiphyMediaUrl(r?.mp4)) return []
+      return toInt(r.mp4_size) > GIF_MAX_BYTES ? [] : [r.mp4]
+    })
+    for (const url of [...new Set(candidates)]) {
+      try {
+        const buffer = await this.download(url)
+        if (buffer && isMp4Bytes(buffer)) return buffer
+      } catch {
+        // Сбой одной копии — пробуем следующую, а за ними GIF.
+      }
+    }
+    return null
+  }
+
+  /**
+   * Байты копии с потолком и сроком. `null` — копия оказалась больше лимита. Формат проверяет
+   * вызывающий: GIF и MP4 узнаются по-разному.
+   */
   private async download(url: string): Promise<Buffer | null> {
     let res: Response
     try {
@@ -349,11 +393,7 @@ export class ChatGifsService {
       this.logger.warn(`GIF не дочитался: ${String(error)}`)
       throw new AppException('INTERNAL_ERROR', 'Не удалось скачать GIF', undefined, 502)
     }
-    const buffer = Buffer.concat(chunks)
-    if (!isGifBytes(buffer)) {
-      throw new AppException('FILE_TYPE_NOT_ALLOWED', 'Каталог отдал не GIF')
-    }
-    return buffer
+    return Buffer.concat(chunks)
   }
 
   private tooBig(): AppException {

@@ -27,6 +27,7 @@ const SHELL_FREE: readonly string[] = [
   '/c',
   '/qr',
   '/join-chat',
+  '/addstickers',
   '/employer/signup',
   '/employer/verify',
   '/employer/join',

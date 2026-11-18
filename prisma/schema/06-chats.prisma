@@ -168,8 +168,8 @@ model ChatMember {
   markedUnreadAt    DateTime? @map("marked_unread_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  chat      Chat            @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   // Непрочитанные упоминания и реакции участника в этом чате (06-chat-attention.prisma).
   attention ChatAttention[]
 
@@ -519,40 +519,64 @@ model ChatChecklistItem {
   @@map("chat_checklist_items")
 }
 
-/// Набор стикеров каталога. Заводит и публикует только PLATFORM_ADMIN; клиентам отдаются
-/// только опубликованные наборы (isPublished), по `order`.
+/// Набор стикеров. Два вида (`kind`):
+/// - CATALOG — каталог платформы: заводит и публикует только PLATFORM_ADMIN; клиентам
+///   отдаются только опубликованные наборы (isPublished), по `order`;
+/// - USER — личный набор пользователя («Свои стикеры»): владелец — `createdById`, делится
+///   ссылкой по `slug`, другие добавляют его себе (UserStickerSet). `isPublished` у него
+///   всегда false — в каталог платформы он не попадает.
 model StickerSet {
-  id          String   @id @default(uuid())
+  id          String         @id @default(uuid())
+  kind        StickerSetKind @default(CATALOG)
   title       String
-  slug        String   @unique
-  order       Int      @default(0)
-  isPublished Boolean  @default(false) @map("is_published")
-  // Кто завёл набор. SetNull: удаление учётки админа не должно уносить каталог.
-  createdById String?  @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  slug        String         @unique
+  order       Int            @default(0)
+  isPublished Boolean        @default(false) @map("is_published")
+  // Кто завёл набор: админ каталога или владелец личного набора. SetNull: удаление учётки
+  // не должно уносить каталог, а у личного набора — уже отправленные стикеры.
+  createdById String?        @map("created_by_id")
+  // Владелец удалил личный набор: у добавивших он пропадает из панели, по ссылке не
+  // открывается, но отправленные стикеры в переписке остаются видимыми.
+  deletedAt   DateTime?      @map("deleted_at")
+  // Снят модератором по жалобе: скрыт у всех, включая уже отправленные стикеры.
+  removedAt   DateTime?      @map("removed_at")
+  removedById String?        @map("removed_by_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  createdBy User?     @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy User?            @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  removedBy User?            @relation("StickerSetRemovedBy", fields: [removedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   stickers  Sticker[]
+  addedBy   UserStickerSet[]
 
   @@index([isPublished, order])
   @@index([createdById])
+  @@index([removedById])
   @@map("sticker_sets")
 }
 
 /// Стикер набора: картинка (png/webp/gif ≤ 512 КБ) в бакете чатов — запись File, 1:1.
+/// Стикер личного набора — всегда WebP 512 px (анимированный у GIF и видео); анимацию
+/// собирает медиа-воркер, и пока она в работе, `fileId` пуст, а `status` — PROCESSING.
 model Sticker {
-  id        String   @id @default(uuid())
-  setId     String   @map("set_id")
-  fileId    String   @unique @map("file_id")
+  id        String      @id @default(uuid())
+  setId     String      @map("set_id")
+  fileId    String?     @unique @map("file_id")
   emoji     String?
-  order     Int      @default(0)
+  order     Int         @default(0)
   width     Int?
   height    Int?
-  createdAt DateTime @default(now()) @map("created_at")
+  // Анимированный WebP: клиент при «уменьшении движения» показывает его неподвижным.
+  animated  Boolean     @default(false)
+  // READY — картинка готова; PROCESSING — воркер собирает анимацию; FAILED — не вышло
+  // (видит только владелец, в панель и в отправку не попадает). У каталога всегда READY.
+  status    MediaStatus @default(READY)
+  // Владелец убрал стикер из набора: из набора пропадает, отправленные остаются видимыми.
+  deletedAt DateTime?   @map("deleted_at")
+  createdAt DateTime    @default(now()) @map("created_at")
 
   set       StickerSet        @relation(fields: [setId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  file      File              @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file      File?             @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   messages  Message[]
   favorites FavoriteSticker[]
 

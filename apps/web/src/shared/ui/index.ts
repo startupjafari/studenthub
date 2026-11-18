@@ -106,6 +106,7 @@ export {
 export { AvatarViewer } from './avatar-viewer'
 export { VideoPlayer } from './video-player'
 export { MediaImage, type MediaImageData } from './media-image'
+export { AnimatedImage } from './animated-image'
 export { DateTimeField } from './date-time-field'
 export { DateTimePicker, toDateTimeLocal } from './date-time-picker'
 export { DatePicker, type DatePickerProps } from './date-picker'

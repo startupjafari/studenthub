@@ -48,6 +48,7 @@ const MODELS = [
   'avatarPhoto',
   'chatJoinRequest',
   'chatRemovedMember',
+  'stickerSet',
   'event',
   'eventComment',
   'profileArticle',

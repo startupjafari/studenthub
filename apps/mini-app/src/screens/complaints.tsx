@@ -23,6 +23,7 @@ import {
   IconTargetStory,
   IconTargetUser,
   IconTargetChat,
+  IconTargetStickerSet,
 } from '../ui/icons'
 import { Tile, type TileTone } from '../ui/tile'
 import { SwipeRow } from '../ui/swipe-row'
@@ -51,6 +52,7 @@ const TARGET_KEY = {
   STORY: 'targetStory',
   COMMENT: 'targetComment',
   CHAT: 'targetChat',
+  STICKER_SET: 'targetStickerSet',
 } as const
 
 const PRIORITIES: ComplaintPriority[] = ['HIGH', 'MEDIUM', 'LOW']
@@ -72,6 +74,7 @@ const TARGET_ICON: Record<ComplaintTarget, () => ReactNode> = {
   MESSAGE: () => <IconTargetMessage size={17} />,
   USER: () => <IconTargetUser size={17} />,
   CHAT: () => <IconTargetChat size={17} />,
+  STICKER_SET: () => <IconTargetStickerSet size={17} />,
 }
 
 /** Сколько висит «Отменить» после свайпа, прежде чем решение уйдёт на сервер. */

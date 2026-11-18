@@ -2,7 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { MessageReactionSchema, isSingleEmoji } from '@studenthub/shared-schemas'
 import { ChatsService } from './chats.service'
 import { ChatChecklistsService } from './chat-checklists.service'
-import { ChatStickersService } from './chat-stickers.service'
+import { ChatStickersService, USABLE_STICKER_WHERE } from './chat-stickers.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -516,8 +516,10 @@ describe('Вкладки общих материалов', () => {
     )
   })
 
-  it('gif — только image/gif', async () => {
-    expect(await whereFor('gif')).toEqual(expect.objectContaining({ mime: 'image/gif' }))
+  it('gif — image/gif и анимации (GIF, переведённые в MP4)', async () => {
+    expect(await whereFor('gif')).toEqual(
+      expect.objectContaining({ OR: [{ mime: 'image/gif' }, { animation: true }] }),
+    )
   })
 
   it('voice — по-прежнему всё аудио (веб)', async () => {
@@ -578,6 +580,72 @@ describe('GIF: повторная отправка', () => {
       where: { id: { in: ['copy-1'] }, messageId: null },
       data: { messageId: 'm1' },
     })
+  })
+
+  const mp4Gif = {
+    id: 'f2',
+    bucket: 'chat-media',
+    key: 'k.mp4',
+    mime: 'video/mp4',
+    size: 10,
+    name: null,
+    width: 1,
+    height: 1,
+    animation: true,
+  }
+
+  it('GIF, переведённый в MP4 (анимация), тоже повторяется — копия наследует флаг', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findUnique.mockResolvedValue({
+      ...mp4Gif,
+      message: { chatId: 'c0', deletedAt: null },
+      savedGif: null,
+    })
+    prisma.message.create.mockResolvedValue({ id: 'm1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
+    await service.sendGif('u1', 'c1', { fileId: 'f2' })
+    expect(files.copyToMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'f2', animation: true }),
+      'u1',
+    )
+  })
+
+  it('обычное видео (без флага анимации) — не GIF, NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findUnique.mockResolvedValue({
+      ...mp4Gif,
+      animation: false,
+      message: { chatId: 'c0', deletedAt: null },
+    })
+    await expect(service.sendGif('u1', 'c1', { fileId: 'f2' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  })
+
+  it('свой GIF из «Моих GIF» — без сообщения-источника и без членства в его чате', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findUnique.mockResolvedValue({
+      ...mp4Gif,
+      message: null,
+      savedGif: { userId: 'u1' },
+    })
+    prisma.message.create.mockResolvedValue({ id: 'm1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
+    await service.sendGif('u1', 'c1', { fileId: 'f2' })
+    expect(files.copyToMessage).toHaveBeenCalled()
+  })
+
+  it('чужой сохранённый GIF — NOT_FOUND', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findUnique.mockResolvedValue({
+      ...mp4Gif,
+      message: null,
+      savedGif: { userId: 'someone-else' },
+    })
+    await expect(service.sendGif('u1', 'c1', { fileId: 'f2' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(files.copyToMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -719,7 +787,8 @@ describe('Стикеры', () => {
     prisma.sticker.findFirst.mockResolvedValue({ id: 'st1' })
     await service.send('u1', 'c1', { stickerId: 'st1', nonce: 'n1' })
     expect(prisma.sticker.findFirst).toHaveBeenCalledWith({
-      where: { id: 'st1', set: { isPublished: true } },
+      // Опубликованный каталог или живой личный набор (свои стикеры), готовый стикер.
+      where: { id: 'st1', ...USABLE_STICKER_WHERE },
       select: { id: true },
     })
     expect(chats.sendRichMessage).toHaveBeenCalledWith('u1', 'c1', {
