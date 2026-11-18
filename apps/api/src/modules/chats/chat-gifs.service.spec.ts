@@ -1,4 +1,4 @@
-import { ChatGifsService, isGifBytes, isGiphyMediaUrl } from './chat-gifs.service'
+import { ChatGifsService, isGifBytes, isGiphyMediaUrl, isMp4Bytes } from './chat-gifs.service'
 import type { ChatsService } from './chats.service'
 
 // Поиск GIF через GIPHY: настоящий API в тестах не вызывается — fetch подменён.
@@ -193,11 +193,13 @@ describe('ChatGifsService — отправка GIF каталога', () => {
       'https://media1.giphy.com/media/abc/giphy.gif',
     )
     expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: 'error' })
+    // Готового MP4 у GIF нет — сохраняется сам GIF, в MP4 его переведёт медиа-воркер.
     expect(files.upload).toHaveBeenCalledWith({
       buffer: GIF_BYTES,
       bucket: 'chat-media',
       ownerId: 'u1',
       name: 'giphy-abc.gif',
+      animation: false,
     })
     expect(chats.sendRichMessage).toHaveBeenCalledWith(
       'u1',
@@ -309,6 +311,87 @@ describe('ChatGifsService — отправка GIF каталога', () => {
       service.sendExternal('u1', 'c1', { provider: 'giphy', id: 'png' }),
     ).rejects.toMatchObject({ code: 'FILE_TYPE_NOT_ALLOWED' })
     expect(files.upload).not.toHaveBeenCalled()
+  })
+
+  describe('готовый MP4 каталога', () => {
+    const MP4_BYTES = Buffer.concat([
+      Buffer.from([0, 0, 0, 0x18]),
+      Buffer.from('ftypisom'),
+      Buffer.alloc(20, 0),
+    ])
+    const withMp4 = (id: string, extra: Record<string, Record<string, string>> = {}) =>
+      gif(id, {
+        original_mp4: {
+          mp4: `https://media1.giphy.com/media/${id}/giphy.mp4`,
+          mp4_size: '4096',
+          width: '480',
+          height: '270',
+        },
+        ...extra,
+      })
+
+    it('берётся вместо GIF и сохраняется анимацией (video/mp4, без перевода)', async () => {
+      const { service, fetchMock, files } = setup()
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ data: withMp4('mp') }))
+        .mockResolvedValueOnce(bytesResponse(MP4_BYTES))
+
+      await service.sendExternal('u1', 'c1', { provider: 'giphy', id: 'mp' })
+
+      expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+        'https://media1.giphy.com/media/mp/giphy.mp4',
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(files.upload).toHaveBeenCalledWith(
+        expect.objectContaining({ buffer: MP4_BYTES, name: 'giphy-mp.mp4', animation: true }),
+      )
+    })
+
+    it('MP4 больше 10 МБ или не с GIPHY — пропускается, уходит GIF', async () => {
+      const { service, fetchMock, files } = setup()
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({
+            data: gif('big', {
+              original_mp4: {
+                mp4: 'https://media1.giphy.com/media/big/giphy.mp4',
+                mp4_size: String(11 * 1024 * 1024),
+              },
+              downsized_small: { mp4: 'https://evil.example/x.mp4', mp4_size: '10' },
+            }),
+          }),
+        )
+        .mockResolvedValueOnce(bytesResponse(GIF_BYTES))
+
+      await service.sendExternal('u1', 'c1', { provider: 'giphy', id: 'big' })
+
+      expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+        'https://media1.giphy.com/media/big/giphy.gif',
+      )
+      expect(files.upload).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'giphy-big.gif', animation: false }),
+      )
+    })
+
+    it('по ссылке MP4 пришёл не MP4 или сбой — откат к GIF', async () => {
+      const { service, fetchMock, files } = setup()
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ data: withMp4('bad') }))
+        .mockResolvedValueOnce(bytesResponse(Buffer.from('<html>oops</html>')))
+        .mockResolvedValueOnce(bytesResponse(GIF_BYTES))
+
+      await service.sendExternal('u1', 'c1', { provider: 'giphy', id: 'bad' })
+
+      expect(files.upload).toHaveBeenCalledWith(
+        expect.objectContaining({ buffer: GIF_BYTES, animation: false }),
+      )
+    })
+
+    it('isMp4Bytes узнаёт ftyp, GIF и мусор — нет', () => {
+      expect(isMp4Bytes(MP4_BYTES)).toBe(true)
+      expect(isMp4Bytes(GIF_BYTES)).toBe(false)
+      expect(isMp4Bytes(Buffer.from('ftyp'))).toBe(false)
+    })
   })
 })
 
