@@ -159,6 +159,13 @@ enum AuthMotion {
         reduceMotion ? .easeInOut(duration: Motion.Duration.layer) : Motion.calm
     }
 
+    /// Движение клавиатуры iOS (кривая 7 из её уведомлений — пружина, эта её повторяет).
+    /// Всё, что меняется из-за клавиатуры — сжатие шапки, отступ панели, докрутка, — идёт
+    /// этой же пружиной: панель едет вместе с клавиатурой, а не догоняет её своей.
+    /// Без поблажки «уменьшить движение»: клавиатура всё равно выезжает, и экран должен
+    /// двигаться с ней в такт, а части шапки при этом и так лишь гаснут (`collapse`).
+    static let keyboard = Animation.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
+
     /// Уход и появление частей шапки, когда она сжимается.
     static func collapse(reduceMotion: Bool) -> AnyTransition {
         reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.92, anchor: .topLeading))
@@ -294,7 +301,6 @@ struct AuthScaffold<Header: View, Panel: View>: View {
     @ViewBuilder var header: () -> Header
     @ViewBuilder var panel: () -> Panel
 
-    @Environment(\.motionReduced) private var reduceMotion
     /// Открыта экранная клавиатура — по уведомлениям системы, а не по разнице высот.
     /// Раньше высота «без клавиатуры» мерилась вместе с ней: шапка не узнавала о
     /// клавиатуре вовсе (на шаге 2FA уезжала под стрелку «назад»), а на экране
@@ -320,7 +326,6 @@ struct AuthScaffold<Header: View, Panel: View>: View {
                     .environment(\.authKeyboardShown, keyboardShown)
                     .frame(maxWidth: 560)
                     .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
-                    .animation(AuthMotion.layout(reduceMotion: reduceMotion), value: keyboardShown)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollDismissesKeyboard(.interactively)
@@ -339,10 +344,10 @@ struct AuthScaffold<Header: View, Panel: View>: View {
         // точек шапку не сжимаем.
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
-            keyboardShown = (frame?.height ?? 0) > 80
+            setKeyboardShown((frame?.height ?? 0) > 80)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardShown = false
+            setKeyboardShown(false)
         }
         .background(AuthBackdrop())
         // Статус-бар и стрелка «назад» следуют теме, как и фон; у верхнего края шапка при
@@ -350,14 +355,24 @@ struct AuthScaffold<Header: View, Panel: View>: View {
         .softTopEdge()
     }
 
+    /// Клавиатура показалась или ушла. Раньше флаг менялся без анимации, а шапку сжимала
+    /// своя пружина (`Motion.calm`) — длиннее и мягче клавиатурной: панель сначала отставала
+    /// от клавиатуры, потом догоняла её рывком. Теперь шапка, отступ панели и докрутка идут
+    /// одной пружиной клавиатуры. Повторное «показалась» (смена поля, полоска подсказок)
+    /// ничего не трогает: раскладка уже та.
+    private func setKeyboardShown(_ shown: Bool) {
+        guard shown != keyboardShown else { return }
+        withAnimation(AuthMotion.keyboard) { keyboardShown = shown }
+    }
+
     /// Докрутка — на следующем такте: к этому моменту раскладка уже знает новую высоту
-    /// над клавиатурой, и цель встаёт ровно над ней.
+    /// над клавиатурой, и цель встаёт ровно над ней. Пружина та же, что у клавиатуры, —
+    /// иначе докрутка шла бы вторым движением поверх первого.
     private func reveal(with scroller: ScrollViewProxy) {
         guard let keyboardTarget else { return }
         let anchor = keyboardAnchor
-        let animation = AuthMotion.layout(reduceMotion: reduceMotion)
         Task { @MainActor in
-            withAnimation(animation) { scroller.scrollTo(keyboardTarget, anchor: anchor) }
+            withAnimation(AuthMotion.keyboard) { scroller.scrollTo(keyboardTarget, anchor: anchor) }
         }
     }
 }
