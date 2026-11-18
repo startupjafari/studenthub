@@ -183,6 +183,8 @@ model User {
   chatFolders        ChatFolder[]
   // Избранные стикеры (06-chats.prisma, FavoriteSticker).
   favoriteStickers   FavoriteSticker[]
+  // «Мои GIF» (39-chat-gifs.prisma, SavedGif).
+  savedGifs          SavedGif[]
   // «Удалить у себя»: сообщения, скрытые этим пользователем (06-chats.prisma, HiddenMessage).
   hiddenMessages     HiddenMessage[]
   // Карточки контакта в чатах, указывающие на этого пользователя (ChatContact.userId).
