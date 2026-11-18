@@ -33,7 +33,7 @@ import {
 import {
   fetchAddedStickerSets,
   openMyStickerSets,
-  openStickerEditor,
+  pickStickerSource,
   userStickerKeys,
 } from '../../../entities/sticker-set'
 import {
@@ -313,43 +313,16 @@ function StickerCell({
   )
 }
 
-/** Исходник стикера с устройства: картинка, GIF или короткое видео. */
-const STICKER_SOURCE_ACCEPT =
-  'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime'
-
 /**
  * «Создать стикер» и «Мои наборы» в начале полосы наборов (Telegram 2024: стикеры прямо в
  * приложении, без бота). Файл или снимок с камеры открывают редактор поверх чата.
  */
 function StickerTools() {
   const t = useTranslations('Chats')
-  const fileRef = useRef<HTMLInputElement>(null)
-  const cameraRef = useRef<HTMLInputElement>(null)
-  const pick = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (file) openStickerEditor({ kind: 'file', file })
-  }
   const toolClass =
     'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
   return (
     <>
-      <input
-        ref={fileRef}
-        type="file"
-        accept={STICKER_SOURCE_ACCEPT}
-        className="hidden"
-        onChange={pick}
-      />
-      {/* Снимок с камеры: на телефоне сразу открывает камеру, на ПК — обычный выбор файла. */}
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*"
-        capture="user"
-        className="hidden"
-        onChange={pick}
-      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -363,11 +336,12 @@ function StickerTools() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
+          <DropdownMenuItem onSelect={() => pickStickerSource()}>
             <FolderOpen aria-hidden />
             {t('tgStickers.createFromFile')}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => cameraRef.current?.click()}>
+          {/* На телефоне сразу открывает камеру, на ПК — обычный выбор файла. */}
+          <DropdownMenuItem onSelect={() => pickStickerSource({ camera: true })}>
             <Camera aria-hidden />
             {t('tgStickers.createFromCamera')}
           </DropdownMenuItem>

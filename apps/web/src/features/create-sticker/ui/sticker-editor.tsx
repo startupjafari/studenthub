@@ -715,12 +715,15 @@ function CropStage({
     if (!dx && !dy) return
     e.preventDefault()
     if (e.shiftKey) {
-      // Shift + стрелки — размер: тянем правый нижний угол.
+      // Shift + стрелки — размер: тянем правый нижний угол. Квадрат меняется по обеим
+      // сторонам сразу — иначе он брал бы большую из них и не уменьшался.
+      const d = dx || dy
+      const to = square ? { dx: d, dy: d } : { dx, dy }
       onCrop(
         resizeCrop(
           crop,
           'se',
-          { x: crop.x + crop.w + dx, y: crop.y + crop.h + (square ? dx || dy : dy) },
+          { x: crop.x + crop.w + to.dx, y: crop.y + crop.h + to.dy },
           nat,
           square,
         ),

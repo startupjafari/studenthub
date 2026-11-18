@@ -48,5 +48,7 @@ export {
   closeMyStickerSets,
   canMakeSticker,
   attachmentStickerSource,
+  pickStickerSource,
+  STICKER_SOURCE_ACCEPT,
   type StickerSource,
 } from './model/sticker-ui'

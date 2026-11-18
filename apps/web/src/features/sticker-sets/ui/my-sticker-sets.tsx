@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -22,7 +22,7 @@ import {
   deleteMyStickerRequest,
   deleteMyStickerSetRequest,
   fetchMyStickerSets,
-  openStickerEditor,
+  pickStickerSource,
   renameMyStickerSetRequest,
   reorderMyStickersRequest,
   useStickerUi,
@@ -33,9 +33,6 @@ import { AnimatedImage, Button, Modal, PromptDialog, useConfirm } from '../../..
 import { cn } from '../../../shared/lib/utils'
 import { copyStickerSetLink } from './sticker-set-preview'
 
-/** Что можно выбрать как исходник стикера. */
-const SOURCE_ACCEPT =
-  'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime'
 /** Пока в наборе есть собираемые стикеры — перечитываем список. */
 const PROCESSING_POLL_MS = 2000
 
@@ -101,13 +98,6 @@ function MyStickerSets({ onClose }: { onClose: () => void }) {
     onError,
   })
 
-  const fileRef = useRef<HTMLInputElement>(null)
-  const target = useRef<string | null>(null)
-  const pickFor = (setId: string): void => {
-    target.current = setId
-    fileRef.current?.click()
-  }
-
   const move = (set: MyStickerSet, index: number, dir: -1 | 1): void => {
     const ids = set.stickers.map((s) => s.id)
     const to = index + dir
@@ -143,17 +133,6 @@ function MyStickerSets({ onClose }: { onClose: () => void }) {
         </Button>
       }
     >
-      <input
-        ref={fileRef}
-        type="file"
-        accept={SOURCE_ACCEPT}
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          e.target.value = ''
-          if (file && target.current) openStickerEditor({ kind: 'file', file }, target.current)
-        }}
-      />
       {sets.isPending ? (
         <div className="flex flex-col gap-3" aria-busy>
           {[0, 1].map((i) => (
@@ -292,7 +271,7 @@ function MyStickerSets({ onClose }: { onClose: () => void }) {
                   <li className="aspect-square">
                     <button
                       type="button"
-                      onClick={() => pickFor(set.id)}
+                      onClick={() => pickStickerSource({ setId: set.id })}
                       aria-label={t('tgStickers.addSticker')}
                       title={t('tgStickers.addSticker')}
                       className="flex size-full cursor-pointer items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"

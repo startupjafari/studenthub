@@ -62,6 +62,33 @@ export function closeStickerEditor(): void {
   set({ editor: null })
 }
 
+/** Что принимаем исходником стикера с устройства: картинки, GIF и короткое видео. */
+export const STICKER_SOURCE_ACCEPT =
+  'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime'
+
+/**
+ * Выбрать файл (или снять камерой) и открыть с ним редактор. Поле выбора файла — вне дерева
+ * React: кнопка живёт в поповере панели стикеров, и закрытие поповера иначе уносило бы поле
+ * вместе с ещё не пришедшим `change`.
+ */
+export function pickStickerSource(opts: { camera?: boolean; setId?: string } = {}): void {
+  if (typeof document === 'undefined') return
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = opts.camera ? 'image/*' : STICKER_SOURCE_ACCEPT
+  // Фронтальная камера — как у «сделать стикер» в Telegram; на ПК атрибут игнорируется.
+  if (opts.camera) input.setAttribute('capture', 'user')
+  input.addEventListener(
+    'change',
+    () => {
+      const file = input.files?.[0]
+      if (file) openStickerEditor({ kind: 'file', file }, opts.setId)
+    },
+    { once: true },
+  )
+  input.click()
+}
+
 /** Окно набора: по ссылке (slug) или по стикеру из переписки (id набора). */
 export function openStickerSetPreview(query: StickerSetPreviewQuery): void {
   set({ preview: query })
