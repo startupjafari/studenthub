@@ -1385,6 +1385,9 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'FavoriteSticker.userId': {
       excluded: 'служебная настройка интерфейса: только id стикеров каталога платформы',
     },
+    'SavedGif.userId': {
+      excluded: 'подборка «Мои GIF»: копии чужих анимаций из переписки, своего содержимого нет',
+    },
     'ScheduledMessage.senderId': { section: 'scheduledMessages' },
     'AvatarPhoto.userId': { section: 'avatarPhotos' },
     'ChatJoinRequest.userId': { section: 'chatJoinRequests' },
@@ -1501,6 +1504,7 @@ export const SCALAR_ID_FIELDS: Readonly<
   },
   'DocumentEvent.actorId': { section: 'documentEvents' },
   'DocumentExport.userId': { section: 'exports' },
+  'SavedGif.sourceFileId': { notUser: 'id вложения-источника «Моих GIF», не человек' },
   'Chat.createdById': { section: 'supportTickets' },
   'Chat.requestPendingForId': {
     excluded: 'служебная отметка запроса на переписку; сам чат — в разделе chats',
