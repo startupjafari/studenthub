@@ -28,6 +28,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
 import { endOfDay } from '../library/library-dates'
 import { DocumentTypesService, type RetentionRule } from './document-types.service'
+import { DocumentEvents } from './document-events'
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
 // Потолки на выборки (BACKEND_RULES §7.2). Страниц у документа не больше, чем разрешает
@@ -505,6 +506,7 @@ export class DocumentsService {
     private readonly queue: QueueService,
     private readonly types: DocumentTypesService,
     private readonly audit: AuditService,
+    private readonly events: DocumentEvents,
   ) {}
 
   private get bucket(): string {
@@ -888,6 +890,8 @@ export class DocumentsService {
     await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'PAGE_ADD', {
       added: input.fileIds.length,
     })
+    // Получатели доступа видят страницы документа — их «Открытые мне» перечитают список.
+    await this.events.toGrantees(id, 'updated')
     return this.getOwnedDto(actor, id)
   }
 
@@ -942,6 +946,7 @@ export class DocumentsService {
       replacedFileId: old.id,
       order: old.order,
     })
+    await this.events.toGrantees(id, 'updated')
     return this.getOwnedDto(actor, id)
   }
 
@@ -987,6 +992,7 @@ export class DocumentsService {
     await this.purgePage(fileId)
     await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'PAGE_REMOVE', { fileId, order: removed.order })
+    await this.events.toGrantees(id, 'updated')
     return this.getOwnedDto(actor, id)
   }
 
@@ -1024,6 +1030,7 @@ export class DocumentsService {
     )
     await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT', { reordered: true })
+    await this.events.toGrantees(id, 'updated')
     return this.getOwnedDto(actor, id)
   }
 
@@ -1216,6 +1223,13 @@ export class DocumentsService {
     })
     await this.logEvent(actor.sub, id, 'GRANT', { granteeType: input.granteeType })
     await this.notifyGrantee(actor, id, access.id, input)
+    // Только новому получателю: у остальных грантов документа ничего не поменялось.
+    await this.events.toGrantees(id, 'shared', [
+      {
+        granteeType: input.granteeType,
+        granteeId: input.granteeType === 'UNIVERSITY' ? null : (input.granteeId ?? null),
+      },
+    ])
     return this.listAccess(actor, id)
   }
 
@@ -1296,7 +1310,7 @@ export class DocumentsService {
     await this.findOwnedOrThrow(actor, id)
     const access = await this.prisma.documentAccess.findFirst({
       where: { id: accessId, documentId: id },
-      select: { id: true, revokedAt: true, granteeType: true },
+      select: { id: true, revokedAt: true, granteeType: true, granteeId: true },
     })
     if (!access) throw new AppException('NOT_FOUND', 'Доступ не найден')
     if (!access.revokedAt) {
@@ -1305,6 +1319,8 @@ export class DocumentsService {
         data: { revokedAt: new Date() },
       })
       await this.logEvent(actor.sub, id, 'REVOKE', { granteeType: access.granteeType })
+      // Грант уже отозван — получателя передаём явно, среди активных его не найти.
+      await this.events.toGrantees(id, 'unshared', [access])
     }
     return this.listAccess(actor, id)
   }
@@ -1413,6 +1429,8 @@ export class DocumentsService {
     })
     // Актор события — выдавший сотрудник: в истории документа видно, кто его завёл.
     await this.logEvent(actor.sub, doc.id, 'UPLOAD', { issuedTo: input.ownerId })
+    // Справка появляется в кабинете студента сразу, а не после перезагрузки «Документов».
+    this.events.toUsers([input.ownerId], doc.id, 'issued')
     return doc
   }
 
@@ -1474,6 +1492,8 @@ export class DocumentsService {
     await this.prisma.document.update({ where: { id }, data })
     if (contentChanged) await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT')
+    // Заметку (comment) видит только владелец — получателям доступа сигналим о содержимом.
+    if (contentChanged) await this.events.toGrantees(id, 'updated')
     return this.getOwnedDto(actor, id)
   }
 
@@ -1628,6 +1648,7 @@ export class DocumentsService {
       })
       if (count > 0) {
         await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, previousStatus: doc.status })
+        await this.events.toGrantees(id, 'updated')
       }
     } else {
       const status = await this.restoredStatus(doc)
@@ -1640,6 +1661,7 @@ export class DocumentsService {
         // Пока документ лежал в архиве, проверка его статус не вела (ARCHIVED не
         // пересчитывается): восстановленный «на проверке» мог давно стать «принят».
         await this.syncReviewStatus([id])
+        await this.events.toGrantees(id, 'updated')
       }
     }
     return this.getOwnedDto(actor, id)
@@ -1673,6 +1695,8 @@ export class DocumentsService {
     await this.findOwnedOrThrow(actor, id)
     await this.prisma.document.update({ where: { id }, data: { deletedAt: new Date() } })
     await this.logEvent(actor.sub, id, 'DELETE')
+    // Удалённый пропадает и из «Открытых мне»: гранты остаются, а документ больше не читается.
+    await this.events.toGrantees(id, 'deleted')
   }
 
   /**

@@ -14,6 +14,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { QueueService } from '../../common/queue'
 import { DocumentTypesService } from './document-types.service'
 import type { AuditService } from '../../common/audit/audit.service'
+import type { DocumentEvents } from './document-events'
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -116,6 +117,7 @@ function setup() {
   // true — job поставлен: по нему крон сроков решает, помечать ли документ (BUG-091).
   const queue = { enqueue: jest.fn().mockResolvedValue(true) }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const events = { toUsers: jest.fn(), toGrantees: jest.fn().mockResolvedValue(undefined) }
   const types = new DocumentTypesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -127,8 +129,9 @@ function setup() {
     queue as unknown as QueueService,
     types,
     audit as unknown as AuditService,
+    events as unknown as DocumentEvents,
   )
-  return { service, prisma, files, queue, types, audit }
+  return { service, prisma, files, queue, types, audit, events }
 }
 
 describe('DocumentsService', () => {
@@ -501,6 +504,23 @@ describe('DocumentsService — доступ (15.11)', () => {
     expect(prisma.documentEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'REVOKE' }) }),
     )
+  })
+
+  it('сигнал document.changed: грант — новому получателю, отзыв — отозванному', async () => {
+    const { service, prisma, events } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    await service.grantAccess(actor(), 'd1', {
+      granteeType: 'USER',
+      granteeId: 'u-2',
+      reason: 'проверка',
+    })
+    expect(events.toGrantees).toHaveBeenCalledWith('d1', 'shared', [
+      { granteeType: 'USER', granteeId: 'u-2' },
+    ])
+    const revoked = { id: 'a1', revokedAt: null, granteeType: 'USER', granteeId: 'u-2' }
+    prisma.documentAccess.findFirst.mockResolvedValue(revoked)
+    await service.revokeAccess(actor(), 'd1', 'a1')
+    expect(events.toGrantees).toHaveBeenCalledWith('d1', 'unshared', [revoked])
   })
 
   it('getFileUrl: не владелец с активным грантом → выдаёт URL (событие VIEW)', async () => {
