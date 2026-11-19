@@ -5,17 +5,17 @@ import Link from 'next/link'
 import { NavLink } from './nav-link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import type { Role } from '@studenthub/shared-types'
 import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
+import { badgeText, navBadgeOf, useNavBadges, type NavBadges } from '../lib/use-nav-badges'
 import { endSession } from '../../../shared/session'
 import {
   NAV_BY_VARIANT,
   ROLE_TO_VARIANT,
   STUDENT_NAV,
   careerNavFor,
-  hasChats,
   isCareerPath,
   isNavHrefActive,
   isNavItemActive,
@@ -25,9 +25,6 @@ import {
 import { fetchMe, userKeys } from '../../../entities/user'
 import { usePlatformState, isNavKeyDisabled } from '../../../entities/platform'
 import { fetchLibrarySettings, libraryKeys } from '../../../entities/library'
-import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
-import { useRealtimeEvent } from '../../../shared/realtime'
-import { useChatsUnread } from '../../../entities/chat'
 import { SEARCH_MIN_QUERY, canSearch, useSearchItems } from '../../../entities/search'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -49,23 +46,23 @@ const SEARCH_SKELETON_WIDTHS = ['52%', '38%', '61%']
 function BottomNav({
   nav,
   role,
+  badges,
   notifOpen,
   onToggleNotif,
 }: {
   nav: NavItem[]
-  /** Роль из профиля; пока он грузится — undefined, и чаты не запрашиваются. */
+  /** Роль из профиля; пока он грузится — undefined. */
   role: Role | undefined
+  badges: NavBadges
   notifOpen: boolean
   onToggleNotif: () => void
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
-  const chatsUnread = useChatsUnread(role ? hasChats(role) : false)
   const searchable = canSearch(role)
   const tShell = useTranslations('Dashboard')
   const tSearch = useTranslations('Command')
   const tCommon = useTranslations('Common')
-  const queryClient = useQueryClient()
   const [moreOpen, setMoreOpen] = useState(false)
   // Закрытие анимируем так же, как открытие: остров гаснет и оседает к своей кнопке, и
   // только потом размонтируется — иначе меню «пропадало» рывком.
@@ -105,21 +102,11 @@ function BottomNav({
     setSearchOpen(true)
   }
 
-  const unread = useQuery({
-    queryKey: notificationKeys.unreadCount(),
-    queryFn: fetchUnreadCount,
-  })
-  // Живой бейдж: новое уведомление → пересчитать счётчик непрочитанных.
-  useRealtimeEvent('notification:new', () => {
-    void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
-  })
-  // Прочтение чата гасит его свёрнутую строку в колокольчике (§10.1), а отдельного события
-  // об этом нет — без перечитывания бейдж висел до следующего уведомления.
-  useRealtimeEvent('chat:read', () => {
-    void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
-  })
-  const count = unread.data ?? 0
-  const badge = count > 99 ? '99+' : String(count)
+  // Счётчики считает оболочка (useNavBadges) — те же числа, что в сайдбаре.
+  const count = badges.notifications
+  const badge = badgeText(count)
+  const badgeLabel = (key: string, n: number): string =>
+    key === 'chats' ? tNav('unreadMessages', { count: n }) : tNav('attentionCount', { count: n })
 
   // Закрываем меню «Ещё» и поиск при любой навигации.
   useEffect(() => {
@@ -313,7 +300,7 @@ function BottomNav({
             {overflow.map((item) => {
               const Icon = item.icon
               const active = isNavItemActive(item, pathname)
-              const badgeCount = item.key === 'chats' ? chatsUnread : 0
+              const badgeCount = navBadgeOf(item, badges.byKey)
               // Раздел со страницами: подпись раздела и под ней его страницы. Сворачивать
               // их здесь незачем — меню и так открыто ради выбора, лишнее касание мешает.
               if (item.children) {
@@ -331,6 +318,7 @@ function BottomNav({
                     </div>
                     {item.children.map((child) => {
                       const childActive = isNavHrefActive(child.href, pathname, child.exact)
+                      const childCount = badges.byKey[child.key] ?? 0
                       return (
                         <NavLink
                           key={child.href}
@@ -344,6 +332,14 @@ function BottomNav({
                           )}
                         >
                           <span className="min-w-0 truncate">{tNav(child.key)}</span>
+                          {childCount > 0 && (
+                            <span
+                              aria-label={badgeLabel(child.key, childCount)}
+                              className={rowBadge}
+                            >
+                              {badgeText(childCount)}
+                            </span>
+                          )}
                         </NavLink>
                       )
                     })}
@@ -361,11 +357,8 @@ function BottomNav({
                   <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
                   <span className="min-w-0 truncate">{tNav(item.key)}</span>
                   {badgeCount > 0 && (
-                    <span
-                      aria-label={tNav('unreadMessages', { count: badgeCount })}
-                      className={rowBadge}
-                    >
-                      {badgeCount > 99 ? '99+' : badgeCount}
+                    <span aria-label={badgeLabel(item.key, badgeCount)} className={rowBadge}>
+                      {badgeText(badgeCount)}
                     </span>
                   )}
                 </NavLink>
@@ -433,7 +426,7 @@ function BottomNav({
               {nav.slice(0, 4).map((item) => {
                 const active = isNavItemActive(item, pathname)
                 const Icon = item.icon
-                const badgeCount = item.key === 'chats' ? chatsUnread : 0
+                const badgeCount = navBadgeOf(item, badges.byKey)
                 return (
                   <NavLink
                     key={item.key}
@@ -452,10 +445,10 @@ function BottomNav({
                       <Icon className="size-5" aria-hidden />
                       {badgeCount > 0 && (
                         <span
-                          aria-label={tNav('unreadMessages', { count: badgeCount })}
+                          aria-label={badgeLabel(item.key, badgeCount)}
                           className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground"
                         >
-                          {badgeCount > 99 ? '99+' : badgeCount}
+                          {badgeText(badgeCount)}
                         </span>
                       )}
                     </span>
@@ -537,6 +530,8 @@ export function AppShell({
   // Навигацию выбираем по РОЛИ пользователя (общие страницы вроде /profile сохраняют
   // сайдбар текущей роли). Проп variant — SSR-фолбэк до загрузки профиля.
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  // Счётчики навигации — один раз на оболочку, а не в каждой навигации отдельно.
+  const badges = useNavBadges(me.data?.role)
   const effectiveVariant: NavVariant = me.data ? ROLE_TO_VARIANT[me.data.role] : variant
 
   // На экране чатов сайдбар превращается в панель списка чатов (список порталится в слот).
@@ -599,6 +594,7 @@ export function AppShell({
       <div className="fixed inset-0 flex h-[calc(100dvh-var(--kb-inset,0px))] w-full overflow-hidden bg-muted/30">
         <AppSidebar
           nav={nav}
+          badges={badges}
           locale={locale}
           listMode={chatsMode}
           onListSlot={setListSlot}
@@ -620,6 +616,7 @@ export function AppShell({
           <BottomNav
             nav={nav}
             role={me.data?.role}
+            badges={badges}
             notifOpen={notifOpen}
             onToggleNotif={() => setNotifOpen((o) => !o)}
           />

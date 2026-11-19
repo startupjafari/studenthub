@@ -109,6 +109,8 @@
     "candidates": "Кандидаты",
     "careerAnalytics": "Метрики",
     "unreadMessages": "{count, plural, one {# непрочитанное сообщение} few {# непрочитанных сообщения} other {# непрочитанных сообщений}}",
+    "attentionCount": "Требуют внимания: {count}",
+    "notificationsUnread": "Уведомления, непрочитанных: {count}",
     "demoRequests": "Заявки вузов",
     "setup": "Настройка вуза",
     "serviceCatalog": "Услуги",

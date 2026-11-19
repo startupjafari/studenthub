@@ -9,20 +9,14 @@ import { useTranslations } from 'next-intl'
 import { Bell, ChevronDown, LogOut, ScanQrCode, Search, UserRound } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
-import { useChatsUnread } from '../../../entities/chat'
 import { canSearch } from '../../../entities/search'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
-import {
-  careerHomeFor,
-  hasCareerProduct,
-  hasChats,
-  isNavHrefActive,
-  isNavItemActive,
-} from '../model/nav'
+import { badgeText, navBadgeOf, type NavBadges } from '../lib/use-nav-badges'
+import { careerHomeFor, hasCareerProduct, isNavHrefActive, isNavItemActive } from '../model/nav'
 import type { NavItem } from '../model/nav'
 
 // Разбивает навигацию на секции по item.group. Секции — в порядке первого появления группы,
@@ -55,7 +49,19 @@ function toSections(nav: NavItem[]): { group?: string; items: NavItem[] }[] {
  * открыта одна из страниц, раздел раскрыт сам — человек видит, где он и что рядом. Свернуть
  * можно и тогда: это его сайдбар, а не навязанное состояние.
  */
-function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
+/** Счётчик у правого края строки навигации. */
+const ROW_BADGE =
+  'flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] font-bold tabular-nums text-primary-foreground'
+
+function NavSection({
+  item,
+  pathname,
+  byKey,
+}: {
+  item: NavItem
+  pathname: string
+  byKey: Record<string, number>
+}) {
   const tNav = useTranslations('Nav')
   const active = isNavItemActive(item, pathname)
   const [open, setOpen] = useState(active)
@@ -65,6 +71,7 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
   }, [active])
   const Icon = item.icon
   const listId = `nav-section-${item.key}`
+  const sectionCount = navBadgeOf(item, byKey)
 
   return (
     <div className="flex flex-col gap-1">
@@ -80,6 +87,13 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
       >
         <Icon className="size-5 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-left">{tNav(item.key)}</span>
+        {/* Свёрнутый раздел показывает сумму по своим страницам — иначе новое пряталось бы
+            под стрелкой; раскрытый — числа стоят у самих страниц. */}
+        {!open && sectionCount > 0 && (
+          <span aria-label={tNav('attentionCount', { count: sectionCount })} className={ROW_BADGE}>
+            {badgeText(sectionCount)}
+          </span>
+        )}
         <ChevronDown
           className={cn('size-4 shrink-0 transition-transform duration-200', open && 'rotate-180')}
           aria-hidden
@@ -90,19 +104,28 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
         <ul id={listId} className="ml-5 flex flex-col gap-0.5 border-l border-border pl-3">
           {item.children?.map((child) => {
             const childActive = isNavHrefActive(child.href, pathname, child.exact)
+            const childCount = byKey[child.key] ?? 0
             return (
               <li key={child.href}>
                 <NavLink
                   href={child.href}
                   aria-current={childActive ? 'page' : undefined}
                   className={cn(
-                    'flex rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                     childActive
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
-                  <span className="min-w-0 truncate">{tNav(child.key)}</span>
+                  <span className="min-w-0 flex-1 truncate">{tNav(child.key)}</span>
+                  {childCount > 0 && (
+                    <span
+                      aria-label={tNav('attentionCount', { count: childCount })}
+                      className={ROW_BADGE}
+                    >
+                      {badgeText(childCount)}
+                    </span>
+                  )}
                 </NavLink>
               </li>
             )
@@ -119,12 +142,15 @@ function initials(first?: string, last?: string): string {
 
 export function AppSidebar({
   nav,
+  badges,
   listMode = false,
   onListSlot,
   notifOpen = false,
   onToggleNotif,
 }: {
   nav: NavItem[]
+  /** Счётчики навигации — считает оболочка (useNavBadges), те же, что в нижней навигации. */
+  badges: NavBadges
   locale: string
   // На экране чатов тело сайдбара — слот, куда виджет чатов порталит список.
   listMode?: boolean
@@ -138,9 +164,6 @@ export function AppSidebar({
   const tRoles = useTranslations('Roles')
   const tShell = useTranslations('Dashboard')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
-  // Пока роль неизвестна, бейдж не запрашиваем: охране чатов не положено, и её запрос
-  // ушёл бы в 403 на каждом экране.
-  const chatsUnread = useChatsUnread(me.data ? hasChats(me.data.role) : false)
 
   async function logout() {
     await endSession()
@@ -192,11 +215,15 @@ export function AppSidebar({
             <button
               type="button"
               onClick={() => onToggleNotif?.()}
-              aria-label={tNav('notifications')}
+              aria-label={
+                badges.notifications > 0
+                  ? tNav('notificationsUnread', { count: badges.notifications })
+                  : tNav('notifications')
+              }
               title={tNav('notifications')}
               aria-pressed={notifOpen}
               className={cn(
-                'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
+                'relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
                 !canSearch(me.data?.role) && 'ml-auto',
                 notifOpen
                   ? 'bg-primary/10 text-primary'
@@ -204,6 +231,14 @@ export function AppSidebar({
               )}
             >
               <Bell className="size-5" aria-hidden />
+              {badges.notifications > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground ring-2 ring-sidebar"
+                >
+                  {badgeText(badges.notifications)}
+                </span>
+              )}
             </button>
           </div>
           <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
@@ -216,10 +251,18 @@ export function AppSidebar({
                 )}
                 {section.items.map((item) => {
                   if (item.children) {
-                    return <NavSection key={item.key} item={item} pathname={pathname} />
+                    return (
+                      <NavSection
+                        key={item.key}
+                        item={item}
+                        pathname={pathname}
+                        byKey={badges.byKey}
+                      />
+                    )
                   }
                   const Icon = item.icon
                   const active = isNavItemActive(item, pathname)
+                  const count = navBadgeOf(item, badges.byKey)
                   return (
                     <NavLink
                       key={item.key}
@@ -234,12 +277,16 @@ export function AppSidebar({
                     >
                       <Icon className="size-5 shrink-0" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{tNav(item.key)}</span>
-                      {item.key === 'chats' && chatsUnread > 0 && (
+                      {count > 0 && (
                         <span
-                          aria-label={tNav('unreadMessages', { count: chatsUnread })}
-                          className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] font-bold tabular-nums text-primary-foreground"
+                          aria-label={
+                            item.key === 'chats'
+                              ? tNav('unreadMessages', { count })
+                              : tNav('attentionCount', { count })
+                          }
+                          className={ROW_BADGE}
                         >
-                          {chatsUnread > 99 ? '99+' : chatsUnread}
+                          {badgeText(count)}
                         </span>
                       )}
                     </NavLink>
