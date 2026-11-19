@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useChatsUnread } from '../../../entities/chat'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
@@ -10,7 +11,8 @@ import {
   useApplicationQueueRealtime,
 } from '../../../entities/application-service'
 import { fetchDemoRequests, onboardingKeys } from '../../../entities/onboarding'
-import { useRealtimeEvent } from '../../../shared/realtime'
+import { adminListOf } from '../../../entities/admin-list'
+import { useLiveRefresh, useRealtimeEvent } from '../../../shared/realtime'
 import { hasChats, type NavItem } from '../model/nav'
 
 // Счётчики навигации — одним хуком на оболочку: сайдбар (десктоп) и нижняя навигация
@@ -23,11 +25,7 @@ const APPLICANT_ROLES = new Set<Role>([Role.STUDENT, Role.STAROSTA])
 const QUEUE_ROLES = new Set<Role>([Role.DEAN, Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR])
 /** Пункты навигации, которые ведут в заявки, — у разных ролей они называются по-разному. */
 const APPLICATION_NAV_KEYS = ['applications', 'applicationsGroup', 'applicationsQueue']
-/**
- * Заявки вузов приходят с публичной формы — события по сокету о них нет, поэтому счётчик
- * перечитывается раз в минуту (и при возврате во вкладку — по умолчанию React Query).
- */
-const DEMO_REQUESTS_POLL_MS = 60_000
+/** Счётчик новых заявок вузов: нужен только total, строк не читаем. */
 const NEW_DEMO_REQUESTS = { status: 'NEW', limit: 1 } as const
 
 export interface NavBadges {
@@ -75,12 +73,22 @@ export function useNavBadges(role: Role | undefined): NavBadges {
       : stats.data.new
     : 0
 
+  // Заявки вузов приходят с публичной формы. Раньше бейдж опрашивал сервер раз в минуту;
+  // теперь подтверждение адреса, одобрение и отказ шлют админам платформы сигнал
+  // `admin.list.changed` с `list: 'demoRequests'` (§9.2d), и счётчик перечитывается по нему.
+  // Возврат во вкладку по-прежнему перечитывает его сам (по умолчанию React Query) — это
+  // догон сигналов, пропущенных, пока сокет был отключён.
+  const platformAdmin = role === Role.PLATFORM_ADMIN
   const demo = useQuery({
     queryKey: onboardingKeys.demoRequests(NEW_DEMO_REQUESTS),
     queryFn: () => fetchDemoRequests(NEW_DEMO_REQUESTS),
-    enabled: role === Role.PLATFORM_ADMIN,
-    refetchInterval: DEMO_REQUESTS_POLL_MS,
+    enabled: platformAdmin,
   })
+  useLiveRefresh(
+    REALTIME_EVENTS.adminListChanged,
+    (envelope) => (adminListOf(envelope) === 'demoRequests' ? [onboardingKeys.all] : null),
+    { enabled: platformAdmin },
+  )
 
   const byKey: Record<string, number> = { chats }
   for (const key of APPLICATION_NAV_KEYS) byKey[key] = applications

@@ -19,6 +19,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
+import { AdminListEvents } from '../../common/realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import { hashInviteToken, inviteTokenLookups } from './invite-token'
 import { Paginated } from '../../common/http/paginated'
@@ -85,6 +86,7 @@ export class InviteService {
     private readonly audit: AuditService,
     private readonly queue: QueueService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   /**
@@ -155,10 +157,14 @@ export class InviteService {
     return 'RETIRED'
   }
 
-  /** Запись о выдаче приглашения в аудит. Для инвайта из чужой транзакции — после её коммита. */
+  /**
+   * Запись о выдаче приглашения в аудит и сигнал живому списку инвайтов. Для инвайта из
+   * чужой транзакции — после её коммита: сигнал до коммита заставил бы список перечитаться
+   * раньше, чем новая строка станет видна.
+   */
   async recordCreated(
     issuer: JwtPayload,
-    invite: { id: string; role: string },
+    invite: { id: string; role: string; universityId: string | null },
     ctx: RequestContext,
   ): Promise<void> {
     await this.audit.record({
@@ -168,6 +174,11 @@ export class InviteService {
       entityId: invite.id,
       metadata: { role: invite.role },
       ...ctx,
+    })
+    this.adminLists.invite({
+      id: invite.id,
+      universityId: invite.universityId,
+      createdById: issuer.sub,
     })
   }
 
@@ -526,6 +537,16 @@ export class InviteService {
       metadata: { created: created.length, skipped, failed },
       ...ctx,
     })
+    // Один сигнал на всю пачку: списку достаточно знать, что он изменился. id инвайтов
+    // createMany не возвращает, поэтому entityId — вуз пачки (или выдавший, если вуза нет).
+    const [first] = created
+    if (first) {
+      this.adminLists.invite({
+        id: first.scope.universityId ?? issuer.sub,
+        universityId: first.scope.universityId,
+        createdById: issuer.sub,
+      })
+    }
 
     // Письма — best-effort, вне критического пути (сбой Redis не роняет ответ).
     if (created.length > 0) {
@@ -743,6 +764,11 @@ export class InviteService {
       entity: 'Invite',
       entityId: id,
       ...ctx,
+    })
+    this.adminLists.invite({
+      id,
+      universityId: invite.universityId,
+      createdById: invite.createdById,
     })
     return { id, status: InviteStatus.REVOKED }
   }

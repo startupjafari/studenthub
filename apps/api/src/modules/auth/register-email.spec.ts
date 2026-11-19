@@ -48,6 +48,7 @@ function setup(owner: string | null) {
     {} as never,
     {} as never,
     { removeAllForUser: jest.fn() } as never,
+    { invite: jest.fn(), user: jest.fn() } as never,
   )
   return { service, users, invites }
 }

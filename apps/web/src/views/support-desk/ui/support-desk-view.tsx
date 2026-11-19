@@ -11,6 +11,7 @@ import {
   supportKeys,
   type SupportTicket,
 } from '../../../entities/support-ticket'
+import { useAdminListLive } from '../../../entities/admin-list'
 import {
   Badge,
   Card,
@@ -92,6 +93,17 @@ export function SupportDeskView() {
     setPage(1)
   }
   const rows = queue.data?.items ?? []
+  // Живая очередь (§9.2d): новое обращение, ответ, взятие коллегой, теги и закрытие видны
+  // без перезагрузки — вместе со счётчиками тегов и открытой перепиской.
+  const fresh = useAdminListLive(
+    'support',
+    [
+      [...supportKeys.all, 'queue'],
+      supportKeys.tags(),
+      ...(openId ? [supportKeys.thread(openId)] : []),
+    ],
+    { ids: rows.map((ticket) => ticket.id) },
+  )
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -188,6 +200,7 @@ export function SupportDeskView() {
                   ticket={ticket}
                   locale={locale}
                   labels={labels}
+                  fresh={fresh.has(ticket.id)}
                   onOpen={() => setOpenId(ticket.id)}
                 />
               ))}
@@ -213,11 +226,14 @@ function TicketRow({
   ticket,
   locale,
   labels,
+  fresh,
   onOpen,
 }: {
   ticket: SupportTicket
   locale: string
   labels: Record<SupportTag, string>
+  /** Строка появилась по сигналу — въезд и подсветка `sh-live-in`. */
+  fresh: boolean
   onOpen: () => void
 }) {
   const t = useTranslations('SupportDesk')
@@ -236,7 +252,10 @@ function TicketRow({
           onOpen()
         }
       }}
-      className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+      className={cn(
+        'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+        fresh && 'sh-live-in',
+      )}
     >
       <TableCell className={cn(waiting && 'font-semibold')}>
         <TableText value={name} />

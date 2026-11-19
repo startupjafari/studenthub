@@ -32,6 +32,7 @@ function setup(role: 'STAROSTA' | 'STUDENT', groupId: string | null = 'grp-1') {
     }),
     markUsed: jest.fn(),
   }
+  const adminLists = { invite: jest.fn(), user: jest.fn() }
   const service = new AuthService(
     prisma as never,
     { sign: jest.fn(() => 'access') } as never,
@@ -49,8 +50,9 @@ function setup(role: 'STAROSTA' | 'STUDENT', groupId: string | null = 'grp-1') {
     {} as never,
     {} as never,
     { removeAllForUser: jest.fn() } as never,
+    adminLists as never,
   )
-  return { service, users, tx }
+  return { service, users, tx, adminLists }
 }
 
 const registration = {
@@ -78,6 +80,20 @@ describe('AuthService.registerByInvite — инвайт старосты', () =>
     await service.registerByInvite(registration, {})
 
     expect(users.afterStarostaChange).toHaveBeenCalledWith('dean-1', 'grp-1', null, ['u-old'])
+  })
+
+  // Живые списки (§9.2d): инвайт стал использованным, в вузе новый человек.
+  it('после коммита — сигналы спискам инвайтов и людей вуза', async () => {
+    const { service, adminLists } = setup('STUDENT')
+
+    await service.registerByInvite(registration, {})
+
+    expect(adminLists.invite).toHaveBeenCalledWith({
+      id: 'inv-1',
+      universityId: 'uni-1',
+      createdById: 'dean-1',
+    })
+    expect(adminLists.user).toHaveBeenCalledWith({ id: 'u-new', universityId: 'uni-1' })
   })
 
   it('инвайт студента группу не трогает', async () => {

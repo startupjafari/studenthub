@@ -33,6 +33,7 @@ import {
   revokeInviteRequest,
   type InviteStatus,
 } from '../../../entities/invite'
+import { useAdminListLive } from '../../../entities/admin-list'
 import { cn } from '../../../shared/lib/utils'
 import type { InviteListScopeValue, InviteSortValue } from '@studenthub/shared-schemas'
 import { INVITABLE_ROLES } from '../model/invitable-roles'
@@ -104,6 +105,11 @@ export function CreateInvite() {
   })
   const rowsOnPage = invites.data?.items ?? []
   const total = invites.data?.total ?? 0
+  // Живой список (§9.2d): выдача, отзыв и регистрация по инвайту — свои и коллег —
+  // появляются без перезагрузки, новые строки подсвечиваются.
+  const fresh = useAdminListLive('invites', [inviteKeys.all], {
+    ids: rowsOnPage.map((inv) => inv.id),
+  })
 
   const invitable = me.data ? (INVITABLE_ROLES[me.data.role] ?? []) : []
 
@@ -211,7 +217,10 @@ export function CreateInvite() {
             <TableBody>
               {invites.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {rows.map((inv) => (
-                <TableRow key={inv.id} className="hover:bg-muted/40">
+                <TableRow
+                  key={inv.id}
+                  className={cn('hover:bg-muted/40', fresh.has(inv.id) && 'sh-live-in')}
+                >
                   <TableCell className="font-medium">
                     <TableText value={tRoles(inv.role)} />
                     {listScope === 'university' && inv.createdBy && (

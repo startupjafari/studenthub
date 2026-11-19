@@ -49,6 +49,7 @@ describe('AuthService: refresh-токен без верного секрета',
       {} as never,
       {} as never,
       push as never,
+      { invite: jest.fn(), user: jest.fn() } as never,
     )
     return { service, prisma, audit, passwords, push }
   }
@@ -158,6 +159,7 @@ describe('AuthService: хэш секрета refresh', () => {
       {} as never,
       {} as never,
       { removeAllForUser: jest.fn() } as never,
+      { invite: jest.fn(), user: jest.fn() } as never,
     )
     return { service, passwords, created, audit, tx }
   }
@@ -267,6 +269,7 @@ describe('AuthService: окно грации считается до сверк�
         {} as never,
         {} as never,
         { removeAllForUser: jest.fn() } as never,
+        { invite: jest.fn(), user: jest.fn() } as never,
       )
 
       const err = await service.refresh('rt-1.good', {}).catch((e) => e)
