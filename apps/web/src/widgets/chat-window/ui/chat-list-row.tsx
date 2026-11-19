@@ -216,11 +216,18 @@ export function ChatListRow({
         onTouchEnd={h.onTouchEnd}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          // Фон НЕПРОЗРАЧНЫЙ: строка лежит поверх панелей свайпа и закрывает их собой.
-          'group/row relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 bg-background px-2 py-[0.5625rem] text-left transition-colors duration-150 hover:bg-muted active:bg-accent lg:rounded-xl',
+          // Строка во всю ширину колонки, без скругления и своей подложки — как в Telegram:
+          // строки не «карточки», а ряды одного списка на фоне колонки.
+          'group/row relative z-10 flex w-full cursor-pointer touch-pan-y items-center gap-3 px-3 py-[0.5625rem] text-left transition-colors duration-150',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
-          menuOpen && 'bg-muted',
-          sel && 'bg-primary/10 md:bg-primary md:hover:bg-primary md:active:bg-primary',
+          sel
+            ? 'bg-primary/10 md:bg-primary md:hover:bg-primary md:active:bg-primary'
+            : menuOpen
+              ? 'bg-muted'
+              : // На телефоне фон НЕПРОЗРАЧНЫЙ: строка лежит поверх панелей свайпа и закрывает
+                // их собой. На ПК свайпа нет — строка прозрачная и берёт цвет колонки
+                // (сайдбара), а не выделяется тёмной плашкой.
+                'bg-background hover:bg-muted active:bg-accent lg:bg-transparent lg:hover:bg-muted lg:active:bg-accent',
         )}
       >
         <span className="relative shrink-0">
@@ -233,9 +240,11 @@ export function ChatListRow({
           {c.type === 'PRIVATE' && c.online && (
             <span
               className={cn(
-                'absolute bottom-0.5 right-0.5 size-3.5 rounded-full border-2 border-background bg-success transition-colors duration-150 motion-safe:animate-in motion-safe:zoom-in-50',
-                'group-hover/row:border-muted',
-                sel && 'md:border-primary md:group-hover/row:border-primary',
+                'absolute bottom-0.5 right-0.5 size-3.5 rounded-full border-2 bg-success transition-colors duration-150 motion-safe:animate-in motion-safe:zoom-in-50',
+                // Обводка точки — цвет фона под строкой: на ПК строка прозрачная поверх сайдбара.
+                sel
+                  ? 'border-background md:border-primary md:group-hover/row:border-primary'
+                  : 'border-background group-hover/row:border-muted lg:border-sidebar lg:group-hover/row:border-muted',
               )}
               aria-label={t('tgList.online')}
               role="img"
