@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { isRestrictedRole } from '@studenthub/shared-types'
-import { canFileComplaint } from '@studenthub/shared-schemas'
+import { REALTIME_EVENTS, canFileComplaint } from '@studenthub/shared-schemas'
 import {
   ArrowLeft,
   Check,
@@ -40,7 +40,7 @@ import {
   removeFriendship,
   friendKeys,
 } from '../../../entities/friendship'
-import { useRealtimeEvent } from '../../../shared/realtime'
+import { useLiveRefresh, useRealtimeEvent } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
 import { useAuthorStories } from '../../../entities/story'
 import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
@@ -348,6 +348,11 @@ function FriendButton({ userId }: { userId: string }) {
     queryKey: friendKeys.status(userId),
     queryFn: () => fetchFriendshipStatus(userId),
   })
+  // Человек прислал заявку, принял нашу, отклонил или удалил из друзей, пока профиль открыт, —
+  // кнопка меняет вид без перезагрузки (§9.2d). Сигнал не говорит, от кого он (только id
+  // связи, которой у статуса NONE ещё нет), поэтому перечитываем статус на любой: это один
+  // лёгкий запрос, а сигналы дружбы редки.
+  useLiveRefresh(REALTIME_EVENTS.friendsChanged, [friendKeys.status(userId)])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: friendKeys.status(userId) })

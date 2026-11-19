@@ -1,6 +1,6 @@
 'use client'
 
-import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -26,7 +26,7 @@ import {
   type FriendUser,
 } from '../../../entities/friendship'
 import { CHATS_HREF_BY_ROLE } from '../../../shared/config'
-import { toApiError } from '../../../shared/lib'
+import { cn, toApiError, useFreshIds } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Button,
@@ -158,6 +158,24 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
       : (requestsQ.data?.pages ?? []).flatMap((page) =>
           page.items.map((r) => ({ id: r.friendshipId, user: r.user })),
         )
+
+  // Строка, пришедшая по живому сигналу (§9.2d: заявка, новый друг), въезжает с подсветкой.
+  // Отсчёт у каждого списка свой: при общем переключение вкладки «подсвечивало» бы всё, что
+  // на ней есть. У запроса заявок ключ меняется с направлением — его данные относятся к
+  // своему списку, другой в это время ждёт с прежней точкой отсчёта.
+  const friendIds = useMemo(
+    () => friendsQ.data?.pages.flatMap((page) => page.items.map((f) => f.friendshipId)),
+    [friendsQ.data],
+  )
+  const requestIds = useMemo(
+    () => requestsQ.data?.pages.flatMap((page) => page.items.map((r) => r.friendshipId)),
+    [requestsQ.data],
+  )
+  const freshFriends = useFreshIds(friendIds)
+  const freshIncoming = useFreshIds(direction === 'incoming' ? requestIds : undefined)
+  const freshOutgoing = useFreshIds(direction === 'outgoing' ? requestIds : undefined)
+  const fresh =
+    tab === 'friends' ? freshFriends : tab === 'incoming' ? freshIncoming : freshOutgoing
 
   // Поиск — по уже загруженному списку, отдельного API под него нет: друзей у человека
   // сотни, а не миллионы. Чтобы искать по всем, а не по первой странице, во время поиска
@@ -365,7 +383,7 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
           <>
             <ul className="flex flex-col">
               {rows.map((row) => (
-                <li key={row.id}>
+                <li key={row.id} className={cn('rounded-xl', fresh.has(row.id) && 'sh-live-in')}>
                   <FriendCard
                     user={row.user}
                     meta={
