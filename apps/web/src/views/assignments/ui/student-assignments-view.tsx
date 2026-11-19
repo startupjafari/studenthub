@@ -111,9 +111,11 @@ export function StudentAssignmentsView() {
   }, [q.data])
 
   // Преподаватель выдал или изменил задание, проверил работу — список и открытая деталь
-  // перечитываются по сигналу, новое задание въезжает строкой с подсветкой.
+  // перечитываются по сигналу, новое задание въезжает строкой с подсветкой. Новизну считаем
+  // по первой странице: догруженная «Показать ещё» история — не новые задания.
   useAssignmentsLive()
-  const fresh = useFreshIds(useMemo(() => items.map((a) => a.id), [items]))
+  const firstPage = q.data?.pages[0]
+  const fresh = useFreshIds(useMemo(() => firstPage?.items.map((a) => a.id), [firstPage]))
 
   // Prefetch детали задания при наведении/фокусе строки (принцип 3): к клику деталь уже в кэше,
   // окно открывается мгновенно. staleTime гасит повторные prefetch по одному id.
