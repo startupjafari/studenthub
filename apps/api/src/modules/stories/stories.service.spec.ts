@@ -714,7 +714,8 @@ describe('StoriesService.deleteExpired', () => {
     id: string,
     fileId: string | null,
     authorId = 'u-1',
-    universityId = 'uni-1',
+    // Работодатель — без вуза: тип шире строки, иначе null не передать.
+    universityId: string | null = 'uni-1',
   ) => ({
     id,
     fileId,
