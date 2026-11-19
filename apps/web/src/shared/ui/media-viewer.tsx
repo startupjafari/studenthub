@@ -169,8 +169,13 @@ export function MediaViewer({
   // Callback-ref, а не объектный: один ref на <img> и <video> объектным пришлось бы
   // типизировать пересечением их интерфейсов — ложью, которую TS пропускает по случайности.
   const mediaRef = useRef<HTMLElement | null>(null)
+  // Узел ещё и в состоянии: окно рисуется в портале Radix, который появляется только со
+  // второго прохода рендера. Полёт из миниатюры ждёт именно появления узла — по одному ref
+  // его эффект отрабатывал раньше портала, не находил снимок и больше не запускался.
+  const [mediaEl, setMediaEl] = useState<HTMLElement | null>(null)
   const setMedia = useCallback((el: HTMLImageElement | HTMLVideoElement | null): void => {
     mediaRef.current = el
+    setMediaEl(el)
   }, [])
   const contentRef = useRef<HTMLDivElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
@@ -326,8 +331,8 @@ export function MediaViewer({
       flight.onfinish = restore
       flight.oncancel = restore
     }
-    // Только по приезду ссылки: остальные зависимости полёт не перезапускают (флаг выше).
-  }, [src])
+    // По приезду ссылки или появлению снимка в портале; повторно не летит (флаг выше).
+  }, [src, mediaEl])
 
   const measureFit = useCallback((): void => {
     const box = boxRef.current
