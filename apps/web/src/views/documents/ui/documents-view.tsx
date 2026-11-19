@@ -17,6 +17,8 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { PageHeader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useDocumentsLive } from '../../../entities/document'
+import { useDocumentRequestsLive } from '../../../entities/document-request'
 import { OverviewPanel, type OverviewOpen } from './overview-panel'
 import { DocumentsList } from './documents-list'
 import { RequestsPanel, STAFF_ROLES } from './requests-panel'
@@ -57,6 +59,11 @@ export function DocumentsView() {
   // открывается любой роли — персональный доступ можно выдать не только администрации.
   // Автору запроса о сданном комплекте — /documents?section=requests.
   const requested = useSearchParams().get('section')
+  // Сигналы `document.changed` на все разделы сразу: новый грант, выданная справка, новый
+  // запрос, сданный комплект и вердикт проверки — без перезагрузки страницы. Перечитываются
+  // только запросы видимого раздела, остальные лишь помечаются устаревшими.
+  useDocumentsLive()
+  useDocumentRequestsLive()
   const deepLink: Section | null =
     requested === 'shared' || requested === 'requests' ? requested : null
   const canReceive = requested === 'shared' || (!!role && SHARED_RECIPIENT_ROLES.has(role))
