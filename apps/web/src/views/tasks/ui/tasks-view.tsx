@@ -32,7 +32,7 @@ import { applicationKeys, fetchApplications } from '../../../entities/applicatio
 import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { useLiveRefresh } from '../../../shared/realtime'
-import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
+import { assignmentKeys, fetchAssignments, useAssignmentsLive } from '../../../entities/assignment'
 import {
   buildTasks,
   groupTasks,
@@ -85,6 +85,8 @@ export function TasksView() {
     queryFn: () => fetchAssignments(),
     retry: false,
   })
+  // Задачи из заданий: новое задание группы или проверенная работа — без перезагрузки.
+  useAssignmentsLive()
 
   const timezone = schedule.data?.timezone ?? null
   const todayDate = useMemo(() => nowInTz(timezone).date, [timezone])

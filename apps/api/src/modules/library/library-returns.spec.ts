@@ -103,6 +103,7 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
   }
   // Справки «задолженностей нет», выданные после ошибочного возврата (Фаза 21.C4).
   const exports = { revokeMatching: jest.fn().mockResolvedValue(0) }
+  const events = { changed: jest.fn() }
   const service = new LibraryLoansService(
     prisma as never,
     audit as never,
@@ -112,8 +113,9 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
     notifier as never,
     { get: jest.fn() } as never,
     exports as never,
+    events as never,
   )
-  return { service, prisma, tx, audit, notifier, exports }
+  return { service, prisma, tx, audit, notifier, exports, events }
 }
 
 describe('Возврат', () => {
@@ -126,7 +128,7 @@ describe('Возврат', () => {
   })
 
   it('без очереди — экземпляр на полку, состояние записано, читателю уведомление', async () => {
-    const { service, tx, notifier } = setup()
+    const { service, tx, notifier, events } = setup()
     const result = await service.returnCopy(
       librarian,
       { copyCode: 'ABCD2345', condition: 'WORN' },
@@ -155,6 +157,8 @@ describe('Возврат', () => {
         dedupeKey: expect.stringMatching(/^library-loan-returned:loan-1:\d+$/),
       }),
     )
+    // Живой сигнал «Моим книгам» читателя (§9.2d).
+    expect(events.changed).toHaveBeenCalledWith('loan-1', 'stu-1', 'returned')
   })
 
   it('есть очередь — экземпляр под бронь первому, тому «бронь готова»', async () => {
@@ -293,7 +297,7 @@ describe('Продление: гонки и срок по умолчанию', (
 
 describe('Утеря и отмена', () => {
   it('утеря — выдача LOST, экземпляр LOST', async () => {
-    const { service, tx } = setup()
+    const { service, tx, events } = setup()
     tx.loan.findUniqueOrThrow.mockResolvedValue(loanRow({ status: 'LOST' }))
     await service.markLost(librarian, 'loan-1', ctx)
     expect(tx.loan.updateMany).toHaveBeenCalledWith(
@@ -303,6 +307,7 @@ describe('Утеря и отмена', () => {
       where: { id: 'copy-1' },
       data: { status: 'LOST' },
     })
+    expect(events.changed).toHaveBeenCalledWith('loan-1', 'stu-1', 'lost')
   })
 
   it('долг по утерянной погашен — отметка, кто погасил, и аудит', async () => {

@@ -25,6 +25,7 @@ import {
   fetchMyLoans,
   fetchMyReservations,
   libraryKeys,
+  useMyLoansLive,
   reserveBookRequest,
   type BookCard,
 } from '../../../entities/library'
@@ -50,6 +51,8 @@ export function ReaderBookView({ bookId }: { bookId: string }) {
     queryFn: fetchMyReservations,
   })
   const loans = useQuery({ queryKey: libraryKeys.myLoans(), queryFn: fetchMyLoans })
+  // Выдача этой книги у стойки сразу меняет кнопки брони на карточке.
+  useMyLoansLive()
 
   const reserveMut = useMutation({
     mutationFn: () => reserveBookRequest(bookId),

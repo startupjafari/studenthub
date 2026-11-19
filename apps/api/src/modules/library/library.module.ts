@@ -9,6 +9,7 @@ import { LibraryImportService } from './library-import.service'
 import { LibraryLoansController } from './library-loans.controller'
 import { LibraryLoansService } from './library-loans.service'
 import { LibraryNotifier } from './library-notifier'
+import { LibraryLoanEvents } from './library-loan-events'
 import { LibraryIdAccessController } from './library-id-access.controller'
 import { LibraryIdAccessService } from './library-id-access.service'
 import { LibraryRemindersService } from './library-reminders.service'
@@ -25,6 +26,7 @@ import { LibraryClearanceService } from './library-clearance.service'
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11). Владеет таблицами `library_settings`,
 // `books`, `book_copies`, `loans`, `reservations`, `library_id_access_logs`. FilesModule —
 // обложки книг; StudentIdModule — сверка читателя по QR студенческого при выдаче.
+// LibraryLoanEvents — живой сигнал `library.loan.changed` (RealtimeModule глобальный).
 @Module({
   imports: [FilesModule, StudentIdModule],
   controllers: [
@@ -43,6 +45,7 @@ import { LibraryClearanceService } from './library-clearance.service'
     LibraryImportService,
     LibraryLoansService,
     LibraryNotifier,
+    LibraryLoanEvents,
     LibraryIdAccessService,
     LibraryRemindersService,
     LibraryReservationsService,

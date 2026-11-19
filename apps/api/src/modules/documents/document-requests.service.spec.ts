@@ -11,6 +11,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { QueueService } from '../../common/queue'
 import { DocumentTypesService } from './document-types.service'
 import type { AuditService } from '../../common/audit/audit.service'
+import type { DocumentEvents } from './document-events'
 
 function staff(role: Role = Role.DEAN): JwtPayload {
   return { sub: 'staff-1', role, universityId: 'uni-1', facultyId: 'fac-1', groupId: null }
@@ -102,13 +103,15 @@ function setup() {
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
   )
+  const events = { toUsers: jest.fn(), toRequestTargets: jest.fn().mockResolvedValue(undefined) }
   const service = new DocumentRequestsService(
     prisma as unknown as PrismaService,
     documents as unknown as DocumentsService,
     queue as unknown as QueueService,
     types,
+    events as unknown as DocumentEvents,
   )
-  return { service, prisma, documents, queue }
+  return { service, prisma, documents, queue, events }
 }
 
 // Документы студента, найденные проверкой владения в saveSubmission.
@@ -363,13 +366,15 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
   })
 
   it('finalize: любая REJECTED-позиция → комплект REJECTED + уведомление студенту', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, events } = setup()
     prisma.documentSubmission.findFirst
       .mockResolvedValueOnce(
         toFinalize('SUBMITTED', [{ status: 'ACCEPTED' }, { status: 'REJECTED' }]),
       )
       .mockResolvedValue({ ...STAFF_VIEW, status: 'REJECTED' })
     await service.finalizeSubmission(staff(), 's1')
+    // Сигнал document.changed — студенту комплекта, entityId — запрос.
+    expect(events.toUsers).toHaveBeenCalledWith(['stu-1'], 'r1', 'reviewed')
     expect(prisma.documentSubmission.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 's1', status: { in: ['SUBMITTED', 'PARTIAL'] } },

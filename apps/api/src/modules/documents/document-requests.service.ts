@@ -18,6 +18,7 @@ import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { Paginated } from '../../common/http/paginated'
 import { DocumentsService } from './documents.service'
 import { DocumentTypesService } from './document-types.service'
+import { DocumentEvents } from './document-events'
 
 // Ролевая матрица §15.2 (задача 15.18). Запросы создают/проверяют только деканат/студ.офис
 // и преподаватель; админ вуза — НЕ участвует в запросах (управляет типами/правами/сроками),
@@ -223,6 +224,7 @@ export class DocumentRequestsService {
     private readonly documents: DocumentsService,
     private readonly queue: QueueService,
     private readonly types: DocumentTypesService,
+    private readonly events: DocumentEvents,
   ) {}
 
   /**
@@ -525,6 +527,7 @@ export class DocumentRequestsService {
     await this.logEvent(actor.sub, created.id, 'REQUEST_CREATE', { items: input.items.length })
     // Уведомляем адресованных студентов о новом запросе (§15.19).
     await this.notifyTargets(created.id, actor.universityId!, input.title)
+    await this.events.toRequestTargets(created.id, actor.universityId!, 'requested')
     return this.getRequestForStaff(actor, created.id)
   }
 
@@ -675,7 +678,11 @@ export class DocumentRequestsService {
       where: { id, status: 'OPEN' },
       data: { status: 'CLOSED' },
     })
-    if (count > 0) await this.logEvent(actor.sub, id, 'REQUEST_CLOSE')
+    if (count > 0) {
+      await this.logEvent(actor.sub, id, 'REQUEST_CLOSE')
+      // Закрытый запрос пропадает из списка студентов — пусть пропадёт сразу.
+      await this.events.toRequestTargets(id, actor.universityId!, 'closed')
+    }
     return this.getRequestForStaff(actor, id)
   }
 
@@ -845,7 +852,7 @@ export class DocumentRequestsService {
       select: {
         id: true,
         documentId: true,
-        submission: { select: { id: true, requestId: true, status: true } },
+        submission: { select: { id: true, requestId: true, status: true, studentId: true } },
         requestItem: { select: { documentType: true } },
         document: { select: { category: true, type: true } },
       },
@@ -890,6 +897,8 @@ export class DocumentRequestsService {
       })
     }
     if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
+    // Вердикт сразу меняет статус документа у студента («принят» / «требует замены»).
+    this.events.toUsers([item.submission.studentId], item.submission.requestId, 'reviewed')
     return this.getSubmissionForStaff(actor, item.submission.id)
   }
 
@@ -992,6 +1001,7 @@ export class DocumentRequestsService {
       },
       { jobId: `doc-result:${submissionId}:${reviewedAt.getTime()}` },
     )
+    this.events.toUsers([sub.studentId], sub.requestId, 'reviewed')
     return this.getSubmissionForStaff(actor, submissionId)
   }
 
@@ -1414,6 +1424,8 @@ export class DocumentRequestsService {
     })
     await this.documents.syncReviewStatus(documentIds)
     await this.notifyAuthorSubmitted(actor, req, sub.id)
+    // Автору запроса — счётчики сданных и очередь проверки растут без перезагрузки.
+    this.events.toUsers([req.createdById], requestId, 'submitted')
     return this.getForStudent(actor, requestId)
   }
 

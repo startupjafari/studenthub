@@ -7,6 +7,7 @@ export {
   fetchAttendanceQr,
   checkInRequest,
 } from './api/attendance-api'
+export { useAttendanceLive } from './lib/use-attendance-live'
 export type {
   AttendanceStatus,
   RosterEntry,

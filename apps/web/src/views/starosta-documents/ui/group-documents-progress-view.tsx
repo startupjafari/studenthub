@@ -5,7 +5,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { ChevronDown, ClipboardList, Lock } from 'lucide-react'
 import type { GroupProgressStatus, GroupRequestProgress } from '@studenthub/shared-schemas'
-import { documentRequestKeys, fetchGroupProgress } from '../../../entities/document-request'
+import {
+  documentRequestKeys,
+  fetchGroupProgress,
+  useDocumentRequestsLive,
+} from '../../../entities/document-request'
 import { Badge, Button, Card, EmptyState, PageHeader, Progress, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -26,6 +30,8 @@ export function GroupDocumentsProgressView() {
   const t = useTranslations('GroupDocuments')
   const tCommon = useTranslations('Common')
   const q = useQuery({ queryKey: documentRequestKeys.groupProgress(), queryFn: fetchGroupProgress })
+  // Новый или закрытый запрос группе — прогресс перечитывается без перезагрузки.
+  useDocumentRequestsLive()
   const requests = q.data ?? []
 
   return (
