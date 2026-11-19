@@ -38,14 +38,17 @@ function setup() {
   // Кэш непрочитанных колокольчика и висящий запрос на переписку — чужие модули, заглушки.
   const notifications = { invalidateUnread: jest.fn().mockResolvedValue(undefined) }
   const chats = { clearRequestBetween: jest.fn().mockResolvedValue(undefined) }
+  // Сигналы сокета второй стороне (§9.2d) — заглушка, проверяется по вызовам.
+  const live = { changed: jest.fn() }
   const service = new FriendsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
     redis as unknown as Redis,
     notifications as never,
     chats as never,
+    live as never,
   )
-  return { service, prisma, queue, redis, notifications, chats }
+  return { service, prisma, queue, redis, notifications, chats, live }
 }
 
 const me: JwtPayload = {
@@ -609,5 +612,60 @@ describe('FriendsService — пауза на повторную заявку п�
     prisma.friendship.findUnique.mockResolvedValue(pending)
     await expect(service.remove(me, 'f1')).resolves.toBeUndefined()
     expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
+  })
+})
+
+describe('FriendsService — сигнал второй стороне по сокету (§9.2d)', () => {
+  it('новая заявка → requested адресату, даже если колокольчик молчит', async () => {
+    const { service, prisma, redis, live } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue(null)
+    prisma.friendship.create.mockResolvedValue({ id: 'f1' })
+    // Окно уведомления занято: уведомления нет, но список входящих всё равно новый.
+    redis.set.mockResolvedValue(null)
+    await service.sendRequest(me, 'target')
+    expect(live.changed).toHaveBeenCalledWith('target', 'f1', 'requested')
+  })
+
+  it('принятие → accepted инициатору', async () => {
+    const { service, prisma, live } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    await service.accept(me, 'f1')
+    expect(live.changed).toHaveBeenCalledWith('a', 'f1', 'accepted')
+  })
+
+  it('отклонение → declined инициатору; отмена и удаление → removed второй стороне', async () => {
+    const { service, prisma, live } = setup()
+    prisma.friendship.findUnique.mockResolvedValueOnce({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    await service.remove(me, 'f1')
+    expect(live.changed).toHaveBeenLastCalledWith('a', 'f1', 'declined')
+
+    prisma.friendship.findUnique.mockResolvedValueOnce({
+      id: 'f2',
+      requesterId: 'me',
+      addresseeId: 'b',
+      status: 'PENDING',
+    })
+    await service.remove(me, 'f2')
+    expect(live.changed).toHaveBeenLastCalledWith('b', 'f2', 'removed')
+
+    prisma.friendship.findUnique.mockResolvedValueOnce({
+      id: 'f3',
+      requesterId: 'c',
+      addresseeId: 'me',
+      status: 'ACCEPTED',
+    })
+    await service.remove(me, 'f3')
+    expect(live.changed).toHaveBeenLastCalledWith('c', 'f3', 'removed')
   })
 })
