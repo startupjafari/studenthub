@@ -17,6 +17,7 @@ import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import { localDateTimeLabel } from '../../common/time/local-label'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { ExamEvents } from './exam-events'
 
 // Потолки на выборки (BACKEND_RULES §7.2): ведомость ограничена размером группы.
 const GROUP_STUDENTS_LIMIT = 200
@@ -87,6 +88,7 @@ export class ExamsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly queue: QueueService,
+    private readonly events: ExamEvents,
   ) {}
 
   /**
@@ -220,6 +222,12 @@ export class ExamsService {
       'exams.scheduled.title',
       `exam-scheduled:${exam.id}`,
     )
+    // Живой сигнал — и задним числом заведённому экзамену: уведомлять о нём незачем, но в
+    // списке он появиться должен (§9.2d).
+    this.events.changed({ id: exam.id, groupId: course.groupId }, 'scheduled', [
+      course.teacherId,
+      examinerId,
+    ])
     return exam
   }
 
@@ -283,6 +291,13 @@ export class ExamsService {
         `exam-updated:${id}:${Date.now()}`,
       )
     }
+    // Сигнал — на любую правку: заметка и экзаменатор тоже видны в карточке. Прежний
+    // экзаменатор в адресатах: у него экзамен из списка уходит.
+    this.events.changed({ id, groupId: exam.groupId }, 'updated', [
+      exam.teacherId,
+      exam.examinerId,
+      next.examinerId,
+    ])
     return updated
   }
 
@@ -308,6 +323,11 @@ export class ExamsService {
         `exam-cancelled:${id}`,
       )
     }
+    // Сигнал — и об отмене прошедшего: он пропадает из списка и календаря у всех.
+    this.events.changed({ id, groupId: exam.groupId }, 'cancelled', [
+      exam.teacherId,
+      exam.examinerId,
+    ])
   }
 
   async setResults(actor: JwtPayload, input: SetExamResultsInput, ctx: RequestContext) {
@@ -375,6 +395,12 @@ export class ExamsService {
         informed,
       )
     }
+    // Живой сигнал — всем, чья строка записана, включая правку одной заметки: её студент
+    // видит в своём результате, хотя уведомлять о ней незачем.
+    this.events.results(
+      exam.id,
+      plan.writes.map((w) => w.studentId),
+    )
     return this.results(actor, input.examId)
   }
 
@@ -514,6 +540,7 @@ export class ExamsService {
       date: exam.date,
       roomId: exam.roomId,
       examinerId: exam.examinerId,
+      teacherId: exam.course.teacherId,
       maxScore: exam.maxScore ?? null,
       subject: exam.course.subject.name,
     }
@@ -709,6 +736,8 @@ interface ManageableExam {
   date: Date
   roomId: string | null
   examinerId: string | null
+  /** Ведущий дисциплину — адресат живого сигнала об экзамене. */
+  teacherId: string | null
   maxScore: number | null
   subject: string
 }

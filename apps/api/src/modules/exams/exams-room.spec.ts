@@ -3,6 +3,7 @@ import { ExamsService } from './exams.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { ExamEvents } from './exam-events'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -45,6 +46,7 @@ function setup() {
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     { enqueue: jest.fn() } as unknown as QueueService,
+    { changed: jest.fn(), results: jest.fn() } as unknown as ExamEvents,
   )
   return { service, prisma }
 }
