@@ -6,6 +6,7 @@ import { hashInviteToken } from './invite-token'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { AdminListEvents } from '../../common/realtime'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -82,13 +83,15 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('http://localhost:3000') }
+  const adminLists = { invite: jest.fn() }
   const service = new InviteService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     config as unknown as ConfigService<EnvVars, true>,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, audit, queue, config }
+  return { service, prisma, audit, queue, config, adminLists }
 }
 
 const HOUR = 3_600_000
@@ -96,7 +99,7 @@ const HOUR = 3_600_000
 describe('InviteService', () => {
   describe('create', () => {
     it('создаёт инвайт с выведенным scope и пишет аудит', async () => {
-      const { service, prisma, audit } = setup()
+      const { service, prisma, audit, adminLists } = setup()
       prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'tok', role: Role.STAROSTA })
 
       await service.create(deanA, { role: Role.STAROSTA, groupId: 'grp-1' }, ctx)
@@ -112,6 +115,10 @@ describe('InviteService', () => {
       expect(typeof arg.data.token).toBe('string')
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'invite_created', entityId: 'inv-1' }),
+      )
+      // Живой список инвайтов (§9.2d): сигнал админам вуза и выдавшему.
+      expect(adminLists.invite).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'inv-1', createdById: 'dean-1' }),
       )
     })
 
@@ -448,7 +455,7 @@ describe('InviteService', () => {
     })
 
     it('создатель отзывает PENDING', async () => {
-      const { service, prisma, audit } = setup()
+      const { service, prisma, audit, adminLists } = setup()
       prisma.invite.findUnique.mockResolvedValue({
         id: 'inv',
         status: InviteStatus.PENDING,
@@ -464,6 +471,11 @@ describe('InviteService', () => {
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'invite_revoked' }),
       )
+      expect(adminLists.invite).toHaveBeenCalledWith({
+        id: 'inv',
+        universityId: 'uni-A',
+        createdById: 'dean-1',
+      })
     })
 
     // A-F19: регистрация между проверкой и записью занимает инвайт (USED) — безусловный
