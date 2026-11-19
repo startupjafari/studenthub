@@ -42,7 +42,14 @@ import { BRAND_GRADIENT } from '../../../shared/config'
 import { ContentOwnerProvider } from '../lib/content-owner'
 import { useMediaQuota } from '../lib/media-quota'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
-import { AvatarCreateMenu, CoverToolbar, coverActionsClass, type CreateKind } from './user-profile'
+import {
+  AvatarCreateMenu,
+  COVER_IMAGE_BUTTON,
+  COVER_ON_MEDIA,
+  CoverToolbar,
+  coverActionsClass,
+  type CreateKind,
+} from './user-profile'
 import { ENTER } from './profile-content'
 
 const ImageCropModal = dynamic(
@@ -329,9 +336,6 @@ function OrgHeader({
       setCrop({ kind, file: f })
     }
 
-  const imageButton =
-    'flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100'
-
   return (
     <Card className={cn('relative overflow-hidden p-0', ENTER)}>
       {toolbar && <CoverToolbar>{toolbar}</CoverToolbar>}
@@ -343,7 +347,7 @@ function OrgHeader({
             size="sm"
             onClick={onToggleEdit}
             aria-label={editing ? t('cancel') : t('edit')}
-            className="shadow-md"
+            className={cn('shadow-md', editing && COVER_ON_MEDIA)}
           >
             {editing ? (
               <X className="size-4" aria-hidden />
@@ -380,7 +384,7 @@ function OrgHeader({
               onClick={() => coverRef.current?.click()}
               aria-label={header.coverUrl ? t('coverChange') : t('coverAdd')}
               disabled={uploadMut.isPending}
-              className={imageButton}
+              className={cn(COVER_IMAGE_BUTTON, 'gap-1.5 px-2.5 py-1.5 text-xs font-medium')}
             >
               <Camera className="size-4" aria-hidden />
               <span className="hidden sm:inline">
@@ -397,7 +401,10 @@ function OrgHeader({
                     (ok) => ok && removeMut.mutate('cover'),
                   )
                 }}
-                className={cn(imageButton, 'size-8 justify-center px-0 hover:bg-destructive')}
+                className={cn(
+                  COVER_IMAGE_BUTTON,
+                  'size-8 justify-center hover:border-transparent hover:bg-destructive',
+                )}
               >
                 <Trash2 className="size-4" aria-hidden />
               </button>
