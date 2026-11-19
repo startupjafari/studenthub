@@ -70,6 +70,14 @@ const FACULTY_ROLES: Role[] = [Role.DEAN, Role.TEACHER]
 // Письма массового импорта ставятся в очередь пачками: по одному `await` 500 писем при
 // подвисшем Redis ждали бы таймаут постановки 500 раз подряд.
 const BULK_EMAIL_CONCURRENCY = 20
+/** Потолок выдавших в сигнале массового отзыва — столько разных выдавших в одном scope не бывает. */
+const REVOKED_ISSUERS_LIMIT = 500
+
+/** Итог массового отзыва: сколько отозвано и кто выдавал (адресаты живого сигнала). */
+export interface RevokedInScope {
+  count: number
+  issuerIds: string[]
+}
 
 /** Группы в scope создателя: имя (lowercased) → id[] и id → факультет группы. */
 interface ScopedGroups {
@@ -866,12 +874,44 @@ export class InviteService {
   async revokePendingInScope(
     tx: Prisma.TransactionClient,
     scope: { universityId: string } | { facultyId: string } | { groupId: string },
-  ): Promise<number> {
+  ): Promise<RevokedInScope> {
+    const where = { ...scope, status: InviteStatus.PENDING }
+    // Выдавшие — адресаты живого сигнала после коммита (announceRevokedInScope): каждый ведёт
+    // свой список инвайтов. Чтение без блокировок, порядок с регистрацией не меняет.
+    const issuers = await tx.invite.findMany({
+      where,
+      select: { createdById: true },
+      distinct: ['createdById'],
+      take: REVOKED_ISSUERS_LIMIT,
+    })
     const { count } = await tx.invite.updateMany({
-      where: { ...scope, status: InviteStatus.PENDING },
+      where,
       data: { status: InviteStatus.REVOKED },
     })
-    return count
+    return { count, issuerIds: issuers.map((row) => row.createdById) }
+  }
+
+  /**
+   * Живой сигнал «список инвайтов изменился» после массового отзыва (§9.2d) — один на scope.
+   * Зовётся ПОСЛЕ коммита удаления: при отказе в удалении отзыв откатывается, и сигнал о нём
+   * был бы ложным. `scopeId` — id удалённого вуза, факультета или группы. Best-effort: сбой
+   * рассылки удаление не отменяет.
+   */
+  announceRevokedInScope(
+    scopeId: string,
+    universityId: string | null,
+    revoked: RevokedInScope,
+  ): void {
+    if (revoked.count === 0) return
+    try {
+      this.adminLists.invitesRevoked({ scopeId, universityId, issuerIds: revoked.issuerIds })
+    } catch (error) {
+      this.logger.warn(
+        `Отзыв инвайтов в ${scopeId}: не удалось разослать сигнал — ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
   }
 
   /**

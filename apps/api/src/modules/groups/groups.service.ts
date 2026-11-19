@@ -16,7 +16,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { UserService } from '../users/users.service'
 import { UniversityService } from '../universities/universities.service'
-import { InviteService } from '../invites/invites.service'
+import { InviteService, type RevokedInScope } from '../invites/invites.service'
 import { AnalyticsService } from '../analytics/analytics.service'
 
 // Внутренняя выборка для scope: год/факультет + universityId факультета.
@@ -298,10 +298,10 @@ export class GroupService {
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const group = await this.findOrThrow(id)
     this.assertUniversityScope(actor, group.universityId)
-    let revokedInvites = 0
+    let revoked: RevokedInScope = { count: 0, issuerIds: [] }
     try {
-      revokedInvites = await this.prisma.$transaction(async (tx) => {
-        const revoked = await this.invites.revokePendingInScope(tx, { groupId: id })
+      revoked = await this.prisma.$transaction(async (tx) => {
+        const revokedInScope = await this.invites.revokePendingInScope(tx, { groupId: id })
         await tx.$queryRaw`SELECT id FROM "groups" WHERE id = ${id} FOR UPDATE`
         const blockers = await this.deletionBlockers(tx, id)
         if (blockers.length > 0) {
@@ -312,7 +312,7 @@ export class GroupService {
           )
         }
         await tx.group.delete({ where: { id } })
-        return revoked
+        return revokedInScope
       })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
@@ -321,6 +321,8 @@ export class GroupService {
       }
       throw error
     }
+    // Удаление закоммичено — теперь отзыв настоящий: живой сигнал ведущим инвайты (§9.2d).
+    this.invites.announceRevokedInScope(id, group.universityId, revoked)
     await this.universities.invalidateStats(group.universityId)
     await this.analytics.invalidateFaculty(group.facultyId, id)
     await this.audit.record({
@@ -328,7 +330,7 @@ export class GroupService {
       action: 'group_deleted',
       entity: 'Group',
       entityId: id,
-      metadata: { revokedInvites },
+      metadata: { revokedInvites: revoked.count },
       ...ctx,
     })
   }

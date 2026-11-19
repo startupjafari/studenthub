@@ -58,6 +58,22 @@ describe('AdminListEvents', () => {
     ])
   })
 
+  it('массовый отзыв при удалении scope — один сигнал админам вуза и всем выдавшим', async () => {
+    const { events, prisma, realtime } = setup(['ua'])
+    events.invitesRevoked({ scopeId: 'grp-1', universityId: 'uni', issuerIds: ['dean-1', 'st-1'] })
+    await flush()
+    expect(prisma.user.findMany.mock.calls[0][0].where.OR).toEqual([
+      { universityId: 'uni', role: { in: [Role.UNIVERSITY_ADMIN] } },
+    ])
+    expect(realtime.emitEventToUsers).toHaveBeenCalledTimes(1)
+    expect(realtime.emitEventToUsers).toHaveBeenCalledWith(
+      ['ua', 'dean-1', 'st-1'],
+      REALTIME_EVENTS.adminListChanged,
+      'grp-1',
+      { list: 'invites' },
+    )
+  })
+
   it('жалоба вуза — команде платформы и админу с модератором вуза', async () => {
     const { events, prisma, realtime } = setup()
     events.complaint({ id: 'c1', universityId: 'uni' })

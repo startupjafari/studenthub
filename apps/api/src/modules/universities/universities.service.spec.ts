@@ -34,7 +34,10 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() }
   const access = { remember: jest.fn() }
-  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const invites = {
+    revokePendingInScope: jest.fn().mockResolvedValue({ count: 0, issuerIds: [] }),
+    announceRevokedInScope: jest.fn(),
+  }
   const realtime = { disconnectUniversity: jest.fn().mockResolvedValue(undefined) }
   const service = new UniversityService(
     prisma as unknown as PrismaService,
@@ -177,7 +180,8 @@ describe('UniversityService — status/create/delete', () => {
     const { service, prisma, invites, audit } = setup()
     prisma.university.findUnique.mockResolvedValue(UNI)
     prisma.university.delete.mockResolvedValue(UNI)
-    invites.revokePendingInScope.mockResolvedValue(3)
+    const revoked = { count: 3, issuerIds: ['pa-1'] }
+    invites.revokePendingInScope.mockResolvedValue(revoked)
 
     await service.remove(viewer(Role.PLATFORM_ADMIN), 'uni-1', ctx)
 
@@ -187,6 +191,11 @@ describe('UniversityService — status/create/delete', () => {
     )
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'university_deleted', metadata: { revokedInvites: 3 } }),
+    )
+    // Сигнал выдавшим — после коммита удаления (§9.2d).
+    expect(invites.announceRevokedInScope).toHaveBeenCalledWith('uni-1', 'uni-1', revoked)
+    expect(invites.announceRevokedInScope.mock.invocationCallOrder[0]).toBeGreaterThan(
+      prisma.university.delete.mock.invocationCallOrder[0] as number,
     )
   })
 })

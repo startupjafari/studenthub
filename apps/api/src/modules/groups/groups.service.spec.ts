@@ -42,7 +42,10 @@ function setup() {
     syncGroupStarosta: jest.fn().mockResolvedValue([]),
     afterStarostaChange: jest.fn().mockResolvedValue(undefined),
   }
-  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const invites = {
+    revokePendingInScope: jest.fn().mockResolvedValue({ count: 0, issuerIds: [] }),
+    announceRevokedInScope: jest.fn(),
+  }
   const analytics = { invalidateFaculty: jest.fn().mockResolvedValue(undefined) }
   const service = new GroupService(
     prisma as unknown as PrismaService,
@@ -447,7 +450,8 @@ describe('GroupService — remove', () => {
     const { service, prisma, invites, audit } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
     prisma.group.delete.mockResolvedValue(GROUP)
-    invites.revokePendingInScope.mockResolvedValue(4)
+    const revoked = { count: 4, issuerIds: ['dean-1'] }
+    invites.revokePendingInScope.mockResolvedValue(revoked)
     await service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), 'grp-1', ctx)
     expect(invites.revokePendingInScope).toHaveBeenCalledWith(prisma, { groupId: 'grp-1' })
     // До блокировки группы: иначе встречная регистрация по этому инвайту и удаление
@@ -457,6 +461,11 @@ describe('GroupService — remove', () => {
     )
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'group_deleted', metadata: { revokedInvites: 4 } }),
+    )
+    // Сигнал ведущим инвайты — после коммита удаления (§9.2d).
+    expect(invites.announceRevokedInScope).toHaveBeenCalledWith('grp-1', 'uni-1', revoked)
+    expect(invites.announceRevokedInScope.mock.invocationCallOrder[0]).toBeGreaterThan(
+      prisma.group.delete.mock.invocationCallOrder[0] as number,
     )
   })
 

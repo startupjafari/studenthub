@@ -43,6 +43,13 @@ interface PendingSignal {
   extra: Set<string>
 }
 
+/** Кто ведёт список инвайтов: админы вуза инвайта; у платформенного — админы платформы. */
+function inviteAudience(universityId: string | null): Audience {
+  return universityId
+    ? { platformRoles: [], universityId, universityRoles: [Role.UNIVERSITY_ADMIN] }
+    : { platformRoles: [Role.PLATFORM_ADMIN], universityId: null, universityRoles: [] }
+}
+
 @Injectable()
 export class AdminListEvents implements OnModuleDestroy {
   private readonly logger = new Logger(AdminListEvents.name)
@@ -65,14 +72,21 @@ export class AdminListEvents implements OnModuleDestroy {
    * Инвайт без вуза (платформенный) — админам платформы.
    */
   invite(invite: { id: string; universityId: string | null; createdById: string }): void {
-    const audience: Audience = invite.universityId
-      ? {
-          platformRoles: [],
-          universityId: invite.universityId,
-          universityRoles: [Role.UNIVERSITY_ADMIN],
-        }
-      : { platformRoles: [Role.PLATFORM_ADMIN], universityId: null, universityRoles: [] }
-    this.signal('invites', invite.id, audience, [invite.createdById])
+    this.signal('invites', invite.id, inviteAudience(invite.universityId), [invite.createdById])
+  }
+
+  /**
+   * Пачка инвайтов отозвана разом — удалили вуз, факультет или группу, куда они вели. Один
+   * сигнал на scope, а не на инвайт: списку достаточно знать, что он изменился. `scopeId` —
+   * id удалённого вуза, факультета или группы; выдавшие — в адресатах, как у одиночного
+   * отзыва: каждый ведёт свой список.
+   */
+  invitesRevoked(batch: {
+    scopeId: string
+    universityId: string | null
+    issuerIds: string[]
+  }): void {
+    this.signal('invites', batch.scopeId, inviteAudience(batch.universityId), batch.issuerIds)
   }
 
   /**
