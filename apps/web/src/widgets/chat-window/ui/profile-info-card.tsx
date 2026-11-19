@@ -387,22 +387,38 @@ const MUTE_DURATIONS: { key: string; mode: number | 'forever' }[] = [
  * Переключатель настройки — `role="switch"`, а не стилизованный чекбокс: скринридер
  * должен читать «включено/выключено», а не «отмечено» (идиома из DESIGN_SYSTEM §9).
  * Сам не фокусируется и кликов не ловит: им управляет строка целиком.
+ *
+ * Бегунок едет, а дорожка перекрашивается одной длительностью (`--motion-control`) —
+ * движение и цвет читаются как одно действие. `busy` — значение ещё сохраняется: в бегунке
+ * появляется крошечный индикатор (смысловой, при уменьшенном движении он остаётся).
  */
-export function SwitchVisual({ checked }: { checked: boolean }) {
+export function SwitchVisual({ checked, busy = false }: { checked: boolean; busy?: boolean }) {
   return (
     <span
       aria-hidden
       className={cn(
-        'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+        'relative h-6 w-11 shrink-0 rounded-full transition-colors duration-(--motion-control)',
         checked ? 'bg-primary' : 'bg-muted-foreground/30',
       )}
     >
       <span
         className={cn(
-          'absolute top-0.5 left-0.5 size-5 rounded-full bg-background shadow-sm transition-transform motion-reduce:transition-none',
+          'absolute top-0.5 left-0.5 flex size-5 items-center justify-center rounded-full bg-background shadow-sm transition-transform duration-(--motion-control) motion-reduce:transition-none',
           checked && 'translate-x-5',
         )}
-      />
+      >
+        {/* Проявление — на обёртке: у самого значка `animation` занят вращением. */}
+        {busy && (
+          <span className="flex duration-(--motion-micro) animate-in fade-in-0">
+            <Loader2
+              className={cn(
+                'size-3 animate-spin',
+                checked ? 'text-primary' : 'text-muted-foreground',
+              )}
+            />
+          </span>
+        )}
+      </span>
     </span>
   )
 }

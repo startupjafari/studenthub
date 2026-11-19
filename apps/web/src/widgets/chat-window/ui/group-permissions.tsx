@@ -1,20 +1,24 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   BarChart3,
+  Check,
   Image as ImageIcon,
   Link2,
+  Loader2,
   Lock,
   MessageSquare,
   Pencil,
   Pin,
+  RotateCcw,
   Sticker,
+  UserCheck,
   UserMinus,
   UserPlus,
-  Users,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -36,14 +40,25 @@ import {
   updateChatPermissionsRequest,
   type ChatGroupSettings,
   type ChatListItem,
+  type JoinRequestRow,
+  type RemovedMemberRow,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage, Button } from '../../../shared/ui'
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { Button } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
-import { InfoCard, SwitchVisual } from './profile-info-card'
-import { RowsSkeleton, TabEmpty, TabError } from './shared-media'
+import {
+  CardHint,
+  ManageEmpty,
+  PERSON_ROW,
+  PersonAvatar,
+  PersonRowsSkeleton,
+  Reveal,
+  SectionTitle,
+  SwitchRow,
+} from './group-manage-kit'
+import { InfoCard } from './profile-info-card'
 
 // Экраны управления группой как в Telegram (§8.3): «Разрешения», тип группы, заявки на
 // вступление и «Удалённые». Живут внутри правой колонки, как остальные экраны управления
@@ -60,6 +75,19 @@ const ICONS: Record<ChatPermissionKey, LucideIcon> = {
   changeInfo: Pencil,
 }
 
+/**
+ * Права по смыслу, двумя секциями: что участник может отправлять — и что он может делать
+ * с самой группой. Восемь переключателей подряд одним столбцом читались как список без
+ * начала и конца.
+ */
+const PERM_SECTIONS: { title: string; keys: readonly ChatPermissionKey[] }[] = [
+  {
+    title: 'tgGroups.permSectionMessages',
+    keys: ['sendMessages', 'sendMedia', 'sendStickers', 'embedLinks', 'sendPolls'],
+  },
+  { title: 'tgGroups.permSectionMembers', keys: ['addMembers', 'pinMessages', 'changeInfo'] },
+]
+
 /** Права, которые без «писать» не включаются (как в Telegram — строки гаснут). */
 const SEND_DEPENDENT: ReadonlySet<ChatPermissionKey> = new Set([
   'sendMedia',
@@ -68,10 +96,7 @@ const SEND_DEPENDENT: ReadonlySet<ChatPermissionKey> = new Set([
   'sendPolls',
 ])
 
-/** Подпись под карточкой — пояснение, как у секций настроек Telegram. */
-function CardHint({ children }: { children: React.ReactNode }) {
-  return <p className="mx-3 mt-2 px-4 text-xs text-muted-foreground">{children}</p>
-}
+const errorCode = (e: unknown): string => (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 
 /** Права группы из кэша списка чатов: у старого сервера поля нет — умолчания. */
 export function chatPermissionsOf(chat: ChatListItem): ChatPermissions {
@@ -106,37 +131,14 @@ export function patchGroupSettings(
   )
 }
 
-function SwitchRow({
-  icon: Icon,
-  label,
-  hint,
-  checked,
-  disabled,
-  onToggle,
-}: {
-  icon?: LucideIcon
-  label: string
-  hint?: string
-  checked: boolean
-  disabled?: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onToggle}
-      className="flex w-full cursor-pointer items-center gap-4 px-4 py-2.5 text-left outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {Icon && <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden />}
-      <span className="min-w-0 flex-1">
-        <span className="block text-[0.9375rem]">{label}</span>
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
-      </span>
-      <SwitchVisual checked={checked} />
-    </button>
+/** Поправить поля группы в кэше списка чатов — для оптимистичного отклика и отката. */
+function patchChat(
+  qc: ReturnType<typeof useQueryClient>,
+  chatId: string,
+  patch: Partial<ChatListItem>,
+): void {
+  qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
+    old?.map((c) => (c.id === chatId ? { ...c, ...patch } : c)),
   )
 }
 
@@ -162,39 +164,69 @@ export function PermissionsScreen({ chat }: { chat: ChatListItem }) {
     },
     onSuccess: (settings) => patchGroupSettings(qc, settings),
     onError: (e: unknown, _patch, ctx) => {
-      qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) =>
-        old?.map((c) => (c.id === chat.id ? { ...c, permissions: ctx?.before ?? null } : c)),
-      )
-      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+      patchChat(qc, chat.id, { permissions: ctx?.before ?? null })
+      toast.error(tErr(errorCode(e)))
     },
   })
 
+  // Какое право сейчас сохраняется — у его переключателя крутится индикатор. Остальные
+  // строки не гаснут (раньше на время запроса бледнел весь список — экран мигал на каждом
+  // нажатии): нажатие на них просто ждёт ответа, запросы не наслаиваются друг на друга.
+  const savingKey = save.isPending
+    ? (Object.keys(save.variables ?? {})[0] as ChatPermissionKey | undefined)
+    : undefined
   const sendOff = !current.sendMessages
+
   return (
     <>
-      <p className="mx-3 mt-3 px-4 text-xs font-medium text-primary">
-        {t('tgGroups.permissionsWhat')}
-      </p>
-      <InfoCard className="mt-1">
-        {CHAT_PERMISSION_KEYS.map((key) => {
-          const dependent = SEND_DEPENDENT.has(key)
-          return (
-            <SwitchRow
-              key={key}
-              icon={ICONS[key]}
-              label={t(`tgGroups.perm.${key}`)}
-              hint={dependent && sendOff ? t('tgGroups.permNeedsSend') : undefined}
-              checked={current[key]}
-              disabled={save.isPending || (dependent && sendOff)}
-              onToggle={() => save.mutate({ [key]: !current[key] })}
-            />
-          )
-        })}
-      </InfoCard>
+      {PERM_SECTIONS.map((section, i) => (
+        <section key={section.title} aria-labelledby={`perm-section-${i}`}>
+          <SectionTitle className={i === 0 ? 'mt-3' : undefined}>
+            <span id={`perm-section-${i}`}>{t(section.title)}</span>
+          </SectionTitle>
+          <InfoCard>
+            {section.keys.map((key) => (
+              <SwitchRow
+                key={key}
+                icon={ICONS[key]}
+                label={t(`tgGroups.perm.${key}`)}
+                checked={current[key]}
+                busy={savingKey === key}
+                disabled={SEND_DEPENDENT.has(key) && sendOff}
+                onToggle={() => {
+                  if (!save.isPending) save.mutate({ [key]: !current[key] })
+                }}
+              />
+            ))}
+          </InfoCard>
+          {/* Почему погасли медиа, стикеры, ссылки и опросы — одной подписью под секцией, а
+              не одной и той же строкой под каждым из четырёх переключателей. */}
+          {i === 0 && (
+            <Reveal open={sendOff}>
+              <CardHint>{t('tgGroups.permNeedsSend')}</CardHint>
+            </Reveal>
+          )}
+        </section>
+      ))}
       <CardHint>{t('tgGroups.permissionsHint')}</CardHint>
     </>
   )
 }
+
+const TYPE_OPTIONS: { value: boolean; icon: LucideIcon; title: string; hint: string }[] = [
+  {
+    value: true,
+    icon: Link2,
+    title: 'tgGroups.typeByLink',
+    hint: 'tgGroups.typeByLinkHint',
+  },
+  {
+    value: false,
+    icon: Lock,
+    title: 'tgGroups.typeClosed',
+    hint: 'tgGroups.typeClosedHint',
+  },
+]
 
 /**
  * Тип группы: «по ссылке» или «закрытая», и одобрение заявок. Публичных групп с поиском по
@@ -210,74 +242,154 @@ export function GroupTypeScreen({ chat }: { chat: ChatListItem }) {
   const save = useMutation({
     mutationFn: (patch: { joinByLink?: boolean; joinApproval?: boolean }) =>
       updateChatJoinSettingsRequest(chat.id, patch),
+    // Оптимистично, как «Разрешения»: карточка выбирается и блок одобрения раскрывается в
+    // момент нажатия, а не после ответа сервера. Ошибка возвращает прежнее и говорит тостом.
+    onMutate: (patch) => {
+      const before = { joinByLink: chat.joinByLink, joinApproval: chat.joinApproval }
+      patchChat(qc, chat.id, patch)
+      return { before }
+    },
     onSuccess: (settings) => {
       patchGroupSettings(qc, settings)
       toast.success(t('tgGroups.settingsSaved'))
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown, _patch, ctx) => {
+      if (ctx) patchChat(qc, chat.id, ctx.before)
+      toast.error(tErr(errorCode(e)))
+    },
   })
+  const savingType = save.isPending && save.variables?.joinByLink !== undefined
+  const savingApproval = save.isPending && save.variables?.joinApproval !== undefined
 
-  const option = (value: boolean, label: string, hint: string): React.ReactNode => (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={byLink === value}
-      disabled={save.isPending}
-      onClick={() => byLink !== value && save.mutate({ joinByLink: value })}
-      className="flex w-full cursor-pointer items-start gap-4 px-4 py-2.5 text-left outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:cursor-not-allowed"
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-          byLink === value ? 'border-primary' : 'border-muted-foreground/40',
-        )}
-      >
-        {byLink === value && <span className="size-2.5 rounded-full bg-primary" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[0.9375rem]">{label}</span>
-        <span className="block text-xs text-muted-foreground">{hint}</span>
-      </span>
-    </button>
-  )
+  const select = (value: boolean): void => {
+    if (value !== byLink && !save.isPending) save.mutate({ joinByLink: value })
+  }
 
   return (
     <>
-      <p className="mx-3 mt-3 px-4 text-xs font-medium text-primary">{t('tgGroups.groupType')}</p>
-      <InfoCard className="mt-1">
-        <div role="radiogroup" aria-label={t('tgGroups.groupType')}>
-          {option(true, t('tgGroups.typeByLink'), t('tgGroups.typeByLinkHint'))}
-          {option(false, t('tgGroups.typeClosed'), t('tgGroups.typeClosedHint'))}
-        </div>
-      </InfoCard>
+      <SectionTitle className="mt-3">{t('tgGroups.groupType')}</SectionTitle>
+      {/* Радиогруппа по WAI-ARIA: в табе один фокус (выбранная карточка), стрелки
+          переводят выбор — как у системных радиокнопок. */}
+      <div
+        role="radiogroup"
+        aria-label={t('tgGroups.groupType')}
+        className="mx-3 flex flex-col gap-2"
+        onKeyDown={(e) => {
+          const step =
+            e.key === 'ArrowDown' || e.key === 'ArrowRight'
+              ? 1
+              : e.key === 'ArrowUp' || e.key === 'ArrowLeft'
+                ? -1
+                : 0
+          if (!step) return
+          e.preventDefault()
+          const at = TYPE_OPTIONS.findIndex((o) => o.value === byLink)
+          const next = (at + step + TYPE_OPTIONS.length) % TYPE_OPTIONS.length
+          e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus()
+          select(TYPE_OPTIONS[next]!.value)
+        }}
+      >
+        {TYPE_OPTIONS.map((o) => (
+          <TypeOption
+            key={String(o.value)}
+            icon={o.icon}
+            title={t(o.title)}
+            hint={t(o.hint)}
+            selected={byLink === o.value}
+            busy={savingType && byLink === o.value}
+            onSelect={() => select(o.value)}
+          />
+        ))}
+      </div>
       <CardHint>{t('tgGroups.typeWhy')}</CardHint>
-      {byLink && (
-        <>
-          <InfoCard className="mt-3">
-            <SwitchRow
-              icon={Lock}
-              label={t('tgGroups.joinApproval')}
-              checked={approval}
-              disabled={save.isPending}
-              onToggle={() => save.mutate({ joinApproval: !approval })}
-            />
-          </InfoCard>
-          <CardHint>{t('tgGroups.joinApprovalHint')}</CardHint>
-        </>
-      )}
+      {/* Одобрение заявок имеет смысл только у группы по ссылке: у закрытой вступают лишь
+          через администратора. Блок не исчезает рывком, а сворачивается. */}
+      <Reveal open={byLink}>
+        <InfoCard className="mt-5">
+          <SwitchRow
+            icon={UserCheck}
+            label={t('tgGroups.joinApproval')}
+            checked={approval}
+            busy={savingApproval}
+            onToggle={() => {
+              if (!save.isPending) save.mutate({ joinApproval: !approval })
+            }}
+          />
+        </InfoCard>
+        <CardHint>{t('tgGroups.joinApprovalHint')}</CardHint>
+      </Reveal>
     </>
   )
 }
 
-function PersonAvatar({ id, name, url }: { id: string; name: string; url: string | null }) {
+/**
+ * Карточка-вариант радиогруппы: значок, название, пояснение и отметка справа. Выбранная —
+ * с кольцом акцента и залитым значком; отметка проявляется масштабом. Нажатие чуть
+ * сжимает карточку (кроме уменьшенного движения) — физический отклик, как у iOS.
+ */
+function TypeOption({
+  icon: Icon,
+  title,
+  hint,
+  selected,
+  busy,
+  onSelect,
+}: {
+  icon: LucideIcon
+  title: string
+  hint: string
+  selected: boolean
+  busy: boolean
+  onSelect: () => void
+}) {
   return (
-    <Avatar className="size-11">
-      {url && <AvatarImage src={url} alt={name} />}
-      <AvatarFallback className={cn('text-white', identityColor(id))}>
-        {identityInitials(name)}
-      </AvatarFallback>
-    </Avatar>
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-busy={busy || undefined}
+      tabIndex={selected ? 0 : -1}
+      onClick={onSelect}
+      className={cn(
+        'flex w-full cursor-pointer items-start gap-3 rounded-xl p-3.5 text-left transition-[background-color,box-shadow,scale] duration-(--motion-control) outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] motion-reduce:active:scale-100',
+        selected
+          ? 'bg-primary/5 ring-2 ring-primary'
+          : 'bg-card ring-1 ring-foreground/10 hover:bg-muted/40',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors duration-(--motion-control)',
+          selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+        )}
+      >
+        <Icon className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1 pt-0.5">
+        <span className="block text-[0.9375rem] font-medium">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{hint}</span>
+      </span>
+      <span
+        aria-hidden
+        className={cn(
+          'mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-(--motion-control)',
+          selected ? 'border-primary bg-primary' : 'border-muted-foreground/40',
+        )}
+      >
+        {busy ? (
+          <Loader2 className="size-3 animate-spin text-primary-foreground" />
+        ) : (
+          <Check
+            strokeWidth={3}
+            className={cn(
+              'size-3 text-primary-foreground transition-[opacity,scale] duration-(--motion-control) motion-reduce:transition-none',
+              selected ? 'scale-100 opacity-100' : 'scale-50 opacity-0',
+            )}
+          />
+        )}
+      </span>
+    </button>
   )
 }
 
@@ -296,18 +408,45 @@ export function useJoinRequests(chat: ChatListItem, enabled: boolean) {
   return query
 }
 
+/**
+ * Какие строки списка сейчас в работе: id → что именно делаем. Нужен, чтобы крутилка была
+ * на нажатой кнопке нажатой строки, а не гасли кнопки всего списка разом.
+ */
+function usePendingRows<V>() {
+  const [pending, setPending] = useState<ReadonlyMap<string, V>>(() => new Map())
+  return {
+    pending,
+    start: (id: string, value: V) => setPending((m) => new Map(m).set(id, value)),
+    finish: (id: string) =>
+      setPending((m) => {
+        const next = new Map(m)
+        next.delete(id)
+        return next
+      }),
+  }
+}
+
 /** Заявки на вступление: принять или отклонить, свежие сверху. */
 export function JoinRequestsScreen({ chat }: { chat: ChatListItem }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const format = useFormatter()
   const qc = useQueryClient()
   const requests = useJoinRequests(chat, true)
+  // Новая заявка, пришедшая по сокету, въезжает и коротко подсвечивается.
+  const fresh = useFreshIds(useMemo(() => requests.data?.map((r) => r.id), [requests.data]))
+  const rows = usePendingRows<boolean>()
 
   const decide = useMutation({
     mutationFn: ({ userId, accept }: { userId: string; accept: boolean; name: string }) =>
       accept ? approveJoinRequest(chat.id, userId) : declineJoinRequest(chat.id, userId),
-    onSuccess: (_d, { accept, name }) => {
+    onMutate: ({ userId, accept }) => rows.start(userId, accept),
+    onSuccess: (_d, { userId, accept, name }) => {
+      // Решённая заявка уходит из списка сразу, не дожидаясь перечитывания.
+      qc.setQueryData<JoinRequestRow[]>(groupKeys.joinRequests(chat.id), (old) =>
+        old?.filter((r) => r.id !== userId),
+      )
       void qc.invalidateQueries({ queryKey: groupKeys.joinRequests(chat.id) })
       if (accept) {
         void qc.invalidateQueries({ queryKey: chatKeys.members(chat.id) })
@@ -315,60 +454,85 @@ export function JoinRequestsScreen({ chat }: { chat: ChatListItem }) {
       }
       toast.success(accept ? t('tgGroups.approved', { name }) : t('tgGroups.declined'))
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
+    onSettled: (_d, _e, { userId }) => rows.finish(userId),
   })
 
-  if (requests.isLoading) return <RowsSkeleton rows={4} />
+  if (requests.isLoading) return <PersonRowsSkeleton rows={4} />
   if (requests.isError && !requests.data) {
-    return <TabError onRetry={() => void requests.refetch()} />
+    return (
+      <ManageEmpty
+        icon={UserPlus}
+        title={t('sharedLoadError')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void requests.refetch()}>
+            <RotateCcw aria-hidden />
+            {tCommon('retry')}
+          </Button>
+        }
+      />
+    )
   }
   const list = requests.data ?? []
   if (list.length === 0) {
     return (
-      <TabEmpty
-        icon={<UserPlus className="size-6" aria-hidden />}
+      <ManageEmpty
+        icon={UserPlus}
         title={t('tgGroups.joinRequestsEmpty')}
+        hint={t('tgGroups.joinRequestsEmptyHint')}
       />
     )
   }
   return (
-    <ul className="mt-2 py-1">
-      {list.map((r) => {
-        const name = `${r.lastName} ${r.firstName}`.trim()
-        return (
-          <li key={r.id} className="flex items-center gap-3 px-4 py-2">
-            <ProfileLink userId={r.id} className="flex min-w-0 flex-1 items-center gap-3">
-              <PersonAvatar id={r.id} name={name} url={r.avatarUrl} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{name}</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {t('tgGroups.requestedAt', {
-                    date: format.relativeTime(new Date(r.requestedAt)),
-                  })}
+    <>
+      <SectionTitle flush className="mt-3">
+        {t('tgGroups.requestsCount', { count: list.length })}
+      </SectionTitle>
+      <ul>
+        {list.map((r) => {
+          const name = `${r.lastName} ${r.firstName}`.trim()
+          const deciding = rows.pending.get(r.id)
+          return (
+            <li key={r.id} className={cn('px-4 py-2', PERSON_ROW, fresh.has(r.id) && 'sh-live-in')}>
+              <ProfileLink userId={r.id} className="flex min-w-0 items-center gap-3">
+                <PersonAvatar id={r.id} name={name} url={r.avatarUrl} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {t('tgGroups.requestedAt', {
+                      date: format.relativeTime(new Date(r.requestedAt)),
+                    })}
+                  </span>
                 </span>
-              </span>
-            </ProfileLink>
-            <div className="flex shrink-0 gap-1.5">
-              <Button
-                size="sm"
-                disabled={decide.isPending}
-                onClick={() => decide.mutate({ userId: r.id, accept: true, name })}
-              >
-                {t('tgGroups.approve')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={decide.isPending}
-                onClick={() => decide.mutate({ userId: r.id, accept: false, name })}
-              >
-                {t('tgGroups.decline')}
-              </Button>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+              </ProfileLink>
+              {/* Кнопки — второй строкой под именем (как в Telegram): в узкой колонке две
+                  кнопки справа сжимали имя до двух букв. */}
+              <div className="mt-2 flex gap-2 pl-14">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  loading={deciding === true}
+                  disabled={deciding !== undefined}
+                  onClick={() => decide.mutate({ userId: r.id, accept: true, name })}
+                >
+                  {t('tgGroups.approve')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  loading={deciding === false}
+                  disabled={deciding !== undefined}
+                  onClick={() => decide.mutate({ userId: r.id, accept: false, name })}
+                >
+                  {t('tgGroups.decline')}
+                </Button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }
 
@@ -379,74 +543,107 @@ export function JoinRequestsScreen({ chat }: { chat: ChatListItem }) {
 export function RemovedScreen({ chat }: { chat: ChatListItem }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const format = useFormatter()
   const qc = useQueryClient()
   const removed = useQuery({
     queryKey: groupKeys.removed(chat.id),
     queryFn: () => fetchRemovedMembers(chat.id),
   })
+  const fresh = useFreshIds(useMemo(() => removed.data?.map((r) => r.id), [removed.data]))
+  const rows = usePendingRows<true>()
   const readd = useMutation({
     mutationFn: ({ userId }: { userId: string; name: string }) =>
       addChatMemberRequest(chat.id, userId),
-    onSuccess: (_d, { name }) => {
+    onMutate: ({ userId }) => rows.start(userId, true),
+    onSuccess: (_d, { userId, name }) => {
+      qc.setQueryData<RemovedMemberRow[]>(groupKeys.removed(chat.id), (old) =>
+        old?.filter((r) => r.id !== userId),
+      )
       void qc.invalidateQueries({ queryKey: groupKeys.removed(chat.id) })
       void qc.invalidateQueries({ queryKey: chatKeys.members(chat.id) })
       toast.success(t('tgGroups.readded', { name }))
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
+    onSettled: (_d, _e, { userId }) => rows.finish(userId),
   })
 
+  if (removed.isLoading) return <PersonRowsSkeleton rows={4} />
+  if (removed.isError && !removed.data) {
+    return (
+      <ManageEmpty
+        icon={UserMinus}
+        title={t('sharedLoadError')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void removed.refetch()}>
+            <RotateCcw aria-hidden />
+            {tCommon('retry')}
+          </Button>
+        }
+      />
+    )
+  }
+  const list = removed.data ?? []
+  // Пусто — пояснение уходит в само пустое состояние: подпись сверху и пустота под ней
+  // повторяли бы одно и то же.
+  if (list.length === 0) {
+    return (
+      <ManageEmpty
+        icon={UserMinus}
+        title={t('tgGroups.removedEmpty')}
+        hint={t('tgGroups.removedHint')}
+      />
+    )
+  }
   return (
     <>
-      <CardHint>{t('tgGroups.removedHint')}</CardHint>
-      {removed.isLoading ? (
-        <RowsSkeleton rows={4} />
-      ) : removed.isError && !removed.data ? (
-        <TabError onRetry={() => void removed.refetch()} />
-      ) : (removed.data ?? []).length === 0 ? (
-        <TabEmpty
-          icon={<UserMinus className="size-6" aria-hidden />}
-          title={t('tgGroups.removedEmpty')}
-        />
-      ) : (
-        <ul className="mt-2 py-1">
-          {(removed.data ?? []).map((r) => {
-            const name = `${r.lastName} ${r.firstName}`.trim()
-            const by = r.removedBy
-              ? `${r.removedBy.lastName} ${r.removedBy.firstName}`.trim()
-              : null
-            return (
-              <li key={r.id} className="flex items-center gap-3 px-4 py-2">
-                <ProfileLink userId={r.id} className="flex min-w-0 flex-1 items-center gap-3">
-                  <PersonAvatar id={r.id} name={name} url={r.avatarUrl} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {[
-                        by ? t('tgGroups.removedBy', { name: by }) : null,
-                        format.relativeTime(new Date(r.removedAt)),
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
+      <SectionTitle flush className="mt-3">
+        {t('tgGroups.removedCount', { count: list.length })}
+      </SectionTitle>
+      <ul>
+        {list.map((r) => {
+          const name = `${r.lastName} ${r.firstName}`.trim()
+          const by = r.removedBy ? `${r.removedBy.lastName} ${r.removedBy.firstName}`.trim() : null
+          return (
+            <li
+              key={r.id}
+              className={cn(
+                'flex items-center gap-2 py-1.5 pr-2 pl-4',
+                PERSON_ROW,
+                fresh.has(r.id) && 'sh-live-in',
+              )}
+            >
+              <ProfileLink userId={r.id} className="flex min-w-0 flex-1 items-center gap-3">
+                <PersonAvatar id={r.id} name={name} url={r.avatarUrl} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {[
+                      by ? t('tgGroups.removedBy', { name: by }) : null,
+                      format.relativeTime(new Date(r.removedAt)),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </span>
-                </ProfileLink>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  icon
-                  disabled={readd.isPending}
-                  onClick={() => readd.mutate({ userId: r.id, name })}
-                  aria-label={`${t('tgGroups.readd')}: ${name}`}
-                  title={t('tgGroups.readd')}
-                >
-                  <Users aria-hidden />
-                </Button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
+                </span>
+              </ProfileLink>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon
+                loading={rows.pending.has(r.id)}
+                onClick={() => readd.mutate({ userId: r.id, name })}
+                aria-label={`${t('tgGroups.readd')}: ${name}`}
+                title={t('tgGroups.readd')}
+                className="text-primary"
+              >
+                <UserPlus aria-hidden />
+              </Button>
+            </li>
+          )
+        })}
+      </ul>
+      <CardHint flush>{t('tgGroups.removedHint')}</CardHint>
     </>
   )
 }
