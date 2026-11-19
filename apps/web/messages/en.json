@@ -2540,9 +2540,6 @@
     },
     "tgReactions": {
       "quickTitle": "Quick reaction",
-      "quickHint": "Set by double-clicking or double-tapping a message and with the button next to the bubble. Saved to your account — one reaction on all devices.",
-      "quickListTitle": "Reaction",
-      "quickOther": "Other reaction…",
       "quickDefaultLabel": "{emoji} — default",
       "quickSet": "Quick reaction: {emoji}",
       "setQuickHint": "Right-click or hold to make it your quick reaction"
