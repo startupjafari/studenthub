@@ -94571,6 +94571,23 @@
         }
       }
     },
+    "profile.openStories": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть истории"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторисді ашу"
+          }
+        }
+      }
+    },
     "profile.viewCover": {
       "extractionState": "manual",
       "localizations": {

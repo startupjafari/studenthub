@@ -164,7 +164,8 @@ enum StoryReactions {
 }
 
 protocol StoriesFetching: Sendable {
-    func rings() async throws -> [StoryRingDTO]
+    /// `authorID` — только истории одного автора (кольцо в профиле); `nil` — вся полоса.
+    func rings(authorID: String?) async throws -> [StoryRingDTO]
     func markViewed(storyID: String) async throws
     func react(storyID: String, emoji: String, on: Bool) async throws
     func vote(storyID: String, optionID: String) async throws -> StoryDTO
@@ -182,8 +183,9 @@ struct StoriesAPI: StoriesFetching {
     }
 
     /// Кольца без страниц: сервер сам ограничивает выдачу двумя сотнями историй.
-    func rings() async throws -> [StoryRingDTO] {
-        try await client.send(.get("stories"), as: [StoryRingDTO].self)
+    /// Скрытый автор пропадает только из полосы — в его профиле истории видны.
+    func rings(authorID: String?) async throws -> [StoryRingDTO] {
+        try await client.send(.get("stories", params: ["authorId": authorID]), as: [StoryRingDTO].self)
     }
 
     func markViewed(storyID: String) async throws {
