@@ -12,7 +12,7 @@ const PostLightbox = dynamic(() => import('./post-lightbox').then((m) => m.PostL
   ssr: false,
 })
 
-// Сетка постов (Instagram-стиль): мозаика из квадратных, высоких и широких плиток, клик
+// Сетка постов (Instagram-стиль): ровные квадратные плитки, клик
 // открывает лайтбокс со всеми действиями. `pending` — скелетоны в хвосте на местах
 // следующей страницы: подгруженные посты встают точно на них. `pendingRef` вешается на
 // ПЕРВЫЙ скелетон — маячок подгрузки: под хвостом он оказался бы на экраны ниже, и
@@ -32,15 +32,10 @@ export function PostGrid({
     <>
       <MosaicGrid>
         {posts.map((post, i) => (
-          <PostTile key={post.id} post={post} index={i} onOpen={() => setOpen(i)} />
+          <PostTile key={post.id} post={post} onOpen={() => setOpen(i)} />
         ))}
         {Array.from({ length: pending }, (_, j) => (
-          <MosaicTile
-            key={`pending-${j}`}
-            ref={j === 0 ? pendingRef : undefined}
-            index={posts.length + j}
-            aria-hidden
-          >
+          <MosaicTile key={`pending-${j}`} ref={j === 0 ? pendingRef : undefined} aria-hidden>
             <Skeleton className="size-full rounded-none" />
           </MosaicTile>
         ))}
