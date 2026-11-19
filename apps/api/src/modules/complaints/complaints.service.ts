@@ -1178,8 +1178,11 @@ export class ComplaintsService {
     const now = new Date()
     if (type === ComplaintTargetType.POST) {
       await this.prisma.post.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      // Снятый пост уходит из открытых лент сразу, как и удалённый автором (§9.2d).
+      await this.posts.announceRemovedByModeration(targetId)
     } else if (type === ComplaintTargetType.COMMENT) {
       await this.prisma.comment.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      await this.posts.announceCommentRemovedByModeration(targetId)
     } else if (type === ComplaintTargetType.MESSAGE) {
       const message = await this.prisma.message.findUnique({
         where: { id: targetId },
