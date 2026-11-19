@@ -303,7 +303,9 @@ describe('ExamsService.create / update — пересечения и уведо�
   })
 
   it('назначение → сигнал группе, ведущему и экзаменатору', async () => {
-    const { service, events } = setupCreate()
+    const { service, events, prisma } = setupCreate()
+    // Отдельный экзаменатор проходит проверку «преподаватель своего вуза».
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1', role: Role.TEACHER })
     await service.create(
       dean,
       { courseId: 'c-1', date: future.toISOString(), format: 'WRITTEN', examinerId: 'examiner' },
