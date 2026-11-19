@@ -10,6 +10,7 @@ import {
   applicationKeys,
   fetchApplicationHistory,
   fetchMyApplications,
+  useCareerApplicationsLive,
   withdrawApplication,
   type StudentApplication,
 } from '../../../entities/career-application'
@@ -47,6 +48,9 @@ export function CareerApplicationsView() {
     queryKey: applicationKeys.mine({ page, limit }),
     queryFn: () => fetchMyApplications({ page, limit }),
   })
+  // Компания перевела отклик по воронке — статус в строке и история меняются сами (§9.2d).
+  // Новых строк сигнал не приносит (отклик подаёт сам студент), подсветка здесь не нужна.
+  useCareerApplicationsLive()
 
   const withdraw = useMutation({
     mutationFn: (id: string) => withdrawApplication(id),

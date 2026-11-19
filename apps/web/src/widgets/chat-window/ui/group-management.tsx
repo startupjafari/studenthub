@@ -1,19 +1,22 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   Ban,
   ChevronRight,
+  Check,
   Copy,
   Globe,
   KeyRound,
   Link2,
+  Loader2,
   Pencil,
   RotateCcw,
   Search,
+  Share2,
   Shield,
   ShieldPlus,
   Trash2,
@@ -33,17 +36,18 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { UserPicker } from '../../../entities/user'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  Button,
-  Skeleton,
-  useConfirm,
-} from '../../../shared/ui'
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { Button, Skeleton, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ChatMembersList } from './chat-members-list'
+import {
+  CardHint,
+  MANAGE_ROW,
+  ManageEmpty,
+  ManageSearch,
+  PERSON_ROW,
+  PersonAvatar,
+  PersonRowsSkeleton,
+} from './group-manage-kit'
 import {
   GroupTypeScreen,
   JoinRequestsScreen,
@@ -53,7 +57,6 @@ import {
   useJoinRequests,
 } from './group-permissions'
 import { InfoCard } from './profile-info-card'
-import { TabEmpty, TabError } from './shared-media'
 
 /**
  * Управление группой в правой колонке (Telegram-стиль: карандаш в шапке профиля).
@@ -62,10 +65,11 @@ import { TabEmpty, TabError } from './shared-media'
  * название, описание и фото (окно редактирования), тип группы, ссылка-приглашение,
  * «Разрешения» участников, заявки на вступление, администраторы, участники, заблокированные,
  * исключённые («Удалённые») и удаление группы (§8.3). Экраны прав и заявок —
- * group-permissions.tsx.
+ * group-permissions.tsx, общие детали экранов (секции, поиск, пустота) — group-manage-kit.tsx.
  */
 export type ManageScreen =
   | 'main'
+  | 'editInfo'
   | 'invite'
   | 'admins'
   | 'addAdmin'
@@ -86,6 +90,7 @@ export function manageParent(screen: ManageScreen): ManageScreen | null {
 /** Ключ заголовка шапки для экрана управления. */
 export const MANAGE_TITLE: Record<ManageScreen, string> = {
   main: 'tgRight.manageTitle',
+  editInfo: 'editGroup',
   invite: 'tgRight.inviteLink',
   admins: 'tgRight.admins',
   addAdmin: 'tgRight.addAdmin',
@@ -97,35 +102,39 @@ export const MANAGE_TITLE: Record<ManageScreen, string> = {
   removed: 'tgGroups.removed',
 }
 
-const ROW =
-  'flex w-full cursor-pointer items-center gap-4 px-4 py-3 text-left text-[0.9375rem] outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60'
+const errorCode = (e: unknown): string => (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 
+/**
+ * Строка-переход: иконка, подпись, значение и шеврон. Пока значение грузится (`loading`),
+ * на его месте — короткая заглушка: число не выскакивает из пустоты и не сдвигает подпись.
+ */
 function NavRow({
   icon: Icon,
   label,
   value,
+  loading = false,
   onClick,
 }: {
   icon: LucideIcon
   label: string
   value?: string | number
+  loading?: boolean
   onClick: () => void
 }) {
   return (
-    <button type="button" onClick={onClick} className={ROW}>
+    <button type="button" onClick={onClick} className={MANAGE_ROW}>
       <Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {value !== undefined && (
-        <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{value}</span>
+      {value !== undefined ? (
+        <span className="shrink-0 text-sm text-muted-foreground tabular-nums duration-(--motion-page) animate-in fade-in-0">
+          {value}
+        </span>
+      ) : (
+        loading && <Skeleton className="h-3.5 w-6 shrink-0" aria-hidden />
       )}
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     </button>
   )
-}
-
-/** Подпись под карточкой — пояснение, как у секций настроек Telegram. */
-function CardHint({ children }: { children: React.ReactNode }) {
-  return <p className="mx-3 mt-2 px-4 text-xs text-muted-foreground">{children}</p>
 }
 
 export function GroupManagement({
@@ -136,10 +145,13 @@ export function GroupManagement({
   onEditInfo,
   onOpenChat,
   onLeft,
+  enterFrom = 'right',
 }: {
   chat: ChatListItem
   myId: string | undefined
   screen: ManageScreen
+  /** Откуда въезжает экран: вглубь — справа, «назад» — слева (как в Telegram и iOS). */
+  enterFrom?: 'right' | 'left'
   onNavigate: (screen: ManageScreen) => void
   /** Открыть окно названия, описания и фото. */
   onEditInfo: () => void
@@ -148,11 +160,14 @@ export function GroupManagement({
   onLeft: () => void
 }) {
   const t = useTranslations('Chats')
-  // Экран входит сдвигом справа: каждый шаг управления — вглубь, как в Telegram.
+  // Экран въезжает со стороны шага: вглубь — справа, назад — слева; блоки экрана — каскадом.
   return (
     <div
       key={screen}
-      className="flex min-h-full flex-col pb-6 duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-4"
+      className={cn(
+        'sh-stagger flex min-h-full flex-col pb-6 duration-(--motion-page) animate-in fade-in-0',
+        enterFrom === 'right' ? 'slide-in-from-right-8' : 'slide-in-from-left-8',
+      )}
     >
       {screen === 'main' && (
         <ManageMain chat={chat} onNavigate={onNavigate} onEditInfo={onEditInfo} onLeft={onLeft} />
@@ -165,27 +180,42 @@ export function GroupManagement({
               <button
                 type="button"
                 onClick={() => onNavigate('addAdmin')}
-                className={cn(ROW, 'text-primary')}
+                className={cn(MANAGE_ROW, 'text-primary')}
               >
                 <ShieldPlus className="size-5 shrink-0" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{t('tgRight.addAdmin')}</span>
               </button>
             </InfoCard>
           )}
-          <div className="mt-2">
-            <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} filter="admins" />
+          <div>
+            <ChatMembersList
+              chat={chat}
+              myId={myId}
+              onOpenChat={onOpenChat}
+              filter="admins"
+              variant="manage"
+            />
           </div>
         </>
       )}
       {screen === 'addAdmin' && (
         <AddAdminScreen chat={chat} myId={myId} onDone={() => onNavigate('admins')} />
       )}
-      {screen === 'members' && <MembersScreen chat={chat} myId={myId} onOpenChat={onOpenChat} />}
+      {screen === 'members' && (
+        <div>
+          <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} variant="manage" />
+        </div>
+      )}
       {screen === 'banned' && (
-        <>
-          <CardHint>{t('tgRight.bannedHint')}</CardHint>
-          <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} filter="banned" />
-        </>
+        <div>
+          <ChatMembersList
+            chat={chat}
+            myId={myId}
+            onOpenChat={onOpenChat}
+            filter="banned"
+            variant="manage"
+          />
+        </div>
       )}
       {screen === 'permissions' && <PermissionsScreen chat={chat} />}
       {screen === 'groupType' && <GroupTypeScreen chat={chat} />}
@@ -233,7 +263,7 @@ function ManageMain({
       void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       onLeft()
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
   })
 
   return (
@@ -270,6 +300,7 @@ function ManageMain({
               icon={UserPlus}
               label={t('tgGroups.joinRequests')}
               value={requests.data ? pendingRequests : undefined}
+              loading={requests.isLoading}
               onClick={() => onNavigate('joinRequests')}
             />
           )}
@@ -281,6 +312,7 @@ function ManageMain({
           icon={Shield}
           label={t('tgRight.admins')}
           value={members.data ? admins : undefined}
+          loading={members.isLoading}
           onClick={() => onNavigate('admins')}
         />
         <NavRow
@@ -293,6 +325,7 @@ function ManageMain({
           icon={Ban}
           label={t('tgRight.banned')}
           value={members.data ? banned : undefined}
+          loading={members.isLoading}
           onClick={() => onNavigate('banned')}
         />
         {canModerate && (
@@ -314,9 +347,13 @@ function ManageMain({
                 if (ok) remove.mutate()
               })
             }}
-            className={cn(ROW, 'text-destructive')}
+            className={cn(MANAGE_ROW, 'text-destructive')}
           >
-            <Trash2 className="size-5 shrink-0" aria-hidden />
+            {remove.isPending ? (
+              <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="size-5 shrink-0" aria-hidden />
+            )}
             <span className="min-w-0 flex-1 truncate">{t('deleteGroup')}</span>
           </button>
         </InfoCard>
@@ -325,10 +362,15 @@ function ManageMain({
   )
 }
 
-/** Ссылка-приглашение: видна целиком, копируется одной кнопкой, меняется с подтверждением. */
+/**
+ * Ссылка-приглашение: моноширинным блоком в две строки (полностью — в подсказке и при
+ * выделении), «Скопировать» и «Поделиться» под ней, смена ссылки — отдельной красной строкой
+ * ниже, как «Сбросить ссылку» в Telegram: необратимое не стоит рядом с повседневным.
+ */
 function InviteScreen({ chat }: { chat: ChatListItem }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const confirm = useConfirm()
   const invite = useQuery({
@@ -339,6 +381,10 @@ function InviteScreen({ chat }: { chat: ChatListItem }) {
   const url = invite.data
     ? `${window.location.origin}/join-chat/${chat.id}?k=${encodeURIComponent(invite.data)}`
     : null
+  // Системное «Поделиться» есть не везде (десктопный Firefox, часть Linux) — там кнопки нет,
+  // а не кнопка, которая ничего не делает. Экран рисуется только в браузере (колонка чата),
+  // поэтому проверка прямо в рендере не расходится с серверной разметкой.
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
   const reset = useMutation({
     mutationFn: () => resetChatInviteCode(chat.id),
@@ -346,98 +392,131 @@ function InviteScreen({ chat }: { chat: ChatListItem }) {
       qc.setQueryData(chatKeys.invite(chat.id), code)
       toast.success(t('tgRight.inviteResetDone'))
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
   })
 
-  const copy = (): void => {
+  // Кнопка сама подтверждает копирование («Скопировано ✓» на пару секунд), как в веб-
+  // приложениях: тост внизу легко пропустить, а глаза в этот момент смотрят на кнопку.
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const id = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(id)
+  }, [copied])
+  const copy = async (): Promise<void> => {
     if (!url) return
-    void navigator.clipboard?.writeText(url)
-    toast.success(t('linkCopied'))
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      toast.success(t('linkCopied'))
+    } catch {
+      toast.error(t('tgStickers.linkCopyFailed'))
+    }
+  }
+  const share = async (): Promise<void> => {
+    if (!url) return
+    try {
+      await navigator.share({
+        url,
+        ...(chat.title ? { text: t('tgRight.inviteShareText', { title: chat.title }) } : {}),
+      })
+    } catch (e) {
+      // Закрыл лист «Поделиться» сам — это не ошибка. Иначе (запрет, сбой) — хотя бы копия
+      // в буфер, чтобы нажатие не прошло впустую.
+      if ((e as { name?: string }).name !== 'AbortError') void copy()
+    }
   }
 
-  if (invite.isError && !invite.data) return <TabError onRetry={() => void invite.refetch()} />
+  if (invite.isError && !invite.data) {
+    return (
+      <ManageEmpty
+        icon={Link2}
+        title={t('sharedLoadError')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void invite.refetch()}>
+            <RotateCcw aria-hidden />
+            {tCommon('retry')}
+          </Button>
+        }
+      />
+    )
+  }
   return (
     <>
       <InfoCard className="mt-3 p-4">
         {url ? (
-          <p className="rounded-lg bg-muted/60 px-3 py-2.5 text-sm break-all select-all">
-            {url.replace(/^https?:\/\//, '')}
+          // key — ссылка: сменили её — новая проявляется, видно, что она другая. Высота блока
+          // закреплена за две строки — та же, что у заглушки: ссылка встаёт без сдвига.
+          <p
+            key={url}
+            title={url}
+            className="flex min-h-15 items-center rounded-lg border border-input bg-muted/40 px-3 py-2.5 font-mono text-[0.8125rem] leading-5 duration-(--motion-page) animate-in fade-in-0"
+          >
+            <span className="line-clamp-2 break-all select-all">
+              {url.replace(/^https?:\/\//, '')}
+            </span>
           </p>
         ) : (
-          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-15 w-full rounded-lg" />
         )}
         <div className="mt-3 flex gap-2">
-          <Button className="flex-1" disabled={!url} onClick={copy}>
-            <Copy aria-hidden />
-            {t('copyLink')}
-          </Button>
           <Button
-            variant="outline"
+            className="flex-1"
+            variant={copied ? 'secondary' : 'default'}
             disabled={!url}
-            loading={reset.isPending}
-            onClick={() => {
-              void confirm({ title: t('tgRight.inviteResetConfirm'), destructive: true }).then(
-                (ok) => {
-                  if (ok) reset.mutate()
-                },
-              )
-            }}
+            onClick={() => void copy()}
           >
-            <RotateCcw aria-hidden />
-            {t('tgRight.inviteReset')}
+            <span className="relative size-4" aria-hidden>
+              <Copy
+                className={cn(
+                  'absolute inset-0 size-4 transition-[opacity,scale] duration-(--motion-control)',
+                  copied ? 'scale-50 opacity-0' : 'opacity-100',
+                )}
+              />
+              <Check
+                className={cn(
+                  'absolute inset-0 size-4 transition-[opacity,scale] duration-(--motion-control)',
+                  copied ? 'opacity-100' : 'scale-50 opacity-0',
+                )}
+              />
+            </span>
+            {copied ? t('tgRight.inviteCopiedShort') : t('tgRight.inviteCopy')}
           </Button>
+          {canShare && (
+            <Button
+              className="flex-1"
+              variant="outline"
+              disabled={!url}
+              onClick={() => void share()}
+            >
+              <Share2 aria-hidden />
+              {t('tgRight.inviteShare')}
+            </Button>
+          )}
         </div>
       </InfoCard>
       <CardHint>{t('tgRight.inviteHint')}</CardHint>
-    </>
-  )
-}
-
-/** Поле поиска внутри колонки (того же вида, что поиск панелей левой колонки). */
-function SearchField({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-}) {
-  return (
-    <div className="relative mx-3 mt-3">
-      <Search
-        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-        aria-hidden
-      />
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        className="h-10 w-full rounded-xl border border-input bg-background pr-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
-      />
-    </div>
-  )
-}
-
-function MembersScreen({
-  chat,
-  myId,
-  onOpenChat,
-}: {
-  chat: ChatListItem
-  myId: string | undefined
-  onOpenChat: (chatId: string) => void
-}) {
-  const t = useTranslations('Chats')
-  const [query, setQuery] = useState('')
-  return (
-    <>
-      <SearchField value={query} onChange={setQuery} placeholder={t('tgRight.searchMembers')} />
-      <div className="mt-1">
-        <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} query={query} />
-      </div>
+      <InfoCard className="mt-5">
+        <button
+          type="button"
+          disabled={!url || reset.isPending}
+          onClick={() => {
+            void confirm({ title: t('tgRight.inviteResetConfirm'), destructive: true }).then(
+              (ok) => {
+                if (ok) reset.mutate()
+              },
+            )
+          }}
+          className={cn(MANAGE_ROW, 'text-destructive')}
+        >
+          {reset.isPending ? (
+            <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <RotateCcw className="size-5 shrink-0" aria-hidden />
+          )}
+          <span className="min-w-0 flex-1 truncate">{t('tgRight.inviteReset')}</span>
+        </button>
+      </InfoCard>
     </>
   )
 }
@@ -454,6 +533,7 @@ function AddAdminScreen({
 }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const [query, setQuery] = useState('')
   const members = useQuery({
@@ -478,44 +558,64 @@ function AddAdminScreen({
       toast.success(t('adminGranted'))
       onDone()
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
   })
 
   return (
     <>
-      <SearchField value={query} onChange={setQuery} placeholder={t('tgRight.searchMembers')} />
+      <ManageSearch value={query} onChange={setQuery} placeholder={t('tgRight.searchMembers')} />
       {members.isLoading ? (
-        <div className="mt-2 flex flex-col gap-1 px-4" aria-hidden>
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-12 w-full rounded-lg" />
-          ))}
-        </div>
+        <PersonRowsSkeleton rows={6} />
       ) : members.isError && !members.data ? (
-        <TabError onRetry={() => void members.refetch()} />
-      ) : candidates.length === 0 ? (
-        <TabEmpty
-          icon={<Users className="size-6" aria-hidden />}
-          title={query.trim() ? t('tgRight.nothingFound') : t('sharedEmpty')}
+        <ManageEmpty
+          icon={Users}
+          title={t('sharedLoadError')}
+          action={
+            <Button variant="outline" size="sm" onClick={() => void members.refetch()}>
+              <RotateCcw aria-hidden />
+              {tCommon('retry')}
+            </Button>
+          }
         />
+      ) : candidates.length === 0 ? (
+        query.trim() ? (
+          <ManageEmpty
+            icon={Search}
+            title={t('tgRight.nothingFound')}
+            hint={t('tgRight.nothingFoundHint')}
+          />
+        ) : (
+          <ManageEmpty icon={Shield} title={t('tgRight.addAdminEmpty')} />
+        )
       ) : (
-        <ul className="mt-1 py-1">
+        <ul className="py-1">
           {candidates.map((m) => {
             const name = `${m.lastName} ${m.firstName}`.trim()
+            const granting = grant.isPending && grant.variables === m.id
             return (
               <li key={m.id}>
                 <button
                   type="button"
                   disabled={grant.isPending}
                   onClick={() => grant.mutate(m.id)}
-                  className="flex w-full items-center gap-3 px-4 py-1.5 text-left outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:opacity-60"
+                  className={cn(
+                    'group flex w-full items-center gap-3 px-4 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 disabled:cursor-not-allowed',
+                    PERSON_ROW,
+                    grant.isPending && !granting && 'opacity-60',
+                  )}
                 >
-                  <Avatar className="size-11">
-                    {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={name} />}
-                    <AvatarFallback className={cn('text-white', identityColor(m.id))}>
-                      {identityInitials(name)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <PersonAvatar id={m.id} name={name} url={m.avatarUrl} online={m.online} />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+                  {/* Что сделает нажатие — значком справа при наведении; во время запроса —
+                      крутилка на выбранной строке. */}
+                  {granting ? (
+                    <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
+                  ) : (
+                    <ShieldPlus
+                      className="size-5 shrink-0 text-primary opacity-0 transition-opacity duration-(--motion-micro) group-hover:opacity-100 group-focus-visible:opacity-100"
+                      aria-hidden
+                    />
+                  )}
                 </button>
               </li>
             )
@@ -539,7 +639,7 @@ export function AddMembersScreen({ chat, onDone }: { chat: ChatListItem; onDone:
       toast.success(t('memberAdded'))
       onDone()
     },
-    onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e: unknown) => toast.error(tErr(errorCode(e))),
   })
   return (
     <div className="flex flex-col px-3 pt-3 pb-6 duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-4">

@@ -10,7 +10,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
 import { CryptoService } from '../../common/security/crypto.service'
 import { equalsConstantTime } from '../../common/security/constant-time'
-import { RealtimeGateway } from '../../common/realtime'
+import { AdminListEvents, RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { SessionRevocationService } from '../../common/redis/session-revocation.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -119,6 +119,7 @@ export class AuthService {
     private readonly crypto: CryptoService,
     // PushModule глобальный и сам ничего из auth/users не импортирует — кольца нет.
     private readonly push: PushService,
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -181,7 +182,7 @@ export class AuthService {
     }
     const passwordHash = await this.passwords.hash(input.password)
 
-    const { user, starosta } = await this.prisma.$transaction(async (tx) => {
+    const { user, invite, starosta } = await this.prisma.$transaction(async (tx) => {
       const invite = await this.invites.claimInvite(tx, input.token)
       // Вуз из инвайта заблокирован — отказ откатывает и захват инвайта: ссылка остаётся
       // действительной до разблокировки.
@@ -229,8 +230,16 @@ export class AuthService {
               demoted: await this.users.assignInvitedStarosta(tx, invite.groupId, created.sub),
             }
           : null
-      return { user: created, starosta }
+      return { user: created, invite, starosta }
     })
+
+    // Живые списки (§9.2d), после коммита: инвайт стал использованным, в вузе новый человек.
+    this.adminLists.invite({
+      id: invite.id,
+      universityId: invite.universityId,
+      createdById: invite.createdById,
+    })
+    this.adminLists.user({ id: user.sub, universityId: user.universityId })
 
     if (starosta) {
       // Разжалованным — гашение сессий и аудит смены роли; решение принял выдавший инвайт.

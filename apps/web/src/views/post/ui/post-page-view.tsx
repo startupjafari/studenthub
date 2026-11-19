@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
-import { fetchPost, postKeys } from '../../../entities/post'
+import { fetchPost, postKeys, usePostLiveCache } from '../../../entities/post'
 import { PostCard } from '../../../widgets/feed-list'
 import { Button, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
 
@@ -34,6 +34,8 @@ export function PostPageView({ postId }: { postId: string }) {
     // Недоступный пост повторными запросами доступным не станет.
     retry: false,
   })
+  // Лайки, комментарии, правка и удаление поста приходят по сокету (§9.2d).
+  usePostLiveCache()
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">

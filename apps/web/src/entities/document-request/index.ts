@@ -29,3 +29,4 @@ export {
   type StudentSubmission,
   type StudentRequestDetail,
 } from './api/document-request-api'
+export { useDocumentRequestsLive } from './lib/use-document-requests-live'

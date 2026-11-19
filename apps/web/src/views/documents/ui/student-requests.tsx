@@ -27,6 +27,7 @@ import {
   SelectValue,
   Skeleton,
 } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
 
@@ -52,6 +53,9 @@ export function StudentRequests() {
   const t = useTranslations('Documents')
   const [openId, setOpenId] = useState<string | null>(null)
   const q = useQuery({ queryKey: documentRequestKeys.mine(), queryFn: fetchMyRequests })
+  // Новый запрос вуза приходит сигналом (useDocumentRequestsLive в DocumentsView) — его
+  // карточка въезжает в список с подсветкой.
+  const fresh = useFreshIds(useMemo(() => q.data?.map((r) => r.id), [q.data]))
 
   if (q.isLoading) {
     return (
@@ -76,7 +80,7 @@ export function StudentRequests() {
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {requests.map((r) => (
-          <RequestCard key={r.id} req={r} onOpen={() => setOpenId(r.id)} />
+          <RequestCard key={r.id} req={r} fresh={fresh.has(r.id)} onOpen={() => setOpenId(r.id)} />
         ))}
       </div>
       {openId && <StudentRequestModal id={openId} onClose={() => setOpenId(null)} />}
@@ -84,7 +88,15 @@ export function StudentRequests() {
   )
 }
 
-function RequestCard({ req, onOpen }: { req: StudentRequestSummary; onOpen: () => void }) {
+function RequestCard({
+  req,
+  fresh,
+  onOpen,
+}: {
+  req: StudentRequestSummary
+  fresh: boolean
+  onOpen: () => void
+}) {
   const t = useTranslations('Documents')
   const locale = t('req_dueLocale')
   const due = req.dueAt ? new Date(req.dueAt).toLocaleDateString(locale) : null
@@ -93,7 +105,10 @@ function RequestCard({ req, onOpen }: { req: StudentRequestSummary; onOpen: () =
     <button
       type="button"
       onClick={onOpen}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40"
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40',
+        fresh && 'sh-live-in',
+      )}
     >
       <div className="flex items-start justify-between gap-2">
         <h3 className="font-semibold">{req.title}</h3>

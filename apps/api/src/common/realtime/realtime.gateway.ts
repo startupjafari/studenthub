@@ -409,6 +409,29 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /**
+   * Конверт в несколько комнат одной отправкой (вуз + группа, несколько групп): сокет,
+   * попавший сразу в несколько комнат, получает событие один раз.
+   */
+  emitEventToRooms(
+    rooms: string[],
+    type: string,
+    entityId: string,
+    data: unknown,
+    version = 1,
+  ): void {
+    if (rooms.length === 0) return
+    this.server.to(rooms).emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
+  }
+
+  /**
+   * Конверт всем подключённым — только для сигналов без содержимого о том, что видят все
+   * (пост с аудиторией «для всех»). Клиент сам перечитывает данные по своим правам.
+   */
+  emitEventToAll(type: string, entityId: string, data: unknown, version = 1): void {
+    this.server.emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
+  }
+
+  /**
    * Подмножество переданных id, у которых есть хотя бы одно активное соединение.
    *
    * Только сокеты адресатов — по их личным комнатам, а не `fetchSockets()` по всему

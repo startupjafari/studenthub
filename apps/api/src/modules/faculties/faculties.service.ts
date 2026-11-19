@@ -9,7 +9,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
-import { InviteService } from '../invites/invites.service'
+import { InviteService, type RevokedInScope } from '../invites/invites.service'
 import { UniversityService } from '../universities/universities.service'
 import { UserService } from '../users/users.service'
 
@@ -143,10 +143,10 @@ export class FacultyService {
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const faculty = await this.findOrThrow(id)
     this.assertScope(actor, faculty.universityId)
-    let revokedInvites = 0
+    let revoked: RevokedInScope = { count: 0, issuerIds: [] }
     try {
-      revokedInvites = await this.prisma.$transaction(async (tx) => {
-        const revoked = await this.invites.revokePendingInScope(tx, { facultyId: id })
+      revoked = await this.prisma.$transaction(async (tx) => {
+        const revokedInScope = await this.invites.revokePendingInScope(tx, { facultyId: id })
         await this.users.detachDeletedFromFaculty(tx, id)
         const blockers = await this.deletionBlockers(tx, id)
         if (blockers.length > 0) {
@@ -157,7 +157,7 @@ export class FacultyService {
           )
         }
         await tx.faculty.delete({ where: { id } })
-        return revoked
+        return revokedInScope
       })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
@@ -165,13 +165,15 @@ export class FacultyService {
       }
       throw error
     }
+    // Удаление закоммичено — теперь отзыв настоящий: живой сигнал ведущим инвайты (§9.2d).
+    this.invites.announceRevokedInScope(id, faculty.universityId, revoked)
     await this.universities.invalidateStats(faculty.universityId)
     await this.audit.record({
       userId: actor.sub,
       action: 'faculty_deleted',
       entity: 'Faculty',
       entityId: id,
-      metadata: { revokedInvites },
+      metadata: { revokedInvites: revoked.count },
       ...ctx,
     })
   }

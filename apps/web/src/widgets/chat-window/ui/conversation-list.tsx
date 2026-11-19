@@ -838,9 +838,9 @@ export function ConversationList({
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-y-auto',
           'duration-(--motion-page) animate-in fade-in slide-in-from-left-4',
-          // Снизу — место под нижнюю навигацию и плавающую кнопку: последняя строка
-          // прокручивается из-под них, а не прячется.
-          embedded ? 'pb-20' : 'pb-[calc(9rem+env(safe-area-inset-bottom))]',
+          // Карандаш — плавающий: места в раскладке не занимает, строки уходят под него.
+          // Снизу остаётся только место под нижнюю навигацию телефона (на ПК её нет).
+          !embedded && 'pb-[calc(5rem+env(safe-area-inset-bottom))]',
         )}
       >
         {searchExpanded ? (
@@ -895,7 +895,7 @@ export function ConversationList({
           </div>
         ) : (
           <div
-            className="flex min-h-0 flex-1 flex-col lg:px-1.5 lg:pt-1"
+            className="flex min-h-0 flex-1 flex-col"
             onKeyDown={onListKeyDown}
             onPointerDown={pinDrag.onPointerDown}
             onTouchStartCapture={(e) => {

@@ -10,7 +10,7 @@ import type { PasswordService } from '../../common/security/password.service'
 import type { FileService } from '../files/file.service'
 import type { QueueService } from '../../common/queue'
 import type { AuthService } from '../auth/auth.service'
-import type { RealtimeGateway } from '../../common/realtime'
+import type { AdminListEvents, RealtimeGateway } from '../../common/realtime'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
@@ -133,6 +133,8 @@ function setup() {
   }
   // Отчисление должника — библиотекарям (updateAcademicRecord, Фаза 21.C3).
   const libraryDebts = { notifyExpelledDebtor: jest.fn().mockResolvedValue(0) }
+  // Живой список людей вуза (§9.2d) — сигнал синхронный и без ответа.
+  const adminLists = { user: jest.fn() }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -148,6 +150,7 @@ function setup() {
     libraryReservations as unknown as LibraryReservationsService,
     libraryDebts as unknown as LibraryDebtsService,
     libraryAccount as unknown as LibraryAccountService,
+    adminLists as unknown as AdminListEvents,
   )
   return {
     redis,
@@ -165,6 +168,7 @@ function setup() {
     libraryReservations,
     libraryDebts,
     libraryAccount,
+    adminLists,
   }
 }
 
@@ -1475,7 +1479,7 @@ describe('UserService — setBlocked', () => {
   })
 
   it('платформенный админ блокирует и гасит сессии', async () => {
-    const { service, prisma, authService } = setup()
+    const { service, prisma, authService, adminLists } = setup()
     prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
     prisma.user.update.mockResolvedValue({})
     await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true)
@@ -1486,6 +1490,8 @@ describe('UserService — setBlocked', () => {
       data: { isBlocked: true, blockedUntil: null },
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
+    // Живой список людей вуза заблокированного (§9.2d).
+    expect(adminLists.user).toHaveBeenCalledWith({ id: 't', universityId: 'uni-B' })
   })
 
   // Фаза 21.C2: отложенный под заблокированного экземпляр лежал на полке броней весь срок.
@@ -2200,9 +2206,14 @@ describe('UserService — роль старосты группы', () => {
   })
 
   it('разжалованному гасятся сессии, обе смены роли — в журнал', async () => {
-    const { service, authService, audit } = setup()
+    const { service, authService, audit, prisma, adminLists } = setup()
+    prisma.user.findUnique.mockResolvedValueOnce({ universityId: 'uni-A' })
 
     await service.afterStarostaChange('dean-1', 'grp-1', 'stud-1', ['old-1'])
+
+    // Обе смены роли видны в живом списке людей вуза.
+    expect(adminLists.user).toHaveBeenCalledWith({ id: 'stud-1', universityId: 'uni-A' })
+    expect(adminLists.user).toHaveBeenCalledWith({ id: 'old-1', universityId: 'uni-A' })
 
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('old-1')
     expect(authService.revokeAllUserSessions).not.toHaveBeenCalledWith('stud-1')

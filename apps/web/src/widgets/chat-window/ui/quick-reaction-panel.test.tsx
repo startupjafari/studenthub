@@ -28,7 +28,11 @@ describe('QuickReactionPanel', () => {
   it('отмечает текущую быструю реакцию', () => {
     setup('👍')
     const radios = screen.getAllByRole('radio')
-    expect(radios).toHaveLength(CHAT_REACTION_EMOJIS.length)
+    // Сотня вариантов: быстрый набор меню первым, за ним — частые эмодзи.
+    expect(radios).toHaveLength(100)
+    expect(radios.slice(0, CHAT_REACTION_EMOJIS.length).map((r) => r.textContent)).toEqual([
+      ...CHAT_REACTION_EMOJIS,
+    ])
     const checked = radios.filter((r) => r.getAttribute('aria-checked') === 'true')
     expect(checked).toHaveLength(1)
     expect(checked[0]?.textContent).toContain('👍')
@@ -37,7 +41,7 @@ describe('QuickReactionPanel', () => {
   it('своя реакция вне набора — первой клеткой и отмечена', () => {
     setup('🦄')
     const radios = screen.getAllByRole('radio')
-    expect(radios).toHaveLength(CHAT_REACTION_EMOJIS.length + 1)
+    expect(radios).toHaveLength(101)
     expect(radios[0]?.textContent).toContain('🦄')
     expect(radios[0]?.getAttribute('aria-checked')).toBe('true')
   })

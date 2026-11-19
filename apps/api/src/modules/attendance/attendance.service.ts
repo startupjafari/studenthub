@@ -20,6 +20,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
 import { localDateTimeLabel } from '../../common/time/local-label'
+import { AttendanceEvents } from './attendance-events'
 
 // Ростер пары: потолок общий для студентов и их отметок (BACKEND_RULES §7.2).
 const ROSTER_LIMIT = 500
@@ -58,6 +59,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly events: AttendanceEvents,
   ) {}
 
   /** Ростер занятия (пара+дата): студенты группы + их текущие отметки (для преподавателя). */
@@ -149,6 +151,26 @@ export class AttendanceService {
     }
 
     const date = new Date(input.date)
+    // Прежние отметки — чтобы сигнал `attendance.changed` ушёл только тем, у кого что-то
+    // поменялось (журнал сохраняют целиком). Чтение до записи: гонка двух сохранений даст
+    // лишний или пропущенный сигнал, а не неверные данные — клиент перечитывает сводку сам.
+    const before = await this.prisma.attendance.findMany({
+      where: {
+        pairId: input.pairId,
+        date,
+        studentId: { in: input.entries.map((e) => e.studentId) },
+      },
+      select: { studentId: true, status: true, note: true },
+      take: ROSTER_LIMIT,
+    })
+    const previous = new Map(before.map((r) => [r.studentId, r]))
+    const changedStudentIds = input.entries
+      .filter((e) => {
+        const old = previous.get(e.studentId)
+        if (!old) return true
+        return old.status !== e.status || (e.note !== undefined && old.note !== e.note)
+      })
+      .map((e) => e.studentId)
     await this.prisma.$transaction(
       input.entries.map((e) =>
         this.prisma.attendance.upsert({
@@ -180,6 +202,7 @@ export class AttendanceService {
       metadata: { date: input.date, count: input.entries.length },
       ...ctx,
     })
+    this.events.marksChanged(input.pairId, changedStudentIds)
     return this.roster(actor, { pairId: input.pairId, date: input.date })
   }
 

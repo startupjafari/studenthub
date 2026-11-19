@@ -115,6 +115,8 @@ function setup() {
     canSharePair: jest.fn().mockResolvedValue(true),
     storyPairSummaries: jest.fn().mockResolvedValue(new Map()),
   }
+  // Сигнал «кольца изменились» (§9.2d): адресация — в story-live-events.spec.
+  const live = { changed: jest.fn() }
   const service = new StoriesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -125,8 +127,9 @@ function setup() {
     events as never,
     posts as never,
     schedules as never,
+    live as never,
   )
-  return { service, prisma, tx, audit, files, media, queue, events, posts, schedules }
+  return { service, prisma, tx, audit, files, media, queue, events, posts, schedules, live }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -383,7 +386,7 @@ describe('StoriesService.create', () => {
   })
 
   it('своя группа: scope проставляется из иерархии, срок жизни — сутки', async () => {
-    const { service, prisma, tx } = setup()
+    const { service, prisma, tx, live } = setup()
     prisma.group.findUnique.mockResolvedValue({
       facultyId: 'fac-1',
       faculty: { universityId: 'uni-1' },
@@ -407,6 +410,8 @@ describe('StoriesService.create', () => {
     const ttlMs = data.expiresAt.getTime() - Date.now()
     expect(ttlMs).toBeGreaterThan(23 * 3600_000)
     expect(ttlMs).toBeLessThanOrEqual(24 * 3600_000)
+    // Новое кольцо у однокурсников — сигналом в комнату вуза автора (§9.2d).
+    expect(live.changed).toHaveBeenCalledWith({ id: 'u-1', universityId: 'uni-1' })
   })
 
   it('опрос создаётся в той же транзакции, варианты нумеруются по порядку', async () => {
@@ -622,7 +627,7 @@ describe('StoriesService.remove', () => {
     fileId: 'f-1',
     universityId: 'uni-1',
     facultyId: 'fac-1',
-    author: { role: Role.STUDENT },
+    author: { role: Role.STUDENT, universityId: 'uni-1' },
   }
 
   it('чужую сторис студент удалить не может', async () => {
@@ -649,12 +654,14 @@ describe('StoriesService.remove', () => {
   })
 
   it('автор удаляет сторис вместе с медиа и записью в журнале', async () => {
-    const { service, prisma, files, audit } = setup()
+    const { service, prisma, files, audit, live } = setup()
     prisma.story.findUnique.mockResolvedValue(story)
     await service.remove(viewer(Role.STUDENT, { sub: 'author' }), 's1', ctx)
     expect(prisma.story.delete).toHaveBeenCalledWith({ where: { id: 's1' } })
     expect(files.delete).toHaveBeenCalledWith('f-1')
     expect(audit.record.mock.calls[0][0]).toMatchObject({ action: 'story_deleted' })
+    // Кольцо автора пропадает у однокурсников без перезагрузки.
+    expect(live.changed).toHaveBeenCalledWith({ id: 'author', universityId: 'uni-1' })
   })
 
   it('удалённая сторис уходит и из «Актуального»: копии, их медиа, пустые подборки', async () => {
@@ -703,13 +710,23 @@ describe('StoriesService.remove', () => {
 
 // ── Крон ─────────────────────────────────────────────────────────────────────
 describe('StoriesService.deleteExpired', () => {
+  const expired = (
+    id: string,
+    fileId: string | null,
+    authorId = 'u-1',
+    // Работодатель — без вуза: тип шире строки, иначе null не передать.
+    universityId: string | null = 'uni-1',
+  ) => ({
+    id,
+    fileId,
+    authorId,
+    author: { universityId },
+  })
+
   it('удаляет истёкшие батчем и сносит их медиа', async () => {
     const { service, prisma, files } = setup()
     prisma.story.findMany
-      .mockResolvedValueOnce([
-        { id: 's1', fileId: 'f-1' },
-        { id: 's2', fileId: null },
-      ])
+      .mockResolvedValueOnce([expired('s1', 'f-1'), expired('s2', null)])
       .mockResolvedValueOnce([])
     prisma.story.deleteMany.mockResolvedValue({ count: 2 })
 
@@ -721,11 +738,33 @@ describe('StoriesService.deleteExpired', () => {
     expect(files.delete).toHaveBeenCalledTimes(1)
   })
 
+  it('шлёт «кольца изменились» по одному разу на автора истёкших сторис', async () => {
+    const { service, prisma, live } = setup()
+    prisma.story.findMany
+      .mockResolvedValueOnce([
+        expired('s1', null, 'u-1', 'uni-1'),
+        expired('s2', null, 'u-1', 'uni-1'),
+        expired('s3', null, 'emp-1', null),
+      ])
+      .mockResolvedValueOnce([])
+    prisma.story.deleteMany.mockResolvedValue({ count: 3 })
+
+    await service.deleteExpired()
+
+    expect(live.changed).toHaveBeenCalledTimes(2)
+    expect(live.changed).toHaveBeenCalledWith({ id: 'u-1', universityId: 'uni-1' })
+    expect(live.changed).toHaveBeenCalledWith({ id: 'emp-1', universityId: null })
+  })
+
+  it('без истёкших сторис сигнала нет', async () => {
+    const { service, live } = setup()
+    await service.deleteExpired()
+    expect(live.changed).not.toHaveBeenCalled()
+  })
+
   it('сбой удаления медиа не отменяет удаление сторис', async () => {
     const { service, prisma, files } = setup()
-    prisma.story.findMany
-      .mockResolvedValueOnce([{ id: 's1', fileId: 'f-1' }])
-      .mockResolvedValueOnce([])
+    prisma.story.findMany.mockResolvedValueOnce([expired('s1', 'f-1')]).mockResolvedValueOnce([])
     prisma.story.deleteMany.mockResolvedValue({ count: 1 })
     files.delete.mockRejectedValue(new Error('minio down'))
 

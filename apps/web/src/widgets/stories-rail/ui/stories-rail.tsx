@@ -1,12 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { STORIES_ENABLED } from '../../../shared/config'
+import { useLiveRefresh } from '../../../shared/realtime'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { canCreateStory, fetchStories, storyKeys, type StoryRing } from '../../../entities/story'
@@ -54,6 +57,40 @@ export function StoriesRail() {
     // минута — компромисс между свежестью и лишними запросами на каждом возврате к ленте.
     staleTime: 60 * 1000,
   })
+
+  // Живые кольца (§9.2d): у однокурсника появилась или пропала история — полоса
+  // перечитывается сама. Пока открыт просмотр, кольца не трогаем: он листает тот же
+  // массив по номеру, и новое кольцо перед текущим перескочило бы на чужую историю.
+  // Пропущенный сигнал отыгрывается при закрытии просмотра.
+  const qc = useQueryClient()
+  const viewerOpen = viewerAt !== null
+  const viewerOpenRef = useRef(viewerOpen)
+  viewerOpenRef.current = viewerOpen
+  const missedRef = useRef(false)
+  useLiveRefresh(
+    REALTIME_EVENTS.storiesChanged,
+    () => {
+      if (!viewerOpenRef.current) return [storyKeys.feed()]
+      missedRef.current = true
+      return null
+    },
+    { enabled: STORIES_ENABLED },
+  )
+  useEffect(() => {
+    if (viewerOpen || !missedRef.current) return
+    missedRef.current = false
+    void qc.invalidateQueries({ queryKey: storyKeys.feed() })
+  }, [viewerOpen, qc])
+
+  // Новое кольцо въезжает с подсветкой. Ключ из id — чтобы перечитывание с теми же
+  // кольцами не перезапускало отсчёт; метка-точка отсчёта — для пустой полосы.
+  const ringsLoaded = data !== undefined
+  const ringKey = (data ?? []).map((r) => r.author.id).join('|')
+  const ringIds = useMemo(
+    () => (ringsLoaded ? ['rail', ...ringKey.split('|').filter(Boolean)] : undefined),
+    [ringKey, ringsLoaded],
+  )
+  const freshRings = useFreshIds(ringIds)
 
   // Стрелки прокрутки ряда на десктопе: колёсиком горизонтальный ряд листают только с
   // shift, и без стрелок дальние кольца мышью было не достать. Каждая видна, только когда
@@ -160,6 +197,7 @@ export function StoriesRail() {
               key={ring.author.id}
               ring={ring}
               isMe={ring.author.id === myId}
+              fresh={freshRings.has(ring.author.id)}
               onOpen={() => setViewerAt(index)}
             />
           ))}
@@ -205,10 +243,13 @@ export function StoriesRail() {
 function RingButton({
   ring,
   isMe,
+  fresh = false,
   onOpen,
 }: {
   ring: StoryRing
   isMe: boolean
+  /** Кольцо только что появилось по сокету — въезжает с подсветкой. */
+  fresh?: boolean
   onOpen: () => void
 }) {
   const t = useTranslations('Stories')
@@ -218,11 +259,15 @@ function RingButton({
       type="button"
       onClick={onOpen}
       aria-label={t('openStoryOf', { name: `${ring.author.firstName} ${ring.author.lastName}` })}
-      className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className={cn(
+        'group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+        fresh && 'sh-live-in',
+      )}
     >
       {/* Кольцо: яркое у непросмотренных, приглушённое у просмотренных — единственный
           признак, по которому в этом формате отличают новое от уже увиденного. */}
       <span
+        data-story-origin={ring.author.id}
         className={cn(
           'flex size-[4.5rem] items-center justify-center rounded-full p-[3px] transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none',
           ring.hasUnseen

@@ -65,6 +65,8 @@ interface PostCardProps {
   onOpenMedia?: (mediaIndex: number) => void
   /** Комментарии живут только в полном просмотре — здесь лишь вход в него. */
   onOpenComments?: () => void
+  /** Класс карточки — например, `sh-live-in` у поста, только что пришедшего в ленту. */
+  className?: string
 }
 
 /**
@@ -104,6 +106,7 @@ function PostCardView({
   originalUnavailable = false,
   onOpenMedia,
   onOpenComments,
+  className,
 }: PostCardProps & {
   /** Репост, через который показан `post` (исходник): его меню и его пометка сверху. */
   via?: FeedPost
@@ -167,6 +170,7 @@ function PostCardView({
         // Закреплённый отличается только мягкой акцентной обводкой — без заливки и тени.
         'flex flex-col rounded-xl bg-card ring-1 ring-foreground/10',
         post.pinnedAt && 'ring-primary/20',
+        className,
       )}
     >
       {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}

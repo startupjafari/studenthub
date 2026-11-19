@@ -20,7 +20,7 @@ import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { UserService } from '../users/users.service'
 import { StoriesService } from '../stories/stories.service'
 import { PostsService } from '../posts/posts.service'
-import { RealtimeGateway } from '../../common/realtime'
+import { AdminListEvents, RealtimeGateway } from '../../common/realtime'
 
 const USER_MINI = { select: { id: true, firstName: true, lastName: true } }
 
@@ -135,6 +135,8 @@ export class ComplaintsService {
     private readonly stories: StoriesService,
     private readonly realtime: RealtimeGateway,
     private readonly posts: PostsService,
+    // Живая очередь жалоб (§9.2d): сигнал команде платформы и админу с модератором вуза.
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -187,6 +189,7 @@ export class ComplaintsService {
       metadata: { targetType: input.targetType, targetId: input.targetId },
       ...ctx,
     })
+    this.adminLists.complaint(complaint)
     await this.announceIfUrgent(complaint)
     return complaint
   }
@@ -277,6 +280,8 @@ export class ComplaintsService {
         ...ctx,
       })
     }
+    // По сигналу на жалобу: склеиваются по вузу в один (AdminListEvents).
+    for (const complaint of created) this.adminLists.complaint(complaint)
     const [first] = created
     if (first) await this.announceIfUrgent(first)
     return { created: created.length, skipped }
@@ -409,6 +414,7 @@ export class ComplaintsService {
       entityId: id,
       ...ctx,
     })
+    this.adminLists.complaint(complaint)
     return { takenBy: actor.sub }
   }
 
@@ -482,6 +488,7 @@ export class ComplaintsService {
       metadata: { chatId, targetId: targetUserId },
       ...ctx,
     })
+    this.adminLists.complaint(complaint)
     await this.announceIfUrgent(complaint)
     return complaint
   }
@@ -610,6 +617,9 @@ export class ComplaintsService {
       metadata: { action: input.action, targetType, targetId: complaint.targetId },
       ...ctx,
     })
+    // Дубли того же вуза закрываются ниже — их покрывает этот же сигнал: список перечитывается
+    // целиком.
+    this.adminLists.complaint(complaint)
 
     // Уведомить автора жалобы (11.4).
     await this.queue.enqueue(
@@ -849,6 +859,7 @@ export class ComplaintsService {
       entityId: id,
       ...ctx,
     })
+    this.adminLists.complaint(complaint)
     return updated
   }
 
@@ -1178,8 +1189,11 @@ export class ComplaintsService {
     const now = new Date()
     if (type === ComplaintTargetType.POST) {
       await this.prisma.post.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      // Снятый пост уходит из открытых лент сразу, как и удалённый автором (§9.2d).
+      await this.posts.announceRemovedByModeration(targetId)
     } else if (type === ComplaintTargetType.COMMENT) {
       await this.prisma.comment.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      await this.posts.announceCommentRemovedByModeration(targetId)
     } else if (type === ComplaintTargetType.MESSAGE) {
       const message = await this.prisma.message.findUnique({
         where: { id: targetId },

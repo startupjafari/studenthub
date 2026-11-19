@@ -13,13 +13,19 @@ import {
   type CareerApplicationStatus,
   type CreateApplicationInput,
 } from '@studenthub/shared-schemas'
-import { fetchVacancy, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import {
+  fetchVacancy,
+  useVacanciesLive,
+  vacancyKeys,
+  type Vacancy,
+} from '../../../entities/vacancy'
 import { useKatoNames } from '../../../entities/kato'
 import { companyPath } from '../../../entities/company'
 import {
   applicationKeys,
   applyToVacancy,
   fetchMyApplications,
+  useCareerApplicationsLive,
 } from '../../../entities/career-application'
 import {
   careerProfileKeys,
@@ -93,6 +99,9 @@ export function VacancyDetailModal({
     enabled: canApply,
   })
   const existing = mine.data?.items[0]
+  // Правка или закрытие вакансии и движение своего отклика — в открытой карточке сразу.
+  useVacanciesLive()
+  useCareerApplicationsLive(canApply)
 
   // Видимость карьерного профиля — чтобы до отклика сказать, увидит ли компания профиль
   // (21.D1). Тот же ключ, что у экрана профиля: переключение там сразу видно здесь.

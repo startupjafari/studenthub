@@ -7,6 +7,7 @@ import { parseBulkInviteFile } from './bulk-parse'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { AdminListEvents } from '../../common/realtime'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -60,13 +61,15 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('http://localhost:3000') }
+  const adminLists = { invite: jest.fn() }
   const service = new InviteService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     config as unknown as ConfigService<EnvVars, true>,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, group, faculty, user, invite, audit, queue }
+  return { service, prisma, group, faculty, user, invite, audit, queue, adminLists }
 }
 
 /** Данные, переданные в createMany (одним вызовом на подтверждение). */
@@ -271,7 +274,7 @@ describe('InviteService — дубли email без учёта регистра'
 
 describe('InviteService.bulkCreate', () => {
   it('создаёт READY-строки, пропускает дубли, пишет сводный аудит', async () => {
-    const { service, invite, user, audit, group } = setup()
+    const { service, invite, user, audit, group, adminLists } = setup()
     user.findMany.mockResolvedValue([{ email: 'exists@x.kz' }]) // этот пропустим
 
     const res = await service.bulkCreate(
@@ -295,6 +298,8 @@ describe('InviteService.bulkCreate', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'invite_bulk_created' }),
     )
+    // Живой список инвайтов: один сигнал на всю пачку, а не по строке.
+    expect(adminLists.invite).toHaveBeenCalledTimes(1)
   })
 
   it('строка с недопустимой для роли иерархией → failed', async () => {

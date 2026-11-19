@@ -32,4 +32,5 @@ export {
   type DocumentAccessGrant,
 } from './api/document-api'
 export { isViewableMedia, saveFileByUrl } from './lib/file-open'
+export { useDocumentsLive } from './lib/use-documents-live'
 export { DocumentFileViewer, type ViewableFile } from './ui/document-file-viewer'

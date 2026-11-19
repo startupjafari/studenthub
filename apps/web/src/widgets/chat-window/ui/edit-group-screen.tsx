@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -21,7 +21,6 @@ import {
   Button,
   Input,
   Label,
-  Modal,
   Textarea,
 } from '../../../shared/ui'
 import { identityColor, identityInitials } from '../../../shared/lib'
@@ -32,23 +31,33 @@ const ImageCropModal = dynamic(
   { ssr: false },
 )
 
+/** id формы: кнопка «Сохранить» стоит в шапке колонки и отправляет форму через `form`. */
+export const EDIT_GROUP_FORM_ID = 'edit-group-form'
+
+/** Что шапке колонки нужно знать о форме, чтобы нарисовать «Сохранить». */
+export interface EditGroupState {
+  canSave: boolean
+  saving: boolean
+}
+
 /**
- * Редактирование группы — отдельным окном, как в мессенджерах.
- *
- * Раньше название правилось прямо в шапке панели: поле с двумя иконками распирало
- * колонку, аватар менялся наведением на картинку, а «Удалить фото» жило в ряду действий
- * рядом с «Покинуть». Три разных места для одной задачи. Теперь фото и название — в одном
- * окне, а в панели остаётся только «Изменить».
+ * Редактирование группы — экраном правой колонки, как в Telegram: «назад» и «Сохранить»
+ * в шапке, фото, название и описание под ними. Раньше это было модальное окно поверх
+ * переписки — колонка с управлением группой оставалась за затемнением, и правка выпадала
+ * из её экранов.
  */
-export function EditGroupDialog({
+export function EditGroupScreen({
   chat,
   title,
-  onClose,
+  onDone,
+  onStateChange,
 }: {
   chat: ChatListItem
   /** Отображаемое имя чата (у групп — своё, у прочих собирается родителем). */
   title: string
-  onClose: () => void
+  /** Сохранили — вернуться на экран управления. */
+  onDone: () => void
+  onStateChange: (state: EditGroupState) => void
 }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -92,7 +101,7 @@ export function EditGroupDialog({
     onSuccess: () => {
       invalidateChat()
       toast.success(t('titleUpdated'))
-      onClose()
+      onDone()
     },
     onError: err,
   })
@@ -105,6 +114,10 @@ export function EditGroupDialog({
   const descriptionChanged = trimmedDescription !== (chat.description ?? '')
   const canSave = trimmed.length > 0 && (nameChanged || descriptionChanged) && !save.isPending
 
+  useEffect(() => {
+    onStateChange({ canSave, saving: save.isPending })
+  }, [canSave, save.isPending, onStateChange])
+
   function submit(): void {
     if (!canSave) return
     // Отправляем только изменившееся: иначе правка описания каждый раз переписывала бы
@@ -115,24 +128,26 @@ export function EditGroupDialog({
     })
   }
 
-  // Кадрирование показываем ВМЕСТО окна, а не поверх него. Наложить не выйдет:
-  // содержимое Modal центрируется через transform, а он делает элемент системой
-  // координат для `position: fixed` внутри — оверлей кропа сжался бы до размеров окна.
-  // Черновик названия при этом не теряется: состояние живёт в этом компоненте.
-  if (cropFile) {
-    return (
-      <ImageCropModal
-        file={cropFile}
-        title={t('changeAvatar')}
-        saving={avatarMut.isPending}
-        onCancel={() => setCropFile(null)}
-        onSave={(f) => avatarMut.mutate(f)}
-      />
-    )
-  }
-
   return (
-    <Modal onClose={onClose} title={t('editGroup')} size="md">
+    <form
+      id={EDIT_GROUP_FORM_ID}
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+      className="flex flex-col gap-5 px-4 py-5 duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-4"
+    >
+      {/* Кадрирование аватара — своим полноэкранным окном поверх колонки; черновик названия
+          и описания живёт здесь и не теряется. */}
+      {cropFile && (
+        <ImageCropModal
+          file={cropFile}
+          title={t('changeAvatar')}
+          saving={avatarMut.isPending}
+          onCancel={() => setCropFile(null)}
+          onSave={(f) => avatarMut.mutate(f)}
+        />
+      )}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-2">
           <div className="relative">
@@ -195,9 +210,6 @@ export function EditGroupDialog({
             onChange={(e) => setName(e.target.value)}
             maxLength={150}
             autoFocus
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
-            }}
           />
         </div>
 
@@ -215,15 +227,10 @@ export function EditGroupDialog({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            {t('cancel')}
-          </Button>
-          <Button type="button" loading={save.isPending} disabled={!canSave} onClick={submit}>
-            {t('save')}
-          </Button>
-        </div>
+        <p className="text-right text-xs text-muted-foreground tabular-nums">
+          {description.length}/{CHAT_DESCRIPTION_MAX}
+        </p>
       </div>
-    </Modal>
+    </form>
   )
 }

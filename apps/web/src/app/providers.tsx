@@ -17,6 +17,9 @@ import { CommandPalette } from '../widgets/command-palette'
 // импорта. Событие прилетает сразу после загрузки — подписка из компонента настроек
 // его бы уже не застала (shared/lib/pwa-install.ts).
 import '../shared/lib/pwa-install'
+// Тоже ради побочного эффекта: запоминает, куда нажали, чтобы окна вырастали из этого
+// элемента (shared/lib/modal-origin.ts). Окно часто грузится чанком уже после нажатия.
+import '../shared/lib/modal-origin'
 import {
   SeasonLeverProvider,
   useChunkErrorRecovery,

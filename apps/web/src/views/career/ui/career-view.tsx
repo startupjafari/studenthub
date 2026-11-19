@@ -23,6 +23,7 @@ import {
   Video,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   careerEventKeys,
   fetchCareerEvents,
@@ -34,9 +35,15 @@ import {
 import {
   applicationKeys,
   fetchMyApplications,
+  useCareerApplicationsLive,
   type StudentApplication,
 } from '../../../entities/career-application'
-import { searchVacancies, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import {
+  searchVacancies,
+  useVacanciesLive,
+  vacancyKeys,
+  type Vacancy,
+} from '../../../entities/vacancy'
 import { useKatoNames } from '../../../entities/kato'
 import { fetchResumeSettings, resumeKeys } from '../../../entities/resume'
 import {
@@ -47,6 +54,7 @@ import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 import {
   Badge,
   Button,
@@ -549,6 +557,11 @@ function SeekerOverview() {
     queryKey: careerEventKeys.list(EVENTS),
     queryFn: () => fetchCareerEvents(EVENTS),
   })
+  // Карьерные мероприятия — те же события вуза (с типом), сигнал у них общий (§9.2d).
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, [careerEventKeys.all])
+  // Сводка откликов и свежие вакансии — тоже по сигналу `career.changed`.
+  useCareerApplicationsLive()
+  useVacanciesLive()
   const resumeQ = useQuery({
     queryKey: resumeKeys.mine(),
     queryFn: fetchResumeSettings,

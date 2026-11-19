@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import {
   applicationKeys,
   changeApplicationStatus,
   fetchPipeline,
+  useCareerApplicationsLive,
   type PipelineApplication,
 } from '../../../entities/career-application'
 import { careerProfileKeys, fetchCandidateCard } from '../../../entities/career-profile'
@@ -28,7 +29,8 @@ import {
   Textarea,
   useConfirm,
 } from '../../../shared/ui'
-import { toApiError, useApplicationStatusLabels } from '../../../shared/lib'
+import { toApiError, useApplicationStatusLabels, useFreshIds } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 
 /**
  * Воронка кандидатов.
@@ -49,6 +51,15 @@ export function EmployerCandidatesView() {
     queryKey: applicationKeys.pipeline({ page, limit }),
     queryFn: () => fetchPipeline({ page, limit }),
   })
+  // Новый кандидат, отзыв отклика и перевод коллегой — в воронке без перезагрузки (§9.2d).
+  useCareerApplicationsLive()
+  // Новый отклик — подсветка, только на первой странице: свежие отклики встают сверху.
+  const fresh = useFreshIds(
+    useMemo(
+      () => (page === 1 ? query.data?.items.map((a) => a.id) : undefined),
+      [page, query.data],
+    ),
+  )
 
   const change = useMutation({
     mutationFn: ({
@@ -106,6 +117,7 @@ export function EmployerCandidatesView() {
               <CandidateRow
                 key={application.id}
                 application={application}
+                fresh={fresh.has(application.id)}
                 busy={change.isPending}
                 onChange={(status, comment) =>
                   change.mutate({ id: application.id, status, comment })
@@ -137,11 +149,14 @@ export function EmployerCandidatesView() {
 
 function CandidateRow({
   application,
+  fresh,
   busy,
   onChange,
   onOpenCard,
 }: {
   application: PipelineApplication
+  /** Строка появилась по сигналу — въезд и подсветка `sh-live-in`. */
+  fresh: boolean
   busy: boolean
   onChange: (status: CareerApplicationStatus, comment?: string) => void
   onOpenCard: () => void
@@ -158,7 +173,12 @@ function CandidateRow({
   )
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <li
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border border-border bg-card p-4',
+        fresh && 'sh-live-in',
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">

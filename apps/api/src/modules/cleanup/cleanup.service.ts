@@ -5,6 +5,7 @@ import { InviteStatus, type Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AdminListEvents } from '../../common/realtime'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import { CronLockService } from '../../common/redis/cron-lock.service'
 import { AUDIT_RETENTION_DAYS, AuditService } from '../../common/audit/audit.service'
@@ -269,6 +270,7 @@ export class CleanupService {
     private readonly libraryReminders: LibraryRemindersService,
     private readonly libraryReservations: LibraryReservationsService,
     private readonly retention: PdRetentionService,
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
@@ -370,7 +372,7 @@ export class CleanupService {
     for (;;) {
       const batch = await this.prisma.user.findMany({
         where: { isBlocked: true, blockedUntil: { lte: now } },
-        select: { id: true },
+        select: { id: true, universityId: true },
         take: BATCH_SIZE,
       })
       if (batch.length === 0) break
@@ -396,6 +398,10 @@ export class CleanupService {
       for (const id of ids) {
         await this.audit.record({ action: 'user_unblocked_expired', entity: 'User', entityId: id })
       }
+      // Живой список людей у админов вуза (§9.2d): сигнал склеивается по вузу — пачка снятых
+      // блокировок одного вуза даёт одну рассылку. Синхронно и без исключений.
+      const universityOf = new Map(batch.map((row) => [row.id, row.universityId]))
+      for (const id of ids) this.adminLists.user({ id, universityId: universityOf.get(id) ?? null })
       if (batch.length < BATCH_SIZE) break
     }
     if (total > 0) this.logger.log(`liftExpiredBlocks: снято блокировок ${total}`)

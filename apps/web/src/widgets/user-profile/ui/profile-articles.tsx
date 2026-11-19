@@ -20,10 +20,8 @@ import {
   MosaicGrid,
   MosaicTile,
   Skeleton,
-  mosaicShape,
   useConfirm,
 } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ContentModal } from './content-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
@@ -94,10 +92,10 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
       return db - da
     })
   }, [articles, isOwner, statusFilter, category, sort])
-  // Порция — полный цикл мозаики: догрузка достраивает узор, а не обрывает его.
+  // Порция — 12 плиток: делится и на 3, и на 4 колонки, догрузка достраивает ряды целиком.
   const { shown, pending, sentinelRef } = useProgressive(
     visible.length,
-    14,
+    12,
     `${statusFilter}|${category}|${sort}`,
   )
 
@@ -126,8 +124,8 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
         {modals}
         <ContentLayout sidebar={<FilterSkeleton groups={3} />}>
           <MosaicGrid aria-hidden>
-            {Array.from({ length: 14 }).map((_, i) => (
-              <MosaicTile key={i} index={i}>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MosaicTile key={i}>
                 <Skeleton className="size-full rounded-none" />
               </MosaicTile>
             ))}
@@ -209,10 +207,9 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
             </p>
           ) : (
             <MosaicGrid>
-              {visible.slice(0, shown).map((a, i) => (
+              {visible.slice(0, shown).map((a) => (
                 <ArticleCard
                   key={a.id}
-                  index={i}
                   article={a}
                   isOwner={isOwner}
                   canModerate={!isOwner && !!moderation?.content}
@@ -240,7 +237,6 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
                 <MosaicTile
                   key={`pending-${j}`}
                   ref={j === 0 ? sentinelRef : undefined}
-                  index={shown + j}
                   aria-hidden
                 >
                   <Skeleton className="size-full rounded-none" />
@@ -254,10 +250,9 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
   )
 }
 
-// Плитка статьи в мозаике: обложка во всю плитку, рубрика, заголовок и мета — на затемнении
-// снизу (читаются поверх любого снимка). Подзаголовок помещается только в высокую плитку.
+// Плитка статьи в сетке: обложка во всю плитку, рубрика, заголовок и мета — на затемнении
+// снизу (читаются поверх любого снимка).
 function ArticleCard({
-  index,
   article: a,
   isOwner,
   canModerate,
@@ -265,7 +260,6 @@ function ArticleCard({
   onDelete,
   onModerate,
 }: {
-  index: number
   article: ProfileArticleCard
   isOwner: boolean
   // Модератор scope: вместо «Изменить/Удалить» владельца — один пункт «Удалить (модерация)».
@@ -275,10 +269,9 @@ function ArticleCard({
   onModerate: () => void
 }) {
   const t = useTranslations('Profile')
-  const shape = mosaicShape(index)
 
   return (
-    <MosaicTile index={index}>
+    <MosaicTile>
       {/* Статья открывается своей страницей (/articles/<id>), а не окном: у неё есть
           адрес — его можно переслать, открыть в новой вкладке и вернуться назад. */}
       <Link
@@ -306,19 +299,9 @@ function ArticleCard({
               </span>
             )}
           </span>
-          <span
-            className={cn(
-              'font-semibold leading-snug',
-              shape === 'square' ? 'line-clamp-2 text-sm max-sm:text-xs' : 'line-clamp-3 text-base',
-            )}
-          >
+          <span className="line-clamp-2 text-sm font-semibold leading-snug max-sm:text-xs">
             {a.title}
           </span>
-          {shape === 'tall' && a.description && (
-            <span className="line-clamp-3 text-xs leading-relaxed text-white/80">
-              {a.description}
-            </span>
-          )}
           <span className="flex items-center gap-3 text-xs font-medium text-white/85 tabular-nums max-sm:hidden">
             {a.readingMinutes ? (
               <span className="inline-flex items-center gap-1">

@@ -24,6 +24,7 @@ import {
   isLostDebt,
   issueClearanceCertificate,
   libraryKeys,
+  useMyLoansLive,
 } from '../../../entities/library'
 
 // Справка «задолженностей в библиотеке нет» (Фаза 20.11, 21.C4): для обходного листа при
@@ -47,6 +48,8 @@ export function ClearanceView() {
     queryKey: libraryKeys.myCertificates(),
     queryFn: fetchMyClearanceCertificates,
   })
+  // Вернул последнюю книгу или погасил долг у стойки — справка становится доступна сразу.
+  useMyLoansLive()
   const issue = useMutation({
     mutationFn: () => issueClearanceCertificate(locale),
     onSuccess: (file) => {

@@ -80,10 +80,18 @@ function partlyVisible(b: Box): boolean {
   )
 }
 
-/** Радиус скругления рамки миниатюры (берём верхний левый — у плиток они одинаковы). */
+/**
+ * Радиус скругления рамки миниатюры (берём верхний левый — у плиток они одинаковы).
+ * Не больше половины меньшей стороны: у круглых рамок (`rounded-full`) радиус задан как
+ * «бесконечность», и без потолка интерполяция к нулю держала бы круг почти весь полёт.
+ */
 function radiusOf(el: Element): number {
-  const v = parseFloat(getComputedStyle(el).borderTopLeftRadius)
-  return Number.isFinite(v) ? v : 0
+  const raw = getComputedStyle(el).borderTopLeftRadius
+  const r = el.getBoundingClientRect()
+  const half = Math.min(r.width, r.height) / 2
+  const v = parseFloat(raw)
+  if (!Number.isFinite(v)) return 0
+  return Math.min(raw.trim().endsWith('%') ? (v / 100) * 2 * half : v, half)
 }
 
 // Тип, а не интерфейс: кадр уходит в `Element.animate`, а тот ждёт запись с индексной

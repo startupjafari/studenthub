@@ -28,6 +28,7 @@ function setup(status: 'PENDING_EMAIL' | 'ACTIVE' | 'BLOCKED', user: object = EM
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   )
 
   const tx = {
@@ -79,6 +80,7 @@ function setup(status: 'PENDING_EMAIL' | 'ACTIVE' | 'BLOCKED', user: object = EM
     companies,
     {} as never,
     { removeAllForUser: jest.fn() } as never,
+    { invite: jest.fn(), user: jest.fn() } as never,
   )
   return { service, prisma, tx, passwords, loginAttempts, companyFindFirst }
 }

@@ -52,3 +52,13 @@ export {
 } from './model/reactions'
 export { inlineMediaLink } from './model/media'
 export { patchCachedPost } from './model/cache'
+export {
+  withServerTotals,
+  isPostCached,
+  removeCachedPost,
+  reloadFeedFromTop,
+  type FeedPostCreatedSignal,
+  type FeedPostChangedSignal,
+  type PostCommentsChangedSignal,
+} from './model/live'
+export { usePostLiveCache, useNewPostsCount } from './lib/use-post-live'

@@ -8,7 +8,7 @@ import { reactionSummaryOf, reactionTotal, type FeedPost } from '../../../entiti
 import { cn } from '../../../shared/lib/utils'
 import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
-import { MosaicTile, Skeleton, mosaicShape } from '../../../shared/ui'
+import { MosaicTile, Skeleton } from '../../../shared/ui'
 import { PostMediaView } from './post-media'
 import { PostTileMenu } from './post-tile-menu'
 import { useRepostSource } from '../lib/use-repost-source'
@@ -23,12 +23,12 @@ const MODERATOR_ROLES: Role[] = [
 
 interface PostTileProps {
   post: FeedPost
-  /** Позиция в мозаике — от неё зависит форма плитки. */
-  index: number
   onOpen: () => void
+  /** Класс плитки — например, `sh-live-in` у поста, только что пришедшего по сокету. */
+  className?: string
 }
 
-// Плитка публикации в мозаике профиля (как в Instagram): обложка во всю плитку, подпись и
+// Плитка публикации в сетке профиля (как в Instagram): обложка во всю плитку, подпись и
 // счётчики — на затемнении снизу, чтобы читаться поверх любого снимка. Лайк, комментарий,
 // репост и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
 //
@@ -39,7 +39,7 @@ export function PostTile(props: PostTileProps) {
   const source = useRepostSource(props.post)
   if (source.kind === 'loading') {
     return (
-      <MosaicTile index={props.index} aria-hidden>
+      <MosaicTile aria-hidden>
         <Skeleton className="size-full rounded-none" />
       </MosaicTile>
     )
@@ -52,10 +52,10 @@ export function PostTile(props: PostTileProps) {
 
 function PostTileView({
   post,
-  index,
   via,
   originalUnavailable = false,
   onOpen,
+  className,
 }: PostTileProps & {
   /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
   via?: FeedPost
@@ -67,7 +67,6 @@ function PostTileView({
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
-  const shape = mosaicShape(index)
   const first = post.media[0]
   // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
   const text =
@@ -87,7 +86,7 @@ function PostTileView({
   return (
     // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит
     // внутренняя кнопка со своим `overflow-hidden`.
-    <MosaicTile index={index} className="overflow-visible">
+    <MosaicTile className={cn('overflow-visible', className)}>
       <button
         type="button"
         onClick={onOpen}
@@ -99,24 +98,19 @@ function PostTileView({
             postId={post.id}
             media={first}
             fit="cover"
-            sizes={
-              shape === 'square'
-                ? '(max-width: 640px) 33vw, 360px'
-                : '(max-width: 640px) 66vw, 720px'
-            }
+            sizes="(max-width: 640px) 33vw, 360px"
             className="size-full transition-transform duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
           // Текстовый пост — сам текст на фирменной подложке, как текстовые публикации в
-          // Instagram. Высокой плитке хватает места на абзац, квадрату — на пару строк.
+          // Instagram: в квадрат помещается несколько строк, на телефоне — пара.
           <span
             className={cn('flex size-full items-center justify-center p-4 pb-12', BRAND_GRADIENT)}
           >
             <span
               className={cn(
                 'text-center font-semibold text-white',
-                shape === 'tall' ? 'line-clamp-[10] text-base' : 'line-clamp-4 text-sm',
-                shape === 'square' && 'max-sm:line-clamp-3 max-sm:text-xs',
+                'line-clamp-4 text-sm max-sm:line-clamp-3 max-sm:text-xs',
               )}
             >
               {text}
@@ -129,8 +123,8 @@ function PostTileView({
             <span
               className={cn(
                 'line-clamp-2 text-sm font-semibold leading-snug',
-                // На телефоне квадрат — треть ширины экрана: подпись там не читается.
-                shape === 'square' && 'max-sm:hidden',
+                // На телефоне плитка — треть ширины экрана: подпись там не читается.
+                'max-sm:hidden',
               )}
             >
               {text}

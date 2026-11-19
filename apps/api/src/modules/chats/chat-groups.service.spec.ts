@@ -141,6 +141,7 @@ function setup(chatOver: Partial<ChatRow> = {}) {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   )
   const groups = new ChatGroupsService(
     prisma as unknown as PrismaService,

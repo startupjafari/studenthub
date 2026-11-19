@@ -29,3 +29,4 @@ export type {
   SubmissionStatus,
 } from './model/types'
 export { studentAssignmentStatus, type StudentAssignmentStatus } from './lib/status'
+export { useAssignmentsLive } from './lib/use-assignments-live'

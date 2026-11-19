@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarCheck2, CalendarDays, Check, Clock, FileCheck2, Inbox, X } from 'lucide-react'
@@ -21,10 +21,12 @@ import {
   TableText,
   useTableSort,
 } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   attendanceKeys,
   fetchMyAttendance,
+  useAttendanceLive,
   type AttendanceRecord,
 } from '../../../entities/attendance'
 import { ATT_BADGE, ATT_KEY } from '../lib/status-visuals'
@@ -43,6 +45,11 @@ export function StudentAttendanceView() {
   const t = useTranslations('Attendance')
   const locale = useLocale()
   const q = useQuery({ queryKey: attendanceKeys.me(), queryFn: () => fetchMyAttendance() })
+  // Преподаватель отметил занятие — сводка и список перечитываются по сигналу, а новая
+  // отметка въезжает в таблицу с подсветкой.
+  useAttendanceLive()
+  const recordIds = useMemo(() => q.data?.records.map((r) => r.id), [q.data])
+  const fresh = useFreshIds(recordIds)
 
   // Сортировка клиентская: сводка приходит одним запросом вместе с отметками — серверу
   // пересортировывать нечего. Статус сравниваем по переводу, а не по значению enum.
@@ -172,7 +179,7 @@ export function StudentAttendanceView() {
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => (
-                    <TableRow key={r.id}>
+                    <TableRow key={r.id} className={cn(fresh.has(r.id) && 'sh-live-in')}>
                       <TableCell className="text-muted-foreground tabular-nums">
                         {new Date(`${r.date.slice(0, 10)}T00:00:00`).toLocaleDateString(locale, {
                           day: '2-digit',

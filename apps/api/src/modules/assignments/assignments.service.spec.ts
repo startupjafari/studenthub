@@ -8,6 +8,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { FileService } from '../files/file.service'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
+import type { AssignmentEvents } from './assignment-events'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -82,14 +83,16 @@ function setup(opts: { submission?: object | null } = {}) {
   const config = { get: jest.fn().mockReturnValue('applications') }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  const events = { toGroup: jest.fn(), submitted: jest.fn(), graded: jest.fn() }
   const service = new AssignmentsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     files as unknown as FileService,
     config as unknown as ConfigService<EnvVars, true>,
+    events as unknown as AssignmentEvents,
   )
-  return { service, prisma, files, audit, queue }
+  return { service, prisma, files, audit, queue, events }
 }
 
 describe('AssignmentsService — многочастная загрузка файла сдачи (21.B1)', () => {
@@ -576,6 +579,76 @@ describe('AssignmentsService — переходы статуса задания 
       code: 'CONFLICT',
     })
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('AssignmentsService — сигналы assignment.changed (§9.2d)', () => {
+  function withStatus(status: string) {
+    const env = setup()
+    env.prisma.assignment.findUnique.mockResolvedValue({ id: 'as-1', status, course })
+    env.prisma.assignment.update.mockResolvedValue({
+      id: 'as-1',
+      title: 'ЛР1',
+      course: { ...course, group: { id: 'grp-1', name: 'ФИ-21' } },
+    })
+    return env
+  }
+
+  it('публикация черновика — группе курса «published», повторное открытие — «updated»', async () => {
+    const published = withStatus('DRAFT')
+    await published.service.setStatus(teacher, 'as-1', 'PUBLISHED', ctx)
+    expect(published.events.toGroup).toHaveBeenCalledWith(
+      'as-1',
+      expect.objectContaining({ id: 'c-1', groupId: 'grp-1' }),
+      'published',
+    )
+    const reopened = withStatus('CLOSED')
+    await reopened.service.setStatus(teacher, 'as-1', 'PUBLISHED', ctx)
+    expect(reopened.events.toGroup).toHaveBeenCalledWith('as-1', expect.anything(), 'updated')
+  })
+
+  it('удаление черновика никому не сигналит', async () => {
+    const { service, events } = withStatus('DRAFT')
+    await service.remove(teacher, 'as-1', ctx)
+    expect(events.toGroup).not.toHaveBeenCalled()
+  })
+
+  it('сдача работы сигналит преподавателю курса', async () => {
+    const { service, events } = setup({
+      submission: {
+        id: 'sub-1',
+        status: 'DRAFT',
+        text: 'ответ',
+        linkUrl: null,
+        attemptNumber: 1,
+        _count: { files: 0 },
+      },
+    })
+    await service.submit(student, 'as-1')
+    expect(events.submitted).toHaveBeenCalledWith(
+      'as-1',
+      expect.objectContaining({ id: 'c-1', teacherId: 't-1' }),
+    )
+  })
+
+  it('оценка сигналит только автору работы', async () => {
+    const { service, prisma, events } = setup()
+    prisma.submission.findUnique.mockResolvedValue({
+      id: 'sub-1',
+      assignmentId: 'as-1',
+      status: 'SUBMITTED',
+      score: null,
+      gradedAt: null,
+      gradedById: null,
+      assignment: { title: 'ЛР1', status: 'PUBLISHED', maxScore: 10, course },
+    })
+    prisma.submission.update.mockResolvedValue({
+      id: 'sub-1',
+      attemptNumber: 1,
+      student: { id: 'stu-1' },
+    })
+    await service.grade(teacher, 'sub-1', { score: 8 }, ctx)
+    expect(events.graded).toHaveBeenCalledWith('as-1', 'c-1', 'stu-1')
   })
 })
 

@@ -6,6 +6,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { InviteService } from '../invites/invites.service'
+import type { AdminListEvents } from '../../common/realtime'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -67,6 +68,8 @@ function setup() {
     recordCreated: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
+  // Живая очередь заявок и бейдж навигации (§9.2d).
+  const adminLists = { demoRequest: jest.fn() }
 
   const service = new DemoRequestsService(
     prisma as unknown as PrismaService,
@@ -74,8 +77,9 @@ function setup() {
     queue as unknown as QueueService,
     invites as unknown as InviteService,
     config as unknown as ConfigService<EnvVars, true>,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, tx, audit, queue, invites }
+  return { service, prisma, tx, audit, queue, invites, adminLists }
 }
 
 /** Открытая заявка с тем же адресом: как её видит findOpen. */
@@ -229,7 +233,7 @@ describe('DemoRequestsService.purgeUnconfirmed', () => {
 
 describe('DemoRequestsService.verifyEmail', () => {
   it('гасит токен и переводит заявку в очередь', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, adminLists } = setup()
     prisma.universityDemoRequest.findFirst.mockResolvedValue({
       id: 'req-1',
       emailVerificationExpiresAt: new Date(Date.now() + 60_000),
@@ -242,6 +246,8 @@ describe('DemoRequestsService.verifyEmail', () => {
         data: { status: 'NEW', emailVerificationHash: null, emailVerificationExpiresAt: null },
       }),
     )
+    // Админы платформы видят новую заявку и бейдж без опроса.
+    expect(adminLists.demoRequest).toHaveBeenCalledWith('req-1')
   })
 
   it('на просроченную ссылку отвечает ошибкой, а не тихим успехом', async () => {
@@ -508,7 +514,7 @@ describe('DemoRequestsService.reissueInvite', () => {
 
 describe('DemoRequestsService.reject', () => {
   it('пишет причину и отправляет письмо с признаком «можно прийти снова»', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, adminLists } = setup()
     prisma.universityDemoRequest.findUnique.mockResolvedValue({
       id: 'req-1',
       status: 'NEW',
@@ -523,6 +529,7 @@ describe('DemoRequestsService.reject', () => {
     expect(payload).toMatchObject({ to: form.email, canReapply: true })
     // Внутренней заметки в письме быть не должно ни при каких причинах.
     expect(Object.keys(payload as object)).not.toContain('note')
+    expect(adminLists.demoRequest).toHaveBeenCalledWith('req-1')
   })
 
   it('на «не вуз» письмо не зовёт возвращаться', async () => {

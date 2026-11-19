@@ -47,7 +47,7 @@ import { AvatarHistoryService } from '../files/avatar-history.service'
 import { LibraryReservationsService } from '../library/library-reservations.service'
 import { LibraryDebtsService } from '../library/library-debts.service'
 import { LibraryAccountService, type ForgottenReader } from '../library/library-account.service'
-import { RealtimeGateway } from '../../common/realtime'
+import { AdminListEvents, RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
@@ -351,6 +351,7 @@ export class UserService {
     private readonly libraryReservations: LibraryReservationsService,
     private readonly libraryDebts: LibraryDebtsService,
     private readonly libraryAccount: LibraryAccountService,
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -2117,6 +2118,25 @@ export class UserService {
         metadata: { to: Role.STAROSTA, groupId },
       })
     }
+    // Роль в списке людей вуза сменилась — сигнал его админам (§9.2d). Вуз один на группу,
+    // поэтому берём его у любого затронутого; сигналы склеиваются по вузу.
+    const changed = [...(promotedId ? [promotedId] : []), ...demotedIds]
+    if (changed.length > 0) {
+      // Сбой чтения не должен ронять уже сделанную смену роли — сигнал best-effort.
+      try {
+        const sample = await this.prisma.user.findUnique({
+          where: { id: changed[0] },
+          select: { universityId: true },
+        })
+        if (sample) {
+          for (const id of changed) this.adminLists.user({ id, universityId: sample.universityId })
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Смена старосты ${groupId}: сигнал списку людей не ушёл — ${String(error)}`,
+        )
+      }
+    }
   }
 
   /**
@@ -2381,7 +2401,7 @@ export class UserService {
   ): Promise<void> {
     const current = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { role: true, universityId: true },
     })
     const isPlatformAdmin = current?.role === Role.PLATFORM_ADMIN
     if (isPlatformAdmin) await this.assertNotLastPlatformAdmin(this.prisma, userId)
@@ -2531,6 +2551,9 @@ export class UserService {
       entityId: userId,
       ...ctx,
     })
+    // Удалённый уходит из списка людей вуза. Кроны чистки удаляют пачками — сигналы
+    // склеиваются по вузу в AdminListEvents.
+    this.adminLists.user({ id: userId, universityId: current?.universityId ?? null })
   }
 
   /**
@@ -2704,6 +2727,8 @@ export class UserService {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     })
+    // Живой список людей вуза (§9.2d): отметка «заблокирован» видна коллегам сразу.
+    this.adminLists.user({ id: userId, universityId: target.universityId })
   }
 
   /**
@@ -2854,7 +2879,7 @@ export class UserService {
   private async assertModeratable(
     viewer: JwtPayload,
     userId: string,
-  ): Promise<{ isBlocked: boolean; blockedUntil: Date | null }> {
+  ): Promise<{ isBlocked: boolean; blockedUntil: Date | null; universityId: string | null }> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: { id: true, universityId: true, role: true, isBlocked: true, blockedUntil: true },

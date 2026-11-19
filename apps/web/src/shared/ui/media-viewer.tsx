@@ -169,8 +169,13 @@ export function MediaViewer({
   // Callback-ref, а не объектный: один ref на <img> и <video> объектным пришлось бы
   // типизировать пересечением их интерфейсов — ложью, которую TS пропускает по случайности.
   const mediaRef = useRef<HTMLElement | null>(null)
+  // Узел ещё и в состоянии: окно рисуется в портале Radix, который появляется только со
+  // второго прохода рендера. Полёт из миниатюры ждёт именно появления узла — по одному ref
+  // его эффект отрабатывал раньше портала, не находил снимок и больше не запускался.
+  const [mediaEl, setMediaEl] = useState<HTMLElement | null>(null)
   const setMedia = useCallback((el: HTMLImageElement | HTMLVideoElement | null): void => {
     mediaRef.current = el
+    setMediaEl(el)
   }, [])
   const contentRef = useRef<HTMLDivElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
@@ -274,9 +279,18 @@ export function MediaViewer({
 
   // Слой зума живёт над медиа, поэтому поворот и вписывание снимка остаются его
   // собственной трансформацией и с жестом не конфликтуют.
+  // Где масштаб относительно краёв: кнопка «отдалить» гаснет на 1:1, «приблизить» — на
+  // пределе, чтобы было видно, куда ещё можно. Состояние меняется только на краях, поэтому
+  // кадры пружины ререндера не вызывают (одинаковое значение React отбрасывает).
+  const [zoomEdge, setZoomEdge] = useState<'min' | 'mid' | 'max'>('min')
+  const onScaleChange = useCallback((s: number): void => {
+    setZoomEdge(s <= 1.01 ? 'min' : s >= VIEWER_MAX_SCALE - 0.01 ? 'max' : 'mid')
+  }, [])
   const gestures = useMediaGestures({
     content: mediaRef,
     zoomDisabled: isVideo,
+    maxScale: VIEWER_MAX_SCALE,
+    onScaleChange,
     canPage: (direction) => (direction === 1 ? index < items.length - 1 : index > 0),
     onPage: (direction) => onIndexChange(index + direction),
     onDismiss: (direction) => requestClose(direction),
@@ -317,8 +331,8 @@ export function MediaViewer({
       flight.onfinish = restore
       flight.oncancel = restore
     }
-    // Только по приезду ссылки: остальные зависимости полёт не перезапускают (флаг выше).
-  }, [src])
+    // По приезду ссылки или появлению снимка в портале; повторно не летит (флаг выше).
+  }, [src, mediaEl])
 
   const measureFit = useCallback((): void => {
     const box = boxRef.current
@@ -473,6 +487,7 @@ export function MediaViewer({
                     aria-label={t('tgMedia.zoomOut')}
                     title={t('tgMedia.zoomOut')}
                     onClick={() => gestures.zoomStep(-1)}
+                    disabled={zoomEdge === 'min'}
                     className={VIEWER_ICON_BUTTON}
                   >
                     <ZoomOut className="size-5" aria-hidden />
@@ -482,6 +497,7 @@ export function MediaViewer({
                     aria-label={t('tgMedia.zoomIn')}
                     title={t('tgMedia.zoomIn')}
                     onClick={() => gestures.zoomStep(1)}
+                    disabled={zoomEdge === 'max'}
                     className={VIEWER_ICON_BUTTON}
                   >
                     <ZoomIn className="size-5" aria-hidden />
@@ -599,7 +615,7 @@ export function MediaViewer({
             {/* Обёртка без отступов: по ней меряем свободное место под повёрнутый снимок —
             у родителя они есть, и мерить по нему значило бы разрешить вылезти на них. */}
             <div
-              ref={boxRef}
+              ref={gestures.attachSurface}
               className="flex h-full min-h-0 w-full touch-none items-center justify-center"
             >
               <div
@@ -717,8 +733,11 @@ export function MediaViewer({
 }
 
 /** Иконочная кнопка верхней панели: один размер и одни состояния у всех действий. */
+/** Предел приближения снимка: дальше пиксели уже не дают деталей. */
+const VIEWER_MAX_SCALE = 5
+
 export const VIEWER_ICON_BUTTON =
-  'flex size-9 shrink-0 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none'
+  'flex size-9 shrink-0 items-center justify-center rounded-full text-white/80 transition-[color,background-color,opacity] hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-35'
 
 /**
  * «Скачать» в просмотрщике — как у файла в Telegram Web: нажатие скачивает в приложение

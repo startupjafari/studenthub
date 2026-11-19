@@ -22,14 +22,15 @@ import { EmptyState, MetricTile, PageHeader, SectionPanel, Skeleton } from '../.
 import { useChartTheme } from '../../../shared/ui/chart'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
-import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
-import { examKeys, fetchExams } from '../../../entities/exam'
+import { attendanceKeys, fetchMyAttendance, useAttendanceLive } from '../../../entities/attendance'
+import { examKeys, fetchExams, useExamsLive } from '../../../entities/exam'
 import { buildPlan, courseKeys, fetchCourses, planCredits } from '../../../entities/course'
 import { formatYmd } from '../../../shared/ui/calendar-grid'
 import {
   assignmentKeys,
   fetchAssignments,
   studentAssignmentStatus,
+  useAssignmentsLive,
 } from '../../../entities/assignment'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
@@ -82,6 +83,10 @@ export function AcademicView() {
     queryFn: () => fetchAssignments(),
     retry: false,
   })
+  // Счётчики заданий и процент посещаемости — живые (сигналы §9.2d).
+  useAssignmentsLive()
+  useAttendanceLive()
+  useExamsLive()
 
   const gpa = useMemo(() => {
     const courses = gradesQ.data ?? []
