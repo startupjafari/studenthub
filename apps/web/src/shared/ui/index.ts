@@ -104,6 +104,7 @@ export {
   type MediaViewerItem,
   type MediaViewerMedia,
 } from './media-viewer'
+export { flyFromOrigin, flyToOrigin } from './media-viewer-motion'
 export { AvatarViewer } from './avatar-viewer'
 export { VideoPlayer } from './video-player'
 export { MediaImage, type MediaImageData } from './media-image'
