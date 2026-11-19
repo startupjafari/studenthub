@@ -223,6 +223,7 @@ function RingButton({
       {/* Кольцо: яркое у непросмотренных, приглушённое у просмотренных — единственный
           признак, по которому в этом формате отличают новое от уже увиденного. */}
       <span
+        data-story-origin={ring.author.id}
         className={cn(
           'flex size-[4.5rem] items-center justify-center rounded-full p-[3px] transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none',
           ring.hasUnseen

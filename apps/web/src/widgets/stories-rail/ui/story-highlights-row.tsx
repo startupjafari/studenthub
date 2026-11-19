@@ -111,7 +111,10 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
               aria-label={t('openHighlight', { title: h.title })}
               className="group flex w-full flex-col items-center gap-1.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              <span className="rounded-full border border-border p-0.5 transition-transform duration-150 group-hover:scale-[1.03] motion-reduce:transition-none">
+              <span
+                data-story-origin={h.id}
+                className="rounded-full border border-border p-0.5 transition-transform duration-150 group-hover:scale-[1.03] motion-reduce:transition-none"
+              >
                 <StoryThumb
                   media={h.cover?.media ?? null}
                   text={h.cover?.text ?? null}
