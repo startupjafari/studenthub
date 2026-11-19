@@ -39,10 +39,11 @@ import {
   assignmentKeys,
   fetchAssignments,
   studentAssignmentStatus,
+  useAssignmentsLive,
   type StudentAssignmentStatus,
 } from '../../../entities/assignment'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
-import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
+import { attendanceKeys, fetchMyAttendance, useAttendanceLive } from '../../../entities/attendance'
 import { buildCourses, mergeApiCourses, nextLessonRange, pickCourse } from '../lib/build-courses'
 import { MaterialRow } from './material-row'
 
@@ -168,6 +169,9 @@ export function CourseView({ subject }: CourseViewProps) {
     queryFn: () => fetchMyAttendance({ subject }),
     retry: false,
   })
+  // Новое задание группы, проверенная работа и свежая отметка — без перезагрузки страницы.
+  useAssignmentsLive()
+  useAttendanceLive()
 
   // Оценки — по id курса, когда он известен: по названию подтягивался журнал курса той же
   // дисциплины из другого семестра. Без курса (только расписание) — по названию, как раньше.
