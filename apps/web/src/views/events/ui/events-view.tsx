@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, Check, MapPin, Plus, Trash2, Users, Video } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import {
   cancelEventRequest,
@@ -31,6 +32,8 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useFreshIds } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 
 // Запасной расчёт права удалять — для ответа без серверного `canManage` (E-F16): роль не
 // знает scope, и декан видел бы корзину у событий всего вуза.
@@ -60,6 +63,17 @@ export function EventsView() {
     },
   })
   const items = events.data?.pages.flatMap((page) => page.items) ?? []
+
+  // Живой список (§9.2d): событие вуза создали, изменили, удалили или на него записались —
+  // перечитываем загруженные страницы обоих разделов (прошедшее тоже: удаление и перенос).
+  // Свои действия карточка обновляет сама; повтор от собственного сигнала — один лишний
+  // перезапрос, сервер не говорит, чьё это действие.
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, [eventKeys.allPages()])
+  // Новое событие въезжает с подсветкой. Только «Предстоящие» (в прошедшие новое не
+  // приходит) и только первая страница: «Показать ещё» добавляет строки, которые не новые,
+  // а просто дочитанные.
+  const firstPageIds = useMemo(() => events.data?.pages[0]?.items.map((e) => e.id), [events.data])
+  const fresh = useFreshIds(filter === 'upcoming' ? firstPageIds : undefined)
 
   return (
     // Без `min-h-0` (§4): сетка карточек длиннее экрана, и с ним корень сжимался до
@@ -119,6 +133,7 @@ export function EventsView() {
             <EventCard
               key={e.id}
               event={e}
+              fresh={fresh.has(e.id)}
               past={filter === 'past'}
               managerRole={role !== null && MANAGER_ROLES.includes(role)}
             />
@@ -144,10 +159,13 @@ export function EventsView() {
 
 function EventCard({
   event,
+  fresh,
   past,
   managerRole,
 }: {
   event: EventItem
+  /** Пришло по живому сигналу — въезд и подсветка (`sh-live-in`). */
+  fresh: boolean
   past: boolean
   managerRole: boolean
 }) {
@@ -194,6 +212,7 @@ function EventCard({
         'group/event relative gap-0 overflow-hidden py-0 transition-shadow hover:ring-ring/50',
         // Прошедшее приглушено целиком: это архив, действий по нему нет.
         past && 'opacity-70',
+        fresh && 'sh-live-in',
       )}
     >
       {/* Полоса-акцент сверху: у зарегистрированного события она зелёная — состояние

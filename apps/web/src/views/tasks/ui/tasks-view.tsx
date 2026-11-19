@@ -29,7 +29,9 @@ import {
 import { nowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { applicationKeys, fetchApplications } from '../../../entities/application-service'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { eventKeys, fetchEvents } from '../../../entities/event'
+import { useLiveRefresh } from '../../../shared/realtime'
 import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
 import {
   buildTasks,
@@ -76,6 +78,8 @@ export function TasksView() {
     queryKey: eventKeys.list('upcoming', false, 30),
     queryFn: () => fetchEvents({ limit: 30, filter: 'upcoming' }),
   })
+  // Событие вуза создали, перенесли или отменили (§9.2d) — пункт «событие» в делах обновится.
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, [eventKeys.lists()])
   const assignments = useQuery({
     queryKey: assignmentKeys.list(),
     queryFn: () => fetchAssignments(),

@@ -12,6 +12,7 @@ import {
   scheduleKeys,
   type ScheduleChangeType,
 } from '../../../entities/schedule'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
 import {
@@ -23,7 +24,8 @@ import {
   EmptyState,
   Skeleton,
 } from '../../../shared/ui'
-import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
+import { isoWeekParityOf, useFreshIds, useNowInTz } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
 
 // Подпись изменения пары — ключи состояний «Сегодня» (Today.state.*).
@@ -54,6 +56,11 @@ export function HomeSidebar() {
     queryKey: eventKeys.list('upcoming', false, 4),
     queryFn: () => fetchEvents({ limit: 4 }),
   })
+  // Событие вуза создали, перенесли или отменили (§9.2d) — ближайшие перечитываются сами.
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, [eventKeys.lists()])
+  const freshEvents = useFreshIds(
+    useMemo(() => eventsQ.data?.slice(0, 4).map((e) => e.id), [eventsQ.data]),
+  )
 
   const todayPairs = useMemo(
     () =>
@@ -184,7 +191,7 @@ export function HomeSidebar() {
           ) : (
             <ul className="flex flex-col gap-1">
               {events.map((e) => (
-                <li key={e.id}>
+                <li key={e.id} className={cn('rounded-lg', freshEvents.has(e.id) && 'sh-live-in')}>
                   <Link
                     href={`/events/${e.id}`}
                     className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"

@@ -6,7 +6,8 @@ import { useLocale, useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Bell, Check, Loader2, Settings, Trash2, X } from 'lucide-react'
-import { acceptFriendRequest, removeFriendship } from '../../../entities/friendship'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
+import { acceptFriendRequest, friendKeys, removeFriendship } from '../../../entities/friendship'
 import {
   NOTIFICATION_TYPE_SETTINGS,
   fetchNotificationSettings,
@@ -19,7 +20,7 @@ import {
   type NotificationSettingsData,
   localizeNotification,
 } from '../../../entities/notification'
-import { useRealtimeEvent } from '../../../shared/realtime'
+import { useLiveRefresh, useRealtimeEvent } from '../../../shared/realtime'
 import { ensureNotifyPermission, maybeNotify } from '../../../shared/lib/browser-notify'
 import { cn } from '../../../shared/lib/utils'
 
@@ -109,6 +110,15 @@ export function NotificationsBell() {
     maybeNotify(incoming.title, incoming.body)
   })
 
+  // Отправитель отозвал заявку в друзья — сервер удалил уведомление о ней, но нового
+  // уведомления об этом нет, и без сигнала (§9.2d) в колокольчике висела бы заявка, которой
+  // уже не существует, с кнопками, отвечающими ошибкой.
+  useLiveRefresh(REALTIME_EVENTS.friendsChanged, (envelope) =>
+    (envelope.data as { kind?: string } | null)?.kind === 'removed'
+      ? [notificationKeys.unreadCount(), notificationKeys.list()]
+      : null,
+  )
+
   // Разрешение на системные уведомления запрашиваем по жесту — при первом открытии колокольчика.
   useEffect(() => {
     if (open) void ensureNotifyPermission()
@@ -131,14 +141,20 @@ export function NotificationsBell() {
   })
   // Заявка в друзья — принять/отклонить прямо из уведомления. Сервер сам гасит это уведомление
   // (clearRequestNotification); при отклонении отправителю ничего не приходит.
+  // Списки друзей тоже: сигнал сокета получает только вторая сторона (§9.2d), и без этого
+  // колонка «Заявки» продолжала бы показывать уже разобранную заявку.
+  const invalidateFriendship = (): void => {
+    invalidateAll()
+    void queryClient.invalidateQueries({ queryKey: friendKeys.all })
+  }
   const acceptFriendMutation = useMutation({
     mutationFn: (friendshipId: string) => acceptFriendRequest(friendshipId),
-    onSuccess: invalidateAll,
+    onSuccess: invalidateFriendship,
     onError: () => toast.error(t('friendRequestError')),
   })
   const declineFriendMutation = useMutation({
     mutationFn: (friendshipId: string) => removeFriendship(friendshipId),
-    onSuccess: invalidateAll,
+    onSuccess: invalidateFriendship,
     onError: () => toast.error(t('friendRequestError')),
   })
 

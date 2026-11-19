@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Check, UserPlus, Users, X } from 'lucide-react'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   fetchFriendRequests,
   fetchFriends,
@@ -23,6 +24,8 @@ import {
   CardTitle,
   Skeleton,
 } from '../../../shared/ui'
+import { cn, useFreshIds } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 import { useFriendsSummary } from '../model/use-friends-summary'
 import { useFriendshipMutations } from '../model/use-friendship-mutations'
 import { FriendsModal, type FriendsTab } from './friends-modal'
@@ -32,6 +35,8 @@ import { FriendsModal, type FriendsTab } from './friends-modal'
 // Друзей — 6: ровно две строки сетки 3×2, как в ВК.
 const REQUESTS_PREVIEW = 3
 const FRIENDS_PREVIEW = 6
+// Стабильный пустой список для useFreshIds: новый массив на каждом рендере сбивал бы его эффект.
+const NO_IDS: readonly string[] = []
 
 function fullName(u: FriendUser): string {
   return `${u.lastName} ${u.firstName}`
@@ -87,7 +92,7 @@ export function FriendsPanel() {
   // Заявку принимают/отклоняют прямо здесь: ради двух кнопок открывать окно — лишний шаг.
   const { accept, remove } = useFriendshipMutations()
 
-  const { hasAny, friends: friendsCount, incoming: incomingCount } = useFriendsSummary()
+  const { counts, hasAny, friends: friendsCount, incoming: incomingCount } = useFriendsSummary()
 
   const requestsQ = useQuery({
     queryKey: friendKeys.requests('incoming', REQUESTS_PREVIEW),
@@ -99,6 +104,31 @@ export function FriendsPanel() {
     queryFn: () => fetchFriends(FRIENDS_PREVIEW),
     enabled: friendsCount > 0,
   })
+
+  // Живые друзья (§9.2d): заявка пришла, её отозвали, приняли нашу, удалили из друзей —
+  // сервер шлёт сигнал второй стороне, и колонка перечитывает счётчики и списки сама.
+  // Всё поддерево `friends`: оно же держит кнопку дружбы в профилях из кэша, и окно
+  // «Друзья» (оно открывается отсюда). Свои действия сигнала не дают — их обновляет
+  // useFriendshipMutations.
+  useLiveRefresh(REALTIME_EVENTS.friendsChanged, [friendKeys.all])
+  // Новая заявка и новый друг въезжают с подсветкой — их видно, а не угадывать по сдвигу.
+  // Счётчик пришёл и он ноль — список заведомо пуст (запрос выключен): это и есть точка
+  // отсчёта, иначе первая в жизни заявка стала бы ею и не подсветилась.
+  const countsKnown = counts !== undefined
+  const requestIds = useMemo(
+    () =>
+      requestsQ.data?.map((r) => r.friendshipId) ??
+      (countsKnown && incomingCount === 0 ? NO_IDS : undefined),
+    [requestsQ.data, countsKnown, incomingCount],
+  )
+  const friendIds = useMemo(
+    () =>
+      friendsQ.data?.map((f) => f.friendshipId) ??
+      (countsKnown && friendsCount === 0 ? NO_IDS : undefined),
+    [friendsQ.data, countsKnown, friendsCount],
+  )
+  const freshRequests = useFreshIds(requestIds)
+  const freshFriends = useFreshIds(friendIds)
 
   // Пока счётчики не пришли — ничего не рисуем: скелетон, который в половине случаев
   // сменится пустотой, дёргает раскладку колонки сильнее, чем появление блока.
@@ -158,7 +188,10 @@ export function FriendsPanel() {
                 return (
                   <li
                     key={r.friendshipId}
-                    className="flex items-center gap-2 rounded-lg px-1 py-1 transition-colors duration-150 hover:bg-muted/60"
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg px-1 py-1 transition-colors duration-150 hover:bg-muted/60',
+                      freshRequests.has(r.friendshipId) && 'sh-live-in',
+                    )}
                   >
                     <Link
                       href={`/profile/${r.user.id}`}
@@ -241,7 +274,13 @@ export function FriendsPanel() {
                   </li>
                 ))}
               {friends.slice(0, FRIENDS_PREVIEW).map((f) => (
-                <li key={f.friendshipId} className="min-w-0">
+                <li
+                  key={f.friendshipId}
+                  className={cn(
+                    'min-w-0 rounded-xl',
+                    freshFriends.has(f.friendshipId) && 'sh-live-in',
+                  )}
+                >
                   <Link
                     href={`/profile/${f.user.id}`}
                     title={fullName(f.user)}
