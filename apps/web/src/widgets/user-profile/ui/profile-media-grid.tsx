@@ -409,7 +409,9 @@ export function ProfileMediaGrid({
         >
           <div className="flex flex-1 flex-col gap-4">
             {items.length === 0 ? (
-              <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              // Пустой альбом — на всю доступную высоту экрана, как пустые вкладки профиля:
+              // узкая полоска под вкладками выглядела недогруженной страницей.
+              <p className="flex min-h-[calc(100dvh_-_20rem)] flex-1 items-center justify-center rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
                 {t('albumEmpty')}
               </p>
             ) : isPhoto ? (
