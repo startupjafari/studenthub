@@ -741,7 +741,8 @@ export class SupportService implements OnModuleInit {
       data: { supportClosedAt: new Date() },
     })
     // Автозакрытие крона — одним сигналом на порцию: очередь перечитывается целиком.
-    if (count > 0) this.adminLists.supportTicket(ids[0])
+    const first = ids[0]
+    if (count > 0 && first) this.adminLists.supportTicket(first)
     return count
   }
 
