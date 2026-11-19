@@ -7,6 +7,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { PasswordService } from '../../common/security/password.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { AdminListEvents } from '../../common/realtime'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -70,6 +71,8 @@ function setup() {
     accessExpired: jest.fn().mockResolvedValue(undefined),
   }
 
+  // Живой список людей у команды платформы (§9.2d): адресация — в admin-list-events.spec.ts.
+  const adminLists = { user: jest.fn() }
   const service = new CompaniesService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -78,8 +81,9 @@ function setup() {
     access as unknown as CareerAccessService,
     config as unknown as ConfigService<EnvVars, true>,
     notifier as unknown as CareerNotifier,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, tx, passwords, audit, queue, access, notifier }
+  return { service, prisma, tx, passwords, audit, queue, access, notifier, adminLists }
 }
 
 const employer: JwtPayload = {
@@ -136,6 +140,15 @@ describe('CompaniesService — регистрация работодателя',
     expect(queue.enqueue).toHaveBeenCalled()
   })
 
+  it('новый работодатель — сигнал «список людей изменился» команде платформы (без вуза)', async () => {
+    const { service, tx, adminLists } = setup()
+    tx.company.create.mockResolvedValue({ id: 'co-new', name: 'Acme' })
+
+    await service.signup(signupInput, ctx)
+
+    expect(adminLists.user).toHaveBeenCalledWith({ id: 'u-new', universityId: null })
+  })
+
   it('токен подтверждения в БД не хранится в открытом виде', async () => {
     const { service, tx, queue } = setup()
     tx.company.create.mockResolvedValue({ id: 'co-new', name: 'Acme' })
@@ -149,7 +162,7 @@ describe('CompaniesService — регистрация работодателя',
   })
 
   it('занятый email не создаёт аккаунт и не отличается в ответе', async () => {
-    const { service, prisma, tx, queue, passwords } = setup()
+    const { service, prisma, tx, queue, passwords, adminLists } = setup()
     prisma.user.findUnique.mockResolvedValue({ id: 'existing' })
 
     const result = await service.signup(signupInput, ctx)
@@ -158,6 +171,7 @@ describe('CompaniesService — регистрация работодателя',
     expect(result).toEqual({ email: signupInput.email })
     expect(tx.user.create).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(adminLists.user).not.toHaveBeenCalled()
     // И по времени тоже: дорогой хэш считается и для занятого адреса.
     expect(passwords.hash).toHaveBeenCalled()
   })
