@@ -2163,6 +2163,7 @@
     "send": "Отправить",
     "emptyTitle": "Лента пуста",
     "emptyText": "Здесь появятся посты",
+    "newPosts": "{count, plural, one {# новая публикация} few {# новые публикации} many {# новых публикаций} other {# новой публикации}}",
     "filterAll": "Все",
     "filterGroup": "Моя группа",
     "filterUniversity": "Университет",

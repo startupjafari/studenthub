@@ -28,6 +28,7 @@ import {
 } from '../career/career-access.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { isFirstViewToday } from './unique-view'
+import { POST_ROOMS_SELECT, PostLiveEvents } from './post-live-events'
 import { FileService } from '../files/file.service'
 import { ProfileContentService } from '../profile-content/profile-content.service'
 import { MediaService } from '../media/media.service'
@@ -339,6 +340,7 @@ export class PostsService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly careerAccess: CareerAccessService,
     private readonly profileContent: ProfileContentService,
+    private readonly live: PostLiveEvents,
   ) {}
 
   // ── Видимость (задача 8.2) ──────────────────────────────────────────────────
@@ -966,6 +968,7 @@ export class PostsService {
     const target = input.asUniversity
       ? this.universityPageTarget(actor)
       : await this.resolveTarget(actor, audience, input)
+    const publishState = this.resolvePublishState(input)
     // Пост и привязка медиа — одной транзакцией: раньше пост публиковался, а следом
     // linkMedia отвечал 400, клиент повторял отправку — и в ленте оказывалось два поста.
     const post = await this.prisma.$transaction(async (tx) => {
@@ -976,10 +979,10 @@ export class PostsService {
           title: input.title?.trim() || null,
           content: input.content,
           priority: this.priorityFor(actor, audience),
-          ...this.resolvePublishState(input),
+          ...publishState,
           ...target,
         },
-        select: { id: true },
+        select: POST_ROOMS_SELECT,
       })
       if (input.mediaIds?.length) {
         await this.linkMedia(tx, actor.sub, created.id, input.mediaIds)
@@ -994,6 +997,8 @@ export class PostsService {
       metadata: { audience: input.audience },
       ...ctx,
     })
+    // Черновик и отложенный видит только автор — ленте о них сигналить нечего.
+    if (publishState.status === 'PUBLISHED') this.live.published(post)
     return this.getById(actor, post.id)
   }
 
@@ -1013,12 +1018,18 @@ export class PostsService {
 
   /** Крон: публикует отложенные посты, у которых наступило время (status SCHEDULED → PUBLISHED). */
   async publishDueScheduled(): Promise<number> {
-    const res = await this.prisma.post.updateMany({
+    // AndReturn — чтобы сообщить ленте, какие именно посты вышли: отложенный пост для читателей
+    // такой же новый, как опубликованный сразу.
+    const published = await this.prisma.post.updateManyAndReturn({
       where: { status: 'SCHEDULED', scheduledAt: { lte: new Date() } },
       data: { status: 'PUBLISHED', publishedAt: new Date() },
+      select: POST_ROOMS_SELECT,
     })
-    if (res.count > 0) this.logger.log(`Опубликовано отложенных постов: ${res.count}`)
-    return res.count
+    if (published.length > 0) {
+      this.logger.log(`Опубликовано отложенных постов: ${published.length}`)
+    }
+    for (const post of published) this.live.published(post)
+    return published.length
   }
 
   // ── Репост (задача 8.6) ─────────────────────────────────────────────────────
@@ -1070,7 +1081,7 @@ export class PostsService {
         publishedAt: new Date(),
         ...target,
       },
-      select: { id: true },
+      select: POST_ROOMS_SELECT,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -1080,6 +1091,7 @@ export class PostsService {
       metadata: { originalPostId },
       ...ctx,
     })
+    this.live.published(post)
     return this.getById(actor, post.id)
   }
 
@@ -1117,7 +1129,7 @@ export class PostsService {
         publishedAt: new Date(),
         ...target,
       },
-      select: { id: true },
+      select: POST_ROOMS_SELECT,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -1127,6 +1139,7 @@ export class PostsService {
       metadata: { articleId },
       ...ctx,
     })
+    this.live.published(post)
     return this.getById(actor, post.id)
   }
 
@@ -1177,6 +1190,7 @@ export class PostsService {
       entityId: id,
       ...ctx,
     })
+    await this.live.changed(id, 'edited')
     return this.getById(actor, id)
   }
 
@@ -1202,9 +1216,10 @@ export class PostsService {
     if (post.status !== 'DRAFT') {
       throw new AppException('BAD_REQUEST', 'Опубликовать можно только черновик')
     }
-    await this.prisma.post.update({
+    const published = await this.prisma.post.update({
       where: { id },
       data: { status: 'PUBLISHED', publishedAt: new Date(), scheduledAt: null },
+      select: POST_ROOMS_SELECT,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -1213,6 +1228,7 @@ export class PostsService {
       entityId: id,
       ...ctx,
     })
+    this.live.published(published)
     return this.getById(actor, id)
   }
 
@@ -1235,6 +1251,7 @@ export class PostsService {
       entityId: id,
       ...ctx,
     })
+    await this.live.changed(id, 'deleted')
   }
 
   // ── Закрепление (задача 8.6) — роль строго выше автора ─────────────────────
@@ -1280,10 +1297,15 @@ export class PostsService {
       update: {},
       create: { postId: id, userId: actor.sub, emoji: input.emoji },
     })
+    this.live.countersChanged(id)
   }
 
   async removeReaction(actor: JwtPayload, id: string, emoji: string): Promise<void> {
-    await this.prisma.reaction.deleteMany({ where: { postId: id, userId: actor.sub, emoji } })
+    const { count } = await this.prisma.reaction.deleteMany({
+      where: { postId: id, userId: actor.sub, emoji },
+    })
+    // Снимать было нечего — счётчики прежние, сигнал не нужен.
+    if (count > 0) this.live.countersChanged(id)
   }
 
   // ── Комментарии (задача 8.5) ────────────────────────────────────────────────
@@ -1366,6 +1388,7 @@ export class PostsService {
       select: COMMENT_SELECT,
     })
     await this.notifyAboutComment(actor, post, created)
+    await this.live.commentsChanged(id)
     // Свой комментарий автор вправе удалить всегда — признак тот же, что в списке.
     return { ...created, canDelete: true }
   }
@@ -1416,6 +1439,26 @@ export class PostsService {
           }),
       ...ctx,
     })
+    await this.live.commentsChanged(id)
+  }
+
+  // ── Снятие по жалобе (ComplaintsService) ───────────────────────────────────
+
+  /**
+   * Пост снят модерацией по жалобе: само снятие пишет ComplaintsService, ленте об этом
+   * сообщаем здесь — адресацию по аудитории знает владелец домена.
+   */
+  async announceRemovedByModeration(postId: string): Promise<void> {
+    await this.live.changed(postId, 'deleted')
+  }
+
+  /** Комментарий снят модерацией по жалобе — обсуждению и счётчикам поста новое число. */
+  async announceCommentRemovedByModeration(commentId: string): Promise<void> {
+    // Снятие уже записано — сбой живого обновления не должен ронять решение по жалобе.
+    const comment = await this.prisma.comment
+      .findUnique({ where: { id: commentId }, select: { postId: true } })
+      .catch(() => null)
+    if (comment) await this.live.commentsChanged(comment.postId)
   }
 
   // ── Уведомления о комментариях ─────────────────────────────────────────────

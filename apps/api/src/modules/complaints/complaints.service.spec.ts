@@ -67,7 +67,12 @@ function setup() {
   }
   const realtime = { emitToRoom: jest.fn() }
   // Видимость цели автору жалобы — правило владельца домена постов.
-  const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
+  // Снятие по жалобе: ленте сообщает владелец домена (живые сигналы §9.2d).
+  const posts = {
+    assertVisibleToViewer: jest.fn().mockResolvedValue(undefined),
+    announceRemovedByModeration: jest.fn().mockResolvedValue(undefined),
+    announceCommentRemovedByModeration: jest.fn().mockResolvedValue(undefined),
+  }
   // Живая очередь жалоб (§9.2d).
   const adminLists = { complaint: jest.fn() }
   const service = new ComplaintsService(
