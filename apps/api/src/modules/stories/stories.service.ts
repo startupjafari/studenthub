@@ -1077,10 +1077,18 @@ export class StoriesService {
   async deleteExpired(): Promise<number> {
     const now = new Date()
     let total = 0
+    // Авторы удалённых сторис — по одному сигналу «кольца изменились» на автора за прогон
+    // (§9.2d), а не на каждую сторис: у активного автора их за полчаса истекает несколько.
+    const authors = new Map<string, string | null>()
     for (;;) {
       const batch = await this.prisma.story.findMany({
         where: { expiresAt: { lte: now } },
-        select: { id: true, fileId: true },
+        select: {
+          id: true,
+          fileId: true,
+          authorId: true,
+          author: { select: { universityId: true } },
+        },
         take: CLEANUP_BATCH,
       })
       if (batch.length === 0) break
@@ -1089,11 +1097,15 @@ export class StoriesService {
       })
       total += count
       for (const row of batch) {
+        authors.set(row.authorId, row.author.universityId)
         if (row.fileId) await this.deleteMedia(row.fileId)
       }
       if (batch.length < CLEANUP_BATCH) break
     }
     if (total > 0) this.logger.log(`deleteExpiredStories: удалено сторис ${total}`)
+    // Сигнал — после удаления: клиент перечитает кольца уже без истёкших. `changed` сам ловит
+    // сбой рассылки, крон от него не падает.
+    for (const [id, universityId] of authors) this.live.changed({ id, universityId })
     return total
   }
 
