@@ -7,6 +7,7 @@ export {
   fetchPipeline,
   changeApplicationStatus,
 } from './api/career-application-api'
+export { useCareerApplicationsLive } from './lib/use-career-applications-live'
 export type {
   StudentApplication,
   PipelineApplication,
