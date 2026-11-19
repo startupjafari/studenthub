@@ -16,14 +16,14 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { fetchUserById, userKeys } from '../../../entities/user'
-import { Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
 import { afterOverlayClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ColumnNavigateProvider, interceptableHref } from '../lib/column-navigation'
 import { useTabSwipe } from '../lib/use-tab-swipe'
 import { isOfficialChat } from '../lib/format'
 import { ChatMembersList, lastSeenText } from './chat-members-list'
-import { EditGroupDialog } from './edit-group-dialog'
+import { EDIT_GROUP_FORM_ID, EditGroupScreen, type EditGroupState } from './edit-group-screen'
 import {
   AddMembersScreen,
   GroupManagement,
@@ -44,12 +44,23 @@ import { FileTab, GifTab, LinksTab, MediaTab, PollsTab } from './shared-media'
 // Панель вкладки: flex-колонка не ниже экрана колонки — иначе на короткой вкладке
 // прилипшие вкладки отрывались бы от верха при переключении. `data-[state=active]:flex`,
 // а не `flex`: у неактивной вкладки Radix ставит `hidden`, и класс display его бы перебил.
-const TAB_PANE = 'mt-0 min-h-[calc(100dvh-9rem)] flex-col data-[state=active]:flex'
+// Вкладка занимает ровно видимую высоту колонки под прилипшими вкладками (`--tab-pane-h`
+// меряется ниже): выбрал вкладку — колонка доезжает до вкладок, и под ними содержимое или
+// пустая плашка во весь остаток экрана, без пустоты снизу и без прыжка к соседнему блоку.
+const TAB_PANE = 'mt-0 min-h-(--tab-pane-h,calc(100dvh-9rem)) flex-col data-[state=active]:flex'
 
 /** Насколько надо «дотянуть» колесом вверх у самого верха, чтобы развернуть фото. */
 const OVERSCROLL_EXPAND_PX = 80
 
 type Screen = ManageScreen | 'addMembers' | null
+
+/** Глубина экрана колонки: по ней понятно, шаг вглубь это или назад. */
+function screenDepth(screen: Screen): number {
+  if (screen === null) return 0
+  if (screen === 'addMembers' || screen === 'main') return 1
+  if (screen === 'addAdmin') return 3
+  return 2
+}
 
 /** Кнопка шапки колонки: того же размера, что у шапки чата, — обе шапки одной высоты. */
 const HEADER_BTN =
@@ -125,19 +136,40 @@ export function ChatDetailsPanel({
       (chat.type === 'GROUP' && chat.permissions?.changeInfo === true))
 
   const [screen, setScreen] = useState<Screen>(null)
-  const [editOpen, setEditOpen] = useState(false)
+  // Откуда въезжает новый экран колонки: вглубь — справа, назад — слева.
+  const [enterFrom, setEnterFrom] = useState<'right' | 'left'>('right')
+  // «Сохранить» правки группы живёт в шапке колонки, а состояние формы — на её экране.
+  const [editState, setEditState] = useState<EditGroupState>({ canSave: false, saving: false })
   const [expanded, setExpanded] = useState(false)
   const firstTab = isGroup ? 'participants' : 'media'
   // Тип — string: Radix отдаёт в onValueChange обычную строку.
   const [tab, setTab] = useState<string>(firstTab)
   const scrollRef = useRef<HTMLDivElement>(null)
   const tabsAnchorRef = useRef<HTMLDivElement>(null)
+  const tabsBarRef = useRef<HTMLDivElement>(null)
+
+  // Высота под вкладками = видимая высота колонки минус полоса вкладок. Меряем, а не
+  // угадываем через dvh: колонка бывает в сайдбаре, островом и экраном телефона.
+  useEffect(() => {
+    const sc = scrollRef.current
+    const bar = tabsBarRef.current
+    if (!sc || !bar || typeof ResizeObserver === 'undefined') return
+    const measure = (): void => {
+      sc.style.setProperty('--tab-pane-h', `${Math.max(0, sc.clientHeight - bar.offsetHeight)}px`)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(sc)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [screen])
 
   // Открылась заново — с начала: профиль, первая вкладка, верх колонки, фото свёрнуто.
   useEffect(() => {
     if (!open) return
     setTab(firstTab)
     setScreen(null)
+    setEnterFrom('right')
     setExpanded(false)
     scrollRef.current?.scrollTo({ top: 0 })
   }, [open, firstTab])
@@ -289,16 +321,23 @@ export function ChatDetailsPanel({
     if (expanded && (scrollRef.current?.scrollTop ?? 0) > 12) setPhotoExpanded(false)
   }
 
-  // Смена вкладки, когда вкладки уже прилипли: новая начинается с верха, под ними, а не с
-  // того места, куда долистали предыдущую.
-  function changeTab(next: string): void {
-    setTab(next)
+  // Выбор вкладки докатывает колонку до вкладок: они встают к верху, под ними — содержимое
+  // во всю оставшуюся высоту (как в Telegram). Уже прилипшие — новая вкладка начинается с
+  // верха, а не с того места, куда долистали предыдущую.
+  function scrollToTabs(): void {
     const sc = scrollRef.current
     const anchor = tabsAnchorRef.current
-    if (sc && anchor && sc.scrollTop > anchor.offsetTop) sc.scrollTop = anchor.offsetTop
+    if (!sc || !anchor || Math.abs(sc.scrollTop - anchor.offsetTop) < 1) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    sc.scrollTo({ top: anchor.offsetTop, behavior: reduce ? 'auto' : 'smooth' })
+  }
+  function changeTab(next: string): void {
+    setTab(next)
+    scrollToTabs()
   }
 
   function goTo(next: Screen): void {
+    setEnterFrom(screenDepth(next) >= screenDepth(screen) ? 'right' : 'left')
     setScreen(next)
     scrollRef.current?.scrollTo({ top: 0 })
   }
@@ -397,6 +436,18 @@ export function ChatDetailsPanel({
           <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">
             {headerTitle}
           </span>
+          {screen === 'editInfo' && (
+            <Button
+              type="submit"
+              form={EDIT_GROUP_FORM_ID}
+              size="sm"
+              loading={editState.saving}
+              disabled={!editState.canSave}
+              className="mr-1"
+            >
+              {t('save')}
+            </Button>
+          )}
           {screen === null && canEdit && (
             <button
               type="button"
@@ -416,7 +467,14 @@ export function ChatDetailsPanel({
           className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
         >
           {screen === null ? (
-            <>
+            // Возврат к профилю — въезд слева; первое открытие колонки — без сдвига.
+            <div
+              key="profile"
+              className={cn(
+                enterFrom === 'left' &&
+                  'duration-(--motion-page) animate-in fade-in-0 slide-in-from-left-8',
+              )}
+            >
               <ProfileHero
                 id={chat.id}
                 title={title}
@@ -449,7 +507,12 @@ export function ChatDetailsPanel({
                 сначала участники группы: «кто здесь» — вопрос раньше, чем «что присылали». */}
               <Tabs value={tab} onValueChange={changeTab} className="mt-3">
                 <div ref={tabsAnchorRef} aria-hidden />
-                <div className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md">
+                <div
+                  ref={tabsBarRef}
+                  // Нажатие и на уже открытую вкладку докатывает к ней — onValueChange тогда молчит.
+                  onClick={scrollToTabs}
+                  className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md"
+                >
                   <TabsList className="w-full sm:w-full" aria-label={t('tgRight.sharedTabs')}>
                     {isGroup && (
                       <TabsTrigger value="participants" className="flex-none">
@@ -509,16 +572,26 @@ export function ChatDetailsPanel({
                   </TabsContent>
                 </div>
               </Tabs>
-            </>
+            </div>
           ) : screen === 'addMembers' ? (
-            <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+            <div className="duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-8">
+              <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+            </div>
+          ) : screen === 'editInfo' ? (
+            <EditGroupScreen
+              chat={chat}
+              title={title}
+              onDone={() => goTo('main')}
+              onStateChange={setEditState}
+            />
           ) : (
             <GroupManagement
+              enterFrom={enterFrom}
               chat={chat}
               myId={myId}
               screen={screen}
               onNavigate={goTo}
-              onEditInfo={() => setEditOpen(true)}
+              onEditInfo={() => goTo('editInfo')}
               onOpenChat={onOpenChat}
               onLeft={onLeft}
             />
@@ -536,10 +609,6 @@ export function ChatDetailsPanel({
           >
             <UserPlus className="size-6" aria-hidden />
           </button>
-        )}
-
-        {editOpen && (
-          <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />
         )}
       </div>
     </ColumnNavigateProvider>

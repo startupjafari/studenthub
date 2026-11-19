@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   Ban,
   ChevronRight,
+  Check,
   Copy,
   Globe,
   KeyRound,
@@ -66,6 +67,7 @@ import { TabEmpty, TabError } from './shared-media'
  */
 export type ManageScreen =
   | 'main'
+  | 'editInfo'
   | 'invite'
   | 'admins'
   | 'addAdmin'
@@ -86,6 +88,7 @@ export function manageParent(screen: ManageScreen): ManageScreen | null {
 /** Ключ заголовка шапки для экрана управления. */
 export const MANAGE_TITLE: Record<ManageScreen, string> = {
   main: 'tgRight.manageTitle',
+  editInfo: 'editGroup',
   invite: 'tgRight.inviteLink',
   admins: 'tgRight.admins',
   addAdmin: 'tgRight.addAdmin',
@@ -136,10 +139,13 @@ export function GroupManagement({
   onEditInfo,
   onOpenChat,
   onLeft,
+  enterFrom = 'right',
 }: {
   chat: ChatListItem
   myId: string | undefined
   screen: ManageScreen
+  /** Откуда въезжает экран: вглубь — справа, «назад» — слева (как в Telegram и iOS). */
+  enterFrom?: 'right' | 'left'
   onNavigate: (screen: ManageScreen) => void
   /** Открыть окно названия, описания и фото. */
   onEditInfo: () => void
@@ -148,11 +154,14 @@ export function GroupManagement({
   onLeft: () => void
 }) {
   const t = useTranslations('Chats')
-  // Экран входит сдвигом справа: каждый шаг управления — вглубь, как в Telegram.
+  // Экран въезжает со стороны шага: вглубь — справа, назад — слева; блоки экрана — каскадом.
   return (
     <div
       key={screen}
-      className="flex min-h-full flex-col pb-6 duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-4"
+      className={cn(
+        'sh-stagger flex min-h-full flex-col pb-6 duration-(--motion-page) animate-in fade-in-0',
+        enterFrom === 'right' ? 'slide-in-from-right-8' : 'slide-in-from-left-8',
+      )}
     >
       {screen === 'main' && (
         <ManageMain chat={chat} onNavigate={onNavigate} onEditInfo={onEditInfo} onLeft={onLeft} />
@@ -349,10 +358,23 @@ function InviteScreen({ chat }: { chat: ChatListItem }) {
     onError: (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
-  const copy = (): void => {
+  // Кнопка сама подтверждает копирование («Скопировано ✓» на пару секунд), как в веб-
+  // приложениях: тост внизу легко пропустить, а глаза в этот момент смотрят на кнопку.
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const id = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(id)
+  }, [copied])
+  const copy = async (): Promise<void> => {
     if (!url) return
-    void navigator.clipboard?.writeText(url)
-    toast.success(t('linkCopied'))
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      toast.success(t('linkCopied'))
+    } catch {
+      toast.error(t('tgStickers.linkCopyFailed'))
+    }
   }
 
   if (invite.isError && !invite.data) return <TabError onRetry={() => void invite.refetch()} />
@@ -360,16 +382,38 @@ function InviteScreen({ chat }: { chat: ChatListItem }) {
     <>
       <InfoCard className="mt-3 p-4">
         {url ? (
-          <p className="rounded-lg bg-muted/60 px-3 py-2.5 text-sm break-all select-all">
+          // key — ссылка: сменили её — новая проявляется, видно, что она другая.
+          <p
+            key={url}
+            className="rounded-lg border border-input bg-muted/40 px-3 py-2.5 font-mono text-[0.8125rem] break-all select-all duration-(--motion-page) animate-in fade-in-0"
+          >
             {url.replace(/^https?:\/\//, '')}
           </p>
         ) : (
           <Skeleton className="h-10 w-full rounded-lg" />
         )}
         <div className="mt-3 flex gap-2">
-          <Button className="flex-1" disabled={!url} onClick={copy}>
-            <Copy aria-hidden />
-            {t('copyLink')}
+          <Button
+            className="flex-1"
+            variant={copied ? 'secondary' : 'default'}
+            disabled={!url}
+            onClick={() => void copy()}
+          >
+            <span className="relative size-4" aria-hidden>
+              <Copy
+                className={cn(
+                  'absolute inset-0 size-4 transition-[opacity,scale] duration-(--motion-control)',
+                  copied ? 'scale-50 opacity-0' : 'opacity-100',
+                )}
+              />
+              <Check
+                className={cn(
+                  'absolute inset-0 size-4 transition-[opacity,scale] duration-(--motion-control)',
+                  copied ? 'opacity-100' : 'scale-50 opacity-0',
+                )}
+              />
+            </span>
+            {copied ? t('tgRight.inviteCopiedShort') : t('copyLink')}
           </Button>
           <Button
             variant="outline"
