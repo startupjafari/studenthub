@@ -8,7 +8,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
 import type { StoriesService } from '../stories/stories.service'
-import type { RealtimeGateway } from '../../common/realtime'
+import type { AdminListEvents, RealtimeGateway } from '../../common/realtime'
 import type { PostsService } from '../posts/posts.service'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -68,6 +68,8 @@ function setup() {
   const realtime = { emitToRoom: jest.fn() }
   // Видимость цели автору жалобы — правило владельца домена постов.
   const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
+  // Живая очередь жалоб (§9.2d).
+  const adminLists = { complaint: jest.fn() }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -77,8 +79,9 @@ function setup() {
     stories as unknown as StoriesService,
     realtime as unknown as RealtimeGateway,
     posts as unknown as PostsService,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, audit, queue, users, telegram, stories, realtime, posts }
+  return { service, prisma, audit, queue, users, telegram, stories, realtime, posts, adminLists }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -363,11 +366,13 @@ describe('ComplaintsService.resolve (11.4)', () => {
   const admin = user(Role.UNIVERSITY_ADMIN, { universityId: 'uni1' })
 
   it('DISMISS → статус DISMISSED + уведомление автору', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, adminLists } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint())
     await service.resolve(admin, 'c1', { action: 'DISMISS' }, ctx)
     expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('DISMISSED')
     expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['r1'])
+    // Живая очередь жалоб (§9.2d): решённая уходит из очереди у всех, кто её ведёт.
+    expect(adminLists.complaint).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }))
   })
 
   // Промежуточная мера: до неё шкала шла от «нарушения нет» сразу к блокировке.

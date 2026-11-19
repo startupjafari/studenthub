@@ -46,6 +46,7 @@ function setup() {
     {} as never,
     { emitToRoom: jest.fn() } as never,
     {} as never,
+    { complaint: jest.fn() } as never,
   )
   return { service, prisma }
 }
