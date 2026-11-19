@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   useInfiniteQuery,
@@ -78,6 +78,7 @@ import {
   toApiError,
   useBackClose,
   useBodyScrollLock,
+  useFreshIds,
 } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
@@ -604,6 +605,19 @@ function PostView({
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
 
+  // Реплики, пришедшие по сокету (перечитанная ветка, §9.2d), въезжают и подсвечиваются.
+  // Считаем по первой странице — там самые свежие: догрузка «предыдущих» — не новость.
+  // Метка-точка отсчёта нужна пустой ветке: иначе первый же пришедший комментарий стал
+  // бы точкой отсчёта и не подсветился. Ключ из id — чтобы правка кэша с теми же
+  // репликами не перезапускала отсчёт.
+  const threadLoaded = comments.data !== undefined
+  const newestKey = (comments.data?.pages[0]?.items ?? []).map((c) => c.id).join('|')
+  const newestIds = useMemo(
+    () => (threadLoaded ? ['thread', ...newestKey.split('|').filter(Boolean)] : undefined),
+    [newestKey, threadLoaded],
+  )
+  const liveIds = useFreshIds(newestIds)
+
   // Правка кэша обсуждения: первая страница — самые свежие, `total` живёт в ней же.
   function patchComments(edit: (pages: PostCommentsPage[]) => PostCommentsPage[]): void {
     qc.setQueryData<InfiniteData<PostCommentsPage>>(postKeys.comments(post.id), (old) =>
@@ -1049,6 +1063,7 @@ function PostView({
                         canDelete={canDeleteComment(c)}
                         canReport={c.author.id !== myId && canReportComments}
                         fresh={c.id === freshId}
+                        live={c.id !== freshId && liveIds.has(c.id)}
                         onReply={() => startReply(c.id, c.author)}
                         onDelete={() => removeComment(c)}
                       />
@@ -1083,6 +1098,7 @@ function PostView({
                                   canDelete={canDeleteComment(r)}
                                   canReport={r.author.id !== myId && canReportComments}
                                   fresh={r.id === freshId}
+                                  live={r.id !== freshId && liveIds.has(r.id)}
                                   onReply={() => startReply(c.id, r.author)}
                                   onDelete={() => removeComment(r)}
                                 />
@@ -1342,6 +1358,7 @@ function CommentRow({
   onReply,
   onDelete,
   fresh = false,
+  live = false,
 }: {
   id: string
   author: PostAuthor
@@ -1357,6 +1374,8 @@ function CommentRow({
   onDelete?: () => void
   /** Только что отправлен — проявляется плавно. */
   fresh?: boolean
+  /** Пришёл по сокету от другого человека — въезжает с подсветкой (`sh-live-in`). */
+  live?: boolean
 }) {
   const t = useTranslations('Feed')
   const [reporting, setReporting] = useState(false)
@@ -1374,6 +1393,7 @@ function CommentRow({
         'group flex gap-3',
         fresh &&
           'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none',
+        live && 'sh-live-in rounded-lg',
       )}
     >
       {/* Аватар одного размера у реплик и ответов: иерархию ветки задаёт сдвиг вправо, а
