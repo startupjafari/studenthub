@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { ArrowLeft, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useBackClose } from '../lib/use-back-close'
+import { modalOriginRef } from '../lib/modal-origin'
 
 const SIZE = {
   md: 'max-w-md',
@@ -106,6 +107,7 @@ export function Modal({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-overlay/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:duration-(--motion-modal) data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
+          ref={modalOriginRef<HTMLDivElement>()}
           aria-describedby={undefined}
           // Меню сообщения и другие оверлеи приложения (`data-overlay`) открываются поверх
           // окна порталом в body — для Radix это «снаружи». Нажатие в них и Escape, который

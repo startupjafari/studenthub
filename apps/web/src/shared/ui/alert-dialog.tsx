@@ -4,6 +4,7 @@ import * as React from 'react'
 import { AlertDialog as AlertDialogPrimitive } from 'radix-ui'
 
 import { cn } from 'shared/lib/utils'
+import { modalOriginRef } from 'shared/lib/modal-origin'
 import { buttonVariants } from './button'
 
 function AlertDialog(props: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
@@ -32,6 +33,7 @@ function AlertDialogOverlay({
 
 function AlertDialogContent({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
   // Слой z-[250]: подтверждение всегда вторично к поверхности, из которой вызвано —
@@ -41,6 +43,8 @@ function AlertDialogContent({
     <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal">
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
+        // Подтверждение вырастает из кнопки, которой его вызвали (shared/lib/modal-origin).
+        ref={modalOriginRef(ref)}
         data-slot="alert-dialog-content"
         className={cn(
           'fixed top-1/2 left-1/2 z-[250] grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-border bg-card p-6 sm:max-w-lg',
