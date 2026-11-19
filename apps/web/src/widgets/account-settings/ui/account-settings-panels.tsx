@@ -55,6 +55,8 @@ import {
   regenerateBackupCodesRequest,
 } from '../../../shared/api'
 import {
+  Alert,
+  AlertDescription,
   AlertDialog,
   AlertDialogCancel,
   AlertDialogContent,
@@ -1365,6 +1367,12 @@ export function DangerSection({ me }: { me: MeResponse }) {
     },
   })
   const canSubmit = password.length > 0 && (!needCode || code.trim().length > 0)
+  // Пока аккаунт удаляется, окно не закрывается: иначе человек не увидит ни итога, ни отказа.
+  const close = () => {
+    if (mut.isPending) return
+    setOpen(false)
+    reset()
+  }
 
   return (
     <Card className="border-destructive/40">
@@ -1381,28 +1389,25 @@ export function DangerSection({ me }: { me: MeResponse }) {
             <p className="text-sm font-semibold">{tP('deleteAccount')}</p>
             <p className="text-sm text-muted-foreground">{tS('deleteAccountDesc')}</p>
           </div>
-          <AlertDialog
-            open={open}
-            onOpenChange={(next) => {
-              setOpen(next)
-              if (!next) reset()
-            }}
+          <Button
+            variant="outline"
+            onClick={() => setOpen(true)}
+            className="shrink-0 border-destructive text-destructive hover:bg-destructive/10"
           >
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="shrink-0 border-destructive text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="size-4" aria-hidden />
-                {tP('deleteAccount')}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  {blocked ? tS('deleteLibraryTitle') : tS('deleteConfirmTitle')}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
+            <Trash2 className="size-4" aria-hidden />
+            {tP('deleteAccount')}
+          </Button>
+          {/* Окно — системный `Modal` (шапка с крестиком, тело, подвал с действиями), как
+              остальные окна приложения; отказ и блокировки — плашкой `Alert`, а не голым
+              красным текстом. */}
+          {open && (
+            <Modal
+              onClose={close}
+              title={blocked ? tS('deleteLibraryTitle') : tS('deleteConfirmTitle')}
+              size="md"
+            >
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-muted-foreground">
                   {blocked ? (
                     tS('deleteLibraryDesc')
                   ) : (
@@ -1411,77 +1416,94 @@ export function DangerSection({ me }: { me: MeResponse }) {
                       {needCode ? tS('deleteReauthDesc2fa') : tS('deleteReauthDesc')}
                     </>
                   )}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              {check.isPending ? (
-                <div className="flex flex-col gap-2" aria-hidden>
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ) : blocked ? (
-                <DeletionLibraryDebts debts={libraryDebts} />
-              ) : lastAdmin ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {tS('deleteLastAdmin')}
                 </p>
-              ) : (
-                <form
-                  id="delete-account-form"
-                  className="flex flex-col gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    if (canSubmit && !mut.isPending) mut.mutate()
-                  }}
-                >
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
-                    <Input
-                      id="delete-account-password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoFocus
-                    />
+                {check.isPending ? (
+                  <div className="flex flex-col gap-2" aria-hidden>
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-10 w-full" />
                   </div>
-                  {needCode && (
+                ) : blocked ? (
+                  <DeletionLibraryDebts debts={libraryDebts} />
+                ) : lastAdmin ? (
+                  <Alert variant="destructive">
+                    <ShieldAlert aria-hidden />
+                    <AlertDescription>{tS('deleteLastAdmin')}</AlertDescription>
+                  </Alert>
+                ) : (
+                  <form
+                    id="delete-account-form"
+                    className="flex flex-col gap-3"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      if (canSubmit && !mut.isPending) mut.mutate()
+                    }}
+                  >
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                      <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
                       <Input
-                        id="delete-account-code"
-                        autoComplete="one-time-code"
-                        autoCapitalize="characters"
-                        spellCheck={false}
-                        placeholder="123456"
-                        value={code}
-                        onChange={(e) => setCode(e.target.value)}
+                        id="delete-account-password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoFocus
                       />
                     </div>
-                  )}
-                  {error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      {error}
-                    </p>
-                  )}
-                </form>
-              )}
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={mut.isPending}>{tP('cancel')}</AlertDialogCancel>
-                {!check.isPending && !blocked && !lastAdmin && (
-                  <Button
-                    type="submit"
-                    form="delete-account-form"
-                    variant="destructive"
-                    loading={mut.isPending}
-                    disabled={!canSubmit}
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                    {tP('deleteAccount')}
-                  </Button>
+                    {needCode && (
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                        <Input
+                          id="delete-account-code"
+                          autoComplete="one-time-code"
+                          autoCapitalize="characters"
+                          spellCheck={false}
+                          placeholder="123456"
+                          value={code}
+                          onChange={(e) => setCode(e.target.value)}
+                        />
+                      </div>
+                    )}
+                    {error && (
+                      <Alert variant="destructive">
+                        <ShieldAlert aria-hidden />
+                        <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                    )}
+                  </form>
                 )}
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+                {/* Подвал как у остальных окон: отмена слева, действие справа. Без действия
+                    (блокировка) остаётся одна кнопка закрытия — справа, где её ищут. */}
+                {!check.isPending && !blocked && !lastAdmin ? (
+                  <div className="flex items-center justify-between gap-2 border-t border-border pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={close}
+                      disabled={mut.isPending}
+                    >
+                      {tP('cancel')}
+                    </Button>
+                    <Button
+                      type="submit"
+                      form="delete-account-form"
+                      variant="destructive"
+                      loading={mut.isPending}
+                      disabled={!canSubmit}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                      {tP('deleteAccount')}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex justify-end border-t border-border pt-4">
+                    <Button type="button" variant="outline" onClick={close}>
+                      {tP('cancel')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Modal>
+          )}
         </div>
       </CardContent>
     </Card>
