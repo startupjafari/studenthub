@@ -3,6 +3,7 @@ import { ExamsService } from './exams.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { ExamEvents } from './exam-events'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -41,12 +42,14 @@ function setup(scored: number, date = new Date('2026-06-10T04:00:00.000Z')) {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  const events = { changed: jest.fn(), results: jest.fn() }
   const service = new ExamsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
+    events as unknown as ExamEvents,
   )
-  return { service, prisma, queue }
+  return { service, prisma, queue, events }
 }
 
 describe('ExamsService.remove — ведомость', () => {
@@ -83,5 +86,20 @@ describe('ExamsService.remove — ведомость', () => {
     const { service, queue } = setup(0)
     await service.remove(dean, 'ex-1', ctx)
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('удаление → сигнал «cancelled» группе и преподавателю, даже прошедшего', async () => {
+    const { service, events } = setup(0)
+    await service.remove(dean, 'ex-1', ctx)
+    expect(events.changed).toHaveBeenCalledWith({ id: 'ex-1', groupId: 'grp-1' }, 'cancelled', [
+      't-1',
+      't-1',
+    ])
+  })
+
+  it('отказ в удалении сигнала не даёт', async () => {
+    const { service, events } = setup(2)
+    await service.remove(dean, 'ex-1', ctx).catch(() => undefined)
+    expect(events.changed).not.toHaveBeenCalled()
   })
 })

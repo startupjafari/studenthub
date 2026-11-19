@@ -28,6 +28,7 @@ import {
   vacancyVisibleWhere,
 } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
+import { CareerRealtime } from './career-realtime'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /**
@@ -84,6 +85,7 @@ export class VacanciesService {
     private readonly audit: AuditService,
     private readonly access: CareerAccessService,
     private readonly notifier: CareerNotifier,
+    private readonly live: CareerRealtime,
   ) {}
 
   // ── Сторона компании ───────────────────────────────────────────────────────
@@ -144,6 +146,8 @@ export class VacanciesService {
       entityId: vacancy.id,
       ...ctx,
     })
+    // Черновик видят только коллеги по компании — их кабинет и обновляем.
+    await this.live.vacancyForCompany(vacancy.id, companyId, 'created')
     return vacancy
   }
 
@@ -202,6 +206,13 @@ export class VacanciesService {
       ...(reset > 0 ? { metadata: { reReview: reset } } : {}),
       ...ctx,
     })
+    // Опубликованная вакансия на виду у вузов: новый текст на витрине или возврат в очередь
+    // модерации. Черновик и снятая с публикации — только кабинет компании.
+    if (existing.status === 'PUBLISHED') {
+      await this.live.vacancyForUniversities(id, companyId, 'updated')
+    } else {
+      await this.live.vacancyForCompany(id, companyId, 'updated')
+    }
   }
 
   /**
@@ -263,6 +274,9 @@ export class VacanciesService {
       metadata: { universities: universities.length },
       ...ctx,
     })
+    // Заявки встали в очереди модерации вузов, а снятая с паузы — сразу вернулась на витрины,
+    // где её уже одобрили.
+    await this.live.vacancyForUniversities(id, companyId, 'published')
   }
 
   /** Снять с публикации или закрыть. Ревью не трогаем: они пригодятся при повторной публикации. */
@@ -288,6 +302,14 @@ export class VacanciesService {
       entityId: id,
       ...ctx,
     })
+    // С витрин и из очередей модерации уходит только опубликованная; закрытие снятой с
+    // публикации видно одной компании.
+    const kind = status === 'PAUSED' ? 'paused' : 'closed'
+    if (from === 'PUBLISHED') {
+      await this.live.vacancyForUniversities(id, companyId, kind)
+    } else {
+      await this.live.vacancyForCompany(id, companyId, kind)
+    }
   }
 
   /**
@@ -324,6 +346,7 @@ export class VacanciesService {
       entityId: id,
       ...ctx,
     })
+    await this.live.vacancyForCompany(id, companyId, 'deleted')
   }
 
   // ── Витрина для студента ───────────────────────────────────────────────────
@@ -546,6 +569,8 @@ export class VacanciesService {
       reason: input.reason,
       decidedAt,
     })
+    // Витрина и очередь этого вуза (решение видят и другие модераторы) и кабинет компании.
+    await this.live.vacancyReviewed(review.vacancyId, review.vacancy.companyId, universityId)
   }
 
   // ── Служебное ──────────────────────────────────────────────────────────────

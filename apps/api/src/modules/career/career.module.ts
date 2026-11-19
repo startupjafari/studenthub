@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { FilesModule } from '../files/files.module'
 import { CareerAccessService } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
+import { CareerRealtime } from './career-realtime'
 import { CompaniesService } from './companies.service'
 import { CompaniesController } from './companies.controller'
 import { CompanyMembersService } from './company-members.service'
@@ -57,6 +58,9 @@ import { CareerEventsController } from './career-events.controller'
     CareerAccessService,
     // Уведомления сторонам карьеры: вузу о заявке компании, компании о решениях и откликах.
     CareerNotifier,
+    // Живой сигнал career.changed (§9.2d): вакансии, отклики, модерация. RealtimeGateway —
+    // из глобального RealtimeModule.
+    CareerRealtime,
     CareerProfileService,
     VacanciesService,
     ApplicationsService,

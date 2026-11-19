@@ -46,6 +46,7 @@ import {
   UserService,
   type ProfileContentOwner,
 } from '../users/users.service'
+import { ArticleLiveEvents } from './article-live-events'
 import {
   CONTENT_AUTHOR_SELECT,
   assertContentModerator,
@@ -200,6 +201,7 @@ export class ProfileContentService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly polls: PollsService,
     private readonly careerAccess: CareerAccessService,
+    private readonly articleLive: ArticleLiveEvents,
   ) {}
 
   /** Организация, от имени которой публикуют; обе связи пусты — личный контент. */
@@ -1118,6 +1120,8 @@ export class ProfileContentService {
       },
       created,
     )
+    // Читающим статью — «обсуждение изменилось» (§9.2d); сбой рассылки ловится внутри.
+    void this.articleLive.commentsChanged(articleId)
     return created
   }
 
@@ -1214,6 +1218,7 @@ export class ProfileContentService {
       assertContentModerator(viewer, c.author, c.article?.user)
     }
     await this.prisma.contentComment.delete({ where: { id: commentId } })
+    void this.articleLive.commentsChanged(articleId)
     if (moderated) {
       await this.recordModeration(
         viewer,

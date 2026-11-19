@@ -26,6 +26,8 @@ interface Props {
   isOwner: boolean
   // Модератор scope снимает чужой опрос (пункт «Удалить (модерация)»; решает сервер).
   canModerate?: boolean
+  // Классы карточки: в окне опроса она занимает тело окна и своя рамка ей не нужна.
+  className?: string
 }
 
 // Карточка опроса во вкладке профиля. Автора на карточке нет: вкладка уже внутри его профиля,
@@ -34,7 +36,7 @@ interface Props {
 //
 // Автор видит итоги сразу (свои результаты ему важнее формы голосования) и может перейти к
 // голосованию кнопкой в подвале; остальные сначала голосуют, итоги — по настройке опроса.
-export function PollCard({ poll, isOwner, canModerate = false }: Props) {
+export function PollCard({ poll, isOwner, canModerate = false, className }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
@@ -104,7 +106,7 @@ export function PollCard({ poll, isOwner, canModerate = false }: Props) {
   const maxVotes = Math.max(0, ...poll.options.map((o) => o.votes))
 
   return (
-    <Card className="group h-full transition-shadow hover:ring-ring/50">
+    <Card className={cn('group h-full transition-shadow hover:ring-ring/50', className)}>
       <CardContent className="flex flex-1 flex-col gap-4">
         {/* Статус и правила опроса — одной строкой мета-данных; дата и удаление справа. */}
         <div className="flex items-start gap-2">

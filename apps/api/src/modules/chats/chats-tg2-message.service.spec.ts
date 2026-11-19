@@ -87,6 +87,7 @@ function setup() {
     {} as never,
     {} as never,
     { invalidateUnread: jest.fn().mockResolvedValue(undefined) } as never,
+    {} as never,
   )
   // Уведомления о новом сообщении проверяет основная спека — здесь они не важны.
   jest

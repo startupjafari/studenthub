@@ -24,7 +24,8 @@ import {
 } from '../../../shared/ui'
 import { ShowOnMapLink } from '../../../entities/campus'
 import { cn } from '../../../shared/lib/utils'
-import { examKeys, fetchExams, type ExamItem } from '../../../entities/exam'
+import { useFreshIds } from '../../../shared/lib'
+import { examKeys, fetchExams, useExamsLive, type ExamItem } from '../../../entities/exam'
 import { EXAM_STATUS_BADGE, EXAM_STATUS_KEY, examFormatKey } from '../lib/visuals'
 
 type TabId = 'upcoming' | 'past'
@@ -59,6 +60,11 @@ export function StudentExamsView() {
   const locale = useLocale()
   const [tab, setTab] = useState<TabId>('upcoming')
   const q = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams() })
+  // Назначение, перенос, отмена и результат приходят сигналом — список перечитывается сам.
+  useExamsLive()
+  // Список приходит целиком (без страниц), вкладки — фильтр на клиенте: новый экзамен
+  // подсвечивается, в какой бы вкладке ни оказался.
+  const fresh = useFreshIds(useMemo(() => q.data?.map((e) => e.id), [q.data]))
 
   const now = Date.now()
   const grouped = useMemo(() => {
@@ -175,7 +181,7 @@ export function StudentExamsView() {
               {rows.map((e) => {
                 const r = e.myResult
                 return (
-                  <TableRow key={e.id}>
+                  <TableRow key={e.id} className={cn(fresh.has(e.id) && 'sh-live-in')}>
                     <TableCell className="font-medium">
                       <TableText value={e.course.subject.name} />
                     </TableCell>

@@ -15,7 +15,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
-import { InviteService } from '../invites/invites.service'
+import { InviteService, type RevokedInScope } from '../invites/invites.service'
 import { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 import { UniversityAccessService } from './university-access.service'
 
@@ -216,12 +216,12 @@ export class UniversityService {
    */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findOrThrow(id)
-    let revokedInvites = 0
+    let revoked: RevokedInScope = { count: 0, issuerIds: [] }
     try {
-      revokedInvites = await this.prisma.$transaction(async (tx) => {
-        const revoked = await this.invites.revokePendingInScope(tx, { universityId: id })
+      revoked = await this.prisma.$transaction(async (tx) => {
+        const revokedInScope = await this.invites.revokePendingInScope(tx, { universityId: id })
         await tx.university.delete({ where: { id } })
-        return revoked
+        return revokedInScope
       })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
@@ -232,13 +232,16 @@ export class UniversityService {
       }
       throw error
     }
+    // Удаление закоммичено — теперь отзыв настоящий: живой сигнал выдавшим (§9.2d). Админов
+    // у удалённого вуза нет (люди держат удаление), адресаты — выдавшие из платформы.
+    this.invites.announceRevokedInScope(id, id, revoked)
     await this.invalidateStats(id)
     await this.audit.record({
       userId: actor.sub,
       action: 'university_deleted',
       entity: 'University',
       entityId: id,
-      metadata: { revokedInvites },
+      metadata: { revokedInvites: revoked.count },
       ...ctx,
     })
   }

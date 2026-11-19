@@ -158,6 +158,8 @@ function setup() {
     assertVisibleToViewer: jest.fn().mockResolvedValue({ authorId: 'author-1' }),
     isVisibleToUser: jest.fn().mockResolvedValue(true),
   }
+  // Сигнал «дружба удалена» второй стороне (§9.2d): адресация — в friends-realtime.spec.ts.
+  const friendsRealtime = { changed: jest.fn() }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
@@ -170,8 +172,10 @@ function setup() {
     exportRegistry as never,
     media as never,
     notifications as never,
+    friendsRealtime as never,
   )
   return {
+    friendsRealtime,
     service,
     prisma,
     queue,
@@ -4040,7 +4044,7 @@ describe('ChatsService — общие условия отправки (assertCan
 // видеть фото и альбомы того, кто от него закрылся, а висящую заявку можно было принять.
 describe('ChatsService.blockUser — рвёт дружбу', () => {
   it('удаляет дружбу и заявки в обе стороны и гасит уведомление-заявку — в одной транзакции', async () => {
-    const { service, prisma, notifications } = setup()
+    const { service, prisma, notifications, friendsRealtime } = setup()
     prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
     prisma.friendship.findMany.mockResolvedValue([{ id: 'f1' }])
 
@@ -4066,10 +4070,13 @@ describe('ChatsService.blockUser — рвёт дружбу', () => {
     })
     expect(notifications.invalidateUnread).toHaveBeenCalledWith('u1')
     expect(notifications.invalidateUnread).toHaveBeenCalledWith('u2')
+    // Второй стороне — «связь исчезла» (§9.2d), заблокировавшему — нет.
+    expect(friendsRealtime.changed).toHaveBeenCalledTimes(1)
+    expect(friendsRealtime.changed).toHaveBeenCalledWith('u2', 'f1', 'removed')
   })
 
   it('без дружбы — только блокировка', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, friendsRealtime } = setup()
     prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
 
     const res = await service.blockUser('u1', 'u2')
@@ -4077,6 +4084,7 @@ describe('ChatsService.blockUser — рвёт дружбу', () => {
     expect(res).toEqual({ userId: 'u2', blocked: true })
     expect(prisma.userBlock.upsert).toHaveBeenCalled()
     expect(prisma.friendship.deleteMany).not.toHaveBeenCalled()
+    expect(friendsRealtime.changed).not.toHaveBeenCalled()
   })
 })
 

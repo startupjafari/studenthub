@@ -3,6 +3,7 @@ import { ExamsService, examConflicts, planExamResults } from './exams.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { ExamEvents } from './exam-events'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -30,7 +31,7 @@ function setup() {
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    user: { findMany: jest.fn().mockResolvedValue([{ id: 'st-1' }]) },
+    user: { findMany: jest.fn().mockResolvedValue([{ id: 'st-1' }]), findFirst: jest.fn() },
     examResult: { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() },
     group: {
       findUnique: jest
@@ -42,12 +43,15 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // Живой сигнал exam.changed: адреса — в exam-events.spec.ts, здесь — кто и когда его зовёт.
+  const events = { changed: jest.fn(), results: jest.fn() }
   const service = new ExamsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
+    events as unknown as ExamEvents,
   )
-  return { service, prisma, audit, queue }
+  return { service, prisma, audit, queue, events }
 }
 
 const teacher = (sub: string): JwtPayload => ({
@@ -179,6 +183,7 @@ describe('ExamsService.list — ближайшие экзамены, а не с�
       { exam: { findMany } } as unknown as PrismaService,
       { record: jest.fn() } as unknown as AuditService,
       { enqueue: jest.fn() } as unknown as QueueService,
+      { changed: jest.fn(), results: jest.fn() } as unknown as ExamEvents,
     )
     return { service, findMany }
   }
@@ -297,6 +302,21 @@ describe('ExamsService.create / update — пересечения и уведо�
     expect(where.OR).toEqual([{ groupId: 'grp-1' }, { examinerId: 'lecturer' }])
   })
 
+  it('назначение → сигнал группе, ведущему и экзаменатору', async () => {
+    const { service, events, prisma } = setupCreate()
+    // Отдельный экзаменатор проходит проверку «преподаватель своего вуза».
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1', role: Role.TEACHER })
+    await service.create(
+      dean,
+      { courseId: 'c-1', date: future.toISOString(), format: 'WRITTEN', examinerId: 'examiner' },
+      ctx,
+    )
+    expect(events.changed).toHaveBeenCalledWith({ id: 'ex-new', groupId: 'grp-1' }, 'scheduled', [
+      'lecturer',
+      'examiner',
+    ])
+  })
+
   it('назначение предстоящего экзамена → уведомление группе через очередь', async () => {
     const { service, queue } = setupCreate()
     await service.create(
@@ -373,6 +393,21 @@ describe('ExamsService.create / update — пересечения и уведо�
     await service.update(dean, 'ex-1', { note: 'Взять зачётку' }, ctx)
     expect(prisma.exam.findMany).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('любая правка → сигнал «updated», при смене экзаменатора — и прежнему, и новому', async () => {
+    const { service, prisma, events } = setup()
+    prisma.group.findUnique.mockResolvedValueOnce({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1', role: Role.TEACHER })
+    await service.update(dean, 'ex-1', { examinerId: 'new-examiner' }, ctx)
+    expect(events.changed).toHaveBeenCalledWith({ id: 'ex-1', groupId: 'grp-1' }, 'updated', [
+      'lecturer',
+      'examiner',
+      'new-examiner',
+    ])
   })
 })
 
@@ -524,7 +559,7 @@ describe('planExamResults', () => {
 
 describe('ExamsService.setResults — аудит и уведомление о результате (C-F10, C-F22)', () => {
   it('аудит со значениями; уведомление — только тем, чей итог изменился', async () => {
-    const { service, prisma, audit, queue } = setup()
+    const { service, prisma, audit, queue, events } = setup()
     prisma.user.findMany.mockResolvedValue([{ id: 'st-1' }, { id: 'st-2' }])
     prisma.examResult.findMany.mockResolvedValueOnce([
       { studentId: 'st-1', admitted: true, status: 'RETAKE', score: null, attempt: 1 },
@@ -561,6 +596,8 @@ describe('ExamsService.setResults — аудит и уведомление о р
         },
       }),
     )
+    // Сигнал — только студенту, чья строка записана; st-2 без изменений его не получает.
+    expect(events.results).toHaveBeenCalledWith('ex-1', ['st-1'])
     const [, jobName, payload] = queue.enqueue.mock.calls[0]
     expect(jobName).toBe('exam-result')
     expect(payload).toMatchObject({

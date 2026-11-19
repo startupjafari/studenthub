@@ -710,13 +710,23 @@ describe('StoriesService.remove', () => {
 
 // ── Крон ─────────────────────────────────────────────────────────────────────
 describe('StoriesService.deleteExpired', () => {
+  const expired = (
+    id: string,
+    fileId: string | null,
+    authorId = 'u-1',
+    // Работодатель — без вуза: тип шире строки, иначе null не передать.
+    universityId: string | null = 'uni-1',
+  ) => ({
+    id,
+    fileId,
+    authorId,
+    author: { universityId },
+  })
+
   it('удаляет истёкшие батчем и сносит их медиа', async () => {
     const { service, prisma, files } = setup()
     prisma.story.findMany
-      .mockResolvedValueOnce([
-        { id: 's1', fileId: 'f-1' },
-        { id: 's2', fileId: null },
-      ])
+      .mockResolvedValueOnce([expired('s1', 'f-1'), expired('s2', null)])
       .mockResolvedValueOnce([])
     prisma.story.deleteMany.mockResolvedValue({ count: 2 })
 
@@ -728,11 +738,33 @@ describe('StoriesService.deleteExpired', () => {
     expect(files.delete).toHaveBeenCalledTimes(1)
   })
 
+  it('шлёт «кольца изменились» по одному разу на автора истёкших сторис', async () => {
+    const { service, prisma, live } = setup()
+    prisma.story.findMany
+      .mockResolvedValueOnce([
+        expired('s1', null, 'u-1', 'uni-1'),
+        expired('s2', null, 'u-1', 'uni-1'),
+        expired('s3', null, 'emp-1', null),
+      ])
+      .mockResolvedValueOnce([])
+    prisma.story.deleteMany.mockResolvedValue({ count: 3 })
+
+    await service.deleteExpired()
+
+    expect(live.changed).toHaveBeenCalledTimes(2)
+    expect(live.changed).toHaveBeenCalledWith({ id: 'u-1', universityId: 'uni-1' })
+    expect(live.changed).toHaveBeenCalledWith({ id: 'emp-1', universityId: null })
+  })
+
+  it('без истёкших сторис сигнала нет', async () => {
+    const { service, live } = setup()
+    await service.deleteExpired()
+    expect(live.changed).not.toHaveBeenCalled()
+  })
+
   it('сбой удаления медиа не отменяет удаление сторис', async () => {
     const { service, prisma, files } = setup()
-    prisma.story.findMany
-      .mockResolvedValueOnce([{ id: 's1', fileId: 'f-1' }])
-      .mockResolvedValueOnce([])
+    prisma.story.findMany.mockResolvedValueOnce([expired('s1', 'f-1')]).mockResolvedValueOnce([])
     prisma.story.deleteMany.mockResolvedValue({ count: 1 })
     files.delete.mockRejectedValue(new Error('minio down'))
 

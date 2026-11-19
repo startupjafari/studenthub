@@ -33,7 +33,7 @@ import {
   type PlanStatus,
 } from '../../../entities/course'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
-import { examKeys, fetchExams } from '../../../entities/exam'
+import { examKeys, fetchExams, useExamsLive } from '../../../entities/exam'
 
 const STATUS_BADGE: Record<
   PlanStatus,
@@ -81,6 +81,8 @@ export function StudyPlanView() {
     queryFn: () => fetchExams(),
     retry: false,
   })
+  // Опубликованный результат экзамена меняет статус курса — перечитываем по сигналу.
+  useExamsLive()
 
   const model = useMemo(() => {
     // Фаза семестра — по сегодняшней дате (дни, точность до суток достаточна).

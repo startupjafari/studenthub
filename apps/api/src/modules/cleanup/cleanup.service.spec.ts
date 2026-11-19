@@ -141,6 +141,8 @@ function makeService() {
     purgeDepartedProfiles: jest.fn(async () => ({})) as Mock,
     purgeAccountTombstones: jest.fn(async () => ({})) as Mock,
   }
+  // Живые админ-списки (§9.2d): адресация и склейка — в admin-list-events.spec.ts.
+  const adminLists = { user: jest.fn() as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -166,8 +168,10 @@ function makeService() {
     libraryReminders as never,
     libraryReservations as never,
     retention as never,
+    adminLists as never,
   )
   return {
+    adminLists,
     retention,
     companies,
     applications,
@@ -981,6 +985,22 @@ describe('CleanupService.liftExpiredBlocks', () => {
     await expect(c.service.liftExpiredBlocks()).resolves.toBe(1)
     expect(c.audit.record).toHaveBeenCalledTimes(1)
     expect(c.audit.record).toHaveBeenCalledWith(expect.objectContaining({ entityId: 'u1' }))
+    expect(c.adminLists.user).toHaveBeenCalledTimes(1)
+  })
+
+  // Список людей у админов вуза обновляется без перезагрузки: сигнал по каждому снятому,
+  // склейка по вузу — в AdminListEvents.
+  it('шлёт «список людей изменился» по снятым блокировкам с вузом человека', async () => {
+    const c = makeService()
+    c.prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u1', universityId: 'uni-1' },
+      { id: 'emp-1', universityId: null },
+    ])
+    c.prisma.user.updateMany.mockResolvedValueOnce({ count: 2 })
+
+    await c.service.liftExpiredBlocks()
+    expect(c.adminLists.user).toHaveBeenCalledWith({ id: 'u1', universityId: 'uni-1' })
+    expect(c.adminLists.user).toHaveBeenCalledWith({ id: 'emp-1', universityId: null })
   })
 
   // Снятие блокировки — событие того же веса, что и сама блокировка: без записи человек

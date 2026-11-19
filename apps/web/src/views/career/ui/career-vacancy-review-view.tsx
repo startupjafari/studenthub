@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -10,6 +10,7 @@ import {
   VACANCY_REVIEW_DECIDERS,
   decideVacancyReview,
   fetchVacancyReviewQueue,
+  useVacanciesLive,
   vacancyKeys,
   type VacancyReviewRow,
 } from '../../../entities/vacancy'
@@ -35,7 +36,8 @@ import {
   CareerUniversityRequired,
   useCareerUniversity,
 } from '../../../features/career-university-scope'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useFreshIds } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 import { VacancyReviewModal } from './vacancy-review-modal'
 
@@ -102,6 +104,13 @@ export function CareerVacancyReviewView() {
   })
 
   const rows = query.data?.items ?? []
+  // Опубликованная, правленная или снятая вакансия и решение коллеги-модератора — в очереди
+  // сразу (§9.2d). Сигнал приходит в комнату вуза, платформенной роли — нет.
+  useVacanciesLive()
+  // Подсветка новой заявки — в исходном виде очереди: первая страница «Ожидают», свой вуз.
+  const pristine = page === 1 && status === 'PENDING' && !needsPick && !query.isPlaceholderData
+  const freshSource = pristine ? query.data?.items : undefined
+  const fresh = useFreshIds(useMemo(() => freshSource?.map((r) => r.id), [freshSource]))
 
   // Новый фильтр или размер страницы — снова с первой: на прежней странице
   // отфильтрованного списка может не быть строк вовсе.
@@ -182,7 +191,10 @@ export function CareerVacancyReviewView() {
                         setOpened(row)
                       }
                     }}
-                    className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                    className={cn(
+                      'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+                      fresh.has(row.id) && 'sh-live-in',
+                    )}
                   >
                     <TableCell className="font-medium">
                       <TableText value={row.vacancy.title} />

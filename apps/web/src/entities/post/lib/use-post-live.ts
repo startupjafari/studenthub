@@ -10,6 +10,7 @@ import { fetchPost, postKeys } from '../api/post-api'
 import { patchCachedPost } from '../model/cache'
 import { reactionSummaryOf } from '../model/reactions'
 import {
+  cachedRepostIds,
   isPostCached,
   removeCachedPost,
   withServerTotals,
@@ -24,6 +25,12 @@ import type { PostAudienceValue } from '../model/types'
 // ничего не перезагружает, и лента под ним не прыгает.
 
 /**
+ * Сколько репостов правленого поста перечитывать за один сигнал. Обычно в кэше их один-два;
+ * потолок — чтобы правка вирусного поста не обернулась пачкой запросов у каждого зрителя.
+ */
+const REPOST_REFRESH_MAX = 10
+
+/**
  * Держит закэшированные посты в актуальном виде: счётчики, правка, удаление, обсуждение.
  * Вешается на экраны, где посты на виду (лента, вкладка «Посты», страница поста, пост из
  * адреса). Повторное подключение на соседнем экране безвредно: счётчики ставятся числом,
@@ -32,6 +39,13 @@ import type { PostAudienceValue } from '../model/types'
 export function usePostLiveCache({ enabled = true }: { enabled?: boolean } = {}): void {
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
+
+  /** Перечитать пост и подменить его во всех выдачах; недоступный — убрать, как удалённый. */
+  const refreshPost = (id: string): void => {
+    qc.fetchQuery({ queryKey: postKeys.detail(id), queryFn: () => fetchPost(id), staleTime: 0 })
+      .then((fresh) => patchCachedPost(qc, id, () => fresh))
+      .catch(() => removeCachedPost(qc, id))
+  }
 
   useRealtimeEnvelope<FeedPostChangedSignal>(REALTIME_EVENTS.feedPostChanged, (envelope) => {
     if (!enabled) return
@@ -46,23 +60,25 @@ export function usePostLiveCache({ enabled = true }: { enabled?: boolean } = {})
       }))
       return
     }
+    // Репосты этого поста в кэше цитируют его старую версию — их тоже перечитываем (ниже).
+    const reposts = cachedRepostIds(qc, postId)
     if (signal.kind === 'deleted') {
+      // Репост удалённого — сразу «публикация недоступна», как ответит и сервер (цитаты у
+      // него не будет). Ждать перечитывания нельзя: карточка репоста показывает исходник из
+      // запроса страницы поста, а тот после ошибки держит прежние данные.
+      for (const id of reposts) patchCachedPost(qc, id, (post) => ({ ...post, original: null }))
       removeCachedPost(qc, postId)
       // Открытая страница поста перечитает его и покажет «публикация недоступна».
       void qc.invalidateQueries({ queryKey: postKeys.detail(postId) })
       return
     }
+    // Правка исходника: репосты перечитываем по одному — в них новая цитата.
+    for (const id of reposts.slice(0, REPOST_REFRESH_MAX)) refreshPost(id)
     // Правка: перечитываем один пост и подменяем его во всех выдачах — не всю ленту.
     // Поста нет ни в одной выдаче — он у этого зрителя не на экране, читать нечего.
     if (!isPostCached(qc, postId)) return
-    qc.fetchQuery({
-      queryKey: postKeys.detail(postId),
-      queryFn: () => fetchPost(postId),
-      staleTime: 0,
-    })
-      .then((fresh) => patchCachedPost(qc, postId, () => fresh))
-      // После правки пост мог стать невидимым зрителю — убираем его, как удалённый.
-      .catch(() => removeCachedPost(qc, postId))
+    // После правки пост мог стать невидимым зрителю — тогда он убирается, как удалённый.
+    refreshPost(postId)
   })
 
   // Обсуждение: перечитать открытую ветку; закрытая просто помечается устаревшей. Число у

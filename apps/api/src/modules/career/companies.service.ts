@@ -20,6 +20,7 @@ import {
 import { AppException } from '../../common/exceptions/app.exception'
 import { resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AdminListEvents } from '../../common/realtime'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { EMAIL_JOBS, QUEUES, QueueService } from '../../common/queue'
@@ -87,6 +88,7 @@ export class CompaniesService {
     private readonly access: CareerAccessService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly notifier: CareerNotifier,
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   // ── Регистрация ────────────────────────────────────────────────────────────
@@ -120,7 +122,7 @@ export class CompaniesService {
     const rawToken = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + VERIFY_TTL_MS)
 
-    const company = await this.prisma.$transaction(async (tx) => {
+    const { company, ownerId } = await this.prisma.$transaction(async (tx) => {
       const created = await tx.company.create({
         data: {
           name: input.companyName,
@@ -156,8 +158,12 @@ export class CompaniesService {
       await tx.companyMember.create({
         data: { companyId: created.id, userId: user.id, role: 'OWNER' },
       })
-      return created
+      return { company: created, ownerId: user.id }
     })
+
+    // Новый человек без вуза — в живом списке людей у команды платформы (§9.2d). Сигнал без
+    // содержимого, синхронно и без исключений: регистрация уже записана.
+    this.adminLists.user({ id: ownerId, universityId: null })
 
     await this.queue.enqueue(
       QUEUES.EMAIL,

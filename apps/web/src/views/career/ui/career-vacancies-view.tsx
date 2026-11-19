@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Briefcase, Search } from 'lucide-react'
@@ -11,7 +11,12 @@ import {
   type VacancySort,
   type WorkFormat,
 } from '@studenthub/shared-schemas'
-import { searchVacancies, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import {
+  searchVacancies,
+  useVacanciesLive,
+  vacancyKeys,
+  type Vacancy,
+} from '../../../entities/vacancy'
 import { useKatoNames } from '../../../entities/kato'
 import {
   Card,
@@ -38,7 +43,7 @@ import {
   CareerUniversityRequired,
   useCareerUniversity,
 } from '../../../features/career-university-scope'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { salaryText } from '../lib/salary-text'
 import { VacancyDetailModal } from './vacancy-detail-modal'
@@ -104,6 +109,14 @@ export function CareerVacanciesView() {
   }
 
   const rows = query.data?.items ?? []
+  // Одобренная вузом, снятая или изменённая вакансия — на витрине без перезагрузки (§9.2d).
+  useVacanciesLive()
+  // Подсветка новой — только в исходном виде: первая страница без фильтров и сортировки, и не
+  // прежняя страница-заглушка, пока грузится новая (её строки не «появились»).
+  const pristine =
+    page === 1 && !search && !employmentType && !workFormat && !sort && !query.isPlaceholderData
+  const freshSource = pristine ? query.data?.items : undefined
+  const fresh = useFreshIds(useMemo(() => freshSource?.map((v) => v.id), [freshSource]))
   // Город вакансии — код КАТО: названия для всей страницы одним запросом.
   const { nameOf: cityName } = useKatoNames(rows.map((r) => r.city))
 
@@ -232,7 +245,10 @@ export function CareerVacanciesView() {
                           setOpened(vacancy)
                         }
                       }}
-                      className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                      className={cn(
+                        'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+                        fresh.has(vacancy.id) && 'sh-live-in',
+                      )}
                     >
                       <TableCell className="font-medium">
                         <TableText value={vacancy.title} />

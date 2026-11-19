@@ -83,7 +83,7 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('http://localhost:3000') }
-  const adminLists = { invite: jest.fn() }
+  const adminLists = { invite: jest.fn(), invitesRevoked: jest.fn() }
   const service = new InviteService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -644,16 +644,50 @@ describe('InviteService', () => {
 
     it('revokePendingInScope: только PENDING этого scope переводятся в REVOKED', async () => {
       const { service } = setup()
-      const tx = { invite: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) } }
+      const tx = {
+        invite: {
+          findMany: jest.fn().mockResolvedValue([{ createdById: 'dean-1' }]),
+          updateMany: jest.fn().mockResolvedValue({ count: 3 }),
+        },
+      }
       await expect(
         service.revokePendingInScope(tx as unknown as Prisma.TransactionClient, {
           groupId: 'grp-A',
         }),
-      ).resolves.toBe(3)
+      ).resolves.toEqual({ count: 3, issuerIds: ['dean-1'] })
       expect(tx.invite.updateMany).toHaveBeenCalledWith({
         where: { groupId: 'grp-A', status: InviteStatus.PENDING },
         data: { status: InviteStatus.REVOKED },
       })
+      // Выдавшие — те же PENDING этого scope, без дублей и с потолком.
+      expect(tx.invite.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { groupId: 'grp-A', status: InviteStatus.PENDING },
+          distinct: ['createdById'],
+          take: expect.any(Number),
+        }),
+      )
+    })
+
+    it('announceRevokedInScope: один сигнал на scope с выдавшими; пустой отзыв — без сигнала', () => {
+      const { service, adminLists } = setup()
+      service.announceRevokedInScope('grp-A', 'uni-1', { count: 0, issuerIds: [] })
+      expect(adminLists.invitesRevoked).not.toHaveBeenCalled()
+
+      service.announceRevokedInScope('grp-A', 'uni-1', { count: 3, issuerIds: ['dean-1'] })
+      expect(adminLists.invitesRevoked).toHaveBeenCalledWith({
+        scopeId: 'grp-A',
+        universityId: 'uni-1',
+        issuerIds: ['dean-1'],
+      })
+
+      // Сбой рассылки не роняет удаление.
+      adminLists.invitesRevoked.mockImplementation(() => {
+        throw new Error('socket down')
+      })
+      expect(() =>
+        service.announceRevokedInScope('grp-A', 'uni-1', { count: 1, issuerIds: [] }),
+      ).not.toThrow()
     })
   })
 })

@@ -11,6 +11,8 @@ import {
   Link2,
   MessageSquare,
   MoreVertical,
+  RotateCcw,
+  Search,
   Shield,
   ShieldOff,
   UserCheck,
@@ -35,12 +37,20 @@ import {
   type ChatMemberInfo,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { Badge, Button, useConfirm } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { useColumnNavigate } from '../lib/column-navigation'
+import {
+  CardHint,
+  ManageEmpty,
+  ManageSearch,
+  PERSON_ROW,
+  PersonAvatar,
+  PersonRowsSkeleton,
+  SectionTitle,
+} from './group-manage-kit'
 import { MemberActionsMenu, type MemberMenuItem } from './member-actions-menu'
-import { RowsSkeleton, TabEmpty, TabError } from './shared-media'
 
 type Translate = (key: string, values?: Record<string, number>) => string
 
@@ -72,27 +82,38 @@ function sortMembers(list: ChatMemberInfo[], myId: string | undefined): ChatMemb
 export type MembersFilter = 'all' | 'admins' | 'banned'
 
 /**
+ * С какого размера список админов или заблокированных получает поиск. Короткий список
+ * видно целиком, поле над ним — лишний шум; у полного списка участников поиск есть всегда.
+ */
+const SEARCH_FROM = 8
+
+/**
  * Участники группы: аватар со значком «в сети», имя, статус присутствия и роль в вузе, справа —
  * ранг в группе (владелец, админ). Действия над участником — меню по правому клику или по
  * кнопке «⋮», набор пунктов зависит от прав смотрящего.
+ *
+ * `variant="manage"` — экран управления группой: липкий поиск, заголовок секции со
+ * счётчиком и пояснения. Во вкладке профиля (`tab`) — голый список.
  */
 export function ChatMembersList({
   chat,
   myId,
   onOpenChat,
   filter = 'all',
-  query = '',
+  variant = 'tab',
 }: {
   chat: ChatListItem
   myId: string | undefined
   onOpenChat: (chatId: string) => void
   filter?: MembersFilter
-  /** Поиск по имени (экран управления участниками). */
-  query?: string
+  variant?: 'tab' | 'manage'
 }) {
   const t = useTranslations('Chats')
   const tr = useTranslations('Roles')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const manage = variant === 'manage'
+  const [query, setQuery] = useState('')
   const qc = useQueryClient()
   // В колонке переход закрывает её и ждёт снятия записи истории (column-navigation.tsx).
   const navigate = useColumnNavigate()
@@ -114,17 +135,34 @@ export function ChatMembersList({
   const isOwnerMember = (m: ChatMemberInfo): boolean =>
     m.isOwner === true || (chat.isOwner && m.id === myId)
 
+  // Сначала срез экрана (админы, заблокированные), потом поиск: размер среза решает,
+  // нужен ли поиск вообще.
+  const scoped = useMemo(
+    () =>
+      (members.data ?? []).filter((m) => {
+        const owner = m.isOwner === true || (chat.isOwner && m.id === myId)
+        if (filter === 'admins' && !(m.isAdmin || owner)) return false
+        if (filter === 'banned' && !m.banned) return false
+        return true
+      }),
+    [members.data, filter, chat.isOwner, myId],
+  )
   const list = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
-    const filtered = (members.data ?? []).filter((m) => {
-      const owner = m.isOwner === true || (chat.isOwner && m.id === myId)
-      if (filter === 'admins' && !(m.isAdmin || owner)) return false
-      if (filter === 'banned' && !m.banned) return false
-      if (!needle) return true
-      return `${m.lastName} ${m.firstName}`.toLocaleLowerCase().includes(needle)
-    })
-    return sortMembers(filtered, myId)
-  }, [members.data, filter, query, chat.isOwner, myId])
+    const found = needle
+      ? scoped.filter((m) => `${m.lastName} ${m.firstName}`.toLocaleLowerCase().includes(needle))
+      : scoped
+    return sortMembers(found, myId)
+  }, [scoped, query, myId])
+  // Новый участник (вступил, назначен админом, заблокирован) въезжает и коротко
+  // подсвечивается — видно, что именно изменилось.
+  const fresh = useFreshIds(
+    useMemo(() => (members.data ? list.map((m) => m.id) : undefined), [members.data, list]),
+  )
+  // Поиск у полного списка — сразу, ещё до данных (поле не появляется рывком над готовым
+  // списком); у коротких срезов — когда в них есть что искать.
+  const searchable =
+    manage && (filter === 'all' || scoped.length > SEARCH_FROM || query.trim() !== '')
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
   const invalidateMembers = () => {
@@ -286,26 +324,72 @@ export function ChatMembersList({
     return items
   }
 
-  if (members.isLoading) return <RowsSkeleton rows={8} />
-  if (members.isError && !members.data) return <TabError onRetry={() => void members.refetch()} />
-  if (list.length === 0) {
+  const search = searchable && (
+    <ManageSearch value={query} onChange={setQuery} placeholder={t('tgRight.searchMembers')} />
+  )
+  // Заглушка той же геометрии, что строки; админов обычно двое-трое — восемь серых строк
+  // на их месте обещали бы длинный список.
+  if (members.isLoading) {
     return (
-      <TabEmpty
-        icon={<Users className="size-6" aria-hidden />}
-        title={
-          query.trim()
-            ? t('tgRight.nothingFound')
-            : filter === 'banned'
-              ? t('tgRight.bannedEmpty')
-              : t('sharedEmpty')
+      <>
+        {search}
+        <PersonRowsSkeleton rows={filter === 'all' ? 8 : 3} />
+      </>
+    )
+  }
+  if (members.isError && !members.data) {
+    return (
+      <ManageEmpty
+        icon={Users}
+        title={t('sharedLoadError')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void members.refetch()}>
+            <RotateCcw aria-hidden />
+            {tCommon('retry')}
+          </Button>
         }
       />
     )
   }
+  if (list.length === 0) {
+    return (
+      <>
+        {search}
+        {query.trim() ? (
+          <ManageEmpty
+            icon={Search}
+            title={t('tgRight.nothingFound')}
+            hint={t('tgRight.nothingFoundHint')}
+          />
+        ) : filter === 'banned' ? (
+          <ManageEmpty
+            icon={Ban}
+            title={t('tgRight.bannedEmpty')}
+            hint={manage ? t('tgRight.bannedHint') : undefined}
+          />
+        ) : (
+          <ManageEmpty icon={Users} title={t('sharedEmpty')} />
+        )}
+      </>
+    )
+  }
+
+  const countLabel =
+    filter === 'admins'
+      ? t('tgGroups.adminsCount', { count: list.length })
+      : filter === 'banned'
+        ? t('tgGroups.bannedCount', { count: list.length })
+        : t('participants', { count: list.length })
 
   return (
     <>
-      <ul className="py-1">
+      {search}
+      {manage && (
+        <SectionTitle flush className={searchable ? 'mt-2' : 'mt-3'}>
+          {countLabel}
+        </SectionTitle>
+      )}
+      <ul className={manage ? 'pb-1' : 'py-1'}>
         {list.map((m) => {
           const name = `${m.lastName} ${m.firstName}`.trim()
           const isOwnerRow = isOwnerMember(m)
@@ -326,46 +410,50 @@ export function ChatMembersList({
           // Роль в вузе — подсказка, кто это, но «студент» в студенческой группе — шум.
           const role = m.role !== Role.STUDENT ? tr(m.role) : null
           return (
-            <li key={m.id}>
+            <li key={m.id} className={cn(fresh.has(m.id) && 'sh-live-in')}>
               <div
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setMemberMenu({ m, x: e.clientX, y: e.clientY })
                 }}
-                className={cn(
-                  'group flex w-full items-center gap-1 pl-2 pr-1 transition-colors hover:bg-muted/40',
-                  m.banned && 'opacity-60',
-                )}
+                className={cn('group flex w-full items-center gap-1 pr-1 pl-2', PERSON_ROW)}
               >
                 <ProfileLink
                   userId={m.id}
                   className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 hover:opacity-100"
                 >
-                  <span className="relative shrink-0">
-                    <Avatar className="size-11">
-                      {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={name} />}
-                      <AvatarFallback className={cn('text-white', identityColor(m.id))}>
-                        {identityInitials(name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    {m.online && (
-                      <span
-                        className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-background bg-success"
-                        aria-hidden
-                      />
-                    )}
+                  {/* Заблокированный — бледнее, но только аватар и имя: плашка «Забанен» и
+                      «⋮» остаются читаемыми, иначе строка выглядела выключенной целиком. */}
+                  <span className={cn('flex shrink-0', m.banned && 'opacity-60')}>
+                    <PersonAvatar id={m.id} name={name} url={m.avatarUrl} online={m.online} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-sm font-medium',
+                          m.banned && 'opacity-60',
+                        )}
+                      >
                         {name}
                         {m.id === myId ? ` (${t('you')})` : ''}
                       </span>
+                      {/* Ранг — плашкой, как роли в Slack и Discord: владельца видно сразу. */}
                       {rank && (
-                        <span className="shrink-0 text-xs text-muted-foreground">{rank}</span>
+                        <Badge
+                          variant={isOwnerRow ? 'default' : 'secondary'}
+                          className="shrink-0 px-1.5 py-0 text-[0.6875rem]"
+                        >
+                          {rank}
+                        </Badge>
                       )}
                       {m.banned && (
-                        <span className="shrink-0 text-xs text-destructive">{t('banned')}</span>
+                        <Badge
+                          variant="destructive"
+                          className="shrink-0 px-1.5 py-0 text-[0.6875rem]"
+                        >
+                          {t('banned')}
+                        </Badge>
                       )}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
@@ -382,7 +470,7 @@ export function ChatMembersList({
                     const r = e.currentTarget.getBoundingClientRect()
                     setMemberMenu({ m, x: r.right - 208, y: r.bottom + 4 })
                   }}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none duration-(--motion-micro) hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
                 >
                   <MoreVertical className="size-4" aria-hidden />
                 </button>
@@ -391,6 +479,7 @@ export function ChatMembersList({
           )
         })}
       </ul>
+      {manage && filter === 'banned' && <CardHint flush>{t('tgRight.bannedHint')}</CardHint>}
 
       {memberMenu && (
         <MemberActionsMenu

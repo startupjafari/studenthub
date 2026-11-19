@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -12,6 +12,7 @@ import {
   fetchMyVacancies,
   pauseVacancy,
   publishVacancy,
+  useVacanciesLive,
   vacancyKeys,
   type EmployerVacancy,
 } from '../../../entities/vacancy'
@@ -24,7 +25,8 @@ import {
   TablePagination,
   useConfirm,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useFreshIds } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { VacancyFormModal } from './vacancy-form-modal'
 
 type VacancyAction = 'publish' | 'pause' | 'close' | 'delete'
@@ -66,6 +68,15 @@ export function EmployerVacanciesView() {
   })
 
   const rows = query.data?.items ?? []
+  // Вакансию завёл или опубликовал коллега, вуз одобрил или отклонил — кабинет обновится сам.
+  useVacanciesLive()
+  // Новая строка — подсветка, только на первой странице: новые вакансии встают сверху.
+  const fresh = useFreshIds(
+    useMemo(
+      () => (page === 1 ? query.data?.items.map((v) => v.id) : undefined),
+      [page, query.data],
+    ),
+  )
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -108,6 +119,7 @@ export function EmployerVacanciesView() {
               <VacancyRow
                 key={vacancy.id}
                 vacancy={vacancy}
+                fresh={fresh.has(vacancy.id)}
                 busy={act.isPending}
                 onAct={(action) => {
                   if (action !== 'close' && action !== 'delete') {
@@ -155,11 +167,14 @@ export function EmployerVacanciesView() {
 
 function VacancyRow({
   vacancy,
+  fresh,
   busy,
   onAct,
   onEdit,
 }: {
   vacancy: EmployerVacancy
+  /** Строка появилась по сигналу — въезд и подсветка `sh-live-in`. */
+  fresh: boolean
   busy: boolean
   onAct: (action: VacancyAction) => void
   onEdit: () => void
@@ -179,7 +194,12 @@ function VacancyRow({
   }
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <li
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border border-border bg-card p-4',
+        fresh && 'sh-live-in',
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
