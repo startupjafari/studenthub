@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
 import { CalendarClock, Check, MapPin, Pencil, Users, Video } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   cancelEventRequest,
   eventKeys,
@@ -32,6 +33,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { cn, toApiError } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
 import { EventDiscussion } from './event-discussion'
 
@@ -57,6 +59,17 @@ export function EventDetailView({ eventId }: { eventId: string }) {
   const event = useQuery({
     queryKey: eventKeys.detail(eventId),
     queryFn: () => fetchEvent(eventId),
+  })
+  // Живая карточка (§9.2d): сигнал приходит всему вузу, берём только про это событие. Правка —
+  // карточка и встреча (ссылку могли сменить); запись — счётчик и список участников; удаление —
+  // карточка, перечитывание которой покажет, что события больше нет.
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, (envelope) => {
+    if (envelope.entityId !== eventId) return null
+    const kind = (envelope.data as { kind?: string } | null)?.kind
+    if (kind === 'updated') return [eventKeys.detail(eventId), eventKeys.meeting(eventId)]
+    if (kind === 'registrations')
+      return [eventKeys.detail(eventId), eventKeys.participants(eventId)]
+    return [eventKeys.detail(eventId)]
   })
   const [editing, setEditing] = useState(false)
   const isOrganizer = event.data?.organizerId === myId
