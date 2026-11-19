@@ -78,22 +78,7 @@ struct StoryAvatar: View {
                 ZStack(alignment: .bottomTrailing) {
                     AvatarView(url: avatar, name: fallbackName ?? name, size: size - 8)
                         .padding(4)
-                        .overlay {
-                            switch state {
-                            case .unseen:
-                                Circle().strokeBorder(
-                                    AngularGradient(
-                                        colors: [Palette.primary, Palette.chart3, Palette.primary],
-                                        center: .center
-                                    ),
-                                    lineWidth: 2.5
-                                )
-                            case .seen:
-                                Circle().strokeBorder(Palette.border, lineWidth: 1.5)
-                            case .none:
-                                EmptyView()
-                            }
-                        }
+                        .overlay { StoryRingBorder(state: state) }
                     if showsAdd {
                         Image(systemName: "plus")
                             .font(.caption.weight(.bold))
@@ -128,6 +113,26 @@ struct StoryAvatar: View {
             if showsAdd, let addAction {
                 Button(String(localized: "stories.add", defaultValue: "Добавить"), action: addAction)
             }
+        }
+    }
+}
+
+/// Кольцо историй вокруг аватара — в полосе и в шапке профиля одно и то же.
+struct StoryRingBorder: View {
+    let state: StoryAvatar.RingState
+    var lineWidth: CGFloat = 2.5
+
+    var body: some View {
+        switch state {
+        case .unseen:
+            Circle().strokeBorder(
+                AngularGradient(colors: [Palette.primary, Palette.chart3, Palette.primary], center: .center),
+                lineWidth: lineWidth
+            )
+        case .seen:
+            Circle().strokeBorder(Palette.border, lineWidth: lineWidth * 0.6)
+        case .none:
+            EmptyView()
         }
     }
 }

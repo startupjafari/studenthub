@@ -21,6 +21,9 @@ struct ProfileView: View {
     @State private var editing = false
     @State private var showsDetails = false
     @State private var viewing: MediaTarget?
+    /// Живые истории владельца — кольцо вокруг аватара; касание аватара открывает их.
+    @State private var stories: StoriesModel
+    @State private var viewingStories = false
     @State private var scroll = ProfileScrollMetrics()
 
     init(userID: String?) {
@@ -29,6 +32,7 @@ struct ProfileView: View {
         // Посты автора — та же лента, что на главной, со своим срезом. Для своего
         // профиля id подставляется из токена в `task`, до того — общий срез не грузим.
         _posts = State(initialValue: FeedModel(api: FeedAPI(scope: userID.map { .author(id: $0) } ?? .all)))
+        _stories = State(initialValue: StoriesModel(authorID: userID))
         _tab = SceneStorage(wrappedValue: .posts, "profile.tab.\(userID ?? "me")")
     }
 
@@ -93,6 +97,7 @@ struct ProfileView: View {
             guard !posts.hasLoaded else { return }
             if model.isMine, !viewerID.isEmpty {
                 posts = FeedModel(api: FeedAPI(scope: .author(id: viewerID)))
+                stories.authorID = viewerID
             }
             // Свой профиль уже в памяти оболочки — шапка сразу, без спиннера (п. 21);
             // карточка с сервера обновит её фоном.
@@ -101,14 +106,22 @@ struct ProfileView: View {
             }
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
-            _ = await (card, feed)
+            async let rings: Void = refreshStories()
+            _ = await (card, feed, rings)
+        }
+        // Истории живут сутки: вернувшись на экран, человек не должен видеть кольцо
+        // истёкших — их перечитываем при каждом показе, это один лёгкий запрос.
+        .onAppear {
+            guard stories.hasLoaded else { return }
+            Task { await refreshStories() }
         }
         .actionToast($model.staleNotice)
         .pullToRefresh {
             async let card: Void = model.load()
             async let feed: Void = posts.refresh()
             async let current: Void = model.loadTab(tab, force: true)
-            _ = await (card, feed, current)
+            async let rings: Void = refreshStories()
+            _ = await (card, feed, current, rings)
         }
         // Правка — переходом в том же стеке, а не листом со своей панелью: панель
         // вкладок остаётся, выход один — «Назад».
@@ -130,6 +143,13 @@ struct ProfileView: View {
         .fullScreenCover(item: $viewing) { target in
             MediaViewer(media: target.media, start: target.start)
         }
+        // Удалили последнюю историю под просмотром — кольца нет, но просмотр не пустеет:
+        // без кадра он сам показывает крестик.
+        .fullScreenCover(isPresented: $viewingStories) {
+            StoryViewer(model: stories, startRingID: storyRing?.id ?? "")
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("stories.viewer")
+        }
         .alert(
             String(localized: "feed.actionFailed", defaultValue: "Не получилось"),
             isPresented: Binding(
@@ -141,6 +161,18 @@ struct ProfileView: View {
         } message: {
             Text(model.actionFailure ?? "")
         }
+    }
+
+    /// Кольцо владельца профиля. Нет историй или раздел выключен — `nil`, аватар обычный.
+    private var storyRing: StoryRingDTO? {
+        guard stories.failure == nil else { return nil }
+        return stories.rings.first { !$0.stories.isEmpty }
+    }
+
+    /// Свой профиль ждёт id из токена: без него запрос вернул бы полосу всех авторов.
+    private func refreshStories() async {
+        guard stories.authorID?.isEmpty == false else { return }
+        await stories.refresh()
     }
 
     private var navigationName: String {
@@ -169,6 +201,8 @@ struct ProfileView: View {
                             model: model,
                             scrollTopInset: scroll.topInset,
                             nameScrolledAway: $scroll.nameScrolledAway,
+                            storyRing: storyRing,
+                            openStories: { viewingStories = true },
                             edit: { editing = true },
                             details: { showsDetails = true },
                             open: { select($0, revealing: true, with: scroller) },
@@ -193,9 +227,6 @@ struct ProfileView: View {
                             )
                             .padding(.vertical, Spacing.xxl)
                         } else {
-                            CommunityHighlightsStrip(userID: profile.id)
-                                .padding(.bottom, Spacing.md)
-
                             // Метка начала вкладок: к ней прокручивается экран при смене
                             // вкладки, когда полоса вкладок уже доехала до верха.
                             Color.clear
@@ -497,6 +528,9 @@ private struct ProfileHeaderView: View {
     /// Верхний отступ прокрутки (панель навигации): по нему видно, ушло ли имя под неё.
     let scrollTopInset: CGFloat
     @Binding var nameScrolledAway: Bool
+    /// Живые истории владельца: есть — вокруг аватара кольцо, касание открывает их.
+    let storyRing: StoryRingDTO?
+    let openStories: () -> Void
     let edit: () -> Void
     let details: () -> Void
     /// Открыть вкладку по касанию итога («12 фото» → «Фото»).
@@ -521,8 +555,15 @@ private struct ProfileHeaderView: View {
 
             stats
 
-            actionRow
-                .padding(.top, Spacing.sm)
+            // Актуальное — сразу под кнопками, до «О себе»: под длинным рассказом о себе
+            // полосу было не найти. Пустая полоса места не занимает.
+            VStack(spacing: 0) {
+                actionRow
+                if !profile.isLimited {
+                    CommunityHighlightsStrip(userID: profile.id)
+                }
+            }
+            .padding(.top, Spacing.sm)
 
             if !profile.isLimited {
                 aboutCard
@@ -561,17 +602,63 @@ private struct ProfileHeaderView: View {
                     .padding(.horizontal, Spacing.xl)
                     .padding(.bottom, side / 2)
                 avatar(side: side)
-                    .overlay(Circle().strokeBorder(Palette.background, lineWidth: 4))
+                    // Кольцо историй само отделяет аватар от обложки, обводка фоном
+                    // закрыла бы его.
+                    .overlay { if storyRing == nil { Circle().strokeBorder(Palette.background, lineWidth: 4) } }
             }
         } else {
             avatar(side: side)
         }
     }
 
+    @ViewBuilder
     private func avatar(side: CGFloat) -> some View {
-        AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
-            .contentShape(Circle())
-            .photoViewing(profile.avatarUrl, label: String(localized: "profile.viewAvatar", defaultValue: "Фото профиля"), open: viewPhoto)
+        if let storyRing {
+            storyAvatar(side: side, ring: storyRing)
+        } else {
+            AvatarView(url: profile.avatarUrl, name: profile.name, size: side)
+                .contentShape(Circle())
+                .photoViewing(profile.avatarUrl, label: String(localized: "profile.viewAvatar", defaultValue: "Фото профиля"), open: viewPhoto)
+        }
+    }
+
+    /// Аватар с живыми историями, как в Telegram: касание открывает истории, а фото
+    /// целиком — из меню по удержанию. Размер тот же, что без кольца: шапка не прыгает,
+    /// когда истории догружаются.
+    private func storyAvatar(side: CGFloat, ring: StoryRingDTO) -> some View {
+        let photo = profile.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
+        return Button(action: openStories) {
+            AvatarView(url: profile.avatarUrl, name: profile.name, size: side - 12)
+                .padding(6)
+                .background(Palette.background, in: Circle())
+                .overlay { StoryRingBorder(state: ring.hasUnseen ? .unseen : .seen, lineWidth: 3) }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.pressableIcon)
+        .contextMenu {
+            Button {
+                openStories()
+            } label: {
+                Label(String(localized: "profile.openStories", defaultValue: "Открыть истории"), systemImage: "play.circle")
+            }
+            if let photo {
+                Button {
+                    viewPhoto(photo)
+                } label: {
+                    Label(String(localized: "profile.viewAvatar", defaultValue: "Фото профиля"), systemImage: "person.crop.circle")
+                }
+            }
+        }
+        .accessibilityLabel(Text(String(localized: "profile.openStories", defaultValue: "Открыть истории")))
+        .accessibilityValue(Text(ring.hasUnseen
+            ? String(localized: "stories.unseen", defaultValue: "Есть новые истории")
+            : ""))
+        .accessibilityIdentifier("profile.stories")
+        .accessibilityActions {
+            if let photo {
+                Button(String(localized: "profile.viewAvatar", defaultValue: "Фото профиля")) { viewPhoto(photo) }
+            }
+        }
     }
 
     // MARK: Кто это

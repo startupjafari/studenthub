@@ -16,7 +16,10 @@ struct CommunityHighlightsStrip: View {
     @State private var loadedFor: String?
 
     var body: some View {
-        Group {
+        // Не `Group`: модификаторы пустого `Group` применять не к чему, и `.task` у пустой
+        // полосы не загрузил бы актуальное вовсе. Нулевая полоса держит загрузку.
+        VStack(spacing: 0) {
+            Color.clear.frame(height: 0)
             if !highlights.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: Spacing.lg) {
@@ -43,6 +46,7 @@ struct CommunityHighlightsStrip: View {
                     }
                     .padding(.horizontal, Spacing.xl)
                 }
+                .padding(.top, Spacing.lg)
             }
         }
         .task(id: userID) {

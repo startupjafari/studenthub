@@ -15,16 +15,22 @@ final class StoriesModel {
 
     private let api: StoriesFetching
     private let feed: FeedFetching
+    /// Истории одного автора — кольцо вокруг аватара в профиле. `nil` — полоса главной.
+    /// Меняется у своего профиля: id подставляется из токена, когда он уже известен.
+    var authorID: String?
 
-    init(api: StoriesFetching = StoriesAPI(), feed: FeedFetching = FeedAPI()) {
+    init(api: StoriesFetching = StoriesAPI(), feed: FeedFetching = FeedAPI(), authorID: String? = nil) {
         self.api = api
         self.feed = feed
+        self.authorID = authorID
     }
 
     @MainActor
     func refresh() async {
         do {
-            rings = try await api.rings()
+            let loaded = try await api.rings(authorID: authorID)
+            // Сервер и так отдаёт одно кольцо, но лишнее не должно попасть в профиль.
+            rings = authorID.map { id in loaded.filter { $0.author.id == id && !$0.stories.isEmpty } } ?? loaded
             failure = nil
         } catch {
             // Выключенный флаг отвечает 404 на соседних маршрутах, а список — пустым;

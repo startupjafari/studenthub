@@ -80,11 +80,30 @@ private struct PrimarySurface: ViewModifier {
 struct QuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .labelStyle(QuietButtonLabelStyle())
             .font(Typography.body)
+            .padding(.horizontal, Spacing.xl)
             .frame(maxWidth: .infinity, minHeight: 50)
             .foregroundStyle(Palette.foreground)
             .modifier(QuietSurface(isPressed: configuration.isPressed))
             .contentShape(Capsule())
+    }
+}
+
+/// Иконка и подпись тихой кнопки. Стандартный `Label` при нехватке ширины сжимает символ
+/// вместе с текстом — в паре половинных кнопок («Сохранить коды» / «Скопировать») и в
+/// длинной «Открыть в приложении-аутентификаторе» иконки выходили сплющенными. Здесь
+/// иконка держит свой размер, а подпись в одну строку чуть уменьшается, но не переносится.
+private struct QuietButtonLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: Spacing.md) {
+            configuration.icon
+                .fixedSize()
+                .layoutPriority(1)
+            configuration.title
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
     }
 }
 

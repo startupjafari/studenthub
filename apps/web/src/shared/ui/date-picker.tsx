@@ -15,6 +15,9 @@ export interface DatePickerProps {
   onChange: (value: string) => void
   min?: string
   max?: string
+  /** Месяц, который календарь показывает, пока дата не выбрана ("YYYY-MM-DD"). Без него —
+   *  текущий: для даты рождения это десятки щелчков назад. */
+  defaultView?: string
   disabled?: boolean
   className?: string
   /** Размер из общей шкалы контролов (control-size.ts). */
@@ -33,6 +36,7 @@ export function DatePicker({
   onChange,
   min,
   max,
+  defaultView,
   disabled,
   className,
   placeholder,
@@ -46,7 +50,7 @@ export function DatePicker({
   const minDate = parseYmd(min)
   const maxDate = parseYmd(max)
 
-  const [view, setView] = useState(() => selected ?? new Date())
+  const [view, setView] = useState(() => selected ?? parseYmd(defaultView) ?? new Date())
   const year = view.getFullYear()
   const month = view.getMonth()
 

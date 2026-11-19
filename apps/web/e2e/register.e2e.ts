@@ -36,7 +36,11 @@ test.describe('Регистрация по инвайту', () => {
     // Дата рождения и согласие обязательны с сентября 2026: без них форма не отправится.
     // Дата заведомо совершеннолетняя — вторая галочка (согласие представителя) тогда не
     // появляется, и сценарий проверяет обычный путь.
-    await page.locator('#birthDate').fill('1995-05-17')
+    // Календарь открывается на месяце 18 лет назад: шаг назад и 15-е число (в сетке из
+    // шести недель оно ровно одно) — дата старше 18 лет при любом «сегодня».
+    await page.getByRole('button', { name: /^Дата рождения/ }).click()
+    await page.getByRole('button', { name: 'Предыдущий месяц' }).click()
+    await page.getByRole('button', { name: '15', exact: true }).click()
     await page.getByRole('checkbox').first().check()
     await page.getByRole('button', { name: 'Создать аккаунт' }).click()
 
