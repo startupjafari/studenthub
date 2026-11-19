@@ -416,10 +416,14 @@ function ProfileHeader({
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
         {/* Цифровой студенческий живёт в профиле, а не в меню: показывают его с телефона. */}
         {!editing && (me.role === Role.STUDENT || me.role === Role.STAROSTA) && (
-          <StudentIdButton className="shadow-md" />
+          <StudentIdButton className={cn('shadow-md', COVER_ON_MEDIA)} />
         )}
         {social && (
-          <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+          <ShareProfileButton
+            userId={me.id}
+            name={fullNameOf(me)}
+            className={cn('shadow-md', COVER_ON_MEDIA)}
+          />
         )}
         <Button
           type="button"
@@ -427,7 +431,10 @@ function ProfileHeader({
           size="sm"
           onClick={onToggleEdit}
           aria-label={editing ? t('cancel') : t('editProfile')}
-          className="shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none"
+          className={cn(
+            'shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none',
+            editing && COVER_ON_MEDIA,
+          )}
         >
           {editing ? (
             <X className="size-4" aria-hidden />
@@ -465,7 +472,7 @@ function ProfileHeader({
             onClick={() => coverRef.current?.click()}
             aria-label={me.coverUrl ? t('coverChange') : t('coverAdd')}
             disabled={uploadCoverMut.isPending}
-            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+            className={cn(COVER_IMAGE_BUTTON, 'gap-1.5 px-2.5 py-1.5 text-xs font-medium')}
           >
             <Camera className="size-4" aria-hidden />
             <span className="hidden sm:inline">
@@ -482,7 +489,10 @@ function ProfileHeader({
                   (ok) => ok && removeCoverMut.mutate(),
                 )
               }}
-              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+              className={cn(
+                COVER_IMAGE_BUTTON,
+                'size-8 justify-center hover:border-transparent hover:bg-destructive',
+              )}
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -620,6 +630,17 @@ export function CoverToolbar({ children }: { children: ReactNode }) {
     </div>
   )
 }
+
+/** Кнопки системы (`Button` outline/secondary) поверх обложки. Цвета темы на картинке не
+ *  читаются — в тёмной теме подложка outline почти прозрачна, — поэтому фиксированная тёмная
+ *  «стеклянная» подложка и белый текст: одинаково видно на любой обложке в обеих темах. */
+export const COVER_ON_MEDIA =
+  'border-white/20 bg-black/45 text-white backdrop-blur-sm hover:border-white/35 hover:bg-black/60 hover:text-white aria-expanded:bg-black/60 dark:bg-black/45 dark:hover:bg-black/60'
+
+/** «Сменить/удалить обложку»: то же стекло; на десктопе появляются по ховеру обложки. Раньше
+ *  было bg-foreground/55 + text-background — в тёмной теме это светлая плашка, сливавшаяся с фото. */
+export const COVER_IMAGE_BUTTON =
+  'flex items-center rounded-lg border border-white/20 bg-black/50 text-white opacity-0 shadow-md outline-none backdrop-blur-sm transition-[opacity,background-color] duration-(--motion-micro) hover:bg-black/65 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/70 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100'
 
 /** Кнопки обложки: слева сверху; если там переключатель — в правый нижний угол обложки. */
 export function coverActionsClass(withToolbar: boolean): string {
