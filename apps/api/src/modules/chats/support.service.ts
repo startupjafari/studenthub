@@ -8,6 +8,7 @@ import type {
   SupportTag,
 } from '@studenthub/shared-schemas'
 import { AuditService } from '../../common/audit/audit.service'
+import { AdminListEvents } from '../../common/realtime'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -84,6 +85,8 @@ export class SupportService implements OnModuleInit {
     private readonly chats: ChatsService,
     private readonly audit: AuditService,
     private readonly telegram: TelegramNotifyService,
+    // Живая очередь обращений (§9.2d): сигнал команде платформы, очередь перечитывается.
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   onModuleInit(): void {
@@ -137,6 +140,9 @@ export class SupportService implements OnModuleInit {
       where: { id: targetId, supportClosedAt: { not: null } },
       data: { supportClosedAt: null },
     })
+    // Любое сообщение меняет строку очереди: последнее слово, время, открыто ли обращение.
+    // Сюда сходятся все пути отправки, поэтому сигнал — отсюда, а не из `open` и `reply`.
+    this.adminLists.supportTicket(targetId)
 
     if (fromStaff) {
       // `supportFirstReplyAt: null` в условии — чтобы отметка проставилась ровно один раз:
@@ -454,6 +460,7 @@ export class SupportService implements OnModuleInit {
       metadata: { into: intoId },
       ...ctx,
     })
+    this.adminLists.supportTicket(intoId)
     return { mergedInto: intoId }
   }
 
@@ -574,6 +581,7 @@ export class SupportService implements OnModuleInit {
       entityId: chatId,
       ...ctx,
     })
+    this.adminLists.supportTicket(chatId)
     return { assigneeId: take ? viewer.sub : null }
   }
 
@@ -601,6 +609,7 @@ export class SupportService implements OnModuleInit {
       metadata: { tags: unique },
       ...ctx,
     })
+    this.adminLists.supportTicket(chatId)
     return { tags: unique }
   }
 
@@ -668,6 +677,7 @@ export class SupportService implements OnModuleInit {
       entityId: chatId,
       ...ctx,
     })
+    this.adminLists.supportTicket(chatId)
     return { id: chatId, closed: true }
   }
 
@@ -730,6 +740,8 @@ export class SupportService implements OnModuleInit {
       where: { id: { in: ids } },
       data: { supportClosedAt: new Date() },
     })
+    // Автозакрытие крона — одним сигналом на порцию: очередь перечитывается целиком.
+    if (count > 0) this.adminLists.supportTicket(ids[0])
     return count
   }
 
