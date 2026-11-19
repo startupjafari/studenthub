@@ -95,6 +95,7 @@ export { CountryFlag } from './country-flag'
 export { Instagram, Linkedin } from './brand-icons'
 export { FileUpload, type FileUploadProps } from './file-upload'
 export { MeshBrandPanel, type MeshBrandPanelProps } from './mesh-brand-panel'
+export { AuthSplitLayout, type AuthSplitLayoutProps } from './auth-split-layout'
 export { AppSplash } from './app-splash'
 export {
   MediaViewer,
