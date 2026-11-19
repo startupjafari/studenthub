@@ -38,7 +38,7 @@ import { useMediaQuery } from '../../../shared/lib'
 import { formatYmd, monthCells, sameDay } from '../../../shared/ui/calendar-grid'
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
-import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
+import { assignmentKeys, fetchAssignments, useAssignmentsLive } from '../../../entities/assignment'
 import { examKeys, fetchExams } from '../../../entities/exam'
 import type { Holiday } from '../../../shared/config'
 import {
@@ -95,6 +95,8 @@ export function CalendarView() {
     queryFn: () => fetchAssignments(dueRange),
     retry: false,
   })
+  // Дедлайн нового или перенесённого задания появляется в календаре сразу.
+  useAssignmentsLive()
   // Экзамены — за те же видимые недели, что и дедлайны (`to` не включается).
   const examRange = useMemo(() => ({ from: dueRange.dueFrom, to: dueRange.dueTo }), [dueRange])
   const exams = useQuery({

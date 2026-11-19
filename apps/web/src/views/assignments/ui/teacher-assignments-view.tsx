@@ -46,6 +46,7 @@ import { toApiError } from '../../../shared/lib'
 import {
   assignmentKeys,
   fetchAssignmentsPaged,
+  useAssignmentsLive,
   publishAssignmentRequest,
   closeAssignmentRequest,
   deleteAssignmentRequest,
@@ -103,6 +104,8 @@ export function TeacherAssignmentsView() {
     queryKey: assignmentKeys.listPaged(paged.query),
     queryFn: () => fetchAssignmentsPaged(paged.query),
   })
+  // Сданные работы: счётчики «на проверке» растут без перезагрузки (сигнал `submitted`).
+  useAssignmentsLive()
 
   const invalidate = () => qc.invalidateQueries({ queryKey: assignmentKeys.all })
   // CONFLICT на смене статуса — задание уже перевели (другой вкладкой или коллегой):

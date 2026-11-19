@@ -23,11 +23,13 @@ import {
   TableText,
   useTableSort,
 } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   assignmentKeys,
   fetchAssignmentsPaged,
   fetchAssignment,
+  useAssignmentsLive,
   type AssignmentItem,
 } from '../../../entities/assignment'
 import {
@@ -107,6 +109,11 @@ export function StudentAssignmentsView() {
         return true
       })
   }, [q.data])
+
+  // Преподаватель выдал или изменил задание, проверил работу — список и открытая деталь
+  // перечитываются по сигналу, новое задание въезжает строкой с подсветкой.
+  useAssignmentsLive()
+  const fresh = useFreshIds(useMemo(() => items.map((a) => a.id), [items]))
 
   // Prefetch детали задания при наведении/фокусе строки (принцип 3): к клику деталь уже в кэше,
   // окно открывается мгновенно. staleTime гасит повторные prefetch по одному id.
@@ -233,7 +240,10 @@ export function StudentAssignmentsView() {
                       }}
                       onMouseEnter={() => prefetch(a.id)}
                       onFocus={() => prefetch(a.id)}
-                      className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                      className={cn(
+                        'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+                        fresh.has(a.id) && 'sh-live-in',
+                      )}
                     >
                       <TableCell className="font-medium">
                         <TableText value={a.title} />

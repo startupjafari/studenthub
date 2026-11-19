@@ -30,7 +30,7 @@ import { nowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { applicationKeys, fetchApplications } from '../../../entities/application-service'
 import { eventKeys, fetchEvents } from '../../../entities/event'
-import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
+import { assignmentKeys, fetchAssignments, useAssignmentsLive } from '../../../entities/assignment'
 import {
   buildTasks,
   groupTasks,
@@ -81,6 +81,8 @@ export function TasksView() {
     queryFn: () => fetchAssignments(),
     retry: false,
   })
+  // Задачи из заданий: новое задание группы или проверенная работа — без перезагрузки.
+  useAssignmentsLive()
 
   const timezone = schedule.data?.timezone ?? null
   const todayDate = useMemo(() => nowInTz(timezone).date, [timezone])

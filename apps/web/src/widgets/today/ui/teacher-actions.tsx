@@ -14,8 +14,10 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Badge, Button, EmptyState, SectionPanel, Skeleton } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import { attendanceKeys, fetchMarkedPairs } from '../../../entities/attendance'
-import { assignmentKeys, fetchReviewQueue } from '../../../entities/assignment'
+import { assignmentKeys, fetchReviewQueue, useAssignmentsLive } from '../../../entities/assignment'
 import { consultationKeys, fetchMyConsultations } from '../../../entities/consultation'
 import type { DayPair, NowInTz } from '../lib/schedule-day'
 
@@ -111,8 +113,12 @@ export function ReviewQueuePanel() {
     queryKey: assignmentKeys.reviewQueue(REVIEW_LIMIT),
     queryFn: () => fetchReviewQueue(REVIEW_LIMIT),
   })
+  // Студент сдал работу — очередь растёт без перезагрузки дашборда, новое задание в ней
+  // въезжает с подсветкой.
+  useAssignmentsLive()
 
-  const items = q.data?.items ?? []
+  const items = useMemo(() => q.data?.items ?? [], [q.data])
+  const fresh = useFreshIds(useMemo(() => items.map((a) => a.id), [items]))
 
   return (
     <SectionPanel
@@ -140,7 +146,7 @@ export function ReviewQueuePanel() {
       ) : (
         <ul className="flex flex-col gap-2">
           {items.map((a) => (
-            <li key={a.id}>
+            <li key={a.id} className={cn(fresh.has(a.id) && 'sh-live-in rounded-lg')}>
               <Link
                 href={`/teacher/assignments?open=${a.id}`}
                 className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/40"
