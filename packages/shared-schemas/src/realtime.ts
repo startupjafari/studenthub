@@ -56,6 +56,13 @@ export const REALTIME_EVENTS = {
   libraryLoanChanged: 'library.loan.changed',
   /** Изменился список админ-раздела. data: { list: AdminLiveList }. Адресно ведущим список. */
   adminListChanged: 'admin.list.changed',
+  /** Экзамен (сессия) назначен, перенесён, отменён; опубликованы результаты. data: { kind }. */
+  examChanged: 'exam.changed',
+  /**
+   * Карьера: вакансия опубликована, изменена, закрыта; отклик подан, сменил статус.
+   * data: { entity: 'vacancy' | 'application', kind }.
+   */
+  careerChanged: 'career.changed',
 } as const
 
 /** Админ-списки, которые обновляются по сокету (`admin.list.changed`). */
