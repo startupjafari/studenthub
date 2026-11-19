@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
   useInfiniteQuery,
   useMutation,
@@ -10,6 +10,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ChevronDown, Loader2, MessageCircle, SendHorizontal, Smile } from 'lucide-react'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   addArticleComment,
   deleteArticleComment,
@@ -19,6 +20,7 @@ import {
   type ContentCommentsPage,
 } from '../../../entities/profile-content'
 import { ProfileLink } from '../../../entities/user'
+import { useLiveRefresh } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
 import {
   Avatar,
@@ -34,7 +36,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, toApiError } from '../../../shared/lib'
+import { relativeTime, toApiError, useFreshIds } from '../../../shared/lib'
 
 // Быстрый набор эмодзи — как в комментариях поста.
 const EMOJI_SET = [
@@ -124,6 +126,25 @@ export function ArticleComments({
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
+
+  // Живое обсуждение (§9.2d): сервер шлёт `post.comments.changed` с id статьи, когда под ней
+  // добавили или удалили комментарий, — перечитываем ветку. Свой комментарий уже дописан в
+  // кэш ответом сервера, поэтому лишний перезапрос после него ничего не сдвигает.
+  useLiveRefresh(REALTIME_EVENTS.postCommentsChanged, (envelope) =>
+    envelope.entityId === articleId ? [queryKey] : null,
+  )
+
+  // Реплики, пришедшие по сигналу, въезжают и подсвечиваются (`sh-live-in`). Считаем по первой
+  // странице — там самые свежие: догрузка «предыдущих» — не новость. Метка-точка отсчёта
+  // нужна пустой ветке: иначе первый же пришедший комментарий стал бы точкой отсчёта и не
+  // подсветился. Ключ из id — чтобы правка кэша с теми же репликами не перезапускала отсчёт.
+  const threadLoaded = q.data !== undefined
+  const newestKey = (q.data?.pages[0]?.items ?? []).map((c) => c.id).join('|')
+  const newestIds = useMemo(
+    () => (threadLoaded ? ['thread', ...newestKey.split('|').filter(Boolean)] : undefined),
+    [newestKey, threadLoaded],
+  )
+  const liveIds = useFreshIds(newestIds)
 
   const loaded = [
     ...new Map((q.data?.pages ?? []).flatMap((page) => page.items).map((c) => [c.id, c])).values(),
@@ -411,6 +432,7 @@ export function ArticleComments({
                     'flex gap-3',
                     c.id === freshId &&
                       'animate-in fade-in-0 slide-in-from-top-1 duration-200 motion-reduce:animate-none',
+                    c.id !== freshId && liveIds.has(c.id) && 'sh-live-in rounded-lg',
                   )}
                 >
                   <ProfileLink userId={c.author.id} className="shrink-0 self-start rounded-full">
