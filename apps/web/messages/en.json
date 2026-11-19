@@ -109,6 +109,8 @@
     "candidates": "Candidates",
     "careerAnalytics": "Metrics",
     "unreadMessages": "{count, plural, one {# unread message} other {# unread messages}}",
+    "attentionCount": "Needs attention: {count}",
+    "notificationsUnread": "Notifications, {count} unread",
     "demoRequests": "University requests",
     "setup": "University setup",
     "serviceCatalog": "Services",

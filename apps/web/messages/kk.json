@@ -109,6 +109,8 @@
     "candidates": "Үміткерлер",
     "careerAnalytics": "Метрикалар",
     "unreadMessages": "{count, plural, other {# оқылмаған хабарлама}}",
+    "attentionCount": "Назар аударуды қажет етеді: {count}",
+    "notificationsUnread": "Хабарландырулар, оқылмаған: {count}",
     "demoRequests": "Оқу орындарының өтінімдері",
     "setup": "Оқу орнын баптау",
     "serviceCatalog": "Қызметтер",
