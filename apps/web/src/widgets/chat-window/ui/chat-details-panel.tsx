@@ -44,7 +44,10 @@ import { FileTab, GifTab, LinksTab, MediaTab, PollsTab } from './shared-media'
 // Панель вкладки: flex-колонка не ниже экрана колонки — иначе на короткой вкладке
 // прилипшие вкладки отрывались бы от верха при переключении. `data-[state=active]:flex`,
 // а не `flex`: у неактивной вкладки Radix ставит `hidden`, и класс display его бы перебил.
-const TAB_PANE = 'mt-0 min-h-[calc(100dvh-9rem)] flex-col data-[state=active]:flex'
+// Вкладка занимает ровно видимую высоту колонки под прилипшими вкладками (`--tab-pane-h`
+// меряется ниже): выбрал вкладку — колонка доезжает до вкладок, и под ними содержимое или
+// пустая плашка во весь остаток экрана, без пустоты снизу и без прыжка к соседнему блоку.
+const TAB_PANE = 'mt-0 min-h-(--tab-pane-h,calc(100dvh-9rem)) flex-col data-[state=active]:flex'
 
 /** Насколько надо «дотянуть» колесом вверх у самого верха, чтобы развернуть фото. */
 const OVERSCROLL_EXPAND_PX = 80
@@ -132,6 +135,23 @@ export function ChatDetailsPanel({
   const [tab, setTab] = useState<string>(firstTab)
   const scrollRef = useRef<HTMLDivElement>(null)
   const tabsAnchorRef = useRef<HTMLDivElement>(null)
+  const tabsBarRef = useRef<HTMLDivElement>(null)
+
+  // Высота под вкладками = видимая высота колонки минус полоса вкладок. Меряем, а не
+  // угадываем через dvh: колонка бывает в сайдбаре, островом и экраном телефона.
+  useEffect(() => {
+    const sc = scrollRef.current
+    const bar = tabsBarRef.current
+    if (!sc || !bar || typeof ResizeObserver === 'undefined') return
+    const measure = (): void => {
+      sc.style.setProperty('--tab-pane-h', `${Math.max(0, sc.clientHeight - bar.offsetHeight)}px`)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(sc)
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [screen])
 
   // Открылась заново — с начала: профиль, первая вкладка, верх колонки, фото свёрнуто.
   useEffect(() => {
@@ -289,13 +309,19 @@ export function ChatDetailsPanel({
     if (expanded && (scrollRef.current?.scrollTop ?? 0) > 12) setPhotoExpanded(false)
   }
 
-  // Смена вкладки, когда вкладки уже прилипли: новая начинается с верха, под ними, а не с
-  // того места, куда долистали предыдущую.
-  function changeTab(next: string): void {
-    setTab(next)
+  // Выбор вкладки докатывает колонку до вкладок: они встают к верху, под ними — содержимое
+  // во всю оставшуюся высоту (как в Telegram). Уже прилипшие — новая вкладка начинается с
+  // верха, а не с того места, куда долистали предыдущую.
+  function scrollToTabs(): void {
     const sc = scrollRef.current
     const anchor = tabsAnchorRef.current
-    if (sc && anchor && sc.scrollTop > anchor.offsetTop) sc.scrollTop = anchor.offsetTop
+    if (!sc || !anchor || Math.abs(sc.scrollTop - anchor.offsetTop) < 1) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    sc.scrollTo({ top: anchor.offsetTop, behavior: reduce ? 'auto' : 'smooth' })
+  }
+  function changeTab(next: string): void {
+    setTab(next)
+    scrollToTabs()
   }
 
   function goTo(next: Screen): void {
@@ -449,7 +475,12 @@ export function ChatDetailsPanel({
                 сначала участники группы: «кто здесь» — вопрос раньше, чем «что присылали». */}
               <Tabs value={tab} onValueChange={changeTab} className="mt-3">
                 <div ref={tabsAnchorRef} aria-hidden />
-                <div className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md">
+                <div
+                  ref={tabsBarRef}
+                  // Нажатие и на уже открытую вкладку докатывает к ней — onValueChange тогда молчит.
+                  onClick={scrollToTabs}
+                  className="sticky top-0 z-10 bg-background/85 px-3 py-2 backdrop-blur-md"
+                >
                   <TabsList className="w-full sm:w-full" aria-label={t('tgRight.sharedTabs')}>
                     {isGroup && (
                       <TabsTrigger value="participants" className="flex-none">
