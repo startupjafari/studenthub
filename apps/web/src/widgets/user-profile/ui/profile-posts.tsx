@@ -134,8 +134,8 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
         {modal}
         <ContentLayout sidebar={<FilterSkeleton />}>
           <MosaicGrid aria-hidden>
-            {Array.from({ length: 14 }).map((_, i) => (
-              <MosaicTile key={i} index={i}>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MosaicTile key={i}>
                 <Skeleton className="size-full rounded-none" />
               </MosaicTile>
             ))}

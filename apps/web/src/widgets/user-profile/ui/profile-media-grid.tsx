@@ -31,7 +31,6 @@ import {
   MosaicGrid,
   MosaicTile,
   Skeleton,
-  mosaicShape,
   useConfirm,
 } from '../../../shared/ui'
 import { MediaLightbox } from './media-lightbox'
@@ -56,13 +55,9 @@ function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-// Ширина плитки в раскладке — по ней браузер берёт копию нужного размера: высокая и широкая
-// плитки вдвое крупнее квадрата по одной из сторон, им нужна копия побольше.
-function tileSizes(index: number): string {
-  return mosaicShape(index) === 'square'
-    ? '(max-width: 640px) 33vw, 360px'
-    : '(max-width: 640px) 66vw, 720px'
-}
+// Ширина плитки в раскладке — по ней браузер берёт копию нужного размера: на телефоне
+// треть экрана, на десктопе плитка не шире ~360px (3–4 колонки рядом с фильтрами).
+const TILE_SIZES = '(max-width: 640px) 33vw, 360px'
 
 interface ProfileMediaGridProps {
   userId: string
@@ -183,19 +178,14 @@ export function ProfileMediaGrid({
   // «занято 3 МБ из 2 ГБ» у каждого профиля — шум.
   const usage = mediaUsage(q.data ?? [])
   const showUsage = isOwner && mediaQuotaNear(usage)
-  // Порция — полный цикл мозаики (14 плиток): каждая догрузка достраивает узор до конца.
+  // Порция — 12 плиток: делится и на 3, и на 4 колонки, догрузка достраивает ряды целиком.
   const { shown, pending, sentinelRef } = useProgressive(
     items.length,
-    14,
+    12,
     `${kind}|${albumFilter}|${sort}`,
   )
   const skeletonTail = Array.from({ length: pending }, (_, j) => (
-    <MosaicTile
-      key={`pending-${j}`}
-      ref={j === 0 ? sentinelRef : undefined}
-      index={shown + j}
-      aria-hidden
-    >
+    <MosaicTile key={`pending-${j}`} ref={j === 0 ? sentinelRef : undefined} aria-hidden>
       <Skeleton className="size-full rounded-none" />
     </MosaicTile>
   ))
@@ -284,8 +274,8 @@ export function ProfileMediaGrid({
       ) : !q.data ? (
         <ContentLayout sidebar={<FilterSkeleton groups={isPhoto ? 2 : 1} />}>
           <MosaicGrid aria-hidden>
-            {Array.from({ length: 14 }).map((_, i) => (
-              <MosaicTile key={i} index={i}>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <MosaicTile key={i}>
                 <Skeleton className="size-full rounded-none" />
               </MosaicTile>
             ))}
@@ -417,7 +407,7 @@ export function ProfileMediaGrid({
             ) : isPhoto ? (
               <MosaicGrid>
                 {items.slice(0, shown).map((m, i) => (
-                  <MosaicTile key={m.id} index={i}>
+                  <MosaicTile key={m.id}>
                     <button
                       type="button"
                       onClick={() => setLightbox(i)}
@@ -430,7 +420,7 @@ export function ProfileMediaGrid({
                         src={m.url}
                         media={m}
                         alt=""
-                        sizes={tileSizes(i)}
+                        sizes={TILE_SIZES}
                         className="size-full"
                         imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
                       />
@@ -466,7 +456,6 @@ export function ProfileMediaGrid({
                 {items.slice(0, shown).map((m, i) => (
                   <VideoTile
                     key={m.id}
-                    index={i}
                     media={m}
                     label={t('tabVideos')}
                     onOpen={() => setLightbox(i)}
@@ -570,16 +559,14 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
   )
 }
 
-// Плитка видео в мозаике: постер во всю плитку, длительность внизу (из медиа-системы или метаданных).
+// Плитка видео в сетке: постер во всю плитку, длительность внизу (из медиа-системы или метаданных).
 function VideoTile({
-  index,
   media,
   label,
   onOpen,
   onDelete,
   deleteLabel,
 }: {
-  index: number
   media: ProfileMedia
   label: string
   onOpen: () => void
@@ -592,7 +579,7 @@ function VideoTile({
   // Постер — картинка: плитке не нужно тянуть начало ролика ради первого кадра.
   const poster = media.posterUrl ?? media.poster?.at(-1)?.url
   return (
-    <MosaicTile index={index}>
+    <MosaicTile>
       <button
         type="button"
         onClick={onOpen}
@@ -609,7 +596,7 @@ function VideoTile({
                 : { ...media, sources: media.poster }
             }
             alt=""
-            sizes={tileSizes(index)}
+            sizes={TILE_SIZES}
             className="size-full bg-neutral-900"
             imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
