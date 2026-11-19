@@ -1634,6 +1634,8 @@
     "pollShowResults": "К результатам",
     "pollYourVote": "Ваш голос",
     "pollDeleteConfirm": "Удалить опрос?",
+    "pollTitle": "Опрос",
+    "pollMoreOptions": "+{count, plural, one {# вариант} few {# варианта} many {# вариантов} other {# варианта}}",
     "copy": "Копировать",
     "copied": "Скопировано",
     "copyFailed": "Не удалось скопировать",

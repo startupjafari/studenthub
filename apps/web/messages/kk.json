@@ -1634,6 +1634,8 @@
     "pollShowResults": "Нәтижелерге",
     "pollYourVote": "Сіздің дауысыңыз",
     "pollDeleteConfirm": "Сауалнаманы жою керек пе?",
+    "pollTitle": "Сауалнама",
+    "pollMoreOptions": "+{count} нұсқа",
     "copy": "Көшіру",
     "copied": "Көшірілді",
     "copyFailed": "Көшіру мүмкін болмады",
