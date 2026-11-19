@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -49,6 +50,8 @@ import {
   relativeTime,
   srcSetOf,
   toApiError,
+  MOTION,
+  prefersReducedMotion,
   useBackClose,
   useBodyScrollLock,
   useHls,
@@ -65,6 +68,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   MediaImage,
+  flyFromOrigin,
+  flyToOrigin,
   useConfirm,
 } from '../../../shared/ui'
 import {
@@ -347,7 +352,6 @@ export function StoryViewer({
   const positions = useRef<Record<string, number>>({})
 
   useBodyScrollLock(true, true)
-  useBackClose(onClose)
 
   const ring = rings[ringIndex]
   const highlight = highlights?.[ringIndex]
@@ -361,10 +365,19 @@ export function StoryViewer({
   const reportOpen = reporting !== null
   const sheetOpen =
     viewersOpen || reportOpen || shareOpen || audienceOpen || highlightPickOpen || highlightEditOpen
+  // Окно садится обратно в кружок — кадр на это время стоит, а слой не ловит нажатия.
+  const [closing, setClosing] = useState(false)
   // Пауза — это сумма причин. Ручная пауза (пробел, кнопка) живёт отдельно от остальных:
   // закрыли панель опроса или меню — кадр продолжит, только если его не останавливали руками.
   const paused =
-    holding || manualPause || menuOpen || sheetOpen || tabHidden || replying || expanded !== null
+    holding ||
+    manualPause ||
+    menuOpen ||
+    sheetOpen ||
+    tabHidden ||
+    replying ||
+    expanded !== null ||
+    closing
 
   // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
   // просмотренными.
@@ -372,6 +385,89 @@ export function StoryViewer({
     void qc.invalidateQueries({ queryKey: storyKeys.all })
     onClose()
   }, [onClose, qc])
+
+  // Полёт кадра из кружка и обратно (как в Telegram): открытие вырастает из кольца в ленте,
+  // в «Актуальном» или вокруг аватара профиля, закрытие садится в кольцо того, кого смотрели
+  // последним. Кружок находим по `data-story-origin` — окно не знает, кто его открыл.
+  const contentRef = useRef<HTMLDivElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closingRef = useRef(false)
+  const chromeEls = (): HTMLElement[] =>
+    Array.from(contentRef.current?.querySelectorAll<HTMLElement>('[data-story-chrome]') ?? [])
+
+  const flewInRef = useRef(false)
+  useLayoutEffect(() => {
+    if (flewInRef.current || !frameEl) return
+    flewInRef.current = true
+    if (typeof frameEl.animate !== 'function' || prefersReducedMotion()) return
+    const enter = { duration: MOTION.modal, easing: MOTION.ease }
+    backdropRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], enter)
+    // Соседи и стрелки проявляются до своей прозрачности (у превью она своя, 0.6).
+    for (const el of chromeEls()) {
+      el.animate([{ opacity: 0 }, { opacity: getComputedStyle(el).opacity }], enter)
+    }
+    const flight = flyFromOrigin(
+      frameEl,
+      findStoryOrigin(ringKey(startIndex)),
+      frameEl.offsetWidth / frameEl.offsetHeight,
+    )
+    // Открыли не из кружка (ссылка на сторис) или кружок за краем окна — кадр просто
+    // проявляется с лёгким приближением.
+    if (!flight) {
+      frameEl.animate(
+        [
+          { opacity: 0, transform: 'scale(0.94)' },
+          { opacity: 1, transform: 'scale(1)' },
+        ],
+        enter,
+      )
+    }
+    // Один раз, когда кадр появился в разметке; дальше кольца листаются без полёта (флаг выше).
+  }, [frameEl])
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current)
+    },
+    [],
+  )
+
+  // Закрытие с полётом обратно: крестик, Esc, смахивание вниз, «назад», конец ленты. Уход
+  // по ссылке (профиль автора, событие) закрывает сразу — экран всё равно сменится.
+  const closeAnimated = useCallback(
+    (direction?: 1 | -1) => {
+      if (closingRef.current) return
+      const frame = frameEl
+      if (!frame || typeof frame.animate !== 'function' || prefersReducedMotion()) {
+        close()
+        return
+      }
+      closingRef.current = true
+      setClosing(true)
+      const exit = { duration: MOTION.exit, easing: MOTION.ease, fill: 'forwards' as const }
+      backdropRef.current?.animate([{ opacity: 0 }], exit)
+      for (const el of chromeEls()) el.animate([{ opacity: 0 }], exit)
+      let finished = false
+      const done = (): void => {
+        if (finished) return
+        finished = true
+        if (closeTimer.current) clearTimeout(closeTimer.current)
+        close()
+      }
+      const flight = flyToOrigin({
+        media: frame,
+        layer: null,
+        origin: findStoryOrigin(ringKey(ringIndex)),
+        ratio: frame.offsetWidth / frame.offsetHeight,
+        direction,
+      })
+      if (flight) flight.onfinish = done
+      closeTimer.current = setTimeout(done, MOTION.exit + 80)
+    },
+    [close, frameEl, ringIndex, ringKey],
+  )
+  useBackClose(closeAnimated)
 
   // Переход к другому автору: запоминаем, где остановились у текущего, у нового — его
   // сохранённый кадр или первый непросмотренный.
@@ -389,8 +485,8 @@ export function StoryViewer({
 
   const goNextRing = useCallback(() => {
     if (ringIndex + 1 < rings.length) openRing(ringIndex + 1)
-    else close()
-  }, [close, openRing, ringIndex, rings.length])
+    else closeAnimated()
+  }, [closeAnimated, openRing, ringIndex, rings.length])
 
   const goPrevRing = useCallback(() => {
     if (ringIndex > 0) openRing(ringIndex - 1)
@@ -560,7 +656,7 @@ export function StoryViewer({
       else goPrevRing()
     } else if (dy > SWIPE_DOWN_PX && dy > Math.abs(dx)) {
       swallowTap.current = true
-      close()
+      closeAnimated(1)
     }
   }
   const tap = (go: () => void) => () => {
@@ -992,7 +1088,7 @@ export function StoryViewer({
             icon
             aria-label={tCommon('close')}
             className={iconButton}
-            onClick={close}
+            onClick={() => closeAnimated()}
           >
             <X className="size-5" aria-hidden />
           </Button>
@@ -1279,7 +1375,7 @@ export function StoryViewer({
     <DialogPrimitive.Root
       open
       onOpenChange={(next) => {
-        if (!next) close()
+        if (!next) closeAnimated()
       }}
     >
       <DialogPrimitive.Portal>
@@ -1291,9 +1387,15 @@ export function StoryViewer({
             e.preventDefault()
             setExpanded(null)
           }}
-          className="fixed inset-0 z-50 overflow-hidden bg-black/95 outline-none"
+          ref={contentRef}
+          className={cn(
+            'fixed inset-0 z-50 overflow-hidden outline-none',
+            closing && 'pointer-events-none',
+          )}
           style={{ '--frame-w': FRAME_W } as CSSProperties}
         >
+          {/* Фон — отдельным слоем: при полёте кадра он проявляется и гаснет сам по себе. */}
+          <div ref={backdropRef} className="absolute inset-0 bg-black/95" aria-hidden />
           <DialogPrimitive.Title className="sr-only">
             {highlight
               ? t('openHighlight', { title: highlight.title })
@@ -1304,6 +1406,7 @@ export function StoryViewer({
             return (
               <div
                 key={ringKey(index)}
+                data-story-chrome={active ? undefined : ''}
                 className={cn(
                   'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[calc(var(--frame-w)*16/9)] sm:w-(--frame-w)',
                   'sm:[transform:translate(-50%,-50%)_translateX(var(--story-x))_scale(var(--story-s))]',
@@ -1335,6 +1438,7 @@ export function StoryViewer({
               Центрирует обёртка, а не кнопка: у кнопки при нажатии свой сдвиг
               (`active:translate-y-px`), и он затирал центровку — стрелка прыгала вниз. */}
           <div
+            data-story-chrome=""
             className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
             style={{ left: `calc(50% - ${ARROW_X})` }}
           >
@@ -1352,6 +1456,7 @@ export function StoryViewer({
             </Button>
           </div>
           <div
+            data-story-chrome=""
             className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
             style={{ left: `calc(50% + ${ARROW_X})` }}
           >
@@ -1400,6 +1505,22 @@ export function StoryViewer({
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   )
+}
+
+/**
+ * Кружок, из которого открыли кольцо (`data-story-origin` = автор или подборка): первый
+ * видимый в окне. Одно и то же кольцо бывает в двух местах страницы — берём то, что видно.
+ */
+function findStoryOrigin(key: string): HTMLElement | null {
+  if (!key || typeof document === 'undefined') return null
+  for (const el of document.querySelectorAll<HTMLElement>('[data-story-origin]')) {
+    if (el.dataset.storyOrigin !== key) continue
+    const r = el.getBoundingClientRect()
+    if (r.width > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth) {
+      return el
+    }
+  }
+  return null
 }
 
 /**

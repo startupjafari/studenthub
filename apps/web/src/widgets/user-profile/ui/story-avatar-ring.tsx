@@ -27,7 +27,9 @@ export function StoryAvatarRing({
 }) {
   if (!ring) return <>{children}</>
   return (
+    // Метка кружка: окно сторис вырастает отсюда и садится обратно сюда же.
     <div
+      data-story-origin={ring.author.id}
       className={cn(
         'size-full rounded-full p-[3px]',
         ring.hasUnseen
