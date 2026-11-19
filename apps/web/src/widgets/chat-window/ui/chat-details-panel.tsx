@@ -16,14 +16,14 @@ import {
   type ChatListItem,
 } from '../../../entities/chat'
 import { fetchUserById, userKeys } from '../../../entities/user'
-import { Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger, useConfirm } from '../../../shared/ui'
 import { afterOverlayClose } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ColumnNavigateProvider, interceptableHref } from '../lib/column-navigation'
 import { useTabSwipe } from '../lib/use-tab-swipe'
 import { isOfficialChat } from '../lib/format'
 import { ChatMembersList, lastSeenText } from './chat-members-list'
-import { EditGroupDialog } from './edit-group-dialog'
+import { EDIT_GROUP_FORM_ID, EditGroupScreen, type EditGroupState } from './edit-group-screen'
 import {
   AddMembersScreen,
   GroupManagement,
@@ -53,6 +53,14 @@ const TAB_PANE = 'mt-0 min-h-(--tab-pane-h,calc(100dvh-9rem)) flex-col data-[sta
 const OVERSCROLL_EXPAND_PX = 80
 
 type Screen = ManageScreen | 'addMembers' | null
+
+/** Глубина экрана колонки: по ней понятно, шаг вглубь это или назад. */
+function screenDepth(screen: Screen): number {
+  if (screen === null) return 0
+  if (screen === 'addMembers' || screen === 'main') return 1
+  if (screen === 'addAdmin') return 3
+  return 2
+}
 
 /** Кнопка шапки колонки: того же размера, что у шапки чата, — обе шапки одной высоты. */
 const HEADER_BTN =
@@ -128,7 +136,10 @@ export function ChatDetailsPanel({
       (chat.type === 'GROUP' && chat.permissions?.changeInfo === true))
 
   const [screen, setScreen] = useState<Screen>(null)
-  const [editOpen, setEditOpen] = useState(false)
+  // Откуда въезжает новый экран колонки: вглубь — справа, назад — слева.
+  const [enterFrom, setEnterFrom] = useState<'right' | 'left'>('right')
+  // «Сохранить» правки группы живёт в шапке колонки, а состояние формы — на её экране.
+  const [editState, setEditState] = useState<EditGroupState>({ canSave: false, saving: false })
   const [expanded, setExpanded] = useState(false)
   const firstTab = isGroup ? 'participants' : 'media'
   // Тип — string: Radix отдаёт в onValueChange обычную строку.
@@ -158,6 +169,7 @@ export function ChatDetailsPanel({
     if (!open) return
     setTab(firstTab)
     setScreen(null)
+    setEnterFrom('right')
     setExpanded(false)
     scrollRef.current?.scrollTo({ top: 0 })
   }, [open, firstTab])
@@ -325,6 +337,7 @@ export function ChatDetailsPanel({
   }
 
   function goTo(next: Screen): void {
+    setEnterFrom(screenDepth(next) >= screenDepth(screen) ? 'right' : 'left')
     setScreen(next)
     scrollRef.current?.scrollTo({ top: 0 })
   }
@@ -423,6 +436,18 @@ export function ChatDetailsPanel({
           <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">
             {headerTitle}
           </span>
+          {screen === 'editInfo' && (
+            <Button
+              type="submit"
+              form={EDIT_GROUP_FORM_ID}
+              size="sm"
+              loading={editState.saving}
+              disabled={!editState.canSave}
+              className="mr-1"
+            >
+              {t('save')}
+            </Button>
+          )}
           {screen === null && canEdit && (
             <button
               type="button"
@@ -442,7 +467,14 @@ export function ChatDetailsPanel({
           className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
         >
           {screen === null ? (
-            <>
+            // Возврат к профилю — въезд слева; первое открытие колонки — без сдвига.
+            <div
+              key="profile"
+              className={cn(
+                enterFrom === 'left' &&
+                  'duration-(--motion-page) animate-in fade-in-0 slide-in-from-left-8',
+              )}
+            >
               <ProfileHero
                 id={chat.id}
                 title={title}
@@ -540,16 +572,26 @@ export function ChatDetailsPanel({
                   </TabsContent>
                 </div>
               </Tabs>
-            </>
+            </div>
           ) : screen === 'addMembers' ? (
-            <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+            <div className="duration-(--motion-page) animate-in fade-in-0 slide-in-from-right-8">
+              <AddMembersScreen chat={chat} onDone={() => goTo(null)} />
+            </div>
+          ) : screen === 'editInfo' ? (
+            <EditGroupScreen
+              chat={chat}
+              title={title}
+              onDone={() => goTo('main')}
+              onStateChange={setEditState}
+            />
           ) : (
             <GroupManagement
+              enterFrom={enterFrom}
               chat={chat}
               myId={myId}
               screen={screen}
               onNavigate={goTo}
-              onEditInfo={() => setEditOpen(true)}
+              onEditInfo={() => goTo('editInfo')}
               onOpenChat={onOpenChat}
               onLeft={onLeft}
             />
@@ -567,10 +609,6 @@ export function ChatDetailsPanel({
           >
             <UserPlus className="size-6" aria-hidden />
           </button>
-        )}
-
-        {editOpen && (
-          <EditGroupDialog chat={chat} title={title} onClose={() => setEditOpen(false)} />
         )}
       </div>
     </ColumnNavigateProvider>
