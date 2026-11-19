@@ -15,6 +15,7 @@ import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
+import { PopBadge } from './pop-badge'
 import { badgeText, navBadgeOf, type NavBadges } from '../lib/use-nav-badges'
 import { careerHomeFor, hasCareerProduct, isNavHrefActive, isNavItemActive } from '../model/nav'
 import type { NavItem } from '../model/nav'
@@ -231,14 +232,10 @@ export function AppSidebar({
               )}
             >
               <Bell className="size-5" aria-hidden />
-              {badges.notifications > 0 && (
-                <span
-                  aria-hidden
-                  className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground ring-2 ring-sidebar"
-                >
-                  {badgeText(badges.notifications)}
-                </span>
-              )}
+              <PopBadge
+                count={badges.notifications}
+                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.6rem] font-bold tabular-nums text-primary-foreground ring-2 ring-sidebar"
+              />
             </button>
           </div>
           <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2">
@@ -277,18 +274,15 @@ export function AppSidebar({
                     >
                       <Icon className="size-5 shrink-0" aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{tNav(item.key)}</span>
-                      {count > 0 && (
-                        <span
-                          aria-label={
-                            item.key === 'chats'
-                              ? tNav('unreadMessages', { count })
-                              : tNav('attentionCount', { count })
-                          }
-                          className={ROW_BADGE}
-                        >
-                          {badgeText(count)}
-                        </span>
-                      )}
+                      <PopBadge
+                        count={count}
+                        className={ROW_BADGE}
+                        label={
+                          item.key === 'chats'
+                            ? tNav('unreadMessages', { count })
+                            : tNav('attentionCount', { count })
+                        }
+                      />
                     </NavLink>
                   )
                 })}

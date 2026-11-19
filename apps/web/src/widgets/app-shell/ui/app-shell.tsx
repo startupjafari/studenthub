@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { Role } from '@studenthub/shared-types'
 import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
+import { PopBadge } from './pop-badge'
 import { badgeText, navBadgeOf, useNavBadges, type NavBadges } from '../lib/use-nav-badges'
 import { endSession } from '../../../shared/session'
 import {
@@ -505,10 +506,11 @@ function BottomNav({
               />
               {/* Счётчик на кнопке нужен только пока она — «Ещё»: в режиме крестика число
                   ни при чём, а открытое меню само показывает его в строке «Уведомления». */}
-              {count > 0 && !closeMode && (
-                <span className="absolute -top-2 -right-2.5 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground">
-                  {badge}
-                </span>
+              {!closeMode && (
+                <PopBadge
+                  count={count}
+                  className="absolute -top-2 -right-2.5 flex min-w-[1.05rem] items-center justify-center rounded-full bg-primary px-1 text-[0.5625rem] font-bold text-primary-foreground"
+                />
               )}
             </span>
           </button>

@@ -435,6 +435,28 @@
   animation: status-in var(--motion-large) var(--motion-ease);
 }
 
+/* Бейдж счётчика вырос (useBumpKey): короткий «щелчок» масштабом — новое заметно, но не
+   мигает. Уменьшенное движение — без анимации. */
+@keyframes sh-badge-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.sh-badge-pop {
+  animation: sh-badge-pop var(--motion-panel) var(--motion-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sh-badge-pop {
+    animation: none;
+  }
+}
+
 /* Новый элемент списка, пришедший по сокету (useFreshIds): въезжает и коротко подсвечивается
    цветом акцента, который гаснет к фону. Подсветка — фоном через box-shadow inset, чтобы не
    спорить со своим фоном строки. Уменьшенное движение — без въезда, только подсветка. */
