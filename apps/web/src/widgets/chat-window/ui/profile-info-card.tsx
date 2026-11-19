@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -10,6 +10,8 @@ import {
   Bell,
   BellOff,
   Briefcase,
+  Check,
+  Copy,
   Clock,
   GraduationCap,
   Globe,
@@ -42,6 +44,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Button,
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
@@ -237,6 +240,69 @@ export function PeerInfoRows({ userId }: { userId: string }) {
 }
 
 /** Описание группы и ссылка-приглашение (её сервер выдаёт только админам). */
+/** Сколько кнопка показывает «Скопировано», прежде чем вернуться к «Скопировать». */
+const COPIED_MS = 2000
+
+/**
+ * Ссылка-приглашение — как в веб-приложениях (Slack, Discord, Notion): ссылка одной строкой
+ * в поле только для чтения и кнопка «Скопировать» рядом, которая на пару секунд становится
+ * «Скопировано ✓». Раньше это была длинная синяя ссылка в три строки, и что по ней нажать,
+ * чтобы скопировать, догадаться было нельзя.
+ */
+function InviteLinkRow({ url }: { url: string }) {
+  const t = useTranslations('Chats')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const id = window.setTimeout(() => setCopied(false), COPIED_MS)
+    return () => window.clearTimeout(id)
+  }, [copied])
+
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      toast.success(t('tgRight.inviteCopied'))
+    } catch {
+      // Буфер недоступен (нет разрешения, небезопасный контекст) — ссылку видно в поле,
+      // её можно выделить и скопировать руками.
+      toast.error(t('tgStickers.linkCopyFailed'))
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-4 px-4 py-2.5">
+      <Link2 className="mt-2 size-5 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <input
+            readOnly
+            value={url.replace(/^https?:\/\//, '')}
+            aria-label={t('tgRight.inviteLink')}
+            onFocus={(e) => e.currentTarget.select()}
+            className="h-9 min-w-0 flex-1 truncate rounded-lg border border-input bg-muted/40 px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant={copied ? 'secondary' : 'default'}
+            onClick={() => void copy()}
+            className="shrink-0"
+          >
+            {copied ? (
+              <Check className="size-4" aria-hidden />
+            ) : (
+              <Copy className="size-4" aria-hidden />
+            )}
+            {copied ? t('tgRight.inviteCopiedShort') : t('tgRight.inviteCopy')}
+          </Button>
+        </div>
+        <span className="mt-1 block text-xs text-muted-foreground">{t('tgRight.inviteLink')}</span>
+      </div>
+    </div>
+  )
+}
+
 export function GroupInfoRows({ chat }: { chat: ChatListItem }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
@@ -285,9 +351,7 @@ export function GroupInfoRows({ chat }: { chat: ChatListItem }) {
       )}
       {canInvite &&
         (inviteUrl ? (
-          <InfoRow icon={Link2} label={t('tgRight.inviteLink')} copyValue={inviteUrl}>
-            <span className="break-all text-primary">{inviteUrl.replace(/^https?:\/\//, '')}</span>
-          </InfoRow>
+          <InviteLinkRow url={inviteUrl} />
         ) : invite.isError ? (
           <div className="flex items-start gap-4 px-4 py-2.5">
             <Link2 className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
