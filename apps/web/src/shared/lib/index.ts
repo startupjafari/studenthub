@@ -36,6 +36,7 @@ export { useScrollRow, type ScrollRowController } from './use-scroll-row'
 export { useCountUp } from './use-count-up'
 export { MOTION, staggerDelay } from './motion'
 export { modalOriginRef } from './modal-origin'
+export { useFreshIds } from './use-fresh-ids'
 export {
   createSpring,
   projectMomentum,

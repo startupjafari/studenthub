@@ -435,6 +435,34 @@
   animation: status-in var(--motion-large) var(--motion-ease);
 }
 
+/* Новый элемент списка, пришедший по сокету (useFreshIds): въезжает и коротко подсвечивается
+   цветом акцента, который гаснет к фону. Подсветка — фоном через box-shadow inset, чтобы не
+   спорить со своим фоном строки. Уменьшенное движение — без въезда, только подсветка. */
+@keyframes sh-live-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@keyframes sh-live-glow {
+  from {
+    box-shadow: inset 0 0 0 999px color-mix(in oklab, var(--primary) 14%, transparent);
+  }
+  to {
+    box-shadow: inset 0 0 0 999px transparent;
+  }
+}
+.sh-live-in {
+  animation:
+    sh-live-in var(--motion-panel) var(--motion-ease),
+    sh-live-glow 1600ms var(--motion-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sh-live-in {
+    animation: sh-live-glow 1600ms var(--motion-ease);
+  }
+}
+
 /* Каскад появления блоков экрана (панели чата, экраны управления): дети въезжают по очереди
    с шагом 40 мс и потолком на восьмом — длинный каскад заставлял бы ждать уже пришедшее
    (тот же шаг, что staggerDelay в shared/lib/motion.ts). `backwards` держит блок невидимым

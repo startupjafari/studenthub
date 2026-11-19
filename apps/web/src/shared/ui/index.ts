@@ -149,6 +149,7 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from './tabs'
 export { Progress, type ProgressProps } from './progress'
 export { UploadProgress, type UploadProgressProps } from './upload-progress'
 export { MosaicGrid, MosaicTile } from './mosaic-grid'
+export { NewItemsPill } from './new-items-pill'
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './tooltip'
 export {
   DropdownMenu,
