@@ -90,6 +90,7 @@ function setup() {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   )
   /** Job'ы выборки превью — уведомления о новом сообщении идут в ту же очередь-заглушку. */
   const previewJobs = () =>

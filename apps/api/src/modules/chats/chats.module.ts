@@ -3,6 +3,7 @@ import { StoriesModule } from '../stories/stories.module'
 import { FilesModule } from '../files/files.module'
 import { PostsModule } from '../posts/posts.module'
 import { NotificationsModule } from '../notifications/notifications.module'
+import { FriendsRealtimeModule } from '../friends/friends-realtime.module'
 import { ChatsService } from './chats.service'
 import { SupportController } from './support.controller'
 import { SupportService } from './support.service'
@@ -34,8 +35,9 @@ import { ChatGroupsController } from './chat-groups.controller'
 // Чаты (docs/PROJECT.md §3.6, задачи Ф9). Владеет Chat/ChatMember/Message.
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
 // QueueService (job new-message) — из глобального QueueModule. FilesModule — вложения (FileService).
+// FriendsRealtimeModule — сигнал «дружба удалена» второй стороне при блокировке (§9.2d).
 @Module({
-  imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
+  imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule, FriendsRealtimeModule],
   // Контроллеры со статическим префиксом (`chats/folders`, `chats/checklists`,
   // `chats/stickers`, `chats/gifs`, `chats/settings`, `chats/link-preview`) — первыми: их пути
   // не должны попасть в `chats/:id`.
