@@ -1634,6 +1634,8 @@
     "pollShowResults": "Back to results",
     "pollYourVote": "Your vote",
     "pollDeleteConfirm": "Delete poll?",
+    "pollTitle": "Poll",
+    "pollMoreOptions": "+{count, plural, one {# option} other {# options}}",
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Could not copy",
