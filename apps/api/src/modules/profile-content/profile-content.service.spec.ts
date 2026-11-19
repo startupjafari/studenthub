@@ -138,6 +138,8 @@ function setup() {
     visibleCompanyIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
     visibleUniversityPageIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
   }
+  // Сигнал «обсуждение статьи изменилось» (§9.2d): адресация — в article-live-events.spec.
+  const articleLive = { commentsChanged: jest.fn().mockResolvedValue(undefined) }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
@@ -149,8 +151,21 @@ function setup() {
     redis as never,
     polls as never,
     careerAccess as never,
+    articleLive as never,
   )
-  return { service, prisma, files, users, media, audit, queue, redisMulti, polls, careerAccess }
+  return {
+    service,
+    prisma,
+    files,
+    users,
+    media,
+    audit,
+    queue,
+    redisMulti,
+    polls,
+    careerAccess,
+    articleLive,
+  }
 }
 
 // Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
@@ -805,7 +820,7 @@ describe('ProfileContentService — снятие модератором (E-F08)'
   })
 
   it('комментарий: владелец статьи удаляет чужой комментарий без аудита, посторонний — нет', async () => {
-    const { service, prisma, audit } = setup()
+    const { service, prisma, audit, articleLive } = setup()
     prisma.contentComment.findUnique.mockResolvedValue({
       authorId: 'guest',
       articleId: 'a1',
@@ -815,12 +830,15 @@ describe('ProfileContentService — снятие модератором (E-F08)'
     await service.deleteArticleComment(user('me'), 'a1', 'c1', ctx)
     expect(prisma.contentComment.delete).toHaveBeenCalledTimes(1)
     expect(audit.record).not.toHaveBeenCalled()
+    expect(articleLive.commentsChanged).toHaveBeenCalledWith('a1')
+    articleLive.commentsChanged.mockClear()
 
     const err = await service
       .deleteArticleComment(user('stranger'), 'a1', 'c1', ctx)
       .catch((e) => e)
     expect(err.code).toBe('FORBIDDEN')
     expect(prisma.contentComment.delete).toHaveBeenCalledTimes(1)
+    expect(articleLive.commentsChanged).not.toHaveBeenCalled()
   })
 })
 
@@ -1080,13 +1098,15 @@ describe('ProfileContentService — комментарии статьи: стр�
   })
 
   it('новый комментарий — автору статьи свёрнутое уведомление; свой и при блокировке — нет', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, articleLive } = setup()
     prisma.profileArticle.findUnique
       .mockResolvedValueOnce(visibleArticle)
       .mockResolvedValueOnce({ allowComments: true, userId: 'owner' })
     prisma.contentComment.create.mockResolvedValue(comment('c1'))
 
     await service.addArticleComment(reader, 'a1', { content: 'x' })
+    // Читающим статью — сигнал «обсуждение изменилось» (§9.2d).
+    expect(articleLive.commentsChanged).toHaveBeenCalledWith('a1')
     expect(queue.enqueue).toHaveBeenCalledWith(
       'notifications',
       'comment-added',

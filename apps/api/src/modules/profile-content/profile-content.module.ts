@@ -5,15 +5,18 @@ import { PollsModule } from '../polls/polls.module'
 import { CareerModule } from '../career/career.module'
 import { ProfileContentService } from './profile-content.service'
 import { ProfileContentController } from './profile-content.controller'
+import { ArticleLiveEvents } from './article-live-events'
 
 // Контент профиля (вкладки: Фото/Видео, Статьи, Вопрос-ответ).
 // Владеет ProfileArticle/ProfileQa; фото/видео — бакет profile-media через FileService.
 // PollsModule — число опросов автора для счётчиков вкладок (таблица опросов — его).
 // CareerModule — контент страницы компании: её видимость и право публиковать от её имени.
+// ArticleLiveEvents — сигнал «обсуждение статьи изменилось» (§9.2d); RealtimeGateway — из
+// глобального модуля.
 @Module({
   imports: [FilesModule, UsersModule, PollsModule, CareerModule],
   controllers: [ProfileContentController],
-  providers: [ProfileContentService],
+  providers: [ProfileContentService, ArticleLiveEvents],
   exports: [ProfileContentService],
 })
 export class ProfileContentModule {}
