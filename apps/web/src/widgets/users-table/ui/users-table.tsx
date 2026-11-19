@@ -16,7 +16,7 @@ import {
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { saveFile, useMediaQuery } from '../../../shared/lib'
+import { cn, saveFile, useMediaQuery } from '../../../shared/lib'
 import {
   adminUserKeys,
   blockUserRequest,
@@ -30,6 +30,7 @@ import {
   userKeys,
   type AdminUser,
 } from '../../../entities/user'
+import { useAdminListLive } from '../../../entities/admin-list'
 import { AcademicRecordModal } from '../../../features/edit-academic-record'
 import {
   AlertDialog,
@@ -174,6 +175,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   })
   const total = users.data?.total ?? 0
   const rows = users.data?.items ?? []
+  // Живой список (§9.2d): регистрация по инвайту, блокировка, смена роли и удаление —
+  // в том числе сделанные коллегой — видны без перезагрузки; новые строки подсвечиваются.
+  const fresh = useAdminListLive('users', [adminUserKeys.all], { ids: rows.map((u) => u.id) })
 
   // Новый фильтр или порядок — снова с первой страницы: на «странице 5» отфильтрованной
   // выборки может не быть строк вовсе, а после смены сортировки там уже другие строки.
@@ -315,7 +319,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 <TableSkeletonRows columns={(isWide ? 4 : 2) + (hasActions ? 1 : 0)} />
               )}
               {rows.map((u) => (
-                <TableRow key={u.id}>
+                <TableRow key={u.id} className={cn(fresh.has(u.id) && 'sh-live-in')}>
                   <TableCell className="font-medium">
                     <ProfileLink
                       userId={u.id}
