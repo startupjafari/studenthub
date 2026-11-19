@@ -28,7 +28,7 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
-      deleteMany: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     eventComment: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -65,6 +65,8 @@ function setup() {
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed') }
   const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY' }) }
   const config = { get: jest.fn().mockReturnValue('posts-media') }
+  // Сигналы сокета вузу события (§9.2d) — заглушка, проверяется по вызовам.
+  const live = { changed: jest.fn() }
   const service = new EventsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -72,8 +74,9 @@ function setup() {
     files as unknown as FileService,
     media as unknown as MediaService,
     config as unknown as ConfigService<never, true>,
+    live as never,
   )
-  return { service, prisma, queue, audit, files }
+  return { service, prisma, queue, audit, files, live }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -227,7 +230,7 @@ describe('EventsService — управление и регистрация', () 
   })
 
   it('регистрация идемпотентна (P2002 не ошибка)', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, live } = setup()
     prisma.event.findFirst.mockResolvedValue({
       id: 'e1',
       startsAt: new Date(Date.now() + 86_400_000),
@@ -244,6 +247,8 @@ describe('EventsService — управление и регистрация', () 
     prisma.eventParticipant.create.mockRejectedValue(p2002)
     const res = await service.register(user(Role.STUDENT, { sub: 'u1', groupId: 'g1' }), 'e1')
     expect(res.registered).toBe(true)
+    // Повтор записи число участников не меняет — сигнала нет.
+    expect(live.changed).not.toHaveBeenCalled()
   })
 })
 
@@ -1502,5 +1507,61 @@ describe('EventsService — админ и модераторы видят то, 
     })
     const visibility = prisma.event.findMany.mock.calls[0][0].where.AND[0]
     expect(visibility.OR).not.toContainEqual({ universityId: 'uni1' })
+  })
+})
+
+describe('EventsService — сигнал event.changed по сокету (§9.2d)', () => {
+  const organizer = user(Role.TEACHER, { sub: 'u1', universityId: 'uni1' })
+  const stored = {
+    id: 'e1',
+    organizerId: 'u1',
+    universityId: 'uni1',
+    title: 'Лекция',
+    startsAt: new Date('2020-01-01T10:00:00Z'),
+    endsAt: null,
+  }
+
+  it('создание → created с вузом события', async () => {
+    const { service, live } = setup()
+    await service.create(
+      organizer,
+      { audience: 'SUBJECT', title: 'T', description: 'D', startsAt: '2030-09-01T10:00:00Z' },
+      ctx,
+    )
+    expect(live.changed).toHaveBeenCalledWith(expect.objectContaining({ id: 'e-new' }), 'created')
+  })
+
+  it('правка и удаление → updated и deleted с вузом из прочитанной строки', async () => {
+    const { service, prisma, live } = setup()
+    prisma.event.findUnique.mockResolvedValue(stored)
+    prisma.event.update.mockResolvedValue({ id: 'e1' })
+    await service.update(organizer, 'e1', { title: 'x' }, ctx)
+    expect(live.changed).toHaveBeenLastCalledWith({ id: 'e1', universityId: 'uni1' }, 'updated')
+    await service.remove(organizer, 'e1', ctx)
+    expect(live.changed).toHaveBeenLastCalledWith({ id: 'e1', universityId: 'uni1' }, 'deleted')
+  })
+
+  it('запись → registrations; отмена — только если запись была', async () => {
+    const { service, prisma, live } = setup()
+    prisma.event.findFirst.mockResolvedValue({
+      ...stored,
+      startsAt: new Date(Date.now() + 86_400_000),
+      participants: [],
+    })
+    prisma.eventParticipant.create.mockResolvedValue({ id: 'p1' })
+    await service.register(user(Role.STUDENT, { sub: 'u2', universityId: 'uni1' }), 'e1')
+    expect(live.changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'e1', universityId: 'uni1' }),
+      'registrations',
+    )
+
+    live.changed.mockClear()
+    await service.cancelRegistration(user(Role.STUDENT, { sub: 'u2' }), 'e1')
+    expect(live.changed).not.toHaveBeenCalled()
+
+    prisma.eventParticipant.deleteMany.mockResolvedValue({ count: 1 })
+    prisma.event.findUnique.mockResolvedValue({ id: 'e1', universityId: 'uni1' })
+    await service.cancelRegistration(user(Role.STUDENT, { sub: 'u2' }), 'e1')
+    expect(live.changed).toHaveBeenCalledWith({ id: 'e1', universityId: 'uni1' }, 'registrations')
   })
 })

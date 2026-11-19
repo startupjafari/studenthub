@@ -38,6 +38,7 @@ import { DETACHED_WHERE, FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
 import type { EnvVars } from '../../config/env.schema'
+import { EventsRealtime } from './events-realtime'
 
 // Аудитории событий по роли (docs/PROJECT.md §2.2: студент — ограниченно, только своя группа).
 const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
@@ -236,6 +237,7 @@ export class EventsService {
     private readonly files: FileService,
     private readonly media: MediaService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly live: EventsRealtime,
   ) {}
 
   // ── Видимость (по аналогии с постами, задача 10.2) ─────────────────────────
@@ -365,6 +367,7 @@ export class EventsService {
       metadata: { audience: input.audience },
       ...ctx,
     })
+    this.live.changed(event, 'created')
     return event
   }
 
@@ -419,6 +422,8 @@ export class EventsService {
       entityId: id,
       ...ctx,
     })
+    // Вуз события правкой не меняется — берём его из уже прочитанной строки.
+    this.live.changed({ id, universityId: event.universityId }, 'updated')
     // Участники записались на конкретное время — о переносе они должны узнать, а не
     // обнаружить его по пустой аудитории. Перенос в уже прошедшее время (правка архива)
     // никого не тревожит.
@@ -458,6 +463,7 @@ export class EventsService {
       entityId: id,
       ...ctx,
     })
+    this.live.changed({ id, universityId: event.universityId }, 'deleted')
     await this.notifyParticipants(pages, NOTIFICATION_JOBS.EVENT_CANCELLED, {
       titleKey: 'events.cancelled.title',
       bodyKey: 'events.cancelled.body',
@@ -479,17 +485,32 @@ export class EventsService {
     if (hasEnded(event.startsAt, event.endsAt, new Date())) {
       throw new AppException('CONFLICT', 'Событие уже завершилось — регистрация закрыта')
     }
-    await this.prisma.eventParticipant
+    const created = await this.prisma.eventParticipant
       .create({ data: { eventId: id, userId: viewer.sub } })
+      .then(() => true)
       .catch((e) => {
         // Повторная регистрация — не ошибка (идемпотентно).
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e
+        return false
       })
+    // Число записавшихся изменилось — карточки события у остальных перечитают счётчик.
+    // Повтор записи ничего не меняет и сигнала не шлёт.
+    if (created) this.live.changed(event, 'registrations')
     return { registered: true }
   }
 
   async cancelRegistration(viewer: JwtPayload, id: string): Promise<{ registered: boolean }> {
-    await this.prisma.eventParticipant.deleteMany({ where: { eventId: id, userId: viewer.sub } })
+    const { count } = await this.prisma.eventParticipant.deleteMany({
+      where: { eventId: id, userId: viewer.sub },
+    })
+    if (count > 0) {
+      // Вуз события нужен только для адреса сигнала: читаем его, лишь когда запись была.
+      const event = await this.prisma.event.findUnique({
+        where: { id },
+        select: { id: true, universityId: true },
+      })
+      if (event) this.live.changed(event, 'registrations')
+    }
     return { registered: false }
   }
 
