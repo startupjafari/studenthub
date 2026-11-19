@@ -7,6 +7,7 @@ import {
 import { ApplicationsService } from './applications.service'
 import { CareerAccessService } from './career-access.service'
 import type { CareerNotifier } from './career-notifier'
+import type { CareerRealtime } from './career-realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -69,14 +70,20 @@ function setup() {
   }
   // Уведомление компании о новом кандидате: сборка и доставка — в career-notifier.spec.ts.
   const notifier = { newApplication: jest.fn().mockResolvedValue(undefined) }
+  // Живой сигнал career.changed: адреса — в career-realtime.spec.ts, здесь — кто и когда зовёт.
+  const live = {
+    applicationForCompany: jest.fn().mockResolvedValue(undefined),
+    applicationStatusChanged: jest.fn().mockResolvedValue(undefined),
+  }
   const service = new ApplicationsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     access as unknown as CareerAccessService,
     notifier as unknown as CareerNotifier,
+    live as unknown as CareerRealtime,
   )
-  return { service, prisma, tx, audit, queue, access, scope, notifier }
+  return { service, prisma, tx, audit, queue, access, scope, notifier, live }
 }
 
 describe('ApplicationsService — отклик студента', () => {
@@ -168,8 +175,9 @@ describe('ApplicationsService — отклик студента', () => {
 
   // D-F28: компания узнавала о новом кандидате, только открыв воронку.
   it('новый отклик — уведомление компании; повторный (CONFLICT) — нет', async () => {
-    const { service, notifier, prisma } = setup()
+    const { service, notifier, prisma, live } = setup()
     await service.apply(student(), { vacancyId: 'v-1' }, ctx)
+    expect(live.applicationForCompany).toHaveBeenCalledWith('a-1', 'co-1', 'submitted')
     expect(notifier.newApplication).toHaveBeenCalledWith({
       id: 'a-1',
       companyId: 'co-1',
@@ -183,6 +191,18 @@ describe('ApplicationsService — отклик студента', () => {
       AppException,
     )
     expect(notifier.newApplication).not.toHaveBeenCalled()
+    expect(live.applicationForCompany).toHaveBeenCalledTimes(1)
+  })
+
+  it('отзыв отклика — живой сигнал воронке компании', async () => {
+    const { service, prisma, live } = setup()
+    prisma.careerApplication.findFirst.mockResolvedValue({
+      id: 'a-1',
+      status: 'SUBMITTED',
+      companyId: 'co-1',
+    })
+    await service.withdraw(student(), 'a-1', ctx)
+    expect(live.applicationForCompany).toHaveBeenCalledWith('a-1', 'co-1', 'withdrawn')
   })
 })
 
@@ -295,7 +315,7 @@ describe('ApplicationsService — воронка компании', () => {
   })
 
   it('студент узнаёт о движении по заявке — молчание и есть претензия к job-бордам', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, live } = setup()
     prisma.careerApplication.findFirst.mockResolvedValue({
       id: 'a-1',
       status: 'SUBMITTED',
@@ -323,6 +343,8 @@ describe('ApplicationsService — воронка компании', () => {
       }),
       expect.anything(),
     )
+    // И живой сигнал: автору — «Мои отклики», коллегам по компании — воронка.
+    expect(live.applicationStatusChanged).toHaveBeenCalledWith('a-1', 'co-1', 'stu-1')
   })
 
   it('причина отказа уходит студенту вместо шаблонного текста', async () => {

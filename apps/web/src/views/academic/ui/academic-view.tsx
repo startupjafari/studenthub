@@ -23,7 +23,7 @@ import { useChartTheme } from '../../../shared/ui/chart'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance, useAttendanceLive } from '../../../entities/attendance'
-import { examKeys, fetchExams } from '../../../entities/exam'
+import { examKeys, fetchExams, useExamsLive } from '../../../entities/exam'
 import { buildPlan, courseKeys, fetchCourses, planCredits } from '../../../entities/course'
 import { formatYmd } from '../../../shared/ui/calendar-grid'
 import {
@@ -86,6 +86,7 @@ export function AcademicView() {
   // Счётчики заданий и процент посещаемости — живые (сигналы §9.2d).
   useAssignmentsLive()
   useAttendanceLive()
+  useExamsLive()
 
   const gpa = useMemo(() => {
     const courses = gradesQ.data ?? []

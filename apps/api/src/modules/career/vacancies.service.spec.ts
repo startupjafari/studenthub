@@ -3,6 +3,7 @@ import { matchVacancy } from '@studenthub/shared-schemas'
 import { VacanciesService } from './vacancies.service'
 import { CareerAccessService } from './career-access.service'
 import type { CareerNotifier } from './career-notifier'
+import type { CareerRealtime } from './career-realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -76,13 +77,20 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   }
   // Уведомления компании о решениях вуза: сборка и доставка — в career-notifier.spec.ts.
   const notifier = { vacancyDecided: jest.fn().mockResolvedValue(undefined) }
+  // Живой сигнал career.changed: адреса — в career-realtime.spec.ts, здесь — кто и когда зовёт.
+  const live = {
+    vacancyForCompany: jest.fn().mockResolvedValue(undefined),
+    vacancyForUniversities: jest.fn().mockResolvedValue(undefined),
+    vacancyReviewed: jest.fn().mockResolvedValue(undefined),
+  }
   const service = new VacanciesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     access as unknown as CareerAccessService,
     notifier as unknown as CareerNotifier,
+    live as unknown as CareerRealtime,
   )
-  return { service, prisma, tx, audit, access, notifier }
+  return { service, prisma, tx, audit, access, notifier, live }
 }
 
 describe('VacanciesService — заблокированная компания', () => {
@@ -112,7 +120,7 @@ describe('VacanciesService — заблокированная компания',
 
 describe('VacanciesService — публикация', () => {
   it('создаёт по строке модерации на каждый допустивший вуз', async () => {
-    const { service, tx } = setup(['uni-1', 'uni-2'])
+    const { service, tx, live } = setup(['uni-1', 'uni-2'])
 
     await service.publish(employer, 'v-1', ctx)
 
@@ -130,6 +138,8 @@ describe('VacanciesService — публикация', () => {
         data: expect.objectContaining({ status: 'PUBLISHED' }),
       }),
     )
+    // Заявки встали в очереди модерации вузов — живой сигнал вузам и компании.
+    expect(live.vacancyForUniversities).toHaveBeenCalledWith('v-1', 'co-1', 'published')
   })
 
   it('повторная публикация возвращает на модерацию только отклонённое, одобрения не трогает', async () => {
@@ -255,6 +265,18 @@ describe('VacanciesService — правка опубликованной вак�
 
     expect(tx.vacancy.update).toHaveBeenCalled()
     expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('правка опубликованной — сигнал вузам, черновика — только компании', async () => {
+    const { service, prisma, live } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'PUBLISHED' })
+    await service.update(employer, 'v-1', { title: 'Backend-стажёр' }, ctx)
+    expect(live.vacancyForUniversities).toHaveBeenCalledWith('v-1', 'co-1', 'updated')
+
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'DRAFT' })
+    await service.update(employer, 'v-1', { title: 'Data-стажёр' }, ctx)
+    expect(live.vacancyForCompany).toHaveBeenCalledWith('v-1', 'co-1', 'updated')
+    expect(live.vacancyForUniversities).toHaveBeenCalledTimes(1)
   })
 
   it('закрытую вакансию править нельзя — и на модерацию она не возвращается', async () => {
@@ -467,7 +489,7 @@ describe('VacanciesService — модерация вузом', () => {
 
   // D-F28: компания узнавала о решении по вакансии, только заглянув в кабинет.
   it('решение уходит компании уведомлением; проигравшее гонку — нет', async () => {
-    const { service, prisma, notifier } = setup()
+    const { service, prisma, notifier, live } = setup()
     prisma.vacancyUniversityReview.findUnique.mockResolvedValue({
       id: 'r-1',
       universityId: 'uni-1',
@@ -479,6 +501,7 @@ describe('VacanciesService — модерация вузом', () => {
     await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
 
     const decidedAt = prisma.vacancyUniversityReview.updateMany.mock.calls[0][0].data.decidedAt
+    expect(live.vacancyReviewed).toHaveBeenCalledWith('v-1', 'co-1', 'uni-1')
     expect(notifier.vacancyDecided).toHaveBeenCalledWith({
       reviewId: 'r-1',
       companyId: 'co-1',
@@ -495,6 +518,7 @@ describe('VacanciesService — модерация вузом', () => {
       service.decide(staff(), 'r-1', { status: 'APPROVED' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
     expect(notifier.vacancyDecided).not.toHaveBeenCalled()
+    expect(live.vacancyReviewed).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -575,11 +599,23 @@ describe('VacanciesService — переходы по графу (D-F29)', () => 
     })
     expect(err.code).toBe('CONFLICT')
   })
+
+  it('снятие опубликованной — сигнал вузам; закрытие снятой — только компании', async () => {
+    const { service, prisma, live } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'PUBLISHED' })
+    await service.setStatus(employer, 'v-1', 'PAUSED', ctx)
+    expect(live.vacancyForUniversities).toHaveBeenCalledWith('v-1', 'co-1', 'paused')
+
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'PAUSED' })
+    await service.setStatus(employer, 'v-1', 'CLOSED', ctx)
+    expect(live.vacancyForCompany).toHaveBeenCalledWith('v-1', 'co-1', 'closed')
+    expect(live.vacancyForUniversities).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('VacanciesService — удаление (21.D3)', () => {
   it('черновик удаляется физически, с условием на статус и компанию в самом удалении', async () => {
-    const { service, prisma, audit } = setup()
+    const { service, prisma, audit, live } = setup()
     await service.remove(employer, 'v-1', ctx)
     expect(prisma.vacancy.deleteMany).toHaveBeenCalledWith({
       where: { id: 'v-1', companyId: 'co-1', status: 'DRAFT', deletedAt: null },
@@ -587,6 +623,7 @@ describe('VacanciesService — удаление (21.D3)', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'vacancy_deleted', entityId: 'v-1' }),
     )
+    expect(live.vacancyForCompany).toHaveBeenCalledWith('v-1', 'co-1', 'deleted')
   })
 
   it.each(['PUBLISHED', 'PAUSED', 'CLOSED'])(

@@ -41,7 +41,7 @@ import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { useLiveRefresh } from '../../../shared/realtime'
 import { assignmentKeys, fetchAssignments, useAssignmentsLive } from '../../../entities/assignment'
-import { examKeys, fetchExams } from '../../../entities/exam'
+import { examKeys, fetchExams, useExamsLive } from '../../../entities/exam'
 import type { Holiday } from '../../../shared/config'
 import {
   buildCalendar,
@@ -108,6 +108,8 @@ export function CalendarView() {
     queryFn: () => fetchExams(examRange),
     retry: false,
   })
+  // Назначенный, перенесённый или отменённый экзамен — в календаре сразу, как и дедлайны.
+  useExamsLive()
 
   // Преподавателю — ещё и чужие пары, которые он ведёт по замене (их нет в его выборке).
   const role = useAppSelector((s) => s.auth.role)

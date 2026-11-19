@@ -18,6 +18,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
+import { CareerRealtime } from './career-realtime'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 import { grantProfileToCompany } from './career-profile-grants'
 
@@ -74,6 +75,7 @@ export class ApplicationsService {
     private readonly queue: QueueService,
     private readonly access: CareerAccessService,
     private readonly notifier: CareerNotifier,
+    private readonly live: CareerRealtime,
   ) {}
 
   // ── Студент ────────────────────────────────────────────────────────────────
@@ -159,6 +161,8 @@ export class ApplicationsService {
       vacancyId: vacancy.id,
       vacancyTitle: vacancy.title,
     })
+    // И живая воронка: новый кандидат появляется у рекрутеров без перезагрузки (§9.2d).
+    await this.live.applicationForCompany(application.id, vacancy.companyId, 'submitted')
     return application
   }
 
@@ -215,7 +219,7 @@ export class ApplicationsService {
   async withdraw(viewer: JwtPayload, id: string, ctx: RequestContext) {
     const application = await this.prisma.careerApplication.findFirst({
       where: { id, studentId: viewer.sub },
-      select: { id: true, status: true },
+      select: { id: true, status: true, companyId: true },
     })
     if (!application) throw new AppException('NOT_FOUND', 'Отклик не найден')
 
@@ -232,6 +236,8 @@ export class ApplicationsService {
       entityId: id,
       ...ctx,
     })
+    // Уведомления компании об отзыве нет, а кандидат в её воронке сменил статус — сигналим.
+    await this.live.applicationForCompany(id, application.companyId, 'withdrawn')
   }
 
   /** История отклика — доступна и студенту-автору, и компании-владельцу вакансии. */
@@ -368,6 +374,8 @@ export class ApplicationsService {
       entityId: id,
       ...ctx,
     })
+    // Автору — «Мои отклики» без перезагрузки, коллегам по компании — общая воронка.
+    await this.live.applicationStatusChanged(id, companyId, application.studentId)
   }
 
   // ── Служебное ──────────────────────────────────────────────────────────────
