@@ -33,11 +33,17 @@ import {
   useTableSort,
   type DateRange,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useFreshIds } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { Role } from '@studenthub/shared-types'
 import { cn } from '../../../shared/lib/utils'
-import { examKeys, fetchExams, deleteExamRequest, type ExamItem } from '../../../entities/exam'
+import {
+  examKeys,
+  fetchExams,
+  deleteExamRequest,
+  useExamsLive,
+  type ExamItem,
+} from '../../../entities/exam'
 import { examFormatKey } from '../lib/visuals'
 import { CreateExamModal } from './create-exam-modal'
 import { ExamResultsRoster } from './exam-results-roster'
@@ -113,6 +119,13 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   // Сервер отдаёт экзамены вкладки, ближайшие к сегодняшнему дню, по возрастанию даты:
   // раньше у декана с сотнями экзаменов в выдачу попадали самые старые, без текущей сессии.
   const q = useQuery({ queryKey: examKeys.list(params), queryFn: () => fetchExams(params) })
+  // Экзамен, назначенный или перенесённый коллегой (деканат, ведущий дисциплину), и открытая
+  // ведомость перечитываются по сигналу. Хук — до раннего возврата ведомости ниже.
+  useExamsLive()
+  // Подсветка нового — только в исходном виде (предстоящие без периода): смена вкладки или
+  // периода меняет выборку, и её строки не «появились», а просто показаны.
+  const freshSource = tab === 'upcoming' && !period.from && !period.to ? q.data : undefined
+  const fresh = useFreshIds(useMemo(() => freshSource?.map((e) => e.id), [freshSource]))
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteExamRequest(id),
@@ -239,7 +252,10 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                 <TableRow
                   key={e.id}
                   onClick={() => setRosterId(e.id)}
-                  className="cursor-pointer hover:bg-muted/40"
+                  className={cn(
+                    'cursor-pointer hover:bg-muted/40',
+                    fresh.has(e.id) && 'sh-live-in',
+                  )}
                 >
                   <TableCell className="font-medium">
                     <TableText value={e.course.subject.name} />
