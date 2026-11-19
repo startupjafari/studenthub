@@ -59,6 +59,7 @@ import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
 import { StoriesService } from '../stories/stories.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { FriendsRealtime } from '../friends/friends-realtime'
 import { chatMessagesCollapseKey } from '../notifications/notification-job.type'
 import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
@@ -1002,6 +1003,7 @@ export class ChatsService implements OnModuleInit {
     private readonly exports: ExportRegistryService,
     private readonly media: MediaService,
     private readonly notifications: NotificationsService,
+    private readonly friendsRealtime: FriendsRealtime,
   ) {}
 
   /**
@@ -5843,7 +5845,7 @@ export class ChatsService implements OnModuleInit {
       select: { id: true },
     })
     if (!exists) throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    const unlinked = await this.prisma.$transaction(async (tx) => {
+    const unlinked = await this.prisma.$transaction(async (tx): Promise<string[]> => {
       await tx.userBlock.upsert({
         where: { blockerId_blockedId: { blockerId: actorId, blockedId: targetUserId } },
         create: { blockerId: actorId, blockedId: targetUserId },
@@ -5860,18 +5862,24 @@ export class ChatsService implements OnModuleInit {
         // По паре — не больше двух строк (по одной в каждую сторону, @@unique).
         take: 2,
       })
-      if (links.length === 0) return false
+      if (links.length === 0) return []
       const ids = links.map((l) => l.id)
       await tx.friendship.deleteMany({ where: { id: { in: ids } } })
       await tx.notification.deleteMany({
         where: { dedupeKey: { in: ids.map((id) => `friend-request:${id}`) } },
       })
-      return true
+      return ids
     })
     // Заявка могла лежать в колокольчике у любого из двоих — сбрасываем счётчик обоим.
-    if (unlinked) {
+    if (unlinked.length > 0) {
       await this.notifications.invalidateUnread(actorId)
       await this.notifications.invalidateUnread(targetUserId)
+    }
+    // Второй стороне — «связь исчезла» (§9.2d): её списки друзей и заявок, бейдж и кнопка в
+    // профиле обновятся без перезагрузки. Сам заблокировавший получил ответ на свой запрос.
+    // Best-effort: FriendsRealtime ловит сбой рассылки сам.
+    for (const friendshipId of unlinked) {
+      this.friendsRealtime.changed(targetUserId, friendshipId, 'removed')
     }
     this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: true }
