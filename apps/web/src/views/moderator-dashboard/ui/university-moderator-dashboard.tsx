@@ -28,6 +28,7 @@ import {
 } from '../../../entities/complaint'
 import { adminUserKeys, fetchUsers } from '../../../entities/user'
 import { auditKeys, fetchAudit } from '../../../entities/audit'
+import { useAdminListLive } from '../../../entities/admin-list'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
 // Опции у каждого вызова свои: SWC-трансформ next/dynamic читает их статически.
@@ -134,6 +135,10 @@ export function UniversityModeratorDashboard() {
     queryKey: complaintKeys.list(recentQuery),
     queryFn: () => fetchComplaints(recentQuery),
   })
+
+  // Живые счётчики (§9.2d): новая жалоба, решение коллеги и блокировка видны без перезагрузки.
+  useAdminListLive('complaints', [[...complaintKeys.all, 'list']])
+  useAdminListLive('users', [adminUserKeys.all])
 
   const blockedQuery = { blocked: true, limit: 1 } as const
   const blocked = useQuery({

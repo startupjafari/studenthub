@@ -17,6 +17,7 @@ import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { NotificationsService } from '../notifications/notifications.service'
 import { ChatsService } from '../chats/chats.service'
+import { FriendsRealtime, type FriendsChangeKind } from './friends-realtime'
 
 // Публичная карточка пользователя в списках друзей/заявок (без чувствительных полей).
 const FRIEND_USER_SELECT = {
@@ -85,6 +86,7 @@ export class FriendsService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly notifications: NotificationsService,
     private readonly chats: ChatsService,
+    private readonly live: FriendsRealtime,
   ) {}
 
   /** Отправить заявку. Если есть встречная PENDING — авто-принятие. */
@@ -179,6 +181,9 @@ export class FriendsService {
       return { status: 'accepted' }
     }
     const friendshipId = outcome.friendshipId
+    // Сигнал — до окна уведомления: колокольчик молчит о повторе, но заявка во входящих
+    // новая, и список адресата должен её показать сразу.
+    this.live.changed(targetId, friendshipId, 'requested')
     if (!(await this.claimRequestNotice(viewer.sub, targetId))) return { status: 'pending' }
     // Имя отправителя — для тела уведомления с кнопками принять/отклонить.
     const requester = await this.prisma.user.findUnique({
@@ -250,6 +255,12 @@ export class FriendsService {
     if (f.status === 'PENDING' && f.addresseeId === viewer.sub) {
       await this.pauseRequests(f.requesterId, f.addresseeId)
     }
+    // Вторая сторона перечитывает списки сама. Это не уведомление: у отклонённого колокольчик
+    // молчит, как и раньше, — сигнал лишь убирает заявку из его исходящих без перезагрузки.
+    const otherId = f.requesterId === viewer.sub ? f.addresseeId : f.requesterId
+    const kind: FriendsChangeKind =
+      f.status === 'PENDING' && f.addresseeId === viewer.sub ? 'declined' : 'removed'
+    this.live.changed(otherId, f.id, kind)
   }
 
   /** Список друзей (принятые) — карточка «другого» пользователя. Cursor по id связи. */
@@ -452,6 +463,9 @@ export class FriendsService {
     duplicateId: string | null,
   ): Promise<void> {
     await this.clearRequestNotification(friendshipId, accepterId)
+    // Инициатору — сразу в список друзей и в кнопку профиля; встречная заявка-дубль у него
+    // тоже исчезла, и это покрывает тот же сигнал (он перечитывает все списки).
+    this.live.changed(requesterId, friendshipId, 'accepted')
     // Дубль — встречная заявка принявшего: её уведомление лежит у инициатора.
     if (duplicateId) await this.clearRequestNotification(duplicateId, requesterId)
     try {

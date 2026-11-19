@@ -4,12 +4,15 @@ import { JwtModule } from '@nestjs/jwt'
 import type { EnvVars } from '../../config/env.schema'
 import { UniversitiesModule } from '../../modules/universities/universities.module'
 import { RealtimeGateway } from './realtime.gateway'
+import { AdminListEvents } from './admin-list-events'
 
 // Общий WS-транспорт (docs/PROJECT.md §9). Глобальный: RealtimeGateway доступен любому
 // модулю (NotificationsProcessor Ф3.4, ChatGateway Ф9) без повторного импорта.
 // JWT для проверки handshake — тот же access-секрет, что и у HTTP (JwtStrategy).
 // UniversitiesModule — UniversityAccessService: допуск по статусу вуза тот же, что у HTTP,
 // и с той же памятью статуса (один экземпляр на процесс, его сбрасывает смена статуса).
+// AdminListEvents — сигналы живых админ-списков (§9.2d): шлют их пять доменов, и глобальный
+// модуль избавляет каждый от импорта UsersModule ради адресатов (и от кольца через Auth).
 @Global()
 @Module({
   imports: [
@@ -21,7 +24,7 @@ import { RealtimeGateway } from './realtime.gateway'
       }),
     }),
   ],
-  providers: [RealtimeGateway],
-  exports: [RealtimeGateway],
+  providers: [RealtimeGateway, AdminListEvents],
+  exports: [RealtimeGateway, AdminListEvents],
 })
 export class RealtimeModule {}

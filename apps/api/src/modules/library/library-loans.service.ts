@@ -33,6 +33,7 @@ import { isTerminalAcademicStatus } from '../users/academic-status'
 import { StudentIdService } from '../student-id/student-id.service'
 import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
+import { LibraryLoanEvents } from './library-loan-events'
 import { addDays, daysBetween, endOfDay, formatDay, todayIn } from './library-dates'
 import { issueReaderTicket, readTicketSession } from './library-ticket'
 import {
@@ -150,6 +151,7 @@ export class LibraryLoansService {
     private readonly notifier: LibraryNotifier,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly exports: ExportRegistryService,
+    private readonly events: LibraryLoanEvents,
   ) {}
 
   // ── Сверка читателя ──────────────────────────────────────────────────────────────
@@ -427,6 +429,7 @@ export class LibraryLoansService {
       url: '/my-books',
       dedupeKey: `library-loan-issued:${loan.id}`,
     })
+    this.events.changed(loan.id, reader.id, 'issued')
     await this.notifyHeld(released, copy.book.title, timezone)
     const [item] = await this.toItems([loan], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
@@ -503,6 +506,7 @@ export class LibraryLoansService {
         dedupeKey: `library-loan-returned:${open.id}:${now.getTime()}`,
       })
     }
+    this.events.changed(open.id, open.readerId, 'returned')
     await this.notifyHeld(heldFor, copy.book.title, timezone)
     const [item] = await this.toItems([loan], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
@@ -593,6 +597,7 @@ export class LibraryLoansService {
         dedupeKey: `library-loan-renewed:${loanId}:${updated.renewals}`,
       })
     }
+    this.events.changed(loanId, loan.readerId, 'renewed')
     const [item] = await this.toItems([updated], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item
@@ -622,6 +627,7 @@ export class LibraryLoansService {
       metadata: { universityId, copyId: loan.copyId, readerId: loan.readerId },
       ...ctx,
     })
+    this.events.changed(loanId, loan.readerId, 'lost')
     const [item] = await this.toItems([updated], await this.timezoneOf(universityId))
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item
@@ -654,6 +660,8 @@ export class LibraryLoansService {
       metadata: { universityId, copyId: loan.copyId, readerId: loan.readerId },
       ...ctx,
     })
+    // Долг погашен — у читателя пропадает задолженность и снова открыты выдачи и брони.
+    this.events.changed(loanId, loan.readerId, 'lost')
     const updated = await this.prisma.loan.findUniqueOrThrow({
       where: { id: loanId },
       select: LOAN_SELECT,
@@ -724,6 +732,8 @@ export class LibraryLoansService {
         dedupeKey: `library-loan-cancelled:${loanId}`,
       })
     }
+    // Отменённая выдача уходит из «На руках» так же, как возвращённая.
+    this.events.changed(loanId, loan.readerId, 'returned')
     await this.notifyHeld(heldFor, loan.copy.book.title, timezone)
     const [item] = await this.toItems([updated], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
@@ -848,6 +858,8 @@ export class LibraryLoansService {
         dedupeKey: `library-return-cancelled:${loanId}:${returnedAt.getTime()}`,
       })
     }
+    // Возврат отменён — книга снова на руках у читателя.
+    this.events.changed(loanId, loan.readerId, 'issued')
     const [item] = await this.toItems([updated.row], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item

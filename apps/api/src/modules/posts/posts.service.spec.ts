@@ -11,6 +11,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { POST_REACTION_EMOJIS, ReactionSchema } from '@studenthub/shared-schemas'
 import { MEDIA_FILE_SELECT } from '../media/media.types'
 import type { QueueService } from '../../common/queue'
+import type { PostLiveEvents } from './post-live-events'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -22,6 +23,8 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'p-new' }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      // Крон отложенных: публикует и возвращает вышедшие посты — им шлётся сигнал ленты.
+      updateManyAndReturn: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
     reaction: {
@@ -97,6 +100,13 @@ function setup() {
   const profileContent = {
     visibleArticleIds: jest.fn(async (): Promise<Set<string>> => new Set()),
   }
+  // Сигналы живой ленты (§9.2d): адресация и склейка проверяются в post-live-events.spec.
+  const live = {
+    published: jest.fn(),
+    changed: jest.fn().mockResolvedValue(undefined),
+    commentsChanged: jest.fn().mockResolvedValue(undefined),
+    countersChanged: jest.fn(),
+  }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -107,9 +117,11 @@ function setup() {
     redis as never,
     careerAccess as never,
     profileContent as never,
+    live as unknown as PostLiveEvents,
   )
   return {
     service,
+    live,
     prisma,
     audit,
     files,
@@ -1116,13 +1128,69 @@ describe('PostsService — черновики и отложенная публи
   })
 
   it('publishDueScheduled публикует созревшие отложенные', async () => {
-    const { service, prisma } = setup()
-    prisma.post.updateMany.mockResolvedValue({ count: 3 })
+    const { service, prisma, live } = setup()
+    const rows = ['p1', 'p2', 'p3'].map((id) => ({ id, authorId: 'u1', audience: 'GROUP' }))
+    prisma.post.updateManyAndReturn.mockResolvedValue(rows)
     const n = await service.publishDueScheduled()
     expect(n).toBe(3)
-    const arg = prisma.post.updateMany.mock.calls[0][0]
+    const arg = prisma.post.updateManyAndReturn.mock.calls[0][0]
     expect(arg.where.status).toBe('SCHEDULED')
     expect(arg.data.status).toBe('PUBLISHED')
+    // Вышедший по расписанию пост для ленты такой же новый, как опубликованный сразу.
+    expect(live.published).toHaveBeenCalledTimes(3)
+    expect(live.published).toHaveBeenCalledWith(rows[0])
+  })
+})
+
+// ── Сигналы живой ленты (§9.2d): кто и когда их шлёт ───────────────────────────
+describe('PostsService — сигналы живой ленты', () => {
+  const author = () => viewer(Role.STUDENT, { sub: 'u-1', groupId: 'grp-1' })
+
+  function withGroup(prisma: ReturnType<typeof setup>['prisma']) {
+    prisma.group.findUnique.mockResolvedValue({
+      id: 'grp-1',
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p-new', authorId: 'u-1' }))
+  }
+
+  it('опубликованный сразу пост → feed.post.created', async () => {
+    const { service, prisma, live } = setup()
+    withGroup(prisma)
+    await service.create(author(), { audience: 'GROUP', content: 'x' }, ctx)
+    expect(live.published).toHaveBeenCalledWith({ id: 'p-new' })
+  })
+
+  it('черновик и отложенный → без сигнала: их видит только автор', async () => {
+    const { service, prisma, live } = setup()
+    withGroup(prisma)
+    await service.create(author(), { audience: 'GROUP', content: 'x', status: 'DRAFT' }, ctx)
+    await service.create(
+      author(),
+      { audience: 'GROUP', content: 'x', scheduledAt: new Date(Date.now() + 3_600_000) },
+      ctx,
+    )
+    expect(live.published).not.toHaveBeenCalled()
+  })
+
+  it('правка и удаление → feed.post.changed', async () => {
+    const { service, prisma, live } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', authorId: 'u-1' }))
+    await service.update(author(), 'p1', { content: 'текст' }, ctx)
+    expect(live.changed).toHaveBeenCalledWith('p1', 'edited')
+    await service.remove(author(), 'p1', ctx)
+    expect(live.changed).toHaveBeenCalledWith('p1', 'deleted')
+  })
+
+  it('снятие несуществующей реакции счётчики не трогает', async () => {
+    const { service, prisma, live } = setup()
+    prisma.reaction.deleteMany.mockResolvedValue({ count: 0 })
+    await service.removeReaction(author(), 'p1', '👍')
+    expect(live.countersChanged).not.toHaveBeenCalled()
+    prisma.reaction.deleteMany.mockResolvedValue({ count: 1 })
+    await service.removeReaction(author(), 'p1', '👍')
+    expect(live.countersChanged).toHaveBeenCalledWith('p1')
   })
 })
 

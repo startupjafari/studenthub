@@ -148,6 +148,7 @@ function setup(opts: { redisDown?: boolean } = {}) {
     {} as never,
     crypto,
     push as never,
+    { invite: jest.fn(), user: jest.fn() } as never,
   )
   return { service, rows, live, redis, audit, users, refreshToken, realtime, revocation, push }
 }

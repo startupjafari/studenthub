@@ -40,7 +40,7 @@ import {
   type MenuAnchor,
   type SegmentedTabItem,
 } from '../../../shared/ui'
-import { useSwipeRows } from '../../../shared/lib'
+import { useFreshIds, useSwipeRows } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 // Визуал по типу: иконка, цвет левого акцента и подложки иконки.
@@ -116,6 +116,11 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
     queryKey: notificationKeys.list(),
     queryFn: () => fetchNotifications(50),
   })
+
+  // Уведомление, пришедшее, пока панель открыта, въезжает сверху с подсветкой (sh-live-in),
+  // а не появляется молча среди прочих.
+  const listIds = useMemo(() => list.data?.map((n) => n.id), [list.data])
+  const freshIds = useFreshIds(listIds)
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
@@ -327,7 +332,10 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                   <div
                     key={n.id}
                     onContextMenu={(e) => openRowMenu(e, n.id)}
-                    className="relative shrink-0 overflow-hidden border-b border-border/50 lg:overflow-visible"
+                    className={cn(
+                      'relative shrink-0 overflow-hidden border-b border-border/50 lg:overflow-visible',
+                      freshIds.has(n.id) && 'sh-live-in',
+                    )}
                   >
                     {/* Свайп ВПРАВО: «Прочитать» (мобильный) — та же раскладка, что у чатов. */}
                     <div className="absolute inset-y-0 left-0 z-0 flex lg:hidden">

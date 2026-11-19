@@ -7,6 +7,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { FileService } from '../files/file.service'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
+import type { AssignmentEvents } from './assignment-events'
 
 const student: JwtPayload = {
   sub: 'stu-1',
@@ -46,6 +47,7 @@ function setup(status: string) {
     {} as QueueService,
     {} as FileService,
     {} as ConfigService<EnvVars, true>,
+    { submitted: jest.fn() } as unknown as AssignmentEvents,
   )
   return { service, prisma }
 }

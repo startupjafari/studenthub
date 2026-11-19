@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
-import { fetchPost, postKeys } from '../../../entities/post'
+import { fetchPost, postKeys, usePostLiveCache } from '../../../entities/post'
 
 const PostLightbox = dynamic(() => import('./post-lightbox').then((m) => m.PostLightbox), {
   ssr: false,
@@ -39,6 +39,8 @@ export function PostFromUrl({ onOpen }: { onOpen?: () => void }) {
     enabled: postId !== null,
     retry: false,
   })
+  // Открытый из адреса пост живёт так же, как в ленте: счётчики, правка, обсуждение (§9.2d).
+  usePostLiveCache({ enabled: postId !== null })
 
   const close = (): void => {
     const next = new URLSearchParams(params.toString())

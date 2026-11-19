@@ -1,7 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { infiniteQueryOptions, keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  infiniteQueryOptions,
+  keepPreviousData,
+  useInfiniteQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import type { AuthorFeedSort, PostStatusValue } from '@studenthub/shared-schemas'
@@ -10,11 +15,14 @@ import {
   fetchCompanyPosts,
   fetchUniversityPagePosts,
   postKeys,
+  reloadFeedFromTop,
+  useNewPostsCount,
+  usePostLiveCache,
 } from '../../../entities/post'
 import type { ContentOwner } from '../../../entities/profile-content'
-import { PostGrid } from '../../feed-list'
-import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
-import { useInfiniteScroll } from '../../../shared/lib'
+import { PostGrid, scrollContainerToTop } from '../../feed-list'
+import { EmptyState, MosaicGrid, MosaicTile, NewItemsPill, Skeleton } from '../../../shared/ui'
+import { useFreshIds, useInfiniteScroll } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { PostCreateModal } from './post-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
@@ -79,12 +87,26 @@ export function authorPostsQuery(
 // Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — мозаика публикаций.
 export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
+  const tFeed = useTranslations('Feed')
   const [creating, setCreating] = useState(false)
   const [sort, setSort] = useState<AuthorFeedSort>('new')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   // Черновики и отложенные — только на своей вкладке; в чужом профиле фильтра нет.
   const status = isOwner ? statusFilter : 'all'
   const owner = useContentOwner(userId)
+  const qc = useQueryClient()
+  const gridRef = useRef<HTMLDivElement>(null)
+  const isDefaultView = sort === 'new' && status === 'all'
+
+  // Счётчики, правки и удаления постов на вкладке — правкой кэша на месте (§9.2d).
+  usePostLiveCache()
+  // «N новых» — у чужого личного профиля в виде по умолчанию: пост автора, вышедший, пока
+  // профиль открыт. Свой профиль обновляется сам после публикации; у страниц организаций
+  // автор поста — сотрудник, и сигнал с профилем не сопоставить.
+  const fresh = useNewPostsCount({
+    match: (signal) => signal.authorId === owner.id,
+    enabled: owner.kind === 'user' && !isOwner && isDefaultView,
+  })
 
   useEffect(() => {
     if (openCreate === undefined) return
@@ -100,6 +122,25 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
   })
 
   const posts = (q.data?.pages ?? []).flatMap((p) => p.items)
+  // Подсветка пришедших постов — по первой странице вида по умолчанию: смена сортировки и
+  // догрузка страниц — не новость. Метка-точка отсчёта — для пустой вкладки.
+  const defaultLoaded = isDefaultView && q.data !== undefined && !q.isPlaceholderData
+  const firstPageKey = defaultLoaded
+    ? (q.data?.pages[0]?.items ?? []).map((p) => p.id).join('|')
+    : ''
+  const firstPageIds = useMemo(
+    () => (defaultLoaded ? ['grid', ...firstPageKey.split('|').filter(Boolean)] : undefined),
+    [firstPageKey, defaultLoaded],
+  )
+  const freshIds = useFreshIds(firstPageIds)
+
+  // «N новых»: перечитать вкладку с начала и подняться к ней.
+  function showNew(): void {
+    fresh.reset()
+    scrollContainerToTop(gridRef.current)
+    void reloadFeedFromTop(qc, authorPostsQuery(owner).queryKey)
+  }
+
   // Следующая страница подгружается сама, когда низ мозаики подходит к экрану; пока она в
   // пути, её места заняты скелетонами (сколько осталось, но не больше страницы).
   // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
@@ -207,10 +248,23 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
           </p>
         ) : (
           <div
+            ref={gridRef}
             className={cn('flex flex-col transition-opacity', q.isPlaceholderData && 'opacity-60')}
             aria-busy={q.isPlaceholderData}
           >
-            <PostGrid posts={posts} pending={pending} pendingRef={loadMoreRef} />
+            {/* Плашка висит над первыми плитками и не занимает места — сетка не сдвигается. */}
+            <NewItemsPill
+              count={isDefaultView ? fresh.count : 0}
+              label={tFeed('newPosts', { count: fresh.count })}
+              onClick={showNew}
+              className="h-0"
+            />
+            <PostGrid
+              posts={posts}
+              pending={pending}
+              pendingRef={loadMoreRef}
+              freshIds={freshIds}
+            />
             {failed && <LoadFailed onRetry={retry} busy={q.isFetching} compact />}
           </div>
         )}

@@ -5,6 +5,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import type { AttendanceEvents } from './attendance-events'
 import { AppException } from '../../common/exceptions/app.exception'
 
 const MAIN = 'teacher-main'
@@ -49,12 +50,14 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('secret') }
+  const events = { marksChanged: jest.fn() }
   const service = new AttendanceService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
+    events as unknown as AttendanceEvents,
   )
-  return { service, prisma }
+  return { service, prisma, events }
 }
 
 function teacher(sub: string): JwtPayload {
@@ -276,6 +279,31 @@ describe('AttendanceService — занятие в дату (C-F15)', () => {
     const { service, prisma } = setup()
     await service.mark(teacher(MAIN), { pairId: 'pair-1', date: DATE, entries }, {})
     expect(prisma.$transaction).toHaveBeenCalled()
+  })
+
+  it('сигнал attendance.changed — только студентам, чья отметка изменилась', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-20T05:00:00.000Z') })
+    const { service, prisma, events } = setup()
+    prisma.user.findMany.mockResolvedValue([{ id: 'stu-1' }, { id: 'stu-2' }, { id: 'stu-3' }])
+    // stu-1 уже «присутствовал», stu-2 был «отсутствовал», у stu-3 отметки не было.
+    prisma.attendance.findMany.mockResolvedValueOnce([
+      { studentId: 'stu-1', status: 'PRESENT', note: null },
+      { studentId: 'stu-2', status: 'ABSENT', note: null },
+    ])
+    await service.mark(
+      teacher(MAIN),
+      {
+        pairId: 'pair-1',
+        date: DATE,
+        entries: [
+          { studentId: 'stu-1', status: 'PRESENT' },
+          { studentId: 'stu-2', status: 'EXCUSED' },
+          { studentId: 'stu-3', status: 'LATE' },
+        ],
+      },
+      {},
+    )
+    expect(events.marksChanged).toHaveBeenCalledWith('pair-1', ['stu-2', 'stu-3'])
   })
 
   it('QR на завтрашнюю дату не выдаётся', async () => {

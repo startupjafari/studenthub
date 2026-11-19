@@ -2163,6 +2163,7 @@
     "send": "Жіберу",
     "emptyTitle": "Таспа бос",
     "emptyText": "Мұнда посттар пайда болады",
+    "newPosts": "{count, plural, other {# жаңа жарияланым}}",
     "filterAll": "Барлығы",
     "filterGroup": "Менің тобым",
     "filterUniversity": "Университет",

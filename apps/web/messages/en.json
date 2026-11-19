@@ -2163,6 +2163,7 @@
     "send": "Send",
     "emptyTitle": "Feed is empty",
     "emptyText": "Posts will appear here",
+    "newPosts": "{count, plural, one {# new post} other {# new posts}}",
     "filterAll": "All",
     "filterGroup": "My group",
     "filterUniversity": "University",

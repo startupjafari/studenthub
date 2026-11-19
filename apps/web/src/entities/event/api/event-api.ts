@@ -30,6 +30,10 @@ const EVENT_PARTICIPANTS_PAGE_SIZE = 50
 
 export const eventKeys = {
   all: ['events'] as const,
+  // Префиксы для живого обновления (event.changed, §9.2d): все выборки списка разом — с любым
+  // фильтром и лимитом, — но не карточки, участники и обсуждения открытых событий.
+  lists: () => ['events', 'list'] as const,
+  allPages: () => ['events', 'pages'] as const,
   // limit — часть ключа: главная берёт 4 ближайших, «Мероприятия» и календарь — 50. С общим
   // ключом экран, открытый следом за главной, показывал из кэша её четыре события (E-F11).
   list: (filter: string, mine?: boolean, limit = DEFAULT_EVENTS_LIMIT) =>

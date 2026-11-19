@@ -7,3 +7,4 @@ export {
   NO_RESYNC_META,
 } from './realtime-context'
 export type { RealtimeClient } from './realtime-client'
+export { useLiveRefresh, type LiveRefreshOptions } from './use-live-refresh'

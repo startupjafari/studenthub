@@ -71,6 +71,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       { loginDenial: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       { removeAllForUser: jest.fn() } as never,
+      { invite: jest.fn(), user: jest.fn() } as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {

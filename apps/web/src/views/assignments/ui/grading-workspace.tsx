@@ -23,9 +23,11 @@ import {
   TableText,
   useTableSort,
 } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   assignmentKeys,
+  useAssignmentsLive,
   fetchAssignment,
   fetchSubmissions,
   type SubmissionItem,
@@ -76,8 +78,13 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
     queryFn: () => fetchSubmissions(assignmentId),
   })
 
+  // Студент сдал работу, пока таблица открыта, — она перечитывается, а новая сдача
+  // въезжает строкой с подсветкой.
+  useAssignmentsLive()
+
   const [openId, setOpenId] = useState<string | null>(null)
   const list = useMemo(() => subs.data ?? [], [subs.data])
+  const fresh = useFreshIds(useMemo(() => list.map((s) => s.id), [list]))
 
   // Сортировки по умолчанию нет: сервер отдаёт сдачи в своём порядке, и стрелка в шапке
   // означала бы выбор, которого не делали. Сортировка клиентская — сдачи приходят одним
@@ -172,7 +179,10 @@ export function GradingWorkspace({ assignmentId, onBack }: Props) {
                 <TableRow
                   key={s.id}
                   onClick={() => setOpenId(s.id)}
-                  className="cursor-pointer hover:bg-muted/40"
+                  className={cn(
+                    'cursor-pointer hover:bg-muted/40',
+                    fresh.has(s.id) && 'sh-live-in',
+                  )}
                 >
                   <TableCell className="font-medium">
                     <span className="flex min-w-0 items-center gap-3">

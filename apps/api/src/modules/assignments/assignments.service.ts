@@ -24,6 +24,7 @@ import { signingWindow } from '../../common/minio/stable-sign'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
+import { AssignmentEvents } from './assignment-events'
 
 // Потолок на список студентов группы при рассылке (BACKEND_RULES §7.2).
 const GROUP_STUDENTS_LIMIT = 500
@@ -139,6 +140,7 @@ export class AssignmentsService {
     private readonly queue: QueueService,
     private readonly files: FileService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly events: AssignmentEvents,
   ) {}
 
   /**
@@ -428,6 +430,8 @@ export class AssignmentsService {
       descriptionChanged:
         input.description !== undefined && input.description !== current.description,
     })
+    // Черновик студенты не видят — правка его никому не сигналит.
+    if (current.status !== 'DRAFT') this.events.toGroup(id, assignment.course, 'updated')
     return assignment
   }
 
@@ -462,11 +466,13 @@ export class AssignmentsService {
         : `assignment_${status.toLowerCase()}`
     await this.record(actor, action, id, ctx, { from })
     if (firstPublish) await this.notifyPublished(assignment)
+    // Закрытие и повторное открытие студенты тоже видят: меняется, можно ли сдавать.
+    this.events.toGroup(id, assignment.course, firstPublish ? 'published' : 'updated')
     return assignment
   }
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
-    await this.findManageable(actor, id)
+    const current = await this.findManageable(actor, id)
     // Сдачи висят на задании каскадом: удаление стёрло бы работы группы вместе с баллами
     // и отзывами. Как у дисциплины, колонки журнала и экзамена — такое задание не удаляем,
     // его закрывают. Черновики студентов (ещё не отправленное) удалению не мешают.
@@ -483,6 +489,9 @@ export class AssignmentsService {
       )
     }
     await this.record(actor, 'assignment_deleted', id, ctx)
+    // Опубликованное задание без сдач удалить можно — пусть пропадёт из списка группы сразу.
+    // Отдельного вида «deleted» в контракте нет: клиент перечитывает список и задания не находит.
+    if (current.status !== 'DRAFT') this.events.toGroup(id, current.course, 'updated')
   }
 
   // ── Submissions (студент) ─────────────────────────────────────────────────
@@ -559,13 +568,15 @@ export class AssignmentsService {
     const nextAttempt =
       existing.status === 'RETURNED' ? existing.attemptNumber + 1 : existing.attemptNumber
     // Исходный статус — в условии: двойное нажатие «Отправить» не увеличит попытку дважды.
-    return this.prisma.submission
+    const submitted = await this.prisma.submission
       .update({
         where: { id: existing.id, status: existing.status },
         data: { status: 'SUBMITTED', submittedAt: new Date(), attemptNumber: nextAttempt },
         select: SUBMISSION_SELECT,
       })
       .catch(rethrowStaleStatus)
+    this.events.submitted(assignmentId, assignment.course)
+    return submitted
   }
 
   // ── Файлы сдачи (студент) ─────────────────────────────────────────────────
@@ -814,6 +825,7 @@ export class AssignmentsService {
         ? `submission-regraded:${submissionId}:${gradedAt.getTime()}`
         : `submission-graded:${submissionId}:${graded.attemptNumber}`,
     )
+    this.events.graded(sub.assignmentId, sub.assignment.course.id, graded.student.id)
     return graded
   }
 
@@ -851,6 +863,8 @@ export class AssignmentsService {
       { url: '/assignments', submissionId },
       `submission-returned:${submissionId}:${returned.attemptNumber}`,
     )
+    // Возврат на доработку — тоже итог проверки: студенту снова доступна сдача.
+    this.events.graded(sub.assignmentId, sub.assignment.course.id, returned.student.id)
     return returned
   }
 
@@ -987,7 +1001,11 @@ export class AssignmentsService {
   private async assertStudentCanSubmit(
     actor: JwtPayload,
     assignmentId: string,
-  ): Promise<{ dueAt: Date | null; allowLate: boolean }> {
+  ): Promise<{
+    dueAt: Date | null
+    allowLate: boolean
+    course: { id: string; teacherId: string | null }
+  }> {
     if (!STUDENT_ROLES.includes(actor.role)) {
       throw new AppException('FORBIDDEN', 'Сдавать работы могут только студенты')
     }
@@ -998,7 +1016,8 @@ export class AssignmentsService {
         status: true,
         dueAt: true,
         allowLate: true,
-        course: { select: { groupId: true } },
+        // id и преподаватель курса — адресат сигнала о сданной работе.
+        course: { select: { id: true, groupId: true, teacherId: true } },
       },
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
@@ -1008,7 +1027,11 @@ export class AssignmentsService {
     if (assignment.status !== 'PUBLISHED') {
       throw new AppException('CONFLICT', 'Задание недоступно для сдачи')
     }
-    return { dueAt: assignment.dueAt, allowLate: assignment.allowLate }
+    return {
+      dueAt: assignment.dueAt,
+      allowLate: assignment.allowLate,
+      course: { id: assignment.course.id, teacherId: assignment.course.teacherId },
+    }
   }
 
   private async findGradableSubmission(actor: JwtPayload, submissionId: string) {
@@ -1016,6 +1039,7 @@ export class AssignmentsService {
       where: { id: submissionId },
       select: {
         id: true,
+        assignmentId: true,
         status: true,
         score: true,
         gradedAt: true,

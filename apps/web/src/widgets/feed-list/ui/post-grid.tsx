@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type Ref } from 'react'
+import { useEffect, useState, type Ref } from 'react'
 import dynamic from 'next/dynamic'
 import type { FeedPost } from '../../../entities/post'
 import { MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
@@ -21,18 +21,32 @@ export function PostGrid({
   posts,
   pending = 0,
   pendingRef,
+  freshIds,
 }: {
   posts: FeedPost[]
   pending?: number
   pendingRef?: Ref<HTMLDivElement>
+  /** Только что пришедшие посты — их плитки въезжают с подсветкой (`sh-live-in`). */
+  freshIds?: ReadonlySet<string>
 }) {
-  const [open, setOpen] = useState<number | null>(null)
+  // Открытый пост — по id: живая лента убирает удалённые посты, и номер съехал бы на соседа.
+  const [openId, setOpenId] = useState<string | null>(null)
+  const open = openId === null ? -1 : posts.findIndex((p) => p.id === openId)
+  // Открытый пост пропал из списка (удалён) — окно закрыто насовсем, а не до его возвращения.
+  useEffect(() => {
+    if (openId !== null && open < 0) setOpenId(null)
+  }, [openId, open])
 
   return (
     <>
       <MosaicGrid>
-        {posts.map((post, i) => (
-          <PostTile key={post.id} post={post} onOpen={() => setOpen(i)} />
+        {posts.map((post) => (
+          <PostTile
+            key={post.id}
+            post={post}
+            className={freshIds?.has(post.id) ? 'sh-live-in' : undefined}
+            onOpen={() => setOpenId(post.id)}
+          />
         ))}
         {Array.from({ length: pending }, (_, j) => (
           <MosaicTile key={`pending-${j}`} ref={j === 0 ? pendingRef : undefined} aria-hidden>
@@ -41,13 +55,14 @@ export function PostGrid({
         ))}
       </MosaicGrid>
 
-      {open !== null && (
+      {/* Открытый пост удалили — окно закрывается вместе с ним. */}
+      {open >= 0 && (
         <PostLightbox
           posts={posts}
           index={open}
           focusComment={false}
-          onIndex={setOpen}
-          onClose={() => setOpen(null)}
+          onIndex={(i) => setOpenId(posts[i]?.id ?? null)}
+          onClose={() => setOpenId(null)}
         />
       )}
     </>

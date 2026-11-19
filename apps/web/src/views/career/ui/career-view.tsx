@@ -23,6 +23,7 @@ import {
   Video,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   careerEventKeys,
   fetchCareerEvents,
@@ -47,6 +48,7 @@ import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
+import { useLiveRefresh } from '../../../shared/realtime'
 import {
   Badge,
   Button,
@@ -549,6 +551,8 @@ function SeekerOverview() {
     queryKey: careerEventKeys.list(EVENTS),
     queryFn: () => fetchCareerEvents(EVENTS),
   })
+  // Карьерные мероприятия — те же события вуза (с типом), сигнал у них общий (§9.2d).
+  useLiveRefresh(REALTIME_EVENTS.eventChanged, [careerEventKeys.all])
   const resumeQ = useQuery({
     queryKey: resumeKeys.mine(),
     queryFn: fetchResumeSettings,

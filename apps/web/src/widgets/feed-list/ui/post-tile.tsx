@@ -24,6 +24,8 @@ const MODERATOR_ROLES: Role[] = [
 interface PostTileProps {
   post: FeedPost
   onOpen: () => void
+  /** Класс плитки — например, `sh-live-in` у поста, только что пришедшего по сокету. */
+  className?: string
 }
 
 // Плитка публикации в сетке профиля (как в Instagram): обложка во всю плитку, подпись и
@@ -53,6 +55,7 @@ function PostTileView({
   via,
   originalUnavailable = false,
   onOpen,
+  className,
 }: PostTileProps & {
   /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
   via?: FeedPost
@@ -83,7 +86,7 @@ function PostTileView({
   return (
     // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит
     // внутренняя кнопка со своим `overflow-hidden`.
-    <MosaicTile className="overflow-visible">
+    <MosaicTile className={cn('overflow-visible', className)}>
       <button
         type="button"
         onClick={onOpen}

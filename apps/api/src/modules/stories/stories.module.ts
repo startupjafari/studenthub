@@ -5,6 +5,7 @@ import { PostsModule } from '../posts/posts.module'
 import { SchedulesModule } from '../schedules/schedules.module'
 import { StoriesService } from './stories.service'
 import { StoriesController } from './stories.controller'
+import { StoryLiveEvents } from './story-live-events'
 import { StoryHighlightsService } from './story-highlights.service'
 import { StoryHighlightsController } from './story-highlights.controller'
 
@@ -13,12 +14,13 @@ import { StoryHighlightsController } from './story-highlights.controller'
 // presigned-ссылок и удаления объекта вместе со сторис. Сервис экспортируется для
 // CleanupService (крон deleteExpiredStories) и ComplaintsService (жалобы на сторис).
 // «Актуальное» (StoryHighlight/StoryHighlightItem) — здесь же: снимки сторис с копией медиа.
+// StoryLiveEvents — сигнал «кольца изменились» (§9.2d); RealtimeGateway — из глобального модуля.
 @Module({
   // События, посты и расписание — для карточек-стикеров: видимость решают их модули.
   imports: [FilesModule, EventsModule, PostsModule, SchedulesModule],
   // Подборки — первыми: их статичный префикс не должен зависеть от порядка регистрации.
   controllers: [StoryHighlightsController, StoriesController],
-  providers: [StoriesService, StoryHighlightsService],
+  providers: [StoriesService, StoryHighlightsService, StoryLiveEvents],
   exports: [StoriesService],
 })
 export class StoriesModule {}

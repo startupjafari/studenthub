@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
@@ -16,6 +17,8 @@ import {
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
+import { useFreshIds } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import {
   BookCover,
   LoanDueBadge,
@@ -26,6 +29,7 @@ import {
   fetchMyReservations,
   isLostDebt,
   libraryKeys,
+  useMyLoansLive,
 } from '../../../entities/library'
 import { useReaderErrors } from '../lib/reader-errors'
 
@@ -41,6 +45,10 @@ export function MyBooksView() {
     queryKey: libraryKeys.myReservations(),
     queryFn: fetchMyReservations,
   })
+  // Библиотекарь выдал или принял книгу у стойки — список меняется на глазах у читателя,
+  // новая выдача въезжает в «На руках» с подсветкой.
+  useMyLoansLive()
+  const fresh = useFreshIds(useMemo(() => loans.data?.map((l) => l.id), [loans.data]))
 
   const open = loans.data?.filter((l) => l.status === 'OPEN' || isLostDebt(l)) ?? []
   const closed = loans.data?.filter((l) => l.status !== 'OPEN' && !isLostDebt(l)) ?? []
@@ -96,7 +104,7 @@ export function MyBooksView() {
         ) : (
           <ul className="flex flex-col divide-y divide-border">
             {open.map((loan) => (
-              <li key={loan.id}>
+              <li key={loan.id} className={cn(fresh.has(loan.id) && 'sh-live-in')}>
                 <LoanRow loan={loan} />
               </li>
             ))}

@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
 import type { DemoRequestSortValue, DemoRequestStatusValue } from '@studenthub/shared-schemas'
 import { fetchDemoRequests, onboardingKeys, type DemoRequest } from '../../../entities/onboarding'
+import { useAdminListLive } from '../../../entities/admin-list'
 import {
   Badge,
   Card,
@@ -86,6 +87,10 @@ export function DemoRequestsView() {
   })
   const rows = requests.data?.items ?? []
   const total = requests.data?.total ?? 0
+  // Живая очередь (§9.2d): подтверждённая заявка и решение другого админа видны сразу.
+  const fresh = useAdminListLive('demoRequests', [onboardingKeys.all], {
+    ids: rows.map((r) => r.id),
+  })
 
   const open = rows.find((r) => r.id === openId) ?? null
 
@@ -150,7 +155,10 @@ export function DemoRequestsView() {
                 <TableRow
                   key={request.id}
                   onClick={() => setOpenId(request.id)}
-                  className="cursor-pointer hover:bg-muted/40"
+                  className={cn(
+                    'cursor-pointer hover:bg-muted/40',
+                    fresh.has(request.id) && 'sh-live-in',
+                  )}
                 >
                   <TableCell className="font-medium">
                     <TableText value={request.universityName} />

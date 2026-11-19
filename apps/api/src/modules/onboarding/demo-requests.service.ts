@@ -14,6 +14,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
+import { AdminListEvents } from '../../common/realtime'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import { EMAIL_JOBS, QUEUES, QueueService } from '../../common/queue'
@@ -125,6 +126,8 @@ export class DemoRequestsService {
     private readonly queue: QueueService,
     private readonly invites: InviteService,
     private readonly config: ConfigService<EnvVars, true>,
+    // Живая очередь заявок и бейдж в навигации админа платформы (§9.2d) — вместо опроса.
+    private readonly adminLists: AdminListEvents,
   ) {}
 
   // ── Публичная часть ────────────────────────────────────────────────────────
@@ -382,6 +385,8 @@ export class DemoRequestsService {
       entityId: request.id,
       ...ctx,
     })
+    // Подтверждённая заявка попадает в очередь — до этого её в списке не было.
+    this.adminLists.demoRequest(request.id)
     return { status: 'NEW' }
   }
 
@@ -536,6 +541,7 @@ export class DemoRequestsService {
       metadata: { universityId: university.id },
       ...ctx,
     })
+    this.adminLists.demoRequest(id)
 
     return updated
   }
@@ -682,6 +688,7 @@ export class DemoRequestsService {
       metadata: { reason: input.reason },
       ...ctx,
     })
+    this.adminLists.demoRequest(id)
 
     return updated
   }

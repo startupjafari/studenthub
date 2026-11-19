@@ -6,6 +6,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { ChatsService } from './chats.service'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
+import type { AdminListEvents } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 function who(role: Role, sub = 'u1'): JwtPayload {
@@ -60,13 +61,16 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
+  // Живая очередь обращений (§9.2d).
+  const adminLists = { supportTicket: jest.fn() }
   const service = new SupportService(
     prisma as unknown as PrismaService,
     chats as unknown as ChatsService,
     audit as unknown as AuditService,
     telegram as unknown as TelegramNotifyService,
+    adminLists as unknown as AdminListEvents,
   )
-  return { service, prisma, chats, audit, telegram }
+  return { service, prisma, chats, audit, telegram, adminLists }
 }
 
 describe('SupportService.open', () => {
@@ -370,7 +374,7 @@ describe('SupportService.assign', () => {
   })
 
   it('берёт свободное обращение', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, adminLists } = setup()
 
     await expect(
       service.assign(who(Role.PLATFORM_ADMIN, 'staff-1'), 'ticket-1', true),
@@ -379,6 +383,8 @@ describe('SupportService.assign', () => {
       where: { id: 'ticket-1', supportAssigneeId: null },
       data: { supportAssigneeId: 'staff-1' },
     })
+    // Живая очередь (§9.2d): «взято» видно остальной команде сразу.
+    expect(adminLists.supportTicket).toHaveBeenCalledWith('ticket-1')
   })
 
   it('отдать обратно можно только своё', async () => {
@@ -495,7 +501,10 @@ describe('SupportService.onTicketMessage — правила обращения �
 
   // Склеенной ветки в очереди нет: открытой она стала бы невидимой.
   it('дописка в склеенную ветку открывает обращение, в которое её склеили', async () => {
-    const { service, prisma, telegram } = ticketSetup({ supportMergedIntoId: 'ticket-main' }, true)
+    const { service, prisma, telegram, adminLists } = ticketSetup(
+      { supportMergedIntoId: 'ticket-main' },
+      true,
+    )
 
     await service.onTicketMessage(author)
 
@@ -508,6 +517,8 @@ describe('SupportService.onTicketMessage — правила обращения �
       'Ответ в обращении поддержки',
       'support_ticket-main',
     )
+    // В очереди строка — у целевого обращения: его и перечитывают.
+    expect(adminLists.supportTicket).toHaveBeenCalledWith('ticket-main')
   })
 
   // Сотня уведомлений команде на каждую строчку автора — шум: сигнал для команды —

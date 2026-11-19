@@ -33,6 +33,7 @@ import { ACTIVE_COMPANY_WHERE, activeAccessWhere } from '../career/career-access
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
+import { StoryLiveEvents } from './story-live-events'
 
 // Кто какую аудиторию может выбрать (docs/PROJECT.md §2.2, строка «Сторисы — создание»).
 // Набор повторяет посты минус SUBJECT, которого у сторис нет. Модераторы и работодатель
@@ -113,7 +114,9 @@ const STORY_SCOPE_SELECT = {
   fileId: true,
   universityId: true,
   facultyId: true,
-  author: { select: { role: true } },
+  // Вуз автора — адресат сигнала «кольца изменились» при удалении (§9.2d): у сторис для
+  // друзей своего universityId нет.
+  author: { select: { role: true, universityId: true } },
 } satisfies Prisma.StorySelect
 
 type StoryRow = Prisma.StoryGetPayload<{ select: typeof STORY_SELECT }>
@@ -375,6 +378,7 @@ export class StoriesService {
     private readonly events: EventsService,
     private readonly posts: PostsService,
     private readonly schedules: SchedulesService,
+    private readonly live: StoryLiveEvents,
   ) {}
 
   /** Медиа сторис для клиента: файл, ссылка на оригинал и описание вариантов. */
@@ -813,6 +817,7 @@ export class StoriesService {
       ...ctx,
     })
     await this.notifyMentioned(actor, created.id, mentioned)
+    this.live.changed({ id: actor.sub, universityId: actor.universityId })
     return this.getById(actor, created.id)
   }
 
@@ -1043,6 +1048,7 @@ export class StoriesService {
       entityId: id,
       ...ctx,
     })
+    this.live.changed({ id: story.authorId, universityId: story.author.universityId })
   }
 
   /**
@@ -1051,12 +1057,16 @@ export class StoriesService {
    * жалобу разбирают и после того, как автор удалил контент сам.
    */
   async removeByModeration(id: string): Promise<void> {
-    const story = await this.prisma.story.findUnique({ where: { id }, select: { fileId: true } })
+    const story = await this.prisma.story.findUnique({
+      where: { id },
+      select: { fileId: true, authorId: true, author: { select: { universityId: true } } },
+    })
     if (!story) return
     await this.removeHighlightCopies(id)
     await this.prisma.story.delete({ where: { id } })
     if (story.fileId) await this.deleteMedia(story.fileId)
     this.logger.log(`Сторис ${id} удалена по решению модерации`)
+    this.live.changed({ id: story.authorId, universityId: story.author.universityId })
   }
 
   /**

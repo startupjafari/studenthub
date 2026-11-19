@@ -16,6 +16,7 @@ import {
   PRIORITY_STYLE,
   STATUS_STYLE,
 } from '../../../entities/complaint'
+import { useAdminListLive } from '../../../entities/admin-list'
 import {
   Card,
   EmptyState,
@@ -93,6 +94,13 @@ export function ComplaintsQueueView() {
   })
   const rows = complaints.data?.items ?? []
   const total = complaints.data?.total ?? 0
+  // Живая очередь (§9.2d): новая жалоба и решение коллеги видны без перезагрузки. Переписку
+  // по жалобе (`messages`) не перечитываем: каждое её чтение пишется в аудит.
+  const fresh = useAdminListLive(
+    'complaints',
+    [[...complaintKeys.all, 'list'], ...(opened ? [complaintKeys.detail(opened.id)] : [])],
+    { ids: rows.map((c) => c.id) },
+  )
 
   // Новый фильтр или порядок — снова с первой страницы: на прежней странице отфильтрованной
   // очереди может не быть строк вовсе.
@@ -186,7 +194,10 @@ export function ComplaintsQueueView() {
                         setOpened(c)
                       }
                     }}
-                    className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                    className={cn(
+                      'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+                      fresh.has(c.id) && 'sh-live-in',
+                    )}
                   >
                     <TableCell>
                       <span
