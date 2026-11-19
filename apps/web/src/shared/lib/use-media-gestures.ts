@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
   createSpring,
   prefersReducedMotion,
@@ -109,11 +109,23 @@ export interface MediaGesturesOptions {
    * жеста и возврата — по ней просмотрщик гасит фон и панели, без ререндера.
    */
   onDismissProgress?: (progress: number) => void
+  /**
+   * Масштаб изменился (жест, колесо, кнопки, пружина доводки). Зовётся на каждом кадре —
+   * просмотрщик держит по нему доступность кнопок «приблизить / отдалить».
+   */
+  onScaleChange?: (scale: number) => void
 }
 
 export interface MediaGesturesController {
-  /** На область жеста — она же видимое окно, за границы которого снимок не уезжает. */
+  /** Область жеста (она же видимое окно, за границы которого снимок не уезжает) — для замеров. */
   surfaceRef: RefObject<HTMLDivElement | null>
+  /**
+   * Ref-колбэк на ту же область. Именно им подключают разметку: окно просмотра рисуется в
+   * портале, который появляется только со второго прохода рендера, — эффект с жестами по
+   * объектному ref-у к тому моменту уже отработал вхолостую и не подключал ни зум, ни колесо,
+   * ни щипок. Колбэк кладёт узел в состояние, и жесты подключаются, когда узел появился.
+   */
+  attachSurface: (node: HTMLDivElement | null) => void
   /** На слой вокруг медиа — его двигаем и масштабируем. */
   layerRef: RefObject<HTMLDivElement | null>
   /** Вернуть 1:1 — при смене снимка и повороте. */
@@ -136,8 +148,14 @@ export function useMediaGestures({
   onPage,
   onDismiss,
   onDismissProgress,
+  onScaleChange,
 }: MediaGesturesOptions): MediaGesturesController {
   const surfaceRef = useRef<HTMLDivElement | null>(null)
+  const [surfaceEl, setSurfaceEl] = useState<HTMLDivElement | null>(null)
+  const attachSurface = useCallback((node: HTMLDivElement | null): void => {
+    surfaceRef.current = node
+    setSurfaceEl(node)
+  }, [])
   const layerRef = useRef<HTMLDivElement | null>(null)
   // Сброс приходит из эффекта, но вызывают его снаружи — прокладка, чтобы возвращаемая
   // функция не менялась между рендерами.
@@ -155,9 +173,11 @@ export function useMediaGestures({
   onPageRef.current = onPage
   onDismissRef.current = onDismiss
   onDismissProgressRef.current = onDismissProgress
+  const onScaleChangeRef = useRef(onScaleChange)
+  onScaleChangeRef.current = onScaleChange
 
   useEffect(() => {
-    const surface = surfaceRef.current
+    const surface = surfaceEl
     if (!surface) return
 
     // Единственная правда о положении снимка: и жест, и пружины пишут сюда.
@@ -170,6 +190,7 @@ export function useMediaGestures({
       if (!layer) return
       layer.style.transform =
         sc === 1 && px === 0 && py === 0 ? '' : `translate3d(${px}px, ${py}px, 0) scale(${sc})`
+      onScaleChangeRef.current?.(sc)
       // Вертикальный сдвиг вписанного кадра — это смахивание (или возврат после него):
       // сообщаем, насколько он утащен. У увеличенного снимка вертикаль — панорама, не наша.
       if (sc === 1) {
@@ -663,7 +684,7 @@ export function useMediaGestures({
       surface.removeEventListener('gesturestart', blockNativeZoom)
       surface.removeEventListener('gesturechange', blockNativeZoom)
     }
-  }, [content, zoomDisabled, maxScale])
+  }, [surfaceEl, content, zoomDisabled, maxScale])
 
   const reset = useCallback((): void => resetRef.current(), [])
   const zoomStep = useCallback((direction: 1 | -1): void => zoomStepRef.current(direction), [])
@@ -671,7 +692,7 @@ export function useMediaGestures({
   const stop = useCallback((): void => stopRef.current(), [])
 
   return useMemo(
-    () => ({ surfaceRef, layerRef, reset, zoomStep, getScale, stop }),
-    [reset, zoomStep, getScale, stop],
+    () => ({ surfaceRef, attachSurface, layerRef, reset, zoomStep, getScale, stop }),
+    [attachSurface, reset, zoomStep, getScale, stop],
   )
 }
