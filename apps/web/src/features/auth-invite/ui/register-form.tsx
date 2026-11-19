@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, type ChangeEvent } from 'react'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
@@ -17,7 +17,16 @@ import {
   RegisterByInviteSchema,
   type RegisterByInviteInput,
 } from '@studenthub/shared-schemas'
-import { Badge, Button, Input, Label, Skeleton, FieldError } from '../../../shared/ui'
+import {
+  Badge,
+  birthDateRange,
+  Button,
+  DatePicker,
+  Input,
+  Label,
+  Skeleton,
+  FieldError,
+} from '../../../shared/ui'
 import { toApiError, useErrorToast } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
@@ -111,6 +120,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   // по-русски или по-английски («String must contain at least 1 character(s)») в любой локали.
   const {
     register,
+    control,
     handleSubmit,
     watch,
     setError,
@@ -124,6 +134,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   // представитель, и спрашивать его у совершеннолетнего незачем. Полная дата — иначе
   // `isAdult` посчитает возраст по обрывку и покажет галочку не тому.
   const birthDate = watch('birthDate') ?? ''
+  const birthDates = useMemo(() => birthDateRange(), [])
   const needsGuardian = /^\d{4}-\d{2}-\d{2}$/.test(birthDate) && !isAdult(birthDate)
 
   const password = watch('password') ?? ''
@@ -415,13 +426,21 @@ export function RegisterByInviteForm({ token }: { token: string }) {
         )}
 
         <div className="flex flex-col gap-2">
-          <Label htmlFor="birthDate">{t('birthDate')}</Label>
-          <Input
-            id="birthDate"
-            type="date"
-            autoComplete="bday"
-            aria-invalid={!!errors.birthDate}
-            {...register('birthDate')}
+          <Label>{t('birthDate')}</Label>
+          {/* Свой календарь, а не `type="date"`: системное поле в каждом браузере своё и
+              открывается на текущем месяце — до года рождения листать десятки щелчков. */}
+          <Controller
+            control={control}
+            name="birthDate"
+            render={({ field }) => (
+              <DatePicker
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                {...birthDates}
+                aria-label={t('birthDate')}
+                aria-invalid={!!errors.birthDate}
+              />
+            )}
           />
           <p className="text-xs text-muted-foreground">{t('birthDateHint')}</p>
           <FieldError>{errors.birthDate && t('birthDateInvalid')}</FieldError>

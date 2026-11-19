@@ -34,3 +34,16 @@ export function monthCells(year: number, month: number): Date[] {
   const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7 // Пн = 0
   return Array.from({ length: 42 }, (_, i) => new Date(year, month, i - firstWeekday + 1))
 }
+
+// Границы поля «дата рождения»: от 120 лет назад (как у общей схемы — защита от опечатки
+// в годе) до сегодня. Календарь открывается на 18 годах назад — на нынешнем месяце человеку
+// пришлось бы листать к своему году.
+export function birthDateRange(now: Date = new Date()): {
+  min: string
+  max: string
+  defaultView: string
+} {
+  const yearsAgo = (n: number): string =>
+    formatYmd(new Date(now.getFullYear() - n, now.getMonth(), now.getDate()))
+  return { min: yearsAgo(120), max: formatYmd(now), defaultView: yearsAgo(18) }
+}
