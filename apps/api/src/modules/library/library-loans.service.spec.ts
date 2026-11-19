@@ -7,6 +7,7 @@ import type { FileService } from '../files/file.service'
 import type { StudentIdService } from '../student-id/student-id.service'
 import type { LibrarySettingsService } from './library-settings.service'
 import type { LibraryNotifier } from './library-notifier'
+import type { LibraryLoanEvents } from './library-loan-events'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -142,6 +143,7 @@ function setup({
   const notifier = { send: jest.fn().mockResolvedValue(undefined) }
   // Отзыв справок «задолженностей нет» (Фаза 21.C4).
   const exports = { revokeMatching: jest.fn().mockResolvedValue(0) }
+  const events = { changed: jest.fn() }
   const service = new LibraryLoansService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -151,8 +153,9 @@ function setup({
     notifier as unknown as LibraryNotifier,
     config,
     exports as never,
+    events as unknown as LibraryLoanEvents,
   )
-  return { service, prisma, tx, audit, notifier, studentId, exports }
+  return { service, prisma, tx, audit, notifier, studentId, exports, events }
 }
 
 const ticketFor = (librarianId = 'lib-1', readerId = 'stu-1') =>
