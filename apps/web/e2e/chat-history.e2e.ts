@@ -115,22 +115,27 @@ async function startProbe(page: Page): Promise<void> {
     }
     const sc = document.querySelector('[id^="msg-"]')?.closest('.overflow-y-auto') as HTMLElement
     w.__probe = { jumps: 0, maxJump: 0, maxRows: 0, seen: new Set() }
-    let prev: { id: string; top: number; st: number } | null = null
+    let prev: { el: Element; top: number; st: number } | null = null
     const tick = (): void => {
       const p = w.__probe
-      const rows = sc.querySelectorAll('[id^="msg-"]')
+      // Строки окна, а не элементы внутри: координаты вложенных элементов заставили бы
+      // браузер считать скрытые content-visibility строки.
+      const rows = sc.querySelectorAll('[data-window-key]')
       p.maxRows = Math.max(p.maxRows, rows.length)
       const r = sc.getBoundingClientRect()
-      let anchor: { id: string; top: number } | null = null
+      let anchor: { el: Element; top: number } | null = null
       for (const el of rows) {
-        p.seen.add(el.id)
+        p.seen.add(el.getAttribute('data-window-key') ?? '')
         const b = el.getBoundingClientRect()
-        if (!anchor && b.bottom > r.top + 20 && b.top < r.bottom) anchor = { id: el.id, top: b.top }
+        if (!anchor && b.bottom > r.top + 20 && b.top < r.bottom) anchor = { el, top: b.top }
       }
       if (prev) {
-        const el = document.getElementById(prev.id)
+        const el = prev.el.isConnected ? prev.el : null
         if (el) {
-          const err = Math.abs(el.getBoundingClientRect().top - prev.top + (sc.scrollTop - prev.st))
+          // Экранный сдвиг: при прокрутке вверх контент едет вниз и не дальше шага колеса.
+          // Поправка scrollTop при догрузке сверху на экране не видна — это не прыжок.
+          const dTop = el.getBoundingClientRect().top - prev.top
+          const err = dTop < -3 ? -dTop : dTop > 700 ? dTop - 700 : 0
           if (err > 3) {
             p.jumps += 1
             p.maxJump = Math.max(p.maxJump, err)

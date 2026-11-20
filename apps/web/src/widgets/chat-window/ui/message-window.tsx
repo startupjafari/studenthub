@@ -124,6 +124,14 @@ function useNearRegistry(scrollRef: RefObject<HTMLElement | null>): NearRegistry
   return registry
 }
 
+/**
+ * Строка вне кадра не считается браузером вовсе — ни стили, ни раскладка, ни отрисовка
+ * (`content-visibility: auto`). Это и есть дешёвая «виртуализация» Telegram-ленты: в DOM сотни
+ * сообщений, а работы — как с экраном. Однажды показанная строка помнит свою высоту (`auto`
+ * в contain-intrinsic-size), а уточнение высоты ещё не показанной гасит якорь окна.
+ */
+const ROW_STYLE = { contentVisibility: 'auto', containIntrinsicSize: 'auto 72px' } as const
+
 /** Обёртка строки: ключ для якоря и флаг «рядом с кадром» для медиа внутри. */
 function WindowRow({ rowKey, children }: { rowKey: string; children: ReactNode }) {
   const registry = useContext(NearContext)
@@ -135,7 +143,7 @@ function WindowRow({ rowKey, children }: { rowKey: string; children: ReactNode }
     return registry.observe(el, () => setNear(true))
   }, [registry, near])
   return (
-    <div ref={ref} {...{ [KEY_ATTR]: rowKey }}>
+    <div ref={ref} {...{ [KEY_ATTR]: rowKey }} style={ROW_STYLE}>
       {/* Без наблюдателя (тесты, старый браузер) — грузим сразу, как раньше. Пока сам
           наблюдатель ещё не создан (первый кадр ленты) — ждём его, а не грузим всё подряд. */}
       <MediaNearProvider near={near || typeof IntersectionObserver === 'undefined'}>
