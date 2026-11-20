@@ -2474,7 +2474,9 @@
       "symbols": "Символы",
       "flags": "Флаги",
       "loadFailed": "Не удалось загрузить эмодзи",
-      "nothingFound": "Ничего не найдено"
+      "nothingFound": "Ничего не найдено",
+      "searchResults": "Результаты поиска",
+      "clearSearch": "Очистить поиск"
     },
     "tgStickers": {
       "editorTitle": "Новый стикер",

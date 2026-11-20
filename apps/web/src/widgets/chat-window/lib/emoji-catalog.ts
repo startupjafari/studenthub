@@ -112,8 +112,8 @@ export function searchEmojis(
   return [...starts, ...contains].slice(0, limit)
 }
 
-/** Сколько эмодзи помнит раздел «Недавние»: три ряда по девять, как в Telegram. */
-export const RECENT_LIMIT = 27
+/** Сколько эмодзи помнит раздел «Недавние» — столько же, сколько хранит Telegram Web. */
+export const RECENT_LIMIT = 32
 
 /**
  * Начальные «Недавние» — пока человек ничего не выбирал, раздел не пустует (в Telegram у
@@ -169,4 +169,38 @@ export const VERSION_PROBES: readonly { version: number; emoji: string }[] = [
 export function detectMaxVersion(renders: (emoji: string) => boolean): number {
   for (const probe of VERSION_PROBES) if (renders(probe.emoji)) return probe.version
   return 5
+}
+
+/**
+ * Какой раздел сейчас «в кадре»: последний, чей верх уже дошёл до верха ленты (с допуском
+ * `slack`). Пока прокрутка выше первого раздела (над ним строка поиска) — первый.
+ */
+export function sectionAt<T extends string>(
+  tops: readonly { id: T; top: number }[],
+  scrollTop: number,
+  slack = 8,
+): T | null {
+  let current: T | null = tops[0]?.id ?? null
+  for (const s of tops) {
+    if (s.top - scrollTop <= slack) current = s.id
+    else break
+  }
+  return current
+}
+
+/** Шаг кнопки в «пилюле» разделов: 34 px кнопка + по пикселю поля с боков (Telegram). */
+export const PILL_STEP_PX = 36
+
+/**
+ * Куда прокрутить полосу «пилюли», чтобы активный раздел встал по центру её окна. Свёрнутая
+ * пилюля показывает только первый раздел — её полоса всегда в начале.
+ */
+export function pillScrollLeft(
+  activeIndex: number,
+  stripWidth: number,
+  expanded: boolean,
+  step = PILL_STEP_PX,
+): number {
+  if (!expanded || activeIndex < 0) return 0
+  return Math.max(0, activeIndex * step - stripWidth / 2 + step / 2)
 }

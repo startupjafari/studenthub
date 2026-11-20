@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -26,9 +26,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../../shared/ui'
-import { prefersReducedMotion } from '../../../shared/lib'
+import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
+import { sectionAt } from '../lib/emoji-catalog'
 import { ComposerEmojiTab } from './composer-emoji-tab'
 import { GifsTab, type PickedGif } from './composer-gifs-tab'
 
@@ -40,6 +41,26 @@ export type { PickedGif } from './composer-gifs-tab'
 // Ссылки на стикеры и GIF подписаны на час и больше: держать выдачу свежей дольше незачем,
 // а повторное открытие панели не должно каждый раз перезапрашивать каталог.
 const CATALOG_STALE_MS = 10 * 60 * 1000
+
+/**
+ * Панель на экране с учётом ухода: после `open = false` она ещё `MOTION.exit` мс видна с
+ * анимацией исчезновения (Telegram гасит меню, а не выдёргивает его). Повторное открытие
+ * посреди ухода просто отменяет уход.
+ */
+export function useSymbolMenuPresence(open: boolean): { mounted: boolean; closing: boolean } {
+  const [mounted, setMounted] = useState(open)
+  if (open && !mounted) setMounted(true)
+  useEffect(() => {
+    if (open || !mounted) return
+    const id = setTimeout(() => setMounted(false), MOTION.exit)
+    return () => clearTimeout(id)
+  }, [open, mounted])
+  return { mounted: open || mounted, closing: !open && mounted }
+}
+
+/** Кнопка нижней полосы и ⌫ — круг 34 px, как в Telegram. */
+const footerButton =
+  'flex size-[2.125rem] shrink-0 cursor-pointer items-center justify-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20'
 
 /**
  * Панель символов поля ввода в духе Telegram: эмодзи, стикеры и GIF под одной кнопкой, вкладки
@@ -86,7 +107,7 @@ export function ComposerSymbolMenu({
             key: 'gifs' as const,
             label: t('tgComposer.gifsTab'),
             // У lucide нет значка GIF — подписью, как на кнопке Telegram.
-            icon: <span className="text-[0.7rem] font-bold leading-none tracking-tight">GIF</span>,
+            icon: <GifIcon />,
           },
         ]
       : []),
@@ -98,7 +119,8 @@ export function ComposerSymbolMenu({
         'flex flex-col overflow-hidden bg-popover',
         variant === 'popover'
           ? 'h-[22.375rem] w-[24rem] rounded-xl border border-border shadow-lg'
-          : 'h-[min(45dvh,20rem)] w-full',
+          : // Telegram на телефоне: панель 17,6875rem на месте клавиатуры, во всю ширину.
+            'h-[min(50dvh,17.6875rem)] w-full',
       )}
     >
       <div
@@ -115,13 +137,14 @@ export function ComposerSymbolMenu({
         )}
       </div>
       {(tabs.length > 1 || showBackspace) && (
-        // Нижняя полоса: вкладки по центру, ⌫ — у правого края, как в Telegram.
-        <div className="relative flex min-h-11 shrink-0 items-center justify-center border-t border-border px-2 py-1">
+        // Нижняя полоса 48 px: вкладки по центру с широким шагом, ⌫ — у правого края, как в
+        // Telegram. Активная вкладка не подсвечивается подложкой — только цветом значка.
+        <div className="relative flex h-12 shrink-0 items-center justify-center border-t border-border">
           {tabs.length > 1 && (
             <div
               role="tablist"
               aria-label={t('tgComposer.symbolTabs')}
-              className="flex items-center justify-center gap-1"
+              className="flex items-center justify-center"
               onKeyDown={(e) => {
                 if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
                 e.preventDefault()
@@ -145,10 +168,11 @@ export function ComposerSymbolMenu({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onTabChange(x.key)}
                   className={cn(
-                    'flex size-9 cursor-pointer items-center justify-center rounded-lg outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
+                    footerButton,
+                    'mx-3',
                     active === x.key
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      ? 'text-foreground'
+                      : 'text-foreground/60 hover:bg-muted-foreground/[0.08] hover:text-foreground',
                   )}
                 >
                   {x.icon}
@@ -162,6 +186,18 @@ export function ComposerSymbolMenu({
         </div>
       )}
     </div>
+  )
+}
+
+/** Значок вкладки GIF: подпись в скруглённой рамке, как у Telegram (у lucide такого нет). */
+function GifIcon() {
+  return (
+    <span
+      aria-hidden
+      className="rounded-[0.3125rem] border-[1.5px] border-current px-[0.1875rem] text-[0.5625rem] font-extrabold leading-[0.875rem] tracking-tight"
+    >
+      GIF
+    </span>
   )
 }
 
@@ -208,7 +244,10 @@ function BackspaceButton({ label, onPress }: { label: string; onPress: () => voi
         if (e.detail === 0) pressRef.current()
       }}
       onContextMenu={(e) => e.preventDefault()}
-      className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 cursor-pointer touch-none items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20"
+      className={cn(
+        footerButton,
+        'absolute right-1 top-1/2 -translate-y-1/2 touch-none text-foreground/60 hover:bg-muted-foreground/[0.08] hover:text-foreground',
+      )}
     >
       <Delete className="size-5" aria-hidden />
     </button>
@@ -278,7 +317,7 @@ function StickerCell({
       onPointerCancel={clear}
       aria-label={alt}
       title={hint}
-      className="flex aspect-square cursor-pointer select-none items-center justify-center rounded-lg p-1 outline-none [-webkit-touch-callout:none] hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 motion-safe:active:scale-95"
+      className="flex size-[4.5rem] cursor-pointer select-none items-center justify-center rounded-md p-1 outline-none [-webkit-touch-callout:none] hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 motion-safe:active:scale-95"
     >
       <AnimatedImage
         src={sticker.url}
@@ -292,14 +331,19 @@ function StickerCell({
   )
 }
 
+/** Обложка в полосе наборов (Telegram): квадрат 36 px, активная — серая подложка. */
+const coverButton =
+  'my-1.5 mx-0.5 inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
+const coverIdle = 'text-foreground/70 hover:bg-muted-foreground/[0.08] hover:text-foreground'
+
 /**
- * «Создать стикер» и «Мои наборы» в начале полосы наборов (Telegram 2024: стикеры прямо в
- * приложении, без бота). Файл или снимок с камеры открывают редактор поверх чата.
+ * «Создать стикер» и «Мои наборы» в конце полосы наборов — там же, где шестерёнка настроек
+ * стикеров у Telegram Desktop. Создание прямо в приложении — как в Telegram 2024, без бота;
+ * файл или снимок с камеры открывают редактор поверх чата.
  */
 function StickerTools() {
   const t = useTranslations('Chats')
-  const toolClass =
-    'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
+  const toolClass = cn(coverButton, coverIdle)
   return (
     <>
       <DropdownMenu>
@@ -345,6 +389,17 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const [activeSet, setActiveSet] = useState<string | null>(null)
+  const [atTop, setAtTop] = useState(true)
+  // Пока лента едет к набору по нажатию, подсветка уже стоит на нём и не мигает по пути.
+  const jumpingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (jumpingRef.current) clearTimeout(jumpingRef.current)
+    },
+    [],
+  )
 
   const sets = useQuery({
     queryKey: composerKeys.stickerSets(),
@@ -381,13 +436,68 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  const sections = [
+    ...((favorites.data?.length ?? 0) > 0
+      ? [
+          {
+            id: 'favorites',
+            title: t('tgComposer.stickersFavorites'),
+            stickers: favorites.data ?? [],
+          },
+        ]
+      : []),
+    ...(added.data ?? []).filter((s) => s.stickers.length > 0),
+    ...(sets.data ?? []).filter((s) => s.stickers.length > 0),
+  ]
+  const current = activeSet ?? sections[0]?.id ?? null
+
+  // Активная обложка не уходит за край полосы: Telegram подкручивает её к центру.
+  useEffect(() => {
+    const header = headerRef.current
+    const cover = current
+      ? header?.querySelector<HTMLElement>(`[data-cover="${CSS.escape(current)}"]`)
+      : null
+    if (!header || !cover) return
+    const left = cover.offsetLeft - (header.clientWidth - cover.offsetWidth) / 2
+    header.scrollTo({ left, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  }, [current])
+
+  function onScroll(): void {
+    const vp = scrollRef.current
+    if (!vp) return
+    setAtTop(vp.scrollTop <= 0)
+    if (jumpingRef.current) return
+    const blocks = vp.querySelectorAll<HTMLElement>('[data-set]')
+    const tops = Array.from(blocks, (b) => ({ id: b.dataset.set ?? '', top: b.offsetTop }))
+    const next = sectionAt(tops, vp.scrollTop)
+    if (next) setActiveSet(next)
+  }
+
+  function jumpTo(id: string): void {
+    const vp = scrollRef.current
+    const block = vp?.querySelector<HTMLElement>(`[data-set="${CSS.escape(id)}"]`)
+    if (!vp || !block) return
+    setActiveSet(id)
+    if (jumpingRef.current) clearTimeout(jumpingRef.current)
+    jumpingRef.current = setTimeout(() => {
+      jumpingRef.current = null
+    }, 600)
+    vp.scrollTo({
+      top: block.offsetTop - 8,
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    })
+  }
+
   if (sets.isPending) {
     return (
-      <div className="grid grid-cols-5 gap-1 p-2" aria-busy>
-        {Array.from({ length: 15 }, (_, i) => (
+      <div
+        className="grid grid-cols-[repeat(auto-fill,4.5rem)] justify-between gap-1 px-1 pt-14"
+        aria-busy
+      >
+        {Array.from({ length: 12 }, (_, i) => (
           <div
             key={i}
-            className="aspect-square animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
+            className="size-[4.5rem] animate-pulse rounded-md bg-muted motion-reduce:animate-none"
           />
         ))}
       </div>
@@ -406,59 +516,69 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
       </PanelMessage>
     )
   }
-  const sections = [
-    ...((favorites.data?.length ?? 0) > 0
-      ? [
-          {
-            id: 'favorites',
-            title: t('tgComposer.stickersFavorites'),
-            stickers: favorites.data ?? [],
-          },
-        ]
-      : []),
-    ...(added.data ?? []).filter((s) => s.stickers.length > 0),
-    ...sets.data.filter((s) => s.stickers.length > 0),
-  ]
 
   return (
     <div className="flex h-full flex-col">
       {/* Обложки наборов — переход к разделу; первый стикер набора и есть обложка. */}
-      <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2 py-1 [scrollbar-width:none]">
-        <StickerTools />
+      <div
+        ref={headerRef}
+        className={cn(
+          'flex h-12 shrink-0 items-center overflow-x-auto border-b px-1.5 transition-colors [scrollbar-width:none]',
+          // Разделитель — только когда лента уехала под полосу, как в Telegram.
+          atTop ? 'border-transparent' : 'border-border',
+        )}
+        onWheel={(e) => {
+          const header = headerRef.current
+          if (!header || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+          header.scrollLeft += e.deltaY
+        }}
+      >
         {sections.map((s) => (
           <button
             key={s.id}
             type="button"
+            data-cover={s.id}
             aria-label={s.title}
             title={s.title}
-            onClick={() =>
-              scrollRef.current?.querySelector(`[data-set="${s.id}"]`)?.scrollIntoView({
-                block: 'start',
-                behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-              })
-            }
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40"
+            aria-pressed={current === s.id}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => jumpTo(s.id)}
+            className={cn(
+              coverButton,
+              current === s.id ? 'bg-muted-foreground/[0.08] text-foreground' : coverIdle,
+            )}
           >
             {s.id === 'favorites' ? (
               <Star className="size-5" aria-hidden />
             ) : s.stickers[0] ? (
-              <img src={s.stickers[0].url} alt="" className="size-7 object-contain" />
+              <img
+                src={s.stickers[0].url}
+                alt=""
+                draggable={false}
+                className="size-[1.875rem] object-contain"
+              />
             ) : null}
           </button>
         ))}
+        <StickerTools />
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-2 [scrollbar-gutter:stable]"
+      >
         {sections.length === 0 && (
           <PanelMessage text={t('tgComposer.stickersEmpty')}>
             <span className="text-xs">{t('tgStickers.emptyPanelHint')}</span>
           </PanelMessage>
         )}
         {sections.map((s) => (
-          <section key={s.id} data-set={s.id} aria-label={s.title} className="scroll-mt-1">
-            <h3 className="sticky top-0 z-10 bg-popover px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+          <section key={s.id} data-set={s.id} aria-label={s.title} className="mb-3">
+            <h3 className="truncate px-1 pb-0.5 text-base font-medium leading-[1.6875rem] text-muted-foreground/75">
               {s.title}
             </h3>
-            <div className="grid grid-cols-5 gap-0.5">
+            {/* Telegram: клетки по 72 px, лишнее место — поровну между ними. */}
+            <div className="grid auto-rows-[4.5rem] grid-cols-[repeat(auto-fill,4.5rem)] justify-between gap-1">
               {s.stickers.map((sticker) => (
                 <StickerCell
                   key={`${s.id}-${sticker.id}`}

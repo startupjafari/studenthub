@@ -2474,7 +2474,9 @@
       "symbols": "Таңбалар",
       "flags": "Тулар",
       "loadFailed": "Эмодзи жүктелмеді",
-      "nothingFound": "Ештеңе табылмады"
+      "nothingFound": "Ештеңе табылмады",
+      "searchResults": "Іздеу нәтижелері",
+      "clearSearch": "Іздеуді тазалау"
     },
     "tgStickers": {
       "editorTitle": "Жаңа стикер",

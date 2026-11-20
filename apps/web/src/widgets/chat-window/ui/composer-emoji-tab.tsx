@@ -1,37 +1,42 @@
 'use client'
 
-// Вкладка «Эмодзи» панели ввода — по образцу Telegram Web: сверху полоса разделов (недавние,
-// смайлы и люди, животные, еда, спорт, транспорт, предметы, символы, флаги) с подсветкой
-// того, что сейчас в кадре; поиск — первой строкой прокрутки; сетка крупных клеток. Нажатие
-// на раздел ведёт к нему, прокрутка сама переключает подсветку.
+// Вкладка «Эмодзи» панели ввода — по образцу Telegram Web A. Сверху полоса: кнопка «Недавних»
+// и «пилюля» разделов (смайлы и люди, животные, еда, спорт, транспорт, предметы, символы,
+// флаги). Пока в кадре «Недавние», пилюля свёрнута в один значок; стоит докрутить до разделов —
+// раскрывается и держит активный по центру. Поиск — первой строкой ленты; при фокусе полоса
+// уезжает вверх, и поле встаёт на её место. Сетка — семь клеток по 36 px.
 //
 // Данные — emojibase через frimousse (тот же источник, что у пикера реакций): здесь своя
 // раскладка, потому что у frimousse нет навигации по разделам и раздела «Недавние».
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { defaultEmojiDataResolver } from 'frimousse'
 import {
+  Apple,
   Car,
   Cat,
   Clock3,
   Flag,
   Lightbulb,
   Loader2,
-  Pizza,
   Search,
   Shapes,
   Smile,
   Volleyball,
+  X,
 } from 'lucide-react'
 import { isEmojiSupported } from '../../../shared/lib/emoji-support'
+import { prefersReducedMotion } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   DEFAULT_RECENT,
   buildSections,
   detectMaxVersion,
+  pillScrollLeft,
   pushRecent,
   searchEmojis,
+  sectionAt,
   type CatalogEmoji,
   type EmojiSectionId,
 } from '../lib/emoji-catalog'
@@ -40,7 +45,7 @@ const SECTION_ICONS: Record<EmojiSectionId, ReactNode> = {
   recent: <Clock3 className="size-5" aria-hidden />,
   people: <Smile className="size-5" aria-hidden />,
   nature: <Cat className="size-5" aria-hidden />,
-  foods: <Pizza className="size-5" aria-hidden />,
+  foods: <Apple className="size-5" aria-hidden />,
   activity: <Volleyball className="size-5" aria-hidden />,
   places: <Car className="size-5" aria-hidden />,
   objects: <Lightbulb className="size-5" aria-hidden />,
@@ -106,6 +111,12 @@ function emojiSupport(): { maxVersion: number; flags: boolean } {
   return supportCache
 }
 
+/** Кнопка полосы разделов: круг 34 px; активная — серая подложка, остальные чуть приглушены. */
+const sectionButton =
+  'flex size-[2.125rem] shrink-0 cursor-pointer items-center justify-center rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20'
+const sectionIdle = 'text-foreground/70 hover:bg-muted-foreground/[0.08] hover:text-foreground'
+const sectionActive = 'bg-muted-foreground/[0.12] text-foreground'
+
 export function ComposerEmojiTab({
   variant,
   onPick,
@@ -118,12 +129,15 @@ export function ComposerEmojiTab({
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [failed, setFailed] = useState(false)
   const [query, setQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
   // «Недавние» на экране — снимок на момент открытия: обновлять раздел прямо под курсором
   // значило бы сдвигать сетку после каждого нажатия (Telegram тоже перестраивает его потом).
   const [recentShown] = useState(readRecent)
   const recentRef = useRef<string[] | null>(null)
   const [active, setActive] = useState<EmojiSectionId>('recent')
+  const [atTop, setAtTop] = useState(true)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   // Пока лента едет к разделу по нажатию, подсветка уже стоит на нём и не мигает по пути.
   const jumpingRef = useRef<number | null>(null)
 
@@ -138,6 +152,13 @@ export function ComposerEmojiTab({
     }
   }, [locale])
 
+  useEffect(
+    () => () => {
+      if (jumpingRef.current !== null) window.clearTimeout(jumpingRef.current)
+    },
+    [],
+  )
+
   const support = useMemo(() => (catalog ? emojiSupport() : null), [catalog])
   const sections = useMemo(
     () =>
@@ -148,6 +169,13 @@ export function ComposerEmojiTab({
     () => (catalog && support ? searchEmojis(catalog.emojis, query, support) : []),
     [catalog, support, query],
   )
+  const hasQuery = !!query.trim()
+  // Telegram: поиск «активен», пока в поле фокус или текст, — полоса разделов уезжает вверх.
+  const searchActive = searchFocused || hasQuery
+  const recent = sections.find((s) => s.id === 'recent')
+  const categories = sections.filter((s) => s.id !== 'recent')
+  const pillIndex = categories.findIndex((s) => s.id === active)
+  const pillExpanded = pillIndex >= 0
 
   function title(id: EmojiSectionId, groupLabel?: string): string {
     if (id === 'recent') return t('tgEmoji.recent')
@@ -155,145 +183,294 @@ export function ComposerEmojiTab({
     return groupLabel ?? t(`tgEmoji.${id}`)
   }
 
-  function pick(emoji: string): void {
-    onPick(emoji)
+  // Ссылка на выбор постоянная: сетки не перерисовываются, когда прокрутка меняет подсветку.
+  const onPickRef = useRef(onPick)
+  onPickRef.current = onPick
+  const pick = useCallback((emoji: string): void => {
+    onPickRef.current(emoji)
     const next = pushRecent(recentRef.current ?? readRecent(), emoji)
     recentRef.current = next
     writeRecent(next)
-  }
+  }, [])
 
-  function syncActive(): void {
-    if (jumpingRef.current !== null) return
+  function onScroll(): void {
     const vp = viewportRef.current
     if (!vp) return
+    setAtTop(vp.scrollTop <= 0)
+    if (jumpingRef.current !== null || hasQuery) return
     const blocks = vp.querySelectorAll<HTMLElement>('[data-emoji-section]')
-    let current: EmojiSectionId | null = null
-    for (const b of blocks) {
-      if (b.offsetTop - vp.scrollTop <= 8) current = b.dataset.emojiSection as EmojiSectionId
-      else break
-    }
+    const tops = Array.from(blocks, (b) => ({
+      id: b.dataset.emojiSection as EmojiSectionId,
+      top: b.offsetTop,
+    }))
+    const current = sectionAt(tops, vp.scrollTop)
     if (current) setActive(current)
-    else if (blocks[0]) setActive(blocks[0].dataset.emojiSection as EmojiSectionId)
   }
 
   function jumpTo(id: EmojiSectionId): void {
     const vp = viewportRef.current
     const block = vp?.querySelector<HTMLElement>(`[data-emoji-section="${id}"]`)
     if (!vp || !block) return
-    setQuery('')
     setActive(id)
     if (jumpingRef.current !== null) window.clearTimeout(jumpingRef.current)
     jumpingRef.current = window.setTimeout(() => {
       jumpingRef.current = null
     }, 600)
-    vp.scrollTo({ top: block.offsetTop, behavior: 'smooth' })
+    vp.scrollTo({ top: block.offsetTop, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
   }
 
-  const cell = 'flex aspect-square w-full items-center justify-center rounded-lg leading-none'
+  function clearSearch(): void {
+    setQuery('')
+    searchRef.current?.focus()
+  }
+
+  // Новый запрос — выдача с начала, как в Telegram (resetScroll при смене результата).
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (vp && hasQuery) vp.scrollTop = 0
+  }, [query, hasQuery])
+
+  const dock = variant === 'dock'
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Полоса разделов (Telegram: шапка EmojiPicker). */}
+    <div className="h-full overflow-hidden">
+      {/* Полоса + лента на высоту панели и ещё полосу: при активном поиске всё уезжает вверх
+          ровно на полосу (только transform), и поле поиска встаёт на её место. */}
       <div
-        role="toolbar"
-        aria-label={t('tgEmoji.sections')}
-        className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-2 [scrollbar-width:none]"
+        className={cn(
+          'flex h-[calc(100%+3rem)] flex-col transition-transform duration-(--motion-page)',
+          searchActive && '-translate-y-12',
+        )}
       >
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            aria-label={title(s.id, s.groupLabel)}
-            title={title(s.id, s.groupLabel)}
-            aria-pressed={active === s.id && !query}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => jumpTo(s.id)}
-            className={cn(
-              'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-4 focus-visible:ring-ring/20',
-              active === s.id && !query
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-            )}
-          >
-            {SECTION_ICONS[s.id]}
-          </button>
-        ))}
-      </div>
-      <div
-        ref={viewportRef}
-        onScroll={syncActive}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2"
-      >
-        {/* Поиск — первой строкой ленты, как в Telegram: он нужен реже, чем сетка. */}
-        <div className="relative pb-1 pt-2">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 translate-y-[-30%] text-muted-foreground"
-            aria-hidden
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('emojiSearch')}
-            aria-label={t('emojiSearch')}
-            className="h-9 w-full rounded-full bg-muted pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-4 focus-visible:ring-ring/20"
-          />
+        <div
+          role="toolbar"
+          aria-label={t('tgEmoji.sections')}
+          className={cn(
+            'flex h-12 shrink-0 items-center border-b px-1.5 transition-colors',
+            // Разделитель — только когда лента уехала под полосу (Telegram `with-top-border`).
+            atTop ? 'border-transparent' : 'border-border',
+            searchActive && 'pointer-events-none',
+          )}
+          inert={searchActive || undefined}
+        >
+          {recent && (
+            <button
+              type="button"
+              aria-label={title('recent')}
+              title={title('recent')}
+              aria-pressed={active === 'recent' && !hasQuery}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => jumpTo('recent')}
+              className={cn(
+                sectionButton,
+                'mx-1',
+                active === 'recent' && !hasQuery ? sectionActive : sectionIdle,
+              )}
+            >
+              {SECTION_ICONS.recent}
+            </button>
+          )}
+          {categories.length > 0 && (
+            <CategoryPill
+              categories={categories.map((s) => ({ id: s.id, label: title(s.id, s.groupLabel) }))}
+              activeIndex={hasQuery ? -1 : pillIndex}
+              expanded={pillExpanded && !hasQuery}
+              onSelect={jumpTo}
+            />
+          )}
         </div>
-        {!catalog ? (
-          <div className="flex h-40 items-center justify-center text-muted-foreground">
-            {failed ? (
-              <span className="text-sm">{t('tgEmoji.loadFailed')}</span>
-            ) : (
-              <Loader2 className="size-5 animate-spin" aria-hidden />
+        <div
+          ref={viewportRef}
+          onScroll={onScroll}
+          className={cn(
+            'relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8 [scrollbar-gutter:stable]',
+            dock ? 'px-1' : 'px-3',
+          )}
+        >
+          {/* Поиск — первой строкой ленты, как в Telegram: он нужен реже, чем сетка. */}
+          <div className="my-3 flex h-[2.375rem] items-center rounded-full bg-foreground/[0.06] pl-3">
+            <Search
+              className="pointer-events-none size-5 shrink-0 text-foreground/80"
+              aria-hidden
+            />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              onKeyDown={(e) => {
+                // Escape в поиске чистит его, а не закрывает всю панель.
+                if (e.key === 'Escape' && query) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  e.nativeEvent.stopImmediatePropagation()
+                  setQuery('')
+                }
+              }}
+              placeholder={t('emojiSearch')}
+              aria-label={t('emojiSearch')}
+              className="h-full min-w-0 flex-1 bg-transparent pl-2 pr-3 text-base outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label={t('tgEmoji.clearSearch')}
+                title={t('tgEmoji.clearSearch')}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={clearSearch}
+                className="mr-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/70 outline-none hover:bg-muted-foreground/[0.08] focus-visible:ring-4 focus-visible:ring-ring/20"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
             )}
           </div>
-        ) : query.trim() ? (
-          found.length ? (
-            <EmojiGrid variant={variant} emojis={found} cell={cell} onPick={pick} />
+          {!catalog ? (
+            <div className="flex h-40 items-center justify-center text-muted-foreground">
+              {failed ? (
+                <span className="text-sm">{t('tgEmoji.loadFailed')}</span>
+              ) : (
+                <Loader2 className="size-5 animate-spin" aria-hidden />
+              )}
+            </div>
+          ) : hasQuery ? (
+            found.length ? (
+              <section aria-label={t('tgEmoji.searchResults')}>
+                <SectionTitle>{t('tgEmoji.searchResults')}</SectionTitle>
+                <EmojiGrid dock={dock} emojis={found} onPick={pick} />
+              </section>
+            ) : (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                {t('tgEmoji.nothingFound')}
+              </p>
+            )
           ) : (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              {t('tgEmoji.nothingFound')}
-            </p>
-          )
-        ) : (
-          sections.map((s) => (
-            <section key={s.id} data-emoji-section={s.id} aria-label={title(s.id, s.groupLabel)}>
-              <h3 className="px-1.5 pb-1 pt-2 text-[0.8125rem] font-medium text-muted-foreground">
-                {title(s.id, s.groupLabel)}
-              </h3>
-              <EmojiGrid variant={variant} emojis={s.emojis} cell={cell} onPick={pick} />
-            </section>
-          ))
-        )}
+            sections.map((s) => (
+              <section
+                key={s.id}
+                data-emoji-section={s.id}
+                aria-label={title(s.id, s.groupLabel)}
+                className="mb-3"
+              >
+                <SectionTitle>{title(s.id, s.groupLabel)}</SectionTitle>
+                <EmojiGrid dock={dock} emojis={s.emojis} onPick={pick} />
+              </section>
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function EmojiGrid({
-  variant,
+/** Заголовок раздела (Telegram `symbol-set-title`): 16 px, приглушённый, без липкости. */
+function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="truncate px-1 pb-0.5 text-base font-medium leading-[1.6875rem] text-muted-foreground/75">
+      {children}
+    </h3>
+  )
+}
+
+/**
+ * «Пилюля» разделов (Telegram EmojiCategoryPill). Свёрнутая — один значок первого раздела;
+ * раскрытая — серая капсула шириной в 4,5 значка, внутри полоса со всеми разделами, активный
+ * по центру. Ширина места под неё постоянная: раскрытие рисуется обрезкой (clip-path), а не
+ * ростом ширины, — соседи не двигаются. Колесо мыши листает полосу вбок.
+ */
+function CategoryPill({
+  categories,
+  activeIndex,
+  expanded,
+  onSelect,
+}: {
+  categories: { id: EmojiSectionId; label: string }[]
+  activeIndex: number
+  expanded: boolean
+  onSelect: (id: EmojiSectionId) => void
+}) {
+  const stripRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const left = pillScrollLeft(activeIndex, strip.clientWidth, expanded)
+    strip.scrollTo({ left, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  }, [activeIndex, expanded])
+
+  // Свёрнутая видна окном 2,5rem у левого края, раскрытая — целиком.
+  const clip = expanded
+    ? 'inset(0px 0px 0px 0px round 999px)'
+    : 'inset(0px calc(100% - 2.5rem) 0px 0px round 999px)'
+
+  return (
+    <div className="relative h-10 w-40 shrink-0">
+      <span
+        aria-hidden
+        className={cn(
+          'absolute inset-x-0 inset-y-[0.3125rem] rounded-full bg-muted transition-[clip-path,opacity] duration-(--motion-page)',
+          expanded ? 'opacity-100' : 'opacity-0',
+        )}
+        style={{ clipPath: clip }}
+      />
+      <div
+        ref={stripRef}
+        onWheel={(e) => {
+          const strip = stripRef.current
+          if (!strip || !expanded || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+          strip.scrollLeft += e.deltaY
+        }}
+        className="relative flex h-full items-center overflow-x-auto overflow-y-hidden overscroll-contain transition-[clip-path] duration-(--motion-page) [scrollbar-width:none]"
+        style={{ clipPath: clip }}
+      >
+        {categories.map((c, i) => (
+          <button
+            key={c.id}
+            type="button"
+            aria-label={c.label}
+            title={c.label}
+            aria-pressed={expanded && i === activeIndex}
+            // Свёрнутая пилюля — это одна кнопка: скрытые разделы не ловят Tab.
+            tabIndex={!expanded && i > 0 ? -1 : undefined}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSelect(c.id)}
+            className={cn(
+              sectionButton,
+              'mx-px transition-[transform,background-color,color] duration-(--motion-page)',
+              expanded && 'scale-80',
+              expanded && i === activeIndex ? sectionActive : sectionIdle,
+            )}
+          >
+            {SECTION_ICONS[c.id]}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const EmojiGrid = memo(function EmojiGrid({
+  dock,
   emojis,
-  cell,
   onPick,
 }: {
-  variant: 'popover' | 'dock'
+  dock: boolean
   emojis: readonly string[]
-  cell: string
   onPick: (emoji: string) => void
 }) {
   return (
     <div
       className={cn(
-        'grid',
-        // Telegram: девять клеток в ряд на ПК; на телефоне — сколько влезет по ~42px.
-        variant === 'popover'
-          ? 'grid-cols-9'
-          : 'grid-cols-[repeat(auto-fill,minmax(2.625rem,1fr))]',
+        // Telegram: клетки по 36 px, лишнее место — поровну между ними (в панели ПК выходит
+        // семь в ряд); на телефоне промежутки плотнее.
+        'grid auto-rows-[2.25rem] grid-cols-[repeat(auto-fill,2.25rem)] justify-between',
+        dock ? 'gap-2' : 'gap-x-2.5 gap-y-1',
       )}
       // Длинные разделы (флаги, символы) не рисуются, пока до них не докрутили.
       style={{
         contentVisibility: 'auto',
-        containIntrinsicSize: `auto ${Math.ceil(emojis.length / 9) * 42}px`,
+        containIntrinsicSize: `auto ${Math.ceil(emojis.length / 7) * 40}px`,
       }}
     >
       {emojis.map((e) => (
@@ -303,14 +480,11 @@ function EmojiGrid({
           // Нажатие не уводит фокус из поля ввода: курсор остаётся на месте вставки.
           onMouseDown={(ev) => ev.preventDefault()}
           onClick={() => onPick(e)}
-          className={cn(
-            cell,
-            'cursor-pointer text-[1.625rem] outline-none transition-transform hover:bg-muted focus-visible:bg-muted active:scale-90',
-          )}
+          className="flex size-9 cursor-pointer items-center justify-center rounded-md text-[1.875rem] leading-none outline-none hover:bg-muted focus-visible:bg-muted motion-safe:active:scale-90"
         >
           {e}
         </button>
       ))}
     </div>
   )
-}
+})

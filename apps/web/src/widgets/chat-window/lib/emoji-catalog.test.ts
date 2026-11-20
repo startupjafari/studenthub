@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PILL_STEP_PX,
   RECENT_LIMIT,
   buildSections,
   detectMaxVersion,
+  pillScrollLeft,
   pushRecent,
   searchEmojis,
+  sectionAt,
   type CatalogEmoji,
 } from './emoji-catalog'
 
@@ -94,5 +97,24 @@ describe('каталог эмодзи панели ввода', () => {
     expect(detectMaxVersion(() => true)).toBe(16)
     expect(detectMaxVersion((x) => x === '🥲' || x === '🥱')).toBe(13)
     expect(detectMaxVersion(() => false)).toBe(5)
+  })
+
+  it('раздел в кадре — последний, чей верх дошёл до верха ленты', () => {
+    const tops = [
+      { id: 'recent', top: 60 },
+      { id: 'people', top: 200 },
+      { id: 'nature', top: 900 },
+    ]
+    // Над первым разделом — строка поиска: подсвечен всё равно первый.
+    expect(sectionAt(tops, 0)).toBe('recent')
+    expect(sectionAt(tops, 195)).toBe('people')
+    expect(sectionAt(tops, 893)).toBe('nature')
+    expect(sectionAt([], 100)).toBeNull()
+  })
+
+  it('пилюля разделов: свёрнутая — в начале, раскрытая — активный по центру окна', () => {
+    expect(pillScrollLeft(5, 160, false)).toBe(0)
+    expect(pillScrollLeft(0, 160, true)).toBe(0)
+    expect(pillScrollLeft(5, 160, true)).toBe(5 * PILL_STEP_PX - 80 + PILL_STEP_PX / 2)
   })
 })

@@ -2474,7 +2474,9 @@
       "symbols": "Symbols",
       "flags": "Flags",
       "loadFailed": "Couldn’t load emoji",
-      "nothingFound": "Nothing found"
+      "nothingFound": "Nothing found",
+      "searchResults": "Search results",
+      "clearSearch": "Clear search"
     },
     "tgStickers": {
       "editorTitle": "New sticker",
