@@ -3087,6 +3087,11 @@ export function ChatWindow() {
     setAttachOpen(true)
   }
 
+  /** Сколько старых сообщений вставлять в ленту за один кадр. */
+  const PREPEND_CHUNK = 10
+  const nextFrame = (): Promise<void> =>
+    new Promise((resolve) => requestAnimationFrame(() => resolve()))
+
   // Курсоры прямо из карты чата: догрузка зовётся цепочкой из кадра после прошлой страницы,
   // и состояние React к этому моменту может ещё не обновиться. Карты нет (чат из кэша после
   // перезагрузки вкладки) — состояние, выставленное эффектом смены чата.
@@ -3109,18 +3114,30 @@ export function ChatWindow() {
     const page = await fetchMessages(chatId, { limit: HISTORY_PAGE, cursor })
     const older = [...page.items].reverse()
     let trimmedAt: string | undefined
-    qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
-      const prev = old ?? []
-      const seen = new Set(prev.map((m) => m.id))
-      // Окно разрослось — отрезаем низ (Telegram держит в ленте ограниченный кусок): человек
-      // наверху, а низ подгрузится заново, когда он долистает обратно.
-      const { list, cursor: newer } = trimNewest([...older.filter((m) => !seen.has(m.id)), ...prev])
-      trimmedAt = newer
-      return list
-    })
+    // Страница ложится в ленту кусками по кадру: полсотни пузырей разом — это заметная заминка
+    // посреди прокрутки (~140 мс рендера). Куски встают выше кадра, якорь окна держит позицию,
+    // так что глазу порядок вставки не виден. Сначала — ближние к уже показанному.
+    for (let end = older.length; end > 0; end -= PREPEND_CHUNK) {
+      const chunk = older.slice(Math.max(0, end - PREPEND_CHUNK), end)
+      qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
+        const prev = old ?? []
+        const seen = new Set(prev.map((m) => m.id))
+        // Окно разрослось — отрезаем низ (Telegram держит в ленте ограниченный кусок): человек
+        // наверху, а низ подгрузится заново, когда он долистает обратно.
+        const { list, cursor: newer } = trimNewest([
+          ...chunk.filter((m) => !seen.has(m.id)),
+          ...prev,
+        ])
+        if (newer) {
+          trimmedAt = newer
+          // Хвост окна сменился, но это не «новое входящее»: автоскролл к низу не нужен.
+          lastMsgIdRef.current = newer
+        }
+        return list
+      })
+      if (end - PREPEND_CHUNK > 0) await nextFrame()
+    }
     if (trimmedAt) {
-      // Хвост окна сменился, но это не «новое входящее»: автоскролл к низу не нужен.
-      lastMsgIdRef.current = trimmedAt
       setPager(chatId, {
         older: page.cursor,
         canOlder: page.hasNext,
