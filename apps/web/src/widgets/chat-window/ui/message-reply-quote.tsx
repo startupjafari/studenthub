@@ -6,6 +6,7 @@ import { Play, Quote } from 'lucide-react'
 import {
   fetchAttachmentLink,
   isViewable,
+  mediaPreview,
   type MessageAttachment,
   type MessageReplyPreview,
   type ReplyMediaPreview,
@@ -13,6 +14,7 @@ import {
 import { identityAccent, plainPreview } from '../../../shared/lib'
 import { MediaImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { PREVIEW_KEY } from './chat-list-preview'
 
 export type MessageReplyQuoteProps = {
   replyTo: MessageReplyPreview
@@ -89,10 +91,19 @@ export function MessageReplyQuote({ replyTo, quote, name, mine, onOpen }: Messag
   const t = useTranslations('Chats')
   const accent = identityAccent(replyTo.senderId)
   const thumb = replyTo.deletedAt ? null : replyThumbOf(replyTo.media)
+  // Без текста — вид вложения, как в Telegram: «Голосовое сообщение», «Фото», «Видео»,
+  // а не безликое «Вложение». mediaPreview читает только вид файла — размер ему не нужен.
+  const kind = mediaPreview(
+    (replyTo.media ?? []).map((m) => ({ ...m, size: 0 }) as MessageAttachment),
+  )
   const text = replyTo.deletedAt
     ? t('replyDeleted')
     : plainPreview(quote || replyTo.content) ||
-      (thumb?.videoNote ? t('tgMessage.replyRound') : t('attachment'))
+      (thumb?.videoNote
+        ? t('tgMessage.replyRound')
+        : kind
+          ? t(PREVIEW_KEY[kind.kind], { n: 1 })
+          : t('attachment'))
   return (
     <button
       type="button"

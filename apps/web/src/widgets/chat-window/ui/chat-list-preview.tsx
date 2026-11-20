@@ -43,7 +43,7 @@ const PREVIEW_ICON: Record<AttachmentKind, LucideIcon> = {
   gif: ImagePlay,
   file: FileText,
 }
-const PREVIEW_KEY: Record<AttachmentKind, string> = {
+export const PREVIEW_KEY: Record<AttachmentKind, string> = {
   voice: 'previewVoice',
   round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
