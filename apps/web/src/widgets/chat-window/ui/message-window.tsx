@@ -57,13 +57,17 @@ export interface MessageWindowProps {
 
 const KEY_ATTR = 'data-window-key'
 
-/** Запас вокруг кадра, в котором строка считается «рядом» и грузит медиа. */
-const NEAR_MARGIN = '100% 0px'
+/**
+ * Запас вокруг кадра, в котором строка считается «рядом» и грузит медиа. Узкий: каждая ссылка
+ * на вложение — отдельный запрос к API с общим лимитом в минуту, и широкая зона при быстрой
+ * прокрутке съедала его на медиа, которое человек так и не увидел.
+ */
+const NEAR_MARGIN = '25% 0px'
 /**
  * Сколько строка должна пробыть рядом с кадром, прежде чем грузить медиа. При быстрой
  * прокрутке строки пролетают быстрее — и не тратят запросы (Telegram: тот же приём).
  */
-const NEAR_DWELL_MS = 200
+const NEAR_DWELL_MS = 300
 
 type NearRegistry = {
   observe: (el: Element, onNear: () => void) => () => void
@@ -71,9 +75,8 @@ type NearRegistry = {
 const NearContext = createContext<NearRegistry | null>(null)
 
 /**
- * Один IntersectionObserver на ленту. Строки, вошедшие в зону, копятся и через
- * NEAR_DWELL_MS помечаются «рядом» — если всё ещё в зоне. Однажды «рядом» — навсегда: уже
- * загруженное медиа не выгружаем.
+ * Один IntersectionObserver на ленту. Строка становится «рядом», только пробыв в зоне
+ * NEAR_DWELL_MS без перерыва. Однажды «рядом» — навсегда: уже загруженное медиа не выгружаем.
  */
 function useNearRegistry(scrollRef: RefObject<HTMLElement | null>): NearRegistry | null {
   const [registry, setRegistry] = useState<NearRegistry | null>(null)
@@ -81,26 +84,40 @@ function useNearRegistry(scrollRef: RefObject<HTMLElement | null>): NearRegistry
     const root = scrollRef.current
     if (!root || typeof IntersectionObserver === 'undefined') return
     const callbacks = new Map<Element, () => void>()
-    const inside = new Set<Element>()
+    // Строка в зоне → когда вошла. «Рядом» становится только та, что пробыла в зоне весь
+    // NEAR_DWELL_MS: при быстром пролёте строки выходят раньше и запросов не тратят.
+    const inside = new Map<Element, number>()
     let timer: ReturnType<typeof setTimeout> | null = null
+    const schedule = (): void => {
+      if (timer !== null || inside.size === 0) return
+      const now = performance.now()
+      let soonest = Number.POSITIVE_INFINITY
+      for (const at of inside.values()) soonest = Math.min(soonest, at + NEAR_DWELL_MS)
+      timer = setTimeout(flush, Math.max(0, soonest - now))
+    }
     const flush = (): void => {
       timer = null
-      for (const el of inside) {
+      const now = performance.now()
+      for (const [el, at] of inside) {
+        if (now - at < NEAR_DWELL_MS) continue
         const cb = callbacks.get(el)
+        inside.delete(el)
         if (!cb) continue
         cb()
         callbacks.delete(el)
         io.unobserve(el)
       }
-      inside.clear()
+      schedule()
     }
     const io = new IntersectionObserver(
       (entries) => {
+        const now = performance.now()
         for (const e of entries) {
-          if (e.isIntersecting) inside.add(e.target)
-          else inside.delete(e.target)
+          if (e.isIntersecting) {
+            if (!inside.has(e.target)) inside.set(e.target, now)
+          } else inside.delete(e.target)
         }
-        if (inside.size > 0 && timer === null) timer = setTimeout(flush, NEAR_DWELL_MS)
+        schedule()
       },
       { root, rootMargin: NEAR_MARGIN },
     )

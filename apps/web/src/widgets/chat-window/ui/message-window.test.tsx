@@ -1,6 +1,7 @@
 import { createRef, type RefObject } from 'react'
 import { act, render } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useMediaNear } from '../../../entities/chat'
 import { MessageWindow, type MessageWindowHandle } from './message-window'
 
 // В jsdom нет раскладки: высоты строк, offsetTop и прокрутку контейнера подставляем сами.
@@ -143,5 +144,55 @@ describe('MessageWindow: якорь ленты', () => {
     expect(scroller.el.scrollTop).toBe(2000 - VIEW)
     act(() => h?.scrollToIndex(3, { align: 'center' }))
     expect(scroller.el.scrollTop).toBe(200)
+  })
+})
+
+describe('MessageWindow: медиа грузится у кадра', () => {
+  type Entry = { target: Element; isIntersecting: boolean }
+  let fire: (entries: Entry[]) => void = () => {}
+  const original = globalThis.IntersectionObserver
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    globalThis.IntersectionObserver = class {
+      constructor(cb: (entries: Entry[]) => void) {
+        fire = cb
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof IntersectionObserver
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    globalThis.IntersectionObserver = original
+  })
+
+  function Probe({ id }: { id: string }) {
+    return <span data-testid={id}>{useMediaNear() ? 'near' : 'far'}</span>
+  }
+
+  it('строка, пролетевшая мимо быстрее задержки, медиа не просит; задержавшаяся — просит', () => {
+    const { getByTestId } = render(
+      <MessageWindow scrollRef={scroller.ref} stickToBottom={() => false}>
+        <Probe key="a" id="a" />
+        <Probe key="b" id="b" />
+      </MessageWindow>,
+      { container: scroller.el },
+    )
+    const row = (id: string) => getByTestId(id).closest('[data-window-key]') as Element
+    expect(getByTestId('a').textContent).toBe('far')
+    act(() =>
+      fire([
+        { target: row('a'), isIntersecting: true },
+        { target: row('b'), isIntersecting: true },
+      ]),
+    )
+    act(() => vi.advanceTimersByTime(100))
+    // b пролетела — вышла из зоны раньше задержки.
+    act(() => fire([{ target: row('b'), isIntersecting: false }]))
+    act(() => vi.advanceTimersByTime(250))
+    expect(getByTestId('a').textContent).toBe('near')
+    expect(getByTestId('b').textContent).toBe('far')
   })
 })

@@ -140,6 +140,7 @@ export {
   AttachmentLinkProvider,
   MediaNearProvider,
   useAttachmentLinkSource,
+  useMediaNear,
   type AttachmentLinkSource,
 } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
