@@ -431,7 +431,7 @@ export function ChatMembersList({
                     <span className="flex items-center gap-2">
                       <span
                         className={cn(
-                          'min-w-0 flex-1 truncate text-sm font-medium',
+                          'min-w-0 flex-1 truncate text-[0.9375rem] font-medium',
                           m.banned && 'opacity-60',
                         )}
                       >
@@ -456,7 +456,7 @@ export function ChatMembersList({
                         </Badge>
                       )}
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="block truncate text-[0.8125rem] text-muted-foreground">
                       <span className={cn(m.online && 'text-primary')}>{status}</span>
                       {role && ` · ${role}`}
                     </span>

@@ -47,7 +47,16 @@ import { FileTab, GifTab, LinksTab, MediaTab, PollsTab } from './shared-media'
 // Вкладка занимает ровно видимую высоту колонки под прилипшими вкладками (`--tab-pane-h`
 // меряется ниже): выбрал вкладку — колонка доезжает до вкладок, и под ними содержимое или
 // пустая плашка во весь остаток экрана, без пустоты снизу и без прыжка к соседнему блоку.
-const TAB_PANE = 'mt-0 min-h-(--tab-pane-h,calc(100dvh-9rem)) flex-col data-[state=active]:flex'
+const TAB_PANE =
+  'mt-0 min-h-(--tab-pane-h,calc(100dvh-9rem)) flex-col pt-1 data-[state=active]:flex'
+
+/**
+ * Прилипли ли вкладки к верху колонки: прокрутка дошла до их места в потоке (с допуском в
+ * пиксель на дробную прокрутку при масштабе экрана).
+ */
+export function tabsStuck(scrollTop: number, tabsTop: number): boolean {
+  return tabsTop > 0 && Math.ceil(scrollTop) >= tabsTop - 1
+}
 
 /** Насколько надо «дотянуть» колесом вверх у самого верха, чтобы развернуть фото. */
 const OVERSCROLL_EXPAND_PX = 80
@@ -141,6 +150,10 @@ export function ChatDetailsPanel({
   // «Сохранить» правки группы живёт в шапке колонки, а состояние формы — на её экране.
   const [editState, setEditState] = useState<EditGroupState>({ canSave: false, saving: false })
   const [expanded, setExpanded] = useState(false)
+  // Вкладки прилипли к верху — шапка колонки говорит уже не «О группе», а «Общие материалы»
+  // (на вкладке участников — «Участники»), и крестик сменяется стрелкой «наверх, к профилю»,
+  // как в Telegram.
+  const [stuck, setStuck] = useState(false)
   const firstTab = isGroup ? 'participants' : 'media'
   // Тип — string: Radix отдаёт в onValueChange обычную строку.
   const [tab, setTab] = useState<string>(firstTab)
@@ -171,6 +184,7 @@ export function ChatDetailsPanel({
     setScreen(null)
     setEnterFrom('right')
     setExpanded(false)
+    setStuck(false)
     scrollRef.current?.scrollTo({ top: 0 })
   }, [open, firstTab])
 
@@ -318,7 +332,17 @@ export function ChatDetailsPanel({
   }, [screen, expanded, photos.length])
 
   function onScroll(): void {
-    if (expanded && (scrollRef.current?.scrollTop ?? 0) > 12) setPhotoExpanded(false)
+    const sc = scrollRef.current
+    if (!sc) return
+    if (expanded && sc.scrollTop > 12) setPhotoExpanded(false)
+    const anchor = tabsAnchorRef.current
+    setStuck(screen === null && anchor != null && tabsStuck(sc.scrollTop, anchor.offsetTop))
+  }
+
+  // Стрелка шапки у прилипших вкладок — плавно наверх, к профилю (как «назад» в Telegram).
+  function scrollToProfile(): void {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    scrollRef.current?.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
   }
 
   // Выбор вкладки докатывает колонку до вкладок: они встают к верху, под ними — содержимое
@@ -339,6 +363,7 @@ export function ChatDetailsPanel({
   function goTo(next: Screen): void {
     setEnterFrom(screenDepth(next) >= screenDepth(screen) ? 'right' : 'left')
     setScreen(next)
+    setStuck(false)
     scrollRef.current?.scrollTo({ top: 0 })
   }
 
@@ -350,11 +375,16 @@ export function ChatDetailsPanel({
     goTo(screen === 'addMembers' ? null : manageParent(screen))
   }
 
+  const shared = screen === null && stuck
   const headerTitle =
     screen === null
-      ? isGroup
-        ? t('tgRight.groupInfo')
-        : t('details')
+      ? shared
+        ? tab === 'participants'
+          ? t('tabParticipants')
+          : t('tgRight.sharedTabs')
+        : isGroup
+          ? t('tgRight.groupInfo')
+          : t('details')
       : screen === 'addMembers'
         ? t('addMembers')
         : t(MANAGE_TITLE[screen])
@@ -416,11 +446,17 @@ export function ChatDetailsPanel({
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-3">
           <button
             type="button"
-            aria-label={screen !== null || variant === 'fullscreen' ? t('back') : t('close')}
-            onClick={back}
+            aria-label={
+              shared
+                ? t('tgRight.toTop')
+                : screen !== null || variant === 'fullscreen'
+                  ? t('back')
+                  : t('close')
+            }
+            onClick={shared ? scrollToProfile : back}
             className={HEADER_BTN}
           >
-            {screen !== null ? (
+            {screen !== null || shared ? (
               <ArrowLeft className="size-5" aria-hidden />
             ) : variant === 'column' ? (
               <X className="size-5" aria-hidden />
@@ -433,7 +469,11 @@ export function ChatDetailsPanel({
               </>
             )}
           </button>
-          <span className="min-w-0 flex-1 truncate px-1 text-base font-semibold">
+          {/* Смена заголовка — коротким проявлением, а не скачком текста. */}
+          <span
+            key={headerTitle}
+            className="min-w-0 flex-1 truncate px-1 text-base font-semibold duration-(--motion-micro) animate-in fade-in-0"
+          >
             {headerTitle}
           </span>
           {screen === 'editInfo' && (
@@ -448,7 +488,7 @@ export function ChatDetailsPanel({
               {t('save')}
             </Button>
           )}
-          {screen === null && canEdit && (
+          {screen === null && !shared && canEdit && (
             <button
               type="button"
               aria-label={t('tgRight.manageTitle')}
@@ -464,7 +504,10 @@ export function ChatDetailsPanel({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+          // Без привязки прокрутки браузера: при смене вкладки содержимое под вкладками меняется
+          // целиком, и браузер «доворачивал» колонку к старому якорю — новая вкладка
+          // открывалась с обрезанной первой строкой.
+          className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [overflow-anchor:none]"
         >
           {screen === null ? (
             // Возврат к профилю — въезд слева; первое открытие колонки — без сдвига.
@@ -546,7 +589,10 @@ export function ChatDetailsPanel({
                 <div ref={swipeRef} className="touch-pan-y">
                   {isGroup && (
                     <TabsContent value="participants" className={TAB_PANE}>
-                      <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} />
+                      {/* Участники — на карточке-острове, как остальные списки вкладок. */}
+                      <div className="mx-3 mb-3 overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+                        <ChatMembersList chat={chat} myId={myId} onOpenChat={onOpenChat} />
+                      </div>
                     </TabsContent>
                   )}
                   <TabsContent value="media" className={TAB_PANE}>
