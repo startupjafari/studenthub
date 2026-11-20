@@ -20,7 +20,7 @@ import {
 } from '../../../shared/lib'
 import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useAttachmentLinkSource } from './attachment-link-source'
+import { useAttachmentLinkSource, useMediaNear } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isAnimation, isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
@@ -269,10 +269,13 @@ function frameProps(att: MessageAttachment): { className: string; style?: CSSPro
 function useAttachmentUrl(att: MessageAttachment) {
   const hasLocal = !!att.localUrl
   const source = useAttachmentLinkSource()
+  // Строка ещё далеко от кадра — ссылку не просим (см. MediaNearProvider). Уже полученная
+  // остаётся в кэше и показывается сразу.
+  const near = useMediaNear()
   const q = useQuery({
     queryKey: [source.scope, att.id],
     queryFn: () => source.fetch(att.id),
-    enabled: !hasLocal,
+    enabled: !hasLocal && near,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   })

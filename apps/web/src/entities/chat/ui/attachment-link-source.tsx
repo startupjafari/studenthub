@@ -32,3 +32,20 @@ export function AttachmentLinkProvider({
 export function useAttachmentLinkSource(): AttachmentLinkSource {
   return useContext(AttachmentLinkContext)
 }
+
+/**
+ * Пора ли грузить медиа этой строки. Лента без виртуализации держит в DOM сотни сообщений,
+ * и если каждое вложение сразу просит ссылку, быстрая прокрутка истории съедает лимит
+ * запросов API (каждая ссылка — отдельный запрос). Как в Telegram, медиа грузится, только
+ * когда строка подъехала к кадру и задержалась там; пролетевшее мимо не запрашивается.
+ * Окно ленты выставляет флаг на каждую строку; вне ленты (просмотрщик, обсуждения) — сразу.
+ */
+const MediaNearContext = createContext(true)
+
+export function MediaNearProvider({ near, children }: { near: boolean; children: ReactNode }) {
+  return <MediaNearContext.Provider value={near}>{children}</MediaNearContext.Provider>
+}
+
+export function useMediaNear(): boolean {
+  return useContext(MediaNearContext)
+}

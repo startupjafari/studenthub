@@ -138,6 +138,7 @@ export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
 export {
   AttachmentLinkProvider,
+  MediaNearProvider,
   useAttachmentLinkSource,
   type AttachmentLinkSource,
 } from './ui/attachment-link-source'

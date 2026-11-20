@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, type RefObject } from 'react'
-import type { VirtualizerHandle } from 'virtua'
+import type { MessageWindowHandle } from './message-window'
 
 /**
  * Номер закрепа в полосе следует за прокруткой ленты, как в Telegram: показывается
@@ -44,15 +44,15 @@ const SETTLE_MS = 160
 export interface PinnedViewport {
   /** Прокручиваемый контейнер ленты. */
   scrollRef: RefObject<HTMLElement | null>
-  /** Виртуализатор ленты (virtua): по нему находится верхнее видимое сообщение. */
-  virtualizerRef: RefObject<VirtualizerHandle | null>
+  /** Окно ленты (ui/message-window): по нему находится верхнее видимое сообщение. */
+  virtualizerRef: RefObject<MessageWindowHandle | null>
   /** Сообщения ленты в порядке показа. */
   messages: readonly { createdAt: string }[] | undefined
 }
 
 /**
  * Подписка полосы закрепов на прокрутку ленты. Лента об этом не знает: слушатель вешается
- * на её контейнер, верхнее видимое сообщение находит сам виртуализатор (`findItemIndex`),
+ * на её контейнер, верхнее видимое сообщение находит окно ленты (`findItemIndex`),
  * а частота ограничена кадром.
  *
  * `onTop` зовётся со временем верхнего видимого сообщения после каждой прокрутки. Пока
