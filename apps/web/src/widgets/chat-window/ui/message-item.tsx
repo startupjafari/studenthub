@@ -1,11 +1,10 @@
 'use client'
 
-import { memo, type CSSProperties, type ReactNode } from 'react'
+import { memo, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { Check, ChevronDown } from 'lucide-react'
 import {
   ChatPollView,
-  formatViews,
   isVideoNote,
   isViewable,
   MessageAttachments,
@@ -124,7 +123,12 @@ export type MessageItemProps = {
   menuActive: boolean
   readState: MessageReadState
   readCount: number
-  /** Просмотры (официальные чаты): глаз и число в мете. undefined — счётчика нет. */
+  /**
+   * Не рисуется: просмотры в Telegram бывают только у каналов, а у нас все чаты на несколько
+   * человек — группы (пишут все, у сообщений автор и аватар), где у своих сообщений уже есть
+   * галочки и «прочитали N». Поле оставлено, пока ленту не перестанут его передавать.
+   * @deprecated
+   */
   views?: number
   locale: string
   senderNameText: string
@@ -143,9 +147,9 @@ export type MessageItemProps = {
   actions: MessageActions
 }
 
-// Скругления пузыря, как в Telegram: большой радиус снаружи серии, малый — на стыке соседних
-// сообщений одного автора, прямой угол — там, где из пузыря растёт хвостик.
-const R_BIG = 'var(--radius-2xl)'
+// Скругления пузыря, как в Telegram: большой радиус снаружи серии (у Telegram 15 px), малый —
+// на стыке соседних сообщений одного автора (6 px), прямой угол — там, где растёт хвостик.
+const R_BIG = 'var(--radius-xl)'
 const R_SMALL = 'var(--radius-sm)'
 
 type Corners = { tl: string; tr: string; br: string; bl: string }
@@ -159,6 +163,15 @@ function bubbleCorners(mine: boolean, first: boolean, last: boolean, tail: boole
 }
 
 const radius = (c: Corners): string => `${c.tl} ${c.tr} ${c.br} ${c.bl}`
+
+/**
+ * Плашка пометки дня и служебного сообщения — одна, как в Telegram: светлый полужирный текст
+ * на полупрозрачной подложке тона обоев (обои переписки — оттенок primary, см. ChatWallpaper).
+ * Скругление не «full»: длинное служебное сообщение переносится, и у двухстрочной таблетки
+ * края съедали бы буквы.
+ */
+export const SERVICE_PILL_CLASS =
+  'rounded-[0.9375rem] bg-primary/60 px-2 py-0.5 text-sm leading-tight font-medium text-primary-foreground'
 
 // Крупные эмодзи без пузыря (Telegram): один — крупнее всего, три — мельче.
 const BIG_EMOJI_SIZE = ['', 'text-[5rem]', 'text-[4rem]', 'text-[3.5rem]'] as const
@@ -182,7 +195,6 @@ function MessageItemInner({
   menuActive,
   readState,
   readCount,
-  views,
   locale,
   senderNameText,
   senderBadge,
@@ -194,6 +206,8 @@ function MessageItemInner({
   actions,
 }: MessageItemProps) {
   const t = useTranslations('Chats')
+  // Были ли реакции, когда строка появилась в ленте: тогда первые чипы стоят без анимации.
+  const hadReactionsAtMount = useRef(m.reactions.length > 0).current
 
   const systemText = m.systemType
     ? t(SYSTEM_KEY[m.systemType] ?? 'sysEvent', {
@@ -271,7 +285,6 @@ function MessageItemInner({
       locale={locale}
       variant={variant}
       onRetry={() => actions.retry(m)}
-      views={views}
     />
   )
   const spacerStyle: CSSProperties | undefined =
@@ -283,7 +296,6 @@ function MessageItemInner({
           mine,
           readState,
           readCount,
-          viewsLabel: views !== undefined ? formatViews(views, locale) : null,
         })
       : undefined
 
@@ -297,11 +309,11 @@ function MessageItemInner({
         'min-w-0',
         // Шапка не раздвигает пузырь шире снимка: ширину задаёт кадр (см. mediaOnly ниже).
         mediaOnly && '[contain:inline-size]',
-        bare && 'mb-1 max-w-64 rounded-xl bg-muted/90 px-2 py-1 backdrop-blur',
+        bare && 'mb-1 max-w-64 rounded-xl bg-card/90 px-2 py-1 shadow-xs',
       )}
     >
       {showName && (
-        <p className="mb-0.5 flex min-w-0 items-center gap-1.5 text-[0.8125rem] leading-snug">
+        <p className="mb-0.5 flex min-w-0 items-center gap-1.5 text-sm leading-tight">
           <ProfileLink
             userId={m.senderId}
             className={cn(
@@ -505,7 +517,7 @@ function MessageItemInner({
       {/* Пометка дня идёт в потоке ленты, а прилипший заголовок вверху подхватывает её,
           когда она уезжает под верх (chat-window) — так дата видна и на месте, и всегда. */}
       {showDay && dayText && (
-        <div className="my-2 flex justify-center">
+        <div className="my-3 flex justify-center">
           {/* Нажатие на дату — календарь переписки на этом дне, как в Telegram. */}
           <button
             type="button"
@@ -516,7 +528,10 @@ function MessageItemInner({
               )
             }}
             aria-label={t('openCalendar', { date: dayText })}
-            className="rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            className={cn(
+              SERVICE_PILL_CLASS,
+              'transition-colors hover:bg-primary/70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+            )}
           >
             {dayText}
           </button>
@@ -525,10 +540,13 @@ function MessageItemInner({
       {isUnreadDivider && <UnreadDivider />}
       {m.systemType ? (
         // Служебное сообщение (Telegram): капсула по центру ленты, без автора и времени.
-        // Скругление не «full»: длинный текст переносится, и у двухстрочной капсулы-таблетки
-        // края съедали бы буквы.
-        <div className="my-1.5 flex justify-center px-4">
-          <span className="max-w-[min(85%,28rem)] rounded-2xl bg-muted/80 px-2.5 py-1 text-center text-[0.8125rem] leading-snug font-medium text-muted-foreground [overflow-wrap:anywhere]">
+        <div className="my-2 flex justify-center px-4">
+          <span
+            className={cn(
+              SERVICE_PILL_CLASS,
+              'max-w-[min(85%,28rem)] text-center [overflow-wrap:anywhere]',
+            )}
+          >
             {systemText}
           </span>
         </div>
@@ -604,11 +622,21 @@ function MessageItemInner({
             data-bubble
             className={cn(
               'relative max-w-[min(30rem,85%)] min-w-0 text-sm',
+              // Текст сообщения — 16 px со строкой 21 px, как в Telegram. Сам стиль разметки
+              // (MD_CLASS) общий с обсуждениями и поддержкой, поэтому размер задаёт пузырь.
+              '[&_.message-md]:text-base [&_.message-md]:leading-[1.3125]',
               !bare &&
                 !mediaBare &&
                 cn(
-                  'px-2 pt-1.25 pb-1.5',
-                  mine ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
+                  // Чужой пузырь — белый лист над обоями с тенью в пиксель, как в Telegram:
+                  // серый на голубых обоях терялся. Тень здесь — по исключению «элемент поверх
+                  // изображения» (DESIGN_SYSTEM §5.2): кольцу на узоре обоев не на чем держаться.
+                  'px-2 pt-1.25 pb-1.5 shadow-xs',
+                  // В тёмной теме card почти сливается с обоями — там пузырь на ступень светлее,
+                  // как #212121 на почти чёрном фоне у Telegram.
+                  mine
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-card text-card-foreground dark:bg-muted',
                 ),
               // Подпись и шапка не раздвигают пузырь шире снимка — ширину задаёт кадр.
               mediaOnly && 'w-min',
@@ -676,6 +704,7 @@ function MessageItemInner({
                   reactions={m.reactions}
                   myId={myId}
                   ownBubble={mine && !bare}
+                  animateFromStart={!hadReactionsAtMount}
                   onToggle={(emoji, origin) => actions.react(m.id, emoji, origin)}
                   onShowReactors={
                     actions.showReactors ? (emoji) => actions.showReactors?.(m, emoji) : undefined

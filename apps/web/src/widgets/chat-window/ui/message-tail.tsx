@@ -11,7 +11,7 @@ const TAIL_OUT = TAIL_W - 1
 
 /**
  * Хвостик пузыря — только у последнего сообщения серии, как в Telegram. Рисуется цветом
- * самого пузыря (`fill-primary` / `fill-muted`), поэтому одинаково держится в обеих темах.
+ * самого пузыря (`fill-primary` / `fill-card`, в тёмной теме `fill-muted`), поэтому одинаково держится в обеих темах.
  * Угол пузыря на стороне хвостика при этом прямой — хвостик продолжает его край.
  * Форма своя: вогнутая дуга от края пузыря к острию у нижней кромки.
  */
@@ -25,7 +25,7 @@ export function MessageTail({ mine }: { mine: boolean }) {
       className={cn(
         // На пиксель внахлёст с пузырём — иначе на дробном масштабе между ними виден шов.
         'pointer-events-none absolute bottom-0',
-        mine ? '-right-2 fill-primary' : '-left-2 -scale-x-100 fill-muted',
+        mine ? '-right-2 fill-primary' : '-left-2 -scale-x-100 fill-card dark:fill-muted',
       )}
     >
       <path d={TAIL_PATH} />

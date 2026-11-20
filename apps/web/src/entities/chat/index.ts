@@ -180,6 +180,7 @@ export {
   isGif,
   isViewable,
   isVideoNote,
+  isMusic,
   isVoice,
   mediaPreview,
   type AttachmentKind,

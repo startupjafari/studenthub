@@ -2760,6 +2760,7 @@
     "unpin": "Открепить",
     "reply": "Ответить",
     "quickReaction": "Реакция {emoji}",
+    "previewMusic": "{n, plural, one {Музыка} few {# аудиофайла} many {# аудиофайлов} other {# аудиофайла}}",
     "replyingTo": "Ответ {name}",
     "cancelReply": "Отменить ответ",
     "attach": "Прикрепить файл",

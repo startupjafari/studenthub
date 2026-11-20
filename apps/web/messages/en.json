@@ -2760,6 +2760,7 @@
     "unpin": "Unpin",
     "reply": "Reply",
     "quickReaction": "React with {emoji}",
+    "previewMusic": "{n, plural, one {Music} other {# audio files}}",
     "replyingTo": "Reply to {name}",
     "cancelReply": "Cancel reply",
     "attach": "Attach file",

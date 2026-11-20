@@ -2760,6 +2760,7 @@
     "unpin": "Бекітуді алу",
     "reply": "Жауап беру",
     "quickReaction": "{emoji} реакциясы",
+    "previewMusic": "{n, plural, one {Музыка} other {# аудиофайл}}",
     "replyingTo": "{name} хабарламасына жауап",
     "cancelReply": "Жауапты болдырмау",
     "attach": "Файл тіркеу",

@@ -2,8 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertCircle, Check, CheckCheck, Eye, Loader2, Pin } from 'lucide-react'
-import { formatViews } from '../../../entities/chat'
+import { AlertCircle, Check, CheckCheck, Loader2, Pin } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 import type { MessageReadState } from './message-item'
 
@@ -27,11 +26,6 @@ export type MessageMetaProps = {
   locale: string
   variant: MessageMetaVariant
   onRetry: () => void
-  /**
-   * Просмотры (официальные чаты, как посты канала в Telegram): глаз и число перед временем.
-   * undefined — счётчика у чата нет или он ещё не пришёл.
-   */
-  views?: number
 }
 
 export function messageTime(createdAt: string, locale: string): string {
@@ -51,19 +45,16 @@ export function metaSpacerStyle(o: {
   mine: boolean
   readState: MessageReadState
   readCount: number
-  /** Подпись просмотров, как её рисует мета («1,2 тыс.»); нет — счётчика нет. */
-  viewsLabel?: string | null
 }): CSSProperties {
-  const timeText = o.editedLabel ? `${o.editedLabel} ${o.time}` : o.time
-  // Число просмотров — текстом в ту же распорку, глаз — в отступ значков.
-  const text = o.viewsLabel ? `${o.viewsLabel} ${timeText}` : timeText
+  const text = o.editedLabel ? `${o.editedLabel} ${o.time}` : o.time
   // Отступ от текста 0.75rem + значки: булавка закрепа, галочки или статус отправки, число
   // прочитавших в группе.
   let pad = 0.75
   if (o.pinned) pad += 0.875
-  if (o.viewsLabel) pad += 1
   if (o.mine) pad += 1.125
-  if (o.mine && o.readState === 'read' && o.readCount > 0) pad += 0.375 * String(o.readCount).length
+  // Число прочитавших: зазор 2 px и цифры по ~7 px при шрифте меты 12 px.
+  if (o.mine && o.readState === 'read' && o.readCount > 0)
+    pad += 0.125 + 0.4375 * String(o.readCount).length
   return {
     // Строка CSS в кавычках: `content: var(--meta-text)` печатает её как текст.
     '--meta-text': JSON.stringify(text),
@@ -78,7 +69,7 @@ export function metaSpacerStyle(o: {
  */
 export const META_SPACER_CLASS = cn(
   '[&_.message-md>p:last-child]:after:inline-block [&_.message-md>p:last-child]:after:content-(--meta-text) [&_.message-md>p:last-child]:after:invisible',
-  '[&_.message-md>p:last-child]:after:pl-(--meta-pad) [&_.message-md>p:last-child]:after:text-[0.6875rem] [&_.message-md>p:last-child]:after:leading-none',
+  '[&_.message-md>p:last-child]:after:pl-(--meta-pad) [&_.message-md>p:last-child]:after:text-xs [&_.message-md>p:last-child]:after:leading-none',
   '[&:has(.message-md>:last-child:not(p))]:pb-4',
 )
 
@@ -92,7 +83,6 @@ export function MessageMeta({
   locale,
   variant,
   onRetry,
-  views,
 }: MessageMetaProps) {
   const t = useTranslations('Chats')
   const time = messageTime(createdAt, locale)
@@ -101,7 +91,7 @@ export function MessageMeta({
   return (
     <span
       className={cn(
-        'pointer-events-auto flex shrink-0 items-center gap-0.5 text-[0.6875rem] leading-none whitespace-nowrap select-none',
+        'pointer-events-auto flex shrink-0 items-center gap-0.5 text-xs leading-none whitespace-nowrap select-none',
         variant === 'text' && 'absolute right-2 bottom-1.5',
         variant === 'flow' && 'ml-auto self-end pb-0.5',
         // Подпись на медиа — исключение из правила теней и токенов (DESIGN_SYSTEM §2.2, §5.2):
@@ -109,19 +99,9 @@ export function MessageMeta({
         variant === 'media' &&
           'absolute right-1.5 bottom-1.5 z-10 rounded-full bg-black/45 px-1.5 py-1 text-white',
         variant === 'float' &&
-          'absolute right-0 -bottom-0.5 rounded-full bg-muted/90 px-1.5 py-1 text-muted-foreground backdrop-blur',
+          'absolute right-0 -bottom-0.5 rounded-full bg-primary/60 px-1.5 py-1 text-primary-foreground',
       )}
     >
-      {views !== undefined && (
-        <span
-          className={cn('mr-1 flex items-center gap-0.5 tabular-nums', dim)}
-          title={t('tgMessage.views', { count: views })}
-        >
-          <Eye className="size-3" aria-hidden />
-          <span aria-hidden>{formatViews(views, locale)}</span>
-          <span className="sr-only">{t('tgMessage.views', { count: views })}</span>
-        </span>
-      )}
       {pinned && <Pin className={cn('mr-0.5 size-2.5', dim)} aria-label={t('pinnedMessage')} />}
       {edited && <span className={cn('mr-1', dim)}>{t('tgBubbles.edited')}</span>}
       <time dateTime={createdAt} className={cn('tabular-nums', dim)}>
