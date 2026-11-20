@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Check, ChevronDown } from 'lucide-react'
 import {
   ChatPollView,
+  formatViews,
   isVideoNote,
   isViewable,
   MessageAttachments,
@@ -123,12 +124,7 @@ export type MessageItemProps = {
   menuActive: boolean
   readState: MessageReadState
   readCount: number
-  /**
-   * Не рисуется: просмотры в Telegram бывают только у каналов, а у нас все чаты на несколько
-   * человек — группы (пишут все, у сообщений автор и аватар), где у своих сообщений уже есть
-   * галочки и «прочитали N». Поле оставлено, пока ленту не перестанут его передавать.
-   * @deprecated
-   */
+  /** Просмотры официального чата (как у постов канала Telegram); 0 и undefined не рисуются. */
   views?: number
   locale: string
   senderNameText: string
@@ -195,6 +191,7 @@ function MessageItemInner({
   menuActive,
   readState,
   readCount,
+  views,
   locale,
   senderNameText,
   senderBadge,
@@ -285,6 +282,7 @@ function MessageItemInner({
       locale={locale}
       variant={variant}
       onRetry={() => actions.retry(m)}
+      views={views}
     />
   )
   const spacerStyle: CSSProperties | undefined =
@@ -296,6 +294,7 @@ function MessageItemInner({
           mine,
           readState,
           readCount,
+          viewsLabel: views ? formatViews(views, locale) : null,
         })
       : undefined
 

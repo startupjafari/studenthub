@@ -2,7 +2,8 @@
 
 import type { CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
-import { AlertCircle, Check, CheckCheck, Loader2, Pin } from 'lucide-react'
+import { AlertCircle, Check, CheckCheck, Eye, Loader2, Pin } from 'lucide-react'
+import { formatViews } from '../../../entities/chat'
 import { cn } from '../../../shared/lib/utils'
 import type { MessageReadState } from './message-item'
 
@@ -26,6 +27,12 @@ export type MessageMetaProps = {
   locale: string
   variant: MessageMetaVariant
   onRetry: () => void
+  /**
+   * Просмотры (официальные чаты, как посты канала в Telegram): глаз и число перед временем.
+   * undefined или 0 — счётчика нет: у канала Telegram ноля не бывает, а у нас ноль значит лишь,
+   * что просмотры ещё не пришли.
+   */
+  views?: number
 }
 
 export function messageTime(createdAt: string, locale: string): string {
@@ -45,12 +52,17 @@ export function metaSpacerStyle(o: {
   mine: boolean
   readState: MessageReadState
   readCount: number
+  /** Подпись просмотров, как её рисует мета («1,2 тыс.»); нет — счётчика нет. */
+  viewsLabel?: string | null
 }): CSSProperties {
-  const text = o.editedLabel ? `${o.editedLabel} ${o.time}` : o.time
+  const timeText = o.editedLabel ? `${o.editedLabel} ${o.time}` : o.time
+  // Число просмотров — текстом в ту же распорку, глаз — в отступ значков.
+  const text = o.viewsLabel ? `${o.viewsLabel} ${timeText}` : timeText
   // Отступ от текста 0.75rem + значки: булавка закрепа, галочки или статус отправки, число
   // прочитавших в группе.
   let pad = 0.75
   if (o.pinned) pad += 0.875
+  if (o.viewsLabel) pad += 1
   if (o.mine) pad += 1.125
   // Число прочитавших: зазор 2 px и цифры по ~7 px при шрифте меты 12 px.
   if (o.mine && o.readState === 'read' && o.readCount > 0)
@@ -83,6 +95,7 @@ export function MessageMeta({
   locale,
   variant,
   onRetry,
+  views,
 }: MessageMetaProps) {
   const t = useTranslations('Chats')
   const time = messageTime(createdAt, locale)
@@ -102,6 +115,16 @@ export function MessageMeta({
           'absolute right-0 -bottom-0.5 rounded-full bg-primary/60 px-1.5 py-1 text-primary-foreground',
       )}
     >
+      {!!views && (
+        <span
+          className={cn('mr-1 flex items-center gap-0.5 tabular-nums', dim)}
+          title={t('tgMessage.views', { count: views })}
+        >
+          <Eye className="size-3" aria-hidden />
+          <span aria-hidden>{formatViews(views, locale)}</span>
+          <span className="sr-only">{t('tgMessage.views', { count: views })}</span>
+        </span>
+      )}
       {pinned && <Pin className={cn('mr-0.5 size-2.5', dim)} aria-label={t('pinnedMessage')} />}
       {edited && <span className={cn('mr-1', dim)}>{t('tgBubbles.edited')}</span>}
       <time dateTime={createdAt} className={cn('tabular-nums', dim)}>

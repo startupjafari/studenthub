@@ -143,7 +143,12 @@ import { useChatHeaderSearch } from '../lib/use-chat-header-search'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { RightColumn } from './right-column'
 import { ChatFoldersPanel } from './chat-folders-panel'
-import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
+import {
+  MessageItem,
+  SERVICE_PILL_CLASS,
+  type MessageActions,
+  type MessageReadState,
+} from './message-item'
 import { messageRunPosition } from '../lib/message-run'
 import { ChatComposer, type ComposerSendOptions } from './chat-composer'
 import { forwardRequestId, useForwardDraft } from '../lib/use-forward-draft'
@@ -4075,7 +4080,10 @@ export function ChatWindow() {
                       floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
                     }
                     className={cn(
-                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
+                      // Та же плашка, что у пометки дня в ленте (Telegram): прилипшая дата —
+                      // её подмена, и выглядеть она должна так же.
+                      SERVICE_PILL_CLASS,
+                      'transition-opacity duration-200',
                       // Telegram: видна, пока ленту листают, и гаснет через секунду покоя.
                       floatingDayShown && listScrolling
                         ? 'pointer-events-auto opacity-100'
