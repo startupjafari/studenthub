@@ -29,7 +29,8 @@ export type MessageMetaProps = {
   onRetry: () => void
   /**
    * Просмотры (официальные чаты, как посты канала в Telegram): глаз и число перед временем.
-   * undefined — счётчика у чата нет или он ещё не пришёл.
+   * undefined или 0 — счётчика нет: у канала Telegram ноля не бывает, а у нас ноль значит лишь,
+   * что просмотры ещё не пришли.
    */
   views?: number
 }
@@ -63,7 +64,9 @@ export function metaSpacerStyle(o: {
   if (o.pinned) pad += 0.875
   if (o.viewsLabel) pad += 1
   if (o.mine) pad += 1.125
-  if (o.mine && o.readState === 'read' && o.readCount > 0) pad += 0.375 * String(o.readCount).length
+  // Число прочитавших: зазор 2 px и цифры по ~7 px при шрифте меты 12 px.
+  if (o.mine && o.readState === 'read' && o.readCount > 0)
+    pad += 0.125 + 0.4375 * String(o.readCount).length
   return {
     // Строка CSS в кавычках: `content: var(--meta-text)` печатает её как текст.
     '--meta-text': JSON.stringify(text),
@@ -78,7 +81,7 @@ export function metaSpacerStyle(o: {
  */
 export const META_SPACER_CLASS = cn(
   '[&_.message-md>p:last-child]:after:inline-block [&_.message-md>p:last-child]:after:content-(--meta-text) [&_.message-md>p:last-child]:after:invisible',
-  '[&_.message-md>p:last-child]:after:pl-(--meta-pad) [&_.message-md>p:last-child]:after:text-[0.6875rem] [&_.message-md>p:last-child]:after:leading-none',
+  '[&_.message-md>p:last-child]:after:pl-(--meta-pad) [&_.message-md>p:last-child]:after:text-xs [&_.message-md>p:last-child]:after:leading-none',
   '[&:has(.message-md>:last-child:not(p))]:pb-4',
 )
 
@@ -101,7 +104,7 @@ export function MessageMeta({
   return (
     <span
       className={cn(
-        'pointer-events-auto flex shrink-0 items-center gap-0.5 text-[0.6875rem] leading-none whitespace-nowrap select-none',
+        'pointer-events-auto flex shrink-0 items-center gap-0.5 text-xs leading-none whitespace-nowrap select-none',
         variant === 'text' && 'absolute right-2 bottom-1.5',
         variant === 'flow' && 'ml-auto self-end pb-0.5',
         // Подпись на медиа — исключение из правила теней и токенов (DESIGN_SYSTEM §2.2, §5.2):
@@ -109,10 +112,10 @@ export function MessageMeta({
         variant === 'media' &&
           'absolute right-1.5 bottom-1.5 z-10 rounded-full bg-black/45 px-1.5 py-1 text-white',
         variant === 'float' &&
-          'absolute right-0 -bottom-0.5 rounded-full bg-muted/90 px-1.5 py-1 text-muted-foreground backdrop-blur',
+          'absolute right-0 -bottom-0.5 rounded-full bg-primary/60 px-1.5 py-1 text-primary-foreground',
       )}
     >
-      {views !== undefined && (
+      {!!views && (
         <span
           className={cn('mr-1 flex items-center gap-0.5 tabular-nums', dim)}
           title={t('tgMessage.views', { count: views })}

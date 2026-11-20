@@ -5,14 +5,27 @@ import type { MessageAttachment } from '../model/types'
 // написать в превью. Разъехаться им нельзя: иначе в списке «Фото», а в переписке строка
 // файла, и человек ищет снимок, которого там нет.
 
-// Основной признак — имя из встроенного рекордера (`voice-…`), т.к. mime по содержимому
-// непредсказуем: webm → video/webm, iOS-запись → video/mp4. Для старых сообщений —
-// запасная эвристика по mime.
+// Звук, который играет общий аудиоплеер чатов: голосовое или музыка (их различает `isMusic`).
+// Основной признак голосового — имя из встроенного рекордера (`voice-…`), т.к. mime по
+// содержимому непредсказуем: webm → video/webm, iOS-запись → video/mp4. Для старых
+// сообщений — запасная эвристика по mime.
 export function isVoice(att: MessageAttachment): boolean {
   // Кружок записан тем же MediaRecorder и тоже приходит как video/webm — но это видео.
   if (att.videoNote) return false
   if (att.name && /^voice-/i.test(att.name)) return true
-  return att.mime.startsWith('audio/') || att.mime === 'video/webm'
+  // webm с кадром (у вложения есть размеры) — ролик, а не старое голосовое без имени: раньше
+  // «Демо проекта.webm» рисовался волной голосового.
+  if (att.mime === 'video/webm') return !att.width && !att.height
+  return att.mime.startsWith('audio/')
+}
+
+/**
+ * Музыка (аудиофайл с названием), а не голосовое: Telegram рисует её строкой «▶ название ·
+ * длительность» без волны, а в списке чатов подписывает названием. Голосовое — запись
+ * рекордера (`voice-…`) или звук без имени (старые вложения).
+ */
+export function isMusic(att: MessageAttachment): boolean {
+  return isVoice(att) && !!att.name && !/^voice-/i.test(att.name)
 }
 
 // Открывается ли вложение в полноэкранном просмотрщике (картинка или реальное видео, не
@@ -45,10 +58,10 @@ export function isGif(att: Pick<MessageAttachment, 'mime' | 'animation' | 'asDoc
 }
 
 /** Как вложение называется в превью списка чатов. */
-export type AttachmentKind = 'voice' | 'round' | 'photo' | 'video' | 'gif' | 'file'
+export type AttachmentKind = 'voice' | 'audio' | 'round' | 'photo' | 'video' | 'gif' | 'file'
 
 export function attachmentKind(att: MessageAttachment): AttachmentKind {
-  if (isVoice(att)) return 'voice'
+  if (isVoice(att)) return isMusic(att) ? 'audio' : 'voice'
   if (isVideoNote(att)) return 'round'
   if (!isViewable(att)) return 'file'
   if (isGif(att)) return 'gif'

@@ -58,7 +58,12 @@ import { ComposerMainButton, type MainButtonMode, type RecordKind } from './comp
 import { ComposerRoundPreview } from './composer-round-preview'
 import { ReplyThumb, replyThumbOf } from './message-reply-quote'
 import { ComposerMentionList } from './composer-mention-list'
-import { ComposerSymbolMenu, type PickedGif, type SymbolTab } from './composer-symbol-menu'
+import {
+  ComposerSymbolMenu,
+  useSymbolMenuPresence,
+  type PickedGif,
+  type SymbolTab,
+} from './composer-symbol-menu'
 import { ComposerScheduleDialog } from './composer-schedule-dialog'
 import { ComposerScheduledPanel } from './composer-scheduled-panel'
 import { ComposerChecklistCreator } from './composer-checklist-creator'
@@ -106,7 +111,10 @@ const RECORD_KIND_KEY = 'chat.recordKind'
  * слоем поверх экрана: капсула поля ввода несёт `backdrop-filter`, а он делает её
  * containing block для `position: fixed`, и такой слой накрыл бы саму капсулу вместо окна.
  */
-function useHoverMenu(): {
+function useHoverMenu({
+  openDelayMs = 0,
+  closeDelayMs = HOVER_CLOSE_MS,
+}: { openDelayMs?: number; closeDelayMs?: number } = {}): {
   open: boolean
   /** Ref обёртки «кнопка + панель»: по нему отличаем нажатие внутри от нажатия мимо. */
   ref: RefObject<HTMLDivElement | null>
@@ -163,13 +171,24 @@ function useHoverMenu(): {
       onPointerEnter: (e) => {
         if (e.pointerType !== 'mouse') return
         clear()
-        setByHover(true)
-        setOpen(true)
+        // Уже открытую панель курсор просто «держит»; закрытую — открывает, с задержкой,
+        // если она задана: курсор, пролетевший над кнопкой по пути, панель не дёргает.
+        if (open) {
+          setByHover(true)
+          return
+        }
+        const show = (): void => {
+          setByHover(true)
+          setOpen(true)
+        }
+        if (openDelayMs > 0) timer.current = setTimeout(show, openDelayMs)
+        else show()
       },
       onPointerLeave: (e) => {
-        if (e.pointerType !== 'mouse' || !byHover) return
+        if (e.pointerType !== 'mouse') return
         clear()
-        timer.current = setTimeout(() => setOpen(false), HOVER_CLOSE_MS)
+        if (!open || !byHover) return
+        timer.current = setTimeout(() => setOpen(false), closeDelayMs)
       },
     },
     toggle: () => {
@@ -298,7 +317,10 @@ export function ChatComposer({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const attachMenu = useHoverMenu()
-  const emoji = useHoverMenu()
+  // Тайминги панели символов — как у Telegram Web: открытие через 200 мс наведения
+  // (ResponsiveHoverButton), закрытие через 250 мс после ухода курсора (useMouseInside).
+  const emoji = useHoverMenu({ openDelayMs: 200, closeDelayMs: 250 })
+  const emojiPresence = useSymbolMenuPresence(emoji.open)
   // Последняя вкладка панели символов (эмодзи · стикеры · GIF) переживает закрытие панели —
   // как в Telegram: кто отправляет стикеры, открывает панель сразу на них.
   const [symbolTab, setSymbolTab] = useState<SymbolTab>('emoji')
@@ -1045,12 +1067,20 @@ export function ChatComposer({
                   >
                     <Smile className="size-6 lg:size-5" aria-hidden />
                   </button>
-                  {emoji.open && (
+                  {emojiPresence.mounted && (
                     // На ПК — всплывающая панель у кнопки: курсор приходит к ней сверху, и
                     // место под окном есть. Отступ — внутренним padding, а не margin: между
                     // кнопкой и панелью не должно быть мёртвой зоны, иначе курсор до панели
-                    // не доходит. На телефоне вместо неё панель под полем (ниже).
-                    <div className="absolute bottom-full right-0 z-50 hidden pb-2 duration-(--motion-menu) animate-in fade-in-0 zoom-in-95 lg:block">
+                    // не доходит. На телефоне вместо неё панель под полем (ниже). Появление
+                    // и уход — как пузырь меню Telegram: из угла у кнопки, с масштаба 0,85.
+                    <div
+                      className={cn(
+                        'absolute bottom-full right-0 z-50 hidden origin-bottom-right pb-3 lg:block',
+                        emojiPresence.closing
+                          ? 'pointer-events-none duration-(--motion-exit) fill-mode-forwards animate-out fade-out-0 zoom-out-85'
+                          : 'duration-(--motion-menu) animate-in fade-in-0 zoom-in-85',
+                      )}
+                    >
                       <ComposerSymbolMenu
                         variant="popover"
                         tab={symbolTab}

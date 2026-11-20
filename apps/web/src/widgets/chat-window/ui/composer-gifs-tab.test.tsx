@@ -25,7 +25,7 @@ vi.mock('../../../entities/chat', () => ({
 }))
 
 import { fetchRecentGifs, fetchTrendingGifs, useSavedGifs } from '../../../entities/chat'
-import { GifsTab } from './composer-gifs-tab'
+import { GifsTab, gridCorners } from './composer-gifs-tab'
 
 const mp4 = (fileId: string, fingerprint = `${fileId}:1:1`) => ({
   fileId,
@@ -121,5 +121,37 @@ describe('Вкладка GIF', () => {
     const again = screen.getAllByRole('button', { name: 'tgComposer.gifSend' })
     await userEvent.pointer({ keys: '[MouseRight]', target: again[1]! })
     expect(save).toHaveBeenCalledWith('recent-1')
+  })
+
+  it('крестик в поиске очищает запрос', async () => {
+    vi.mocked(fetchTrendingGifs).mockResolvedValue({ items: [], nextOffset: null })
+    setup()
+    const box = await screen.findByRole('searchbox')
+    await userEvent.type(box, 'cat')
+    await userEvent.click(screen.getByRole('button', { name: 'tgEmoji.clearSearch' }))
+    expect(box).toHaveValue('')
+  })
+})
+
+describe('Скругление углов сетки GIF', () => {
+  const corners = (total: number) =>
+    Array.from({ length: total }, (_, i) => {
+      const c = gridCorners(i, total)
+      return [c.topStart, c.topEnd, c.bottomStart, c.bottomEnd]
+        .map((on, k) => (on ? ['tl', 'tr', 'bl', 'br'][k] : ''))
+        .join('')
+    })
+
+  it('полные ряды: углы только у четырёх крайних плиток', () => {
+    expect(corners(6)).toEqual(['tl', '', 'tr', 'bl', '', 'br'])
+  })
+
+  it('неполный последний ряд: нижний правый угол и у края предпоследнего ряда', () => {
+    expect(corners(5)).toEqual(['tl', '', 'trbr', 'bl', 'br'])
+  })
+
+  it('одна плитка — скруглена со всех сторон, один ряд — сверху и снизу', () => {
+    expect(corners(1)).toEqual(['tltrblbr'])
+    expect(corners(2)).toEqual(['tlbl', 'trbr'])
   })
 })

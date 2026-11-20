@@ -6,7 +6,6 @@ import { useLocale, useTranslations } from 'next-intl'
 import {
   BarChart3,
   Download,
-  ExternalLink,
   FileText,
   Image as ImageIcon,
   ImagePlay,
@@ -19,6 +18,7 @@ import {
   RotateCcw,
   Save,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   GifVideo,
@@ -38,19 +38,43 @@ import {
   usePlaylistQueue,
   VoiceRateButton,
 } from '../../../entities/chat'
-import { Button, EmptyState, MediaImage, ProgressRing, Skeleton } from '../../../shared/ui'
+import { Button, MediaImage, ProgressRing, Skeleton } from '../../../shared/ui'
 import {
   formatBytes,
+  toApiError,
   useByteUnitLabel,
   useFileDownload,
   useInfiniteScroll,
 } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { chatListTime } from '../lib/list-time'
+import { ManageEmpty } from './group-manage-kit'
 
 // Вкладки общих материалов правой колонки (Telegram-стиль): медиа сеткой три в ряд, файлы,
 // ссылки, голосовые, музыка, GIF и опросы. Колонка прокручивается целиком (профиль сверху,
 // вкладки липнут к верху), поэтому страницы подгружаются сами, когда список доходит до
 // низа, — кнопки «Загрузить ещё» нет, как и в Telegram.
+
+// Ссылка на вложение — отдельный GET на каждую плитку, а общий лимит API — сотня запросов в
+// минуту. Поэтому плитка просит ссылку, только когда её видно (useNearView), а упёршись в
+// лимит (429 `RATE_LIMIT`), не сдаётся после одного повтора: ждёт, пока окно лимита
+// сдвинется, — иначе часть сетки так и оставалась незагруженной.
+const RATE_LIMIT_RETRIES = 4
+
+export function isRateLimited(error: unknown): boolean {
+  return toApiError(error).code === 'RATE_LIMIT'
+}
+
+/** Повторять ли запрос ссылки: лимит — несколько раз с выдержкой, прочее — один раз. */
+export function linkRetry(failures: number, error: unknown): boolean {
+  return isRateLimited(error) ? failures < RATE_LIMIT_RETRIES : failures < 1
+}
+
+/** Выдержка перед повтором: при 429 — 5, 10, 20, 40 с (вместе дольше минутного окна лимита). */
+export function linkRetryDelay(failures: number, error: unknown): number {
+  if (isRateLimited(error)) return 5000 * 2 ** Math.min(failures, RATE_LIMIT_RETRIES - 1)
+  return Math.min(1000 * 2 ** failures, 30_000)
+}
 
 // Ссылка на вложение и его варианты (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
 function useFileLink(fileId: string, enabled = true) {
@@ -60,6 +84,8 @@ function useFileLink(fileId: string, enabled = true) {
     enabled,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
+    retry: linkRetry,
+    retryDelay: linkRetryDelay,
   })
 }
 
@@ -76,27 +102,128 @@ function useFileUrl(fileId: string, enabled = true) {
   })
 }
 
-/** Подпись даты строки: «12 нояб.». */
-function shortDate(iso: string, locale: string): string {
-  return new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: 'short' })
+/** Сколько плитка должна провисеть у экрана, прежде чем просить ссылку. */
+const NEAR_DWELL_MS = 150
+
+/**
+ * Плитка подошла к видимой части колонки (с запасом в полтора ряда) и задержалась там —
+ * один раз, дальше флаг не сбрасывается. Выдержка отсекает плитки, мимо которых пролистали
+ * рывком: иначе быстрая прокрутка сетки до низа выбирала бы лимит API за секунды.
+ */
+export function useNearView<T extends Element>(
+  dwellMs = NEAR_DWELL_MS,
+): [(node: T | null) => void, boolean] {
+  const [node, setNode] = useState<T | null>(null)
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    if (!node || near) return
+    // Без IntersectionObserver (jsdom, старый движок) грузим сразу: лучше лишний запрос,
+    // чем вечно пустая плитка.
+    if (typeof IntersectionObserver === 'undefined') {
+      setNear(true)
+      return
+    }
+    let timer: number | undefined
+    const io = new IntersectionObserver(
+      (entries) => {
+        const inside = entries.some((e) => e.isIntersecting)
+        window.clearTimeout(timer)
+        if (inside) timer = window.setTimeout(() => setNear(true), dwellMs)
+      },
+      { rootMargin: '200px 0px' },
+    )
+    io.observe(node)
+    return () => {
+      window.clearTimeout(timer)
+      io.disconnect()
+    }
+  }, [node, near, dwellMs])
+  return [setNode, near]
+}
+
+const DAY_MS = 86_400_000
+/** Сколько дней назад дата ещё подписывается днём недели («ср 15:42»), как в Telegram. */
+const WEEKDAY_WINDOW_DAYS = 6
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+/**
+ * Дата файла, трека или ссылки — как подпись документа в Telegram: «сегодня в 15:42»,
+ * «вчера в 09:10», на этой неделе — «ср 15:42», раньше — «12 нояб. 15:42», прошлый год —
+ * с годом. `atTime` склеивает относительный день и время по правилам языка.
+ */
+export function sharedItemDate(
+  iso: string,
+  locale: string,
+  atTime: (day: string, time: string) => string,
+  now: Date = new Date(),
+): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const time = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / DAY_MS)
+  if (dayDiff <= 1) {
+    // Будущее (часы устройства отстают от сервера) — тоже «сегодня».
+    const rel = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+    return atTime(rel.format(dayDiff <= 0 ? 0 : -1, 'day'), time)
+  }
+  if (dayDiff <= WEEKDAY_WINDOW_DAYS) {
+    return `${d.toLocaleDateString(locale, { weekday: 'short' })} ${time}`
+  }
+  const day = d.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'short',
+    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  })
+  return `${day} ${time}`
 }
 
 /** Длительность видео на плитке: «0:15», «12:04». */
-function formatDuration(ms: number): string {
+export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000))
   const m = Math.floor(total / 60)
   const s = total % 60
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-// Пустое состояние вкладки: обёртка — flex-колонка, чтобы `flex-1` внутри EmptyState
-// растянул пунктирный блок на всю доступную высоту, а не полоской у верхнего края.
-export function TabEmpty({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <div className="flex min-h-64 flex-1 flex-col p-3">
-      <EmptyState icon={icon} title={title} />
-    </div>
-  )
+/**
+ * Чем показать видео в сетке. Есть постер медиа-системы — картинкой. Нет, но браузер умеет
+ * формат — первым кадром самого ролика. Не умеет (`.mov` в Chrome и Firefox) — честной
+ * заглушкой «видео» без запроса ссылки: `<video>` такого файла остаётся чёрным квадратом.
+ */
+export function videoTileMode(
+  item: Pick<ChatMediaItem, 'mime' | 'hasPoster'>,
+  canPlay: (mime: string) => boolean,
+): 'poster' | 'frame' | 'stub' {
+  if (item.hasPoster) return 'poster'
+  return canPlay(item.mime) ? 'frame' : 'stub'
+}
+
+const playable = new Map<string, boolean>()
+function canPlayVideo(mime: string): boolean {
+  if (typeof document === 'undefined') return false
+  let ok = playable.get(mime)
+  if (ok === undefined) {
+    ok = document.createElement('video').canPlayType(mime) !== ''
+    playable.set(mime, ok)
+  }
+  return ok
+}
+
+/**
+ * Сетка «Медиа» — снимки и видео, как фильтр «фото и видео» в Telegram: GIF живут на своей
+ * вкладке, в общей сетке они были бы второй копией.
+ */
+export function mediaGridItems(items: readonly ChatMediaItem[]): ChatMediaItem[] {
+  return items.filter((it) => !it.animation)
+}
+
+// Пустая вкладка — компактно, как в Telegram: значок и строка по центру под вкладками, а не
+// пунктирная рамка во всю колонку (она читалась как ошибка вёрстки).
+export function TabEmpty({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
+  return <ManageEmpty icon={Icon} title={title} />
 }
 
 // Ошибка загрузки вкладки: сообщение и «Повторить» (FRONTEND_RULES §9).
@@ -104,27 +231,29 @@ export function TabError({ onRetry }: { onRetry: () => void }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
   return (
-    <div className="flex min-h-64 flex-1 flex-col p-3">
-      <EmptyState
-        title={t('sharedLoadError')}
-        action={
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RotateCcw className="size-4" aria-hidden />
-            {tCommon('retry')}
-          </Button>
-        }
-      />
-    </div>
+    <ManageEmpty
+      icon={RotateCcw}
+      title={t('sharedLoadError')}
+      action={
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          <RotateCcw className="size-4" aria-hidden />
+          {tCommon('retry')}
+        </Button>
+      }
+    />
   )
 }
 
-/** Заглушка списка: строки той же геометрии, что у файлов и ссылок. */
+/** Заглушка списка: остров со строками той же геометрии, что у файлов и аудио. */
 export function RowsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="flex flex-col" aria-hidden>
+    <div
+      className="mx-3 mb-3 overflow-hidden rounded-xl bg-card p-1.5 ring-1 ring-foreground/10"
+      aria-hidden
+    >
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-2">
-          <Skeleton className="size-10 shrink-0 rounded-lg" />
+        <div key={i} className="flex items-center gap-3 p-1.5">
+          <Skeleton className="size-12 shrink-0 rounded-lg" />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <Skeleton className="h-3.5 w-3/5" />
             <Skeleton className="h-3 w-2/5" />
@@ -194,57 +323,107 @@ function useMediaPages(chatId: string, type: Parameters<typeof fetchChatMedia>[1
 }
 
 // ── Медиа: сетка три в ряд → полноэкранный просмотр ─────────────────────────
+/**
+ * Подпись на плитке — как у Telegram: длительность видео в левом верхнем углу на тёмной
+ * полупрозрачной плашке. Подложка медиа не зависит от темы (DESIGN_SYSTEM §2.2), поэтому
+ * белый текст на ней допустим.
+ */
+const TILE_BADGE =
+  'absolute top-1 left-1 z-10 rounded-md bg-black/45 px-1.5 text-xs leading-[1.125rem] font-medium tabular-nums text-white'
+
+/** Видео без кадра: спокойная плитка со значком «▶», а не чёрный квадрат. */
+function VideoStub() {
+  return (
+    <span className="absolute inset-0 flex items-center justify-center bg-muted" aria-hidden>
+      <span className="flex size-10 items-center justify-center rounded-full bg-foreground/10 text-muted-foreground">
+        <Play className="ml-0.5 size-5 fill-current" />
+      </span>
+    </span>
+  )
+}
+
 function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void }) {
   const t = useTranslations('Chats')
   const isVideo = item.mime.startsWith('video/')
-  const link = useFileLink(item.id)
+  const mode = isVideo ? videoTileMode(item, canPlayVideo) : 'image'
+  const [ref, near] = useNearView<HTMLButtonElement>()
+  // Заглушке ссылка не нужна: кадра всё равно не будет, а запрос съел бы лимит API.
+  const link = useFileLink(item.id, near && mode !== 'stub')
+  // Кадр ролика без постера: пока его нет (и если не будет) — видна заглушка.
+  const [frame, setFrame] = useState<'wait' | 'ready' | 'none'>('wait')
+  const [durationMs, setDurationMs] = useState(item.durationMs ?? null)
   // Миниатюра сетки — копия 320 (или постер видео), а не оригинал: вкладка показывает
-  // десятки снимков разом. Нет копий — оригинал; у видео без постера — <video>.
+  // десятки снимков разом. Нет копий — оригинал.
   const poster = link.data?.poster ?? []
+  const failed = link.isError && !link.data
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={onOpen}
-      aria-label={t('tgRight.openMedia')}
+      // Ссылку не дали (лимит, сеть) — нажатие просит её снова, а не открывает пустоту.
+      onClick={failed ? () => void link.refetch() : onOpen}
+      aria-label={failed ? t('sharedLoadError') : t('tgRight.openMedia')}
       // Плитка — точка, из которой просмотрщик вырастает и в которую садится.
       data-media-origin={item.id}
-      className="relative aspect-square cursor-zoom-in overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="relative aspect-square cursor-pointer overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
-      {link.data ? (
-        isVideo && poster.length === 0 ? (
-          <video src={link.data.url} muted preload="metadata" className="size-full object-cover" />
-        ) : (
-          <MediaImage
-            src={isVideo ? poster[poster.length - 1]?.url : link.data.url}
-            media={{
-              placeholder: item.placeholder,
-              sources: isVideo ? poster : link.data.sources,
-              width: isVideo ? null : item.width,
-            }}
-            alt=""
-            sizes="140px"
-            className="size-full"
-          />
-        )
-      ) : item.placeholder ? (
-        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
+      {item.placeholder ? (
+        <MediaImage
+          media={{ placeholder: item.placeholder }}
+          alt=""
+          className="absolute inset-0 size-full"
+        />
       ) : (
-        <div className="size-full animate-pulse bg-muted" />
+        (mode === 'stub' || mode === 'frame') && <VideoStub />
+      )}
+      {link.data && mode === 'frame' && frame !== 'none' && (
+        // Первый кадр — самим роликом: `#t` просит браузер показать кадр, а не чёрное поле.
+        <video
+          src={`${link.data.url}#t=0.1`}
+          muted
+          playsInline
+          preload="metadata"
+          aria-hidden
+          tabIndex={-1}
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration
+            if (!durationMs && Number.isFinite(d) && d > 0) setDurationMs(d * 1000)
+          }}
+          // Звуковая дорожка без видимого кадра (кодек не тот) — ширина кадра нулевая.
+          onLoadedData={(e) => setFrame(e.currentTarget.videoWidth > 0 ? 'ready' : 'none')}
+          onError={() => setFrame('none')}
+          className={cn(
+            'absolute inset-0 size-full object-cover opacity-0 transition-opacity duration-(--motion-micro)',
+            frame === 'ready' && 'opacity-100',
+          )}
+        />
+      )}
+      {link.data && (mode === 'image' || mode === 'poster') && (
+        <MediaImage
+          src={mode === 'poster' ? poster[poster.length - 1]?.url : link.data.url}
+          media={{
+            placeholder: item.placeholder,
+            sources: mode === 'poster' ? poster : link.data.sources,
+            width: mode === 'poster' ? null : item.width,
+          }}
+          alt=""
+          sizes="140px"
+          className="absolute inset-0 size-full"
+        />
+      )}
+      {!link.data && (mode === 'image' || mode === 'poster') && !item.placeholder && !failed && (
+        <span className="absolute inset-0 animate-pulse bg-muted" aria-hidden />
+      )}
+      {failed && (
+        <span className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+          <RotateCcw className="size-5" aria-hidden />
+        </span>
       )}
       {/* Видео отличается от снимка длительностью в углу, как в Telegram: значок «▶»
           поверх каждой второй плитки превращал сетку в стену кнопок. */}
-      {isVideo && item.animation ? (
-        <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1 py-px text-[0.6875rem] font-semibold uppercase text-white">
-          {t('tgGifs.badge')}
-        </span>
-      ) : (
-        isVideo && (
-          <span className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded bg-black/55 px-1 py-px text-[0.6875rem] font-medium tabular-nums text-white">
-            <Play className="size-2.5 fill-current" aria-hidden />
-            {item.durationMs ? formatDuration(item.durationMs) : null}
-          </span>
-        )
-      )}
+      {isVideo && durationMs ? (
+        <span className={TILE_BADGE}>{formatDuration(durationMs)}</span>
+      ) : null}
     </button>
   )
 }
@@ -254,11 +433,13 @@ export function MediaTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
   const [viewer, setViewer] = useState<string | null>(null)
   const gridRef = useRef<HTMLDivElement | null>(null)
   const q = useMediaPages(chatId, 'media')
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
+  const items = mediaGridItems(q.data?.pages.flatMap((p) => p.items) ?? [])
   if (q.isLoading) return <GridSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <TabEmpty icon={<ImageIcon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  // Пустая сетка при ещё не загруженных страницах (в первой были одни GIF) — не «пусто»:
+  // маячок сам подтянет следующую.
+  if (items.length === 0 && !q.hasNextPage)
+    return <TabEmpty icon={ImageIcon} title={t('tgRight.emptyMedia')} />
   // Просмотрщик листает все медиа чата по времени (старые слева), как из ленты: сетка идёт
   // от свежих, поэтому кадры открытия — в обратном порядке. Шапка ведёт к сообщению кадра.
   const byTime = [...items].reverse()
@@ -297,18 +478,35 @@ export function MediaTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
   )
 }
 
+/**
+ * Остров списка — та же поверхность, что у карточки сведений над вкладками (InfoCard):
+ * файлы, ссылки, музыка, голосовые и опросы в Telegram лежат на такой же карточке.
+ */
+function ListIsland({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mx-3 mb-3 overflow-hidden rounded-xl bg-card p-1.5 ring-1 ring-foreground/10">
+      {children}
+    </div>
+  )
+}
+
+/** «{день} в {время}» на языке интерфейса — для подписи даты в строках вкладок. */
+function useSharedDate(): (iso: string) => string {
+  const t = useTranslations('Chats')
+  const locale = useLocale()
+  return (iso) => sharedItemDate(iso, locale, (day, time) => t('tgRight.dateAtTime', { day, time }))
+}
+
 // ── Файлы: список ───────────────────────────────────────────────────────────
-function FileRow({
-  item,
-  onJump,
-  locale,
-}: {
-  item: ChatMediaItem
-  onJump: (id: string) => void
-  locale: string
-}) {
+/**
+ * Файл — как документ в Telegram: значок расширения и есть кнопка скачивания (под курсором
+ * на нём появляется «↓», во время загрузки — кольцо с «×», готовый файл — «сохранить»), а
+ * нажатие на имя ведёт к сообщению в переписке.
+ */
+function FileRow({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) => void }) {
   const unit = useByteUnitLabel()
   const t = useTranslations('Chats')
+  const dateOf = useSharedDate()
   const dl = useFileUrl(item.id, false)
   // Скачивание в приложение с прогрессом — тем же ключом, что у файла в самой переписке.
   // Ссылка подписывается по нажатию: список файлов длинный, и подписывать все заранее незачем.
@@ -319,65 +517,64 @@ function FileRow({
   })
   const state = download.state
   const kind = fileKind(item.name, item.mime)
+  const busy = state.status === 'loading'
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 transition-colors hover:bg-muted/40">
+    <div className="flex items-center gap-3 rounded-lg p-1.5 transition-colors hover:bg-muted/40">
       <button
         type="button"
-        onClick={() => onJump(item.messageId)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        aria-label={
+          busy ? t('downloadCancel') : state.status === 'ready' ? t('save') : t('download')
+        }
+        title={state.status === 'error' ? t('downloadFailed') : undefined}
+        onClick={download.toggle}
+        className="group/icon relative size-12 shrink-0 overflow-hidden rounded-lg outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
       >
         {/* Тот же значок расширения, что в ленте: один и тот же файл нельзя показывать
             двумя разными способами в двух местах одного экрана. */}
         <span
-          className={cn(
-            'flex size-11 shrink-0 items-center justify-center rounded-lg text-white',
-            kind.className,
-          )}
+          className={cn('flex size-full items-center justify-center text-white', kind.className)}
         >
           {kind.ext ? (
-            <span className="text-[0.65rem] font-bold uppercase leading-none tracking-tight">
+            <span className="text-[0.6875rem] font-bold uppercase leading-none tracking-tight">
               {kind.ext}
             </span>
           ) : (
             <FileText className="size-5" aria-hidden />
           )}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{item.name ?? t('attachment')}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {formatBytes(item.size, unit)} · {shortDate(item.createdAt, locale)}
-          </span>
+        <span
+          className={cn(
+            'absolute inset-0 flex items-center justify-center bg-black/40 text-white transition-opacity duration-(--motion-micro)',
+            busy || state.status === 'error'
+              ? 'opacity-100'
+              : 'opacity-0 group-hover/icon:opacity-100 group-focus-visible/icon:opacity-100',
+          )}
+        >
+          {busy ? (
+            <>
+              <X className="size-4" strokeWidth={2.5} aria-hidden />
+              <ProgressRing progress={download.progress} className="text-white" />
+            </>
+          ) : state.status === 'ready' ? (
+            <Save className="size-5" aria-hidden />
+          ) : state.status === 'error' ? (
+            <RotateCcw className="size-5" aria-hidden />
+          ) : (
+            <Download className="size-5" aria-hidden />
+          )}
         </span>
       </button>
-      {/* Кнопка ведёт себя как значок файла в Telegram: «↓» скачать, кольцо с «×» —
-          идёт скачивание (нажатие отменяет), «сохранить» — файл уже в приложении. */}
       <button
         type="button"
-        aria-label={
-          state.status === 'loading'
-            ? t('downloadCancel')
-            : state.status === 'ready'
-              ? t('save')
-              : t('download')
-        }
-        title={state.status === 'error' ? t('downloadFailed') : undefined}
-        onClick={download.toggle}
-        className={cn(
-          'relative flex size-9 shrink-0 items-center justify-center rounded-full outline-none hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20',
-          state.status === 'ready' ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
-          state.status === 'error' && 'text-destructive',
-        )}
+        onClick={() => onJump(item.messageId)}
+        className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
-        {state.status === 'loading' ? (
-          <>
-            <X className="size-3.5" strokeWidth={2.5} aria-hidden />
-            <ProgressRing progress={download.progress} className="text-primary" />
-          </>
-        ) : state.status === 'ready' ? (
-          <Save className="size-4" aria-hidden />
-        ) : (
-          <Download className="size-4" aria-hidden />
-        )}
+        <span className="block truncate text-[0.9375rem] font-medium">
+          {item.name ?? t('attachment')}
+        </span>
+        <span className="block truncate text-sm text-muted-foreground">
+          {formatBytes(item.size, unit)} · {dateOf(item.createdAt)}
+        </span>
       </button>
     </div>
   )
@@ -387,6 +584,9 @@ function FileRow({
  * Голосовые и музыка правой панели — очередь общего аудиоплеера (entities/chat, тот же звук,
  * что у ленты): запуск отсюда останавливает играющее в ленте и наоборот, панель под шапкой
  * чата показывает трек, автопереход идёт вниз по списку, скорость — общая запомненная.
+ *
+ * Строки — как аудио в общих материалах Telegram: у музыки название и «длительность ·
+ * исполнитель · дата», у голосового — автор с датой справа и длительность под ним.
  */
 function VoicePlaylist({
   chatId,
@@ -403,6 +603,7 @@ function VoicePlaylist({
 }) {
   const t = useTranslations('Chats')
   const unit = useByteUnitLabel()
+  const dateOf = useSharedDate()
   const player = useAudioPlayer()
   const music = type === 'music'
   const toggle = usePlaylistQueue(`panel:${chatId}:${type}`, chatId, items, t('attachment'))
@@ -413,16 +614,20 @@ function VoicePlaylist({
         const active = player.track?.id === it.id
         const playing = active && player.playing
         const author = it.sender ? `${it.sender.lastName} ${it.sender.firstName}`.trim() : null
+        const length = it.durationMs ? formatDuration(it.durationMs) : formatBytes(it.size, unit)
         return (
           <div
             key={it.id}
-            className={cn('flex items-center gap-3 px-4 py-2', active && 'bg-primary/5')}
+            className={cn(
+              'flex items-center gap-3 rounded-lg p-1.5 transition-colors hover:bg-muted/40',
+              active && 'bg-primary/5',
+            )}
           >
             <button
               type="button"
               aria-label={playing ? t('pause') : t('play')}
               onClick={() => toggle(it.id)}
-              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/20"
+              className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-4 focus-visible:ring-ring/20"
             >
               {active && player.loading && !player.playing ? (
                 <Loader2 className="size-5 animate-spin" aria-hidden />
@@ -437,15 +642,20 @@ function VoicePlaylist({
               onClick={() => onJump(it.messageId)}
               className="min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
-              <span className="block truncate text-sm font-medium">
-                {music ? (it.name ?? t('attachment')) : (author ?? t('attachment'))}
+              <span className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium">
+                  {music ? (it.name ?? t('attachment')) : (author ?? t('attachment'))}
+                </span>
+                {!music && (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {chatListTime(it.createdAt, locale)}
+                  </span>
+                )}
               </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {music && author && `${author} · `}
-                {it.durationMs
-                  ? `${formatDuration(it.durationMs)} · `
-                  : `${formatBytes(it.size, unit)} · `}
-                {shortDate(it.createdAt, locale)}
+              <span className="block truncate text-sm text-muted-foreground tabular-nums">
+                {music
+                  ? [length, author, dateOf(it.createdAt)].filter(Boolean).join(' · ')
+                  : length}
               </span>
               {/* Полоса прогресса только у играющей записи — у остальных она была бы шумом. */}
               {active && <PlaylistProgress playing={player.playing} duration={player.duration} />}
@@ -498,10 +708,10 @@ function knownDuration(a: HTMLAudioElement): number {
 
 // Голосовые — только записи с микрофона (`voice_note`): `voice` отдаёт всё аудио, и музыка
 // попадала бы в список голосовых. Музыка — своя вкладка (`music`).
-const FILE_TAB_ICON = {
-  file: FileText,
-  voice_note: Mic,
-  music: Music,
+const FILE_TAB = {
+  file: { icon: FileText, empty: 'tgRight.emptyFiles' },
+  voice_note: { icon: Mic, empty: 'tgRight.emptyVoice' },
+  music: { icon: Music, empty: 'tgRight.emptyMusic' },
 } as const
 
 export function FileTab({
@@ -531,15 +741,15 @@ export function FileTab({
   if (q.isLoading) return <RowsSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
   if (items.length === 0) {
-    const Icon = FILE_TAB_ICON[type]
-    return <TabEmpty icon={<Icon className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+    const { icon, empty } = FILE_TAB[type]
+    return <TabEmpty icon={icon} title={t(empty)} />
   }
   return (
-    <div className="py-1">
+    <ListIsland>
       {type !== 'file' ? (
         <VoicePlaylist chatId={chatId} type={type} items={items} onJump={onJump} locale={locale} />
       ) : (
-        items.map((it) => <FileRow key={it.id} item={it} onJump={onJump} locale={locale} />)
+        items.map((it) => <FileRow key={it.id} item={it} onJump={onJump} />)
       )}
       <PageSentinel
         hasNext={q.hasNextPage}
@@ -547,7 +757,7 @@ export function FileTab({
         failed={q.isFetchNextPageError}
         onLoad={() => void q.fetchNextPage()}
       />
-    </div>
+    </ListIsland>
   )
 }
 
@@ -556,28 +766,50 @@ export function FileTab({
 // двигается. Клик — к сообщению в переписке, как у файлов.
 function GifThumb({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
-  const link = useFileLink(item.id)
+  const [ref, near] = useNearView<HTMLButtonElement>()
+  const link = useFileLink(item.id, near)
+  const [ready, setReady] = useState(false)
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={() => onJump(item.messageId)}
+      onClick={() => (link.isError && !link.data ? void link.refetch() : onJump(item.messageId))}
       aria-label={t('goToMessage')}
       className="relative aspect-square overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
+      {/* Заглушка лежит под роликом, пока у него нет кадра: пустая клетка не мигает. */}
+      {item.placeholder && !ready && (
+        <MediaImage
+          media={{ placeholder: item.placeholder }}
+          alt=""
+          className="absolute inset-0 size-full"
+        />
+      )}
+      {!item.placeholder && !link.data && !link.isError && (
+        <span className="absolute inset-0 animate-pulse bg-muted" aria-hidden />
+      )}
       {link.data && (link.data.mime ?? item.mime).startsWith('video/') ? (
         // GIF, переведённый в MP4: ролик по кругу без звука, вне экрана — на паузе.
         <GifVideo
           src={link.data.url}
           poster={link.data.poster[0]?.url}
-          className="size-full object-cover"
+          onReady={() => setReady(true)}
+          className="absolute inset-0 size-full object-cover"
         />
       ) : link.data ? (
         // Подписанная ссылка на приватный бакет: next/image её не оптимизирует.
-        <img src={link.data.url} alt="" loading="lazy" className="size-full object-cover" />
-      ) : item.placeholder ? (
-        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
-      ) : (
-        <div className="size-full animate-pulse bg-muted" />
+        <img
+          src={link.data.url}
+          alt=""
+          loading="lazy"
+          onLoad={() => setReady(true)}
+          className="absolute inset-0 size-full object-cover"
+        />
+      ) : null}
+      {link.isError && !link.data && (
+        <span className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+          <RotateCcw className="size-5" aria-hidden />
+        </span>
       )}
     </button>
   )
@@ -589,8 +821,7 @@ export function GifTab({ chatId, onJump }: { chatId: string; onJump: (id: string
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <GridSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <TabEmpty icon={<ImagePlay className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  if (items.length === 0) return <TabEmpty icon={ImagePlay} title={t('tgRight.emptyGif')} />
   return (
     <>
       <div className="grid grid-cols-3 gap-px">
@@ -609,16 +840,9 @@ export function GifTab({ chatId, onJump }: { chatId: string; onJump: (id: string
 }
 
 // ── Опросы: список, клик — к опросу в переписке ──────────────────────────────
-function PollRow({
-  message,
-  onJump,
-  locale,
-}: {
-  message: ChatMessage
-  onJump: (id: string) => void
-  locale: string
-}) {
+function PollRow({ message, onJump }: { message: ChatMessage; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
+  const dateOf = useSharedDate()
   const poll = message.poll
   if (!poll) return null
   const author = `${message.sender.lastName} ${message.sender.firstName}`
@@ -626,16 +850,16 @@ function PollRow({
     <button
       type="button"
       onClick={() => onJump(message.id)}
-      className="flex w-full items-center gap-3 px-4 py-2 text-left outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+      className="flex w-full items-center gap-3 rounded-lg p-1.5 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
     >
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         <BarChart3 className="size-5" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{poll.question}</span>
-        <span className="block truncate text-xs text-muted-foreground">
+        <span className="block truncate text-[0.9375rem] font-medium">{poll.question}</span>
+        <span className="block truncate text-sm text-muted-foreground">
           {poll.closed && `${t('pollClosed')} · `}
-          {author} · {shortDate(message.createdAt, locale)}
+          {author} · {dateOf(message.createdAt)}
         </span>
       </span>
     </button>
@@ -644,7 +868,6 @@ function PollRow({
 
 export function PollsTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
-  const locale = useLocale()
   const q = useInfiniteQuery({
     queryKey: chatKeys.polls(chatId),
     queryFn: ({ pageParam }) => fetchChatPolls(chatId, pageParam),
@@ -654,12 +877,11 @@ export function PollsTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <RowsSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <TabEmpty icon={<BarChart3 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  if (items.length === 0) return <TabEmpty icon={BarChart3} title={t('tgRight.emptyPolls')} />
   return (
-    <div className="py-1">
+    <ListIsland>
       {items.map((m) => (
-        <PollRow key={m.id} message={m} onJump={onJump} locale={locale} />
+        <PollRow key={m.id} message={m} onJump={onJump} />
       ))}
       <PageSentinel
         hasNext={q.hasNextPage}
@@ -667,21 +889,26 @@ export function PollsTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
         failed={q.isFetchNextPageError}
         onLoad={() => void q.fetchNextPage()}
       />
-    </div>
+    </ListIsland>
   )
 }
 
 // ── Ссылки: список ───────────────────────────────────────────────────────────
-function LinkRow({
-  item,
-  onJump,
-  locale,
-}: {
-  item: ChatLinkItem
-  onJump: (id: string) => void
-  locale: string
-}) {
-  const t = useTranslations('Chats')
+/** Адрес ссылки для подписи: без схемы и хвостового «/», как в Telegram. */
+export function displayUrl(url: string): string {
+  return url
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/\/$/, '')
+}
+
+/**
+ * Ссылка — как в общих материалах Telegram: слева картинка превью (нет её — первая буква
+ * сайта в квадрате), справа заголовок, две строки описания и сам адрес. Нажатие на строку
+ * ведёт к сообщению, на адрес — открывает сайт в новой вкладке.
+ */
+function LinkRow({ item, onJump }: { item: ChatLinkItem; onJump: (id: string) => void }) {
+  const [imageFailed, setImageFailed] = useState(false)
   const lp = item.linkPreview
   if (!lp) return null
   let host = lp.url
@@ -690,41 +917,63 @@ function LinkRow({
   } catch {
     /* оставляем как есть */
   }
+  const jump = (): void => onJump(item.messageId)
   return (
-    <div className="flex items-center gap-3 px-4 py-1.5 transition-colors hover:bg-muted/40">
-      <button
-        type="button"
-        onClick={() => onJump(item.messageId)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-      >
-        {/* Первая буква домена в квадрате — как плитка ссылки без картинки в Telegram. */}
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-base font-semibold uppercase text-primary">
-          {host.charAt(0) || <Link2 className="size-5" aria-hidden />}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">{lp.title || host}</span>
-          <span className="block truncate text-xs text-primary">{host}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {shortDate(item.createdAt, locale)}
+    // Вся строка ведёт к сообщению (мышью); с клавиатуры — кнопка заголовка внутри.
+    <div
+      onClick={jump}
+      className="flex cursor-pointer items-start gap-3 rounded-lg p-1.5 transition-colors hover:bg-muted/40"
+    >
+      <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary/10 text-xl font-medium uppercase text-primary">
+        {lp.image && !imageFailed ? (
+          // Внешняя картинка превью — обычный img: домен произвольный, next/image не подходит.
+          <img
+            src={lp.image}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setImageFailed(true)}
+            className="size-full object-cover"
+          />
+        ) : (
+          host.charAt(0) || <Link2 className="size-5" aria-hidden />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            jump()
+          }}
+          className="block w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className="line-clamp-2 text-[0.9375rem] font-medium break-words">
+            {lp.title || lp.siteName || host}
           </span>
-        </span>
-      </button>
-      <a
-        href={lp.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={t('openLink')}
-        className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-4 focus-visible:ring-ring/20"
-      >
-        <ExternalLink className="size-4" aria-hidden />
-      </a>
+          {lp.description && (
+            <span className="mt-0.5 line-clamp-2 text-sm text-muted-foreground break-words">
+              {lp.description}
+            </span>
+          )}
+        </button>
+        {/* Адрес открывает сайт, а не сообщение: отдельная ссылка под текстом. */}
+        <a
+          href={lp.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="mt-0.5 block truncate rounded-sm text-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          {displayUrl(lp.url)}
+        </a>
+      </span>
     </div>
   )
 }
 
 export function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
   const t = useTranslations('Chats')
-  const locale = useLocale()
   const q = useInfiniteQuery({
     queryKey: chatKeys.links(chatId),
     queryFn: ({ pageParam }) => fetchChatLinks(chatId, pageParam),
@@ -734,12 +983,11 @@ export function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
   const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <RowsSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0)
-    return <TabEmpty icon={<Link2 className="size-6" aria-hidden />} title={t('sharedEmpty')} />
+  if (items.length === 0) return <TabEmpty icon={Link2} title={t('tgRight.emptyLinks')} />
   return (
-    <div className="py-1">
+    <ListIsland>
       {items.map((it) => (
-        <LinkRow key={it.messageId} item={it} onJump={onJump} locale={locale} />
+        <LinkRow key={it.messageId} item={it} onJump={onJump} />
       ))}
       <PageSentinel
         hasNext={q.hasNextPage}
@@ -747,6 +995,6 @@ export function LinksTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
         failed={q.isFetchNextPageError}
         onLoad={() => void q.fetchNextPage()}
       />
-    </div>
+    </ListIsland>
   )
 }

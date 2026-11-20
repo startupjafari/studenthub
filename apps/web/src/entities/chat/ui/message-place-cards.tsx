@@ -15,12 +15,15 @@ import {
 import type { ChatMessage, MessageContact, MessageLocation } from '../model/types'
 import { Button } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { identityColor } from '../../../shared/lib/identity-color'
 
 /** Рамка карточки в пузыре — та же, что у превью ссылки: акцентная полоса слева. */
 function cardClass(mine: boolean): string {
   return cn(
     'flex max-w-sm overflow-hidden rounded-xl border',
-    mine ? 'border-primary-foreground/20 bg-primary-foreground/5' : 'border-border bg-muted/40',
+    mine
+      ? 'border-primary-foreground/20 bg-primary-foreground/10'
+      : 'border-transparent bg-primary/10',
   )
 }
 
@@ -102,7 +105,10 @@ export function MessageLocationCard({
         rel="noopener noreferrer nofollow"
         className="flex min-w-0 transition-colors hover:bg-muted/70"
       >
-        <span className="w-1 shrink-0 bg-primary/60" aria-hidden />
+        <span
+          className={cn('w-1 shrink-0', mine ? 'bg-primary-foreground/60' : 'bg-primary/60')}
+          aria-hidden
+        />
         <div className="flex min-w-0 flex-1 items-start gap-2 p-2.5">
           <Icon className={cn('mt-0.5 size-4 shrink-0', live && 'animate-pulse')} aria-hidden />
           <div className="min-w-0">
@@ -153,22 +159,54 @@ export function MessageLocationCard({
   )
 }
 
-/** Карточка контакта: имя, телефоны и адреса почты ссылками tel:/mailto:. */
+/** Две буквы контакта для кружка: «Сулейменов Асылбек» → «СА». */
+export function contactInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  return words
+    .slice(0, 2)
+    .map((w) => Array.from(w)[0] ?? '')
+    .join('')
+    .toUpperCase()
+}
+
+/**
+ * Карточка контакта как в Telegram: кружок с инициалами цвета человека, имя акцентом, под
+ * ним телефоны и почта ссылками tel:/mailto:. Цвет кружка — по id пользователя, если контакт
+ * им является, иначе по имени: один человек выглядит одинаково и в ленте, и в карточке.
+ */
 export function MessageContactCard({ contact, mine }: { contact: MessageContact; mine: boolean }) {
   return (
     <div className={cardClass(mine)}>
-      <span className="w-1 shrink-0 bg-primary/60" aria-hidden />
-      <div className="flex min-w-0 flex-1 items-start gap-2 p-2.5">
-        <UserRound className="mt-0.5 size-4 shrink-0" aria-hidden />
-        <div className="min-w-0 space-y-0.5">
-          <span className="block truncate text-sm font-medium">{contact.name}</span>
+      <span
+        className={cn('w-1 shrink-0', mine ? 'bg-primary-foreground/60' : 'bg-primary/60')}
+        aria-hidden
+      />
+      <div className="flex min-w-0 flex-1 items-center gap-3 py-2 pr-3 pl-2">
+        <span
+          aria-hidden
+          className={cn(
+            'flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white',
+            identityColor(contact.userId ?? contact.name),
+          )}
+        >
+          {contactInitials(contact.name) || <UserRound className="size-5" />}
+        </span>
+        <div className="min-w-0">
+          <span
+            className={cn(
+              'block truncate text-base leading-tight font-medium',
+              mine ? 'text-primary-foreground' : 'text-primary',
+            )}
+          >
+            {contact.name}
+          </span>
           {contact.phones.map((phone) => (
             <a
               key={`p:${phone}`}
               href={`tel:${phone.replace(/[^\d+]/g, '')}`}
-              className="flex items-center gap-1 text-xs hover:underline"
+              className="mt-0.5 flex items-center gap-1 text-sm hover:underline"
             >
-              <Phone className="size-3 shrink-0" aria-hidden />
+              <Phone className="size-3.5 shrink-0 opacity-70" aria-hidden />
               <span className="truncate">{phone}</span>
             </a>
           ))}
@@ -176,9 +214,9 @@ export function MessageContactCard({ contact, mine }: { contact: MessageContact;
             <a
               key={`e:${email}`}
               href={`mailto:${email}`}
-              className="flex items-center gap-1 text-xs hover:underline"
+              className="mt-0.5 flex items-center gap-1 text-sm hover:underline"
             >
-              <Mail className="size-3 shrink-0" aria-hidden />
+              <Mail className="size-3.5 shrink-0 opacity-70" aria-hidden />
               <span className="truncate">{email}</span>
             </a>
           ))}

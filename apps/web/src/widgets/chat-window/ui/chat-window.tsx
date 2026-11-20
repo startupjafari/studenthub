@@ -1,6 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -99,6 +107,13 @@ import {
   unreadAfter,
   withReceipt,
 } from '../lib/read-tracking'
+import {
+  HISTORY_PAGE,
+  HISTORY_RETRY_MS,
+  preloadDistance,
+  trimNewest,
+  trimOldest,
+} from '../lib/message-window'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
   mergeChatHead,
@@ -128,7 +143,12 @@ import { useChatHeaderSearch } from '../lib/use-chat-header-search'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { RightColumn } from './right-column'
 import { ChatFoldersPanel } from './chat-folders-panel'
-import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
+import {
+  MessageItem,
+  SERVICE_PILL_CLASS,
+  type MessageActions,
+  type MessageReadState,
+} from './message-item'
 import { messageRunPosition } from '../lib/message-run'
 import { ChatComposer, type ComposerSendOptions } from './chat-composer'
 import { forwardRequestId, useForwardDraft } from '../lib/use-forward-draft'
@@ -151,7 +171,7 @@ import {
   useConfirm,
   type RichTextHandle,
 } from '../../../shared/ui'
-import { Virtualizer, type VirtualizerHandle } from 'virtua'
+import { MessageWindow, type MessageWindowHandle } from './message-window'
 import { cn } from '../../../shared/lib/utils'
 import {
   afterScrollSettles,
@@ -405,7 +425,6 @@ export function ChatWindow() {
   const lastSyncAt = useRef(serverNowIso(0))
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined)
   const [canLoadOlder, setCanLoadOlder] = useState(false)
-  const [loadingOlder, setLoadingOlder] = useState(false)
   // Курсор более НОВЫХ сообщений: не-undefined только после jump в «прыгнутое» окно (around),
   // когда снизу есть неподгруженные сообщения (Этап 1, двунаправленная пагинация).
   const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
@@ -555,11 +574,15 @@ export function ChatWindow() {
     setComposerH(el.offsetHeight)
   }, [])
   useEffect(() => () => composerRO.current?.disconnect(), [])
-  // Виртуализатор списка сообщений (virtua): императивный скролл к индексу (вниз/к сообщению).
-  const virtualizerRef = useRef<VirtualizerHandle>(null)
-  // shift=true на время подгрузки старых сообщений (prepend вверх) — virtua сохраняет визуальную
-  // позицию «от конца», без прыжка. Для входящих (append в конец) shift обязан быть false.
-  const [shiftMode, setShiftMode] = useState(false)
+  // Окно ленты (ui/message-window): императивный скролл к индексу (вниз/к сообщению) и замеры.
+  // Имя осталось от виртуализатора — им пользуются полоса закрепов и плавающая дата.
+  const virtualizerRef = useRef<MessageWindowHandle>(null)
+  // Где человек оставил ленту в чате (Telegram): сообщение у верха кадра и его отступ. Чат без
+  // непрочитанного при возврате открывается там же, а не в самом низу. Нет записи — стоял внизу.
+  const savedScrollRef = useRef(new Map<string, { id: string; offset: number }>())
+  // Человек упёрся в край, пока страница ещё в пути, — только тогда и показываем спиннер:
+  // догрузка заранее идёт незаметно, как в Telegram.
+  const [olderStalled, setOlderStalled] = useState(false)
   // Для какого чата уже выполнен первичный скролл вниз (открытие ≠ новое сообщение).
   const scrolledForRef = useRef<string | null>(null)
   // id последнего сообщения — чтобы отличать «добавилось новое» от prepend старых / update.
@@ -568,9 +591,8 @@ export function ChatWindow() {
   const loadingOlderRef = useRef(false)
   // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
   const wasAtBottomRef = useRef(true)
-  // Кадр и таймер доводки первичного скролла — гасятся при смене чата.
+  // Кадр после первичной позиции (прочтение, предзагрузка) — гасится при смене чата.
   const openRafRef = useRef<number | null>(null)
-  const openTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
@@ -2077,7 +2099,10 @@ export function ChatWindow() {
     // qc стабилен; эффект — ровно на смену чата.
   }, [activeId])
 
-  useEffect(() => {
+  // Layout-эффект и объявлен раньше первичной позиции: сброс обязан пройти до неё в том же
+  // коммите — иначе чат из кэша сначала встал бы на место, а пассивный сброс тут же забыл бы,
+  // что позиция уже выставлена, и следующее обновление ленты переставило бы её заново.
+  useLayoutEffect(() => {
     setUnreadDividerId(null)
     readUpToRef.current = null
     setReadUpTo(null)
@@ -2087,9 +2112,7 @@ export function ChatWindow() {
     scrolledForRef.current = null
     // Отложенная доводка прошлого чата не должна сработать по индексам нового.
     if (openRafRef.current !== null) cancelAnimationFrame(openRafRef.current)
-    if (openTimeoutRef.current !== null) window.clearTimeout(openTimeoutRef.current)
     openRafRef.current = null
-    openTimeoutRef.current = null
     return () => flushRead()
     // flushRead читает refs — актуальный на момент ухода из чата, пересоздавать эффект незачем.
   }, [activeId])
@@ -2105,74 +2128,75 @@ export function ChatWindow() {
   // (контейнер перемонтирован, key={activeId}). Новое последнее сообщение: если пользователь у низа
   // или это своё — плавно вниз; иначе не дёргаем скролл, а копим счётчик и показываем кнопку «вниз».
   // Prepend старых и update существующих (id последнего не изменился) прокрутку не вызывают.
+  useLayoutEffect(() => {
+    if (!messages.data?.length || !activeId || !socket) return
+    if (scrolledForRef.current === activeId) return
+    const list = messages.data
+    scrolledForRef.current = activeId
+    lastMsgIdRef.current = list[list.length - 1]?.id ?? null
+    setShowScrollDown(false)
+    // Как в Telegram: чат с непрочитанным открывается на первом непрочитанном, а не в самом
+    // низу. Раньше лента сразу уезжала вниз и тут же отправляла «прочитано» по последнему
+    // сообщению — двадцать непрочитанных гасли, хотя человек их не видел.
+    const atOpen = chatsRef.current?.find((c) => c.id === activeId)
+    // Сервер знает первое непрочитанное по id — по нему плашка встаёт точно, в том числе
+    // в окне вокруг него; старый сервер — отсчёт чужих сообщений с конца, как раньше.
+    const firstUnread = firstUnreadPosition(list, atOpen, myId)
+    setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
+    // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
+    // непрочитанным оказалось всё загруженное.
+    //
+    // Непрочитанных по списку нет — всё до ПОСЛЕДНЕГО считаем прочитанным, а само последнее
+    // отправим по факту показа. Раньше прочитанным сразу считалось и оно: отметка не уходила
+    // вовсе, и если список ошибался (открыли по ссылке, пока он не загрузился; последним
+    // было своё сообщение), сервер так и считал чат непрочитанным.
+    readUpToRef.current =
+      firstUnread === null
+        ? list.length > 1
+          ? (list[list.length - 2]?.createdAt ?? '')
+          : ''
+        : firstUnread > 0
+          ? (list[firstUnread - 1]?.createdAt ?? '')
+          : ''
+    setReadUpTo(readUpToRef.current)
+    // Непрочитанного нет, а человек уже бывал в этом чате и оставил ленту не внизу — туда же
+    // и возвращаем (Telegram помнит позицию в каждом чате).
+    const saved = firstUnread === null ? savedScrollRef.current.get(activeId) : undefined
+    const savedIdx = saved ? list.findIndex((m) => m.id === saved.id) : -1
+    // Позиция — до первой отрисовки: лента без виртуализации знает настоящие высоты сразу,
+    // и кадра «сначала вверху, потом внизу» не бывает. Едем к конкретному сообщению (открыли
+    // по ссылке) — начальная позиция не нужна.
+    const vh = virtualizerRef.current
+    const el = messagesScrollRef.current
+    if (!focusTargetRef.current && vh && el) {
+      if (saved && savedIdx >= 0) el.scrollTop = vh.getItemOffset(savedIdx) - saved.offset
+      else if (firstUnread === null) vh.scrollToBottom()
+      else vh.scrollToIndex(firstUnread, { align: 'start' })
+    }
+    // Открыт в самом низу — держимся низа, пока догружаются снимки и карточки.
+    wasAtBottomRef.current = firstUnread === null && savedIdx < 0 && !focusTargetRef.current
+    openRafRef.current = requestAnimationFrame(() => {
+      openRafRef.current = null
+      // Прочтение отмечаем уже по настоящему кадру; историю выше — подгружаем заранее, чтобы
+      // первая же прокрутка вверх шла по готовым сообщениям.
+      markVisibleReadRef.current()
+      preloadRef.current()
+    })
+  }, [messages.data, activeId, socket, myId])
+
+  // Новое последнее сообщение: если пользователь у низа или это своё — плавно вниз; иначе не
+  // дёргаем скролл, а копим счётчик и показываем кнопку «вниз». Prepend старых и update
+  // существующих (id последнего не изменился) прокрутку не вызывают.
   useEffect(() => {
     if (!messages.data?.length || !activeId || !socket) return
+    if (scrolledForRef.current !== activeId) return
     const list = messages.data
     const last = list[list.length - 1]
-    const firstForChat = scrolledForRef.current !== activeId
     const prevLastId = lastMsgIdRef.current
     lastMsgIdRef.current = last?.id ?? null
-    const toBottom = (behavior: ScrollBehavior): void => {
-      const len = list.length
-      if (len > 0)
-        virtualizerRef.current?.scrollToIndex(len - 1, {
-          align: 'end',
-          smooth: behavior === 'smooth',
-        })
-    }
-
-    if (firstForChat) {
-      scrolledForRef.current = activeId
-      setShowScrollDown(false)
-      // Как в Telegram: чат с непрочитанным открывается на первом непрочитанном, а не в самом
-      // низу. Раньше лента сразу уезжала вниз и тут же отправляла «прочитано» по последнему
-      // сообщению — двадцать непрочитанных гасли, хотя человек их не видел.
-      const atOpen = chatsRef.current?.find((c) => c.id === activeId)
-      // Сервер знает первое непрочитанное по id — по нему плашка встаёт точно, в том числе
-      // в окне вокруг него; старый сервер — отсчёт чужих сообщений с конца, как раньше.
-      const firstUnread = firstUnreadPosition(list, atOpen, myId)
-      setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
-      // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
-      // непрочитанным оказалось всё загруженное.
-      //
-      // Непрочитанных по списку нет — всё до ПОСЛЕДНЕГО считаем прочитанным, а само последнее
-      // отправим по факту показа. Раньше прочитанным сразу считалось и оно: отметка не уходила
-      // вовсе, и если список ошибался (открыли по ссылке, пока он не загрузился; последним
-      // было своё сообщение), сервер так и считал чат непрочитанным.
-      readUpToRef.current =
-        firstUnread === null
-          ? list.length > 1
-            ? (list[list.length - 2]?.createdAt ?? '')
-            : ''
-          : firstUnread > 0
-            ? (list[firstUnread - 1]?.createdAt ?? '')
-            : ''
-      setReadUpTo(readUpToRef.current)
-      const position = (): void => {
-        // Едем к конкретному сообщению (открыли по ссылке) — начальная позиция не нужна.
-        if (focusTargetRef.current) return
-        if (firstUnread === null) toBottom('auto')
-        else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
-      }
-      openRafRef.current = requestAnimationFrame(() => {
-        openRafRef.current = null
-        position()
-        // Второй проход — после того как virtua измерила строки: первая раскладка идёт по
-        // оценке высот. Прочтение отмечаем уже по настоящему кадру.
-        openTimeoutRef.current = window.setTimeout(() => {
-          openTimeoutRef.current = null
-          position()
-          // Открыт в самом низу — держимся низа, пока догружаются снимки и карточки.
-          wasAtBottomRef.current = firstUnread === null && !focusTargetRef.current
-          markVisibleReadRef.current()
-        }, 120)
-      })
-      return
-    }
-
     if (last && last.id !== prevLastId) {
       if (last.senderId === myId || nearBottom()) {
-        toBottom('smooth')
+        virtualizerRef.current?.scrollToIndex(list.length - 1, { align: 'end', smooth: true })
         // Прочитано — то, что оказалось на экране после доводки прокрутки.
         window.setTimeout(() => markVisibleReadRef.current(), 350)
       } else {
@@ -2186,36 +2210,20 @@ export function ChatWindow() {
   // последнее сообщение уезжает под панель.
   useEffect(() => {
     if (!wasAtBottomRef.current) return
-    const el = messagesScrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    virtualizerRef.current?.scrollToBottom()
   }, [composerH])
 
   // Догрузились снимок, видео, превью ссылки или карточка — строка выросла уже после
-  // первичного скролла, и последнее сообщение уезжало под панель ввода. Стоявшего внизу
-  // держим внизу. Новое сообщение сюда не относится: его доводит эффект выше, плавно, —
-  // поэтому рост из-за смены последнего сообщения пропускаем.
-  const isLoadingMessages = messages.isLoading
-  useEffect(() => {
-    const el = messagesScrollRef.current
-    const content = el?.firstElementChild
-    if (!el || !content || typeof ResizeObserver === 'undefined') return
-    let seenLastId = lastMsgIdRef.current
-    const ro = new ResizeObserver(() => {
-      if (seenLastId !== lastMsgIdRef.current) {
-        seenLastId = lastMsgIdRef.current
-        return
-      }
-      if (wasAtBottomRef.current && !loadingOlderRef.current) el.scrollTop = el.scrollHeight
-    })
-    ro.observe(content)
-    return () => ro.disconnect()
-  }, [activeId, isLoadingMessages])
+  // первичного скролла. Стоявшего внизу держит внизу само окно ленты (stickToBottom), а
+  // остальных — на том же сообщении (якорь в ui/message-window).
+  // Догрузка истории сверху этому не мешает: низ остаётся низом, сколько бы ни выросло выше.
+  const stickToBottom = useCallback(() => wasAtBottomRef.current, [])
 
   // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
   // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
   // пока сама пометка уехала под верх: тогда дата всё равно видна, а когда пометка
   // возвращается в кадр, заголовок гаснет, чтобы не было двух одинаковых дат.
-  // (Настоящий `position: sticky` не годится: virtua оборачивает каждое сообщение,
+  // (Настоящий `position: sticky` не годится: окно ленты оборачивает каждое сообщение,
   // и прилипало бы в пределах одного сообщения, а не до следующей даты.)
   //
   // Решает это одно измерение: какое сообщение сейчас вверху кадра, начинается ли с него
@@ -2258,8 +2266,8 @@ export function ChatWindow() {
   // Начальная пометка дня: лента открывается внизу, и до первого скролла обработчик
   // не сработает — без этого заголовок дня появлялся бы только после касания колеса.
   //
-  // Через кадр, а не сразу: virtua на момент эффекта ещё не разложила ленту, и мерить
-  // нечего. Раньше здесь мерить и не пытались — заголовок поднимали по догадке «первый и
+  // Через кадр, а не сразу: эффект идёт до того, как первичная позиция ленты отрисована,
+  // и мерить ещё нечего. Раньше здесь мерить и не пытались — заголовок поднимали по догадке «первый и
   // последний день разные, значит пометка уехала под верх». Догадка врала каждый раз,
   // когда переписка целиком помещается на экране: встроенная пометка видна, а заголовок
   // всё равно показывался, и «Сегодня» оказывалось на экране дважды.
@@ -2280,25 +2288,79 @@ export function ChatWindow() {
     // у самого низа: как в Telegram, счётчик тает по мере чтения.
     markVisibleRead()
     wasAtBottomRef.current = atBottom
-    // Догрузка старых при подходе к верху — с сохранением визуальной позиции.
-    if (el.scrollTop < 100 && canLoadOlder && !loadingOlderRef.current) {
+    rememberScroll(atBottom)
+    // Упёрлись в край, а страница ещё в пути, — вот теперь спиннер честно нужен.
+    if (loadingOlderRef.current && el.scrollTop <= 4) setOlderStalled(true)
+    preload()
+  }
+
+  /**
+   * Догрузка заранее, как в Telegram: старые — когда до верха меньше нескольких экранов,
+   * новые — когда столько же до низа «прыгнутого» окна. Позицию держит якорь окна ленты.
+   * После каждой страницы проверка повторяется: при быстрой прокрутке одной мало.
+   */
+  function preload(): void {
+    const el = messagesScrollRef.current
+    const chatId = activeId
+    if (!el || !chatId || !messages.data?.length) return
+    // Прошлая страница не пришла (сеть, лимит запросов) — пауза, а не повтор на каждом
+    // кадре прокрутки.
+    if (Date.now() < historyRetryAtRef.current) return
+    const zone = preloadDistance(el.clientHeight)
+    const pager = currentPager(chatId)
+    // Следующий шаг цепочки: сразу после удачной страницы, через паузу — после неудачной.
+    const next = (ok: boolean): void => {
+      if (activeIdRef.current !== chatId) return
+      if (ok) requestAnimationFrame(() => preloadRef.current())
+      else {
+        historyRetryAtRef.current = Date.now() + HISTORY_RETRY_MS
+        window.setTimeout(() => preloadRef.current(), HISTORY_RETRY_MS)
+      }
+    }
+    if (el.scrollTop < zone && pager.canOlder && pager.older && !loadingOlderRef.current) {
       loadingOlderRef.current = true
-      // virtua сам удержит визуальную позицию при prepend, пока shift=true — без ручной коррекции scrollTop.
-      setShiftMode(true)
-      void loadOlder().finally(() => {
-        loadingOlderRef.current = false
-        // Сбрасываем shift в следующем кадре, когда догруженные сообщения уже отрисованы.
-        requestAnimationFrame(() => setShiftMode(false))
-      })
+      void loadOlder().then(
+        () => {
+          loadingOlderRef.current = false
+          setOlderStalled(false)
+          next(true)
+        },
+        () => {
+          loadingOlderRef.current = false
+          next(false)
+        },
+      )
     }
-    // Догрузка новых при подходе к низу — актуально только в «прыгнутом» окне (после jump).
-    if (
-      el.scrollHeight - el.scrollTop - el.clientHeight < 200 &&
-      canLoadNewer &&
-      !loadingNewerRef.current
-    ) {
-      void loadNewer()
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (fromBottom < zone && pager.canNewer && pager.newer && !loadingNewerRef.current) {
+      void loadNewer().then(
+        () => next(true),
+        () => next(false),
+      )
     }
+  }
+  // Когда можно снова пробовать догрузку истории после неудачи (мс эпохи).
+  const historyRetryAtRef = useRef(0)
+  const preloadRef = useRef(preload)
+  preloadRef.current = preload
+
+  /** Запомнить, где человек оставил ленту этого чата (сообщение у верха кадра и отступ). */
+  function rememberScroll(atBottom: boolean): void {
+    const chatId = activeId
+    const vh = virtualizerRef.current
+    const data = messages.data
+    if (!chatId || !vh || !data?.length) return
+    if (atBottom) {
+      savedScrollRef.current.delete(chatId)
+      return
+    }
+    const idx = vh.findItemIndex(vh.scrollOffset)
+    const top = data[idx]
+    if (!top || top.id.startsWith('tmp:')) return
+    savedScrollRef.current.set(chatId, {
+      id: top.id,
+      offset: vh.getItemOffset(idx) - vh.scrollOffset,
+    })
   }
 
   function scrollToBottom(): void {
@@ -2307,13 +2369,15 @@ export function ChatWindow() {
       // В «прыгнутом» окне последнее загруженное ≠ реальный низ — перезагружаем новейшие
       // (эффект первичного скролла проскроллит к низу, т.к. scrolledForRef сброшен).
       setPager(id, { newer: undefined, canNewer: false })
+      // Перезагруженный низ открываем внизу, а не на запомненной позиции.
+      savedScrollRef.current.delete(id)
       scrolledForRef.current = null
       void qc.invalidateQueries({ queryKey: chatKeys.messages(id) })
     } else {
       const len = messages.data?.length ?? 0
       const el = messagesScrollRef.current
-      // Плавно — только последний экран-другой. Издалека плавная прокрутка через
-      // неизмеренные строки шла долго и часто не доезжала: высоты по пути уточнялись.
+      // Плавно — только последний экран-другой: издалека плавная прокрутка через сотни
+      // сообщений идёт слишком долго.
       const far = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * 2
       if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: !far })
       wasAtBottomRef.current = true
@@ -2411,10 +2475,10 @@ export function ChatWindow() {
     if (!chatId || !data?.length || !vh) return
     if (typeof document !== 'undefined' && document.hidden) return
     if (peekChatIdRef.current === chatId) return
-    // viewportSize у virtua — высота БЕЗ отступов контейнера (contentRect), а нижний отступ
-    // ленты и есть место под панелью ввода. Вычитать composerH ещё раз значило поднять
-    // границу на высоту панели: короткое последнее сообщение так и не считалось прочитанным,
-    // а бейдж в навигации висел.
+    // viewportSize окна ленты — видимая высота без нижнего отступа, а нижний отступ ленты и
+    // есть место под панелью ввода. Вычитать composerH ещё раз значило поднять границу на
+    // высоту панели: короткое последнее сообщение так и не считалось прочитанным, а бейдж в
+    // навигации висел.
     const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize)
     let idx = Math.min(Math.max(vh.findItemIndex(bottom), 0), data.length - 1)
     // Своё недоотправленное сообщение (временный id) сервер не знает — берём ближайшее
@@ -2739,8 +2803,8 @@ export function ChatWindow() {
     toast.success(t('linkCopied'))
   }
 
-  // Скролл к сообщению + мягкая подсветка (Telegram-стиль). Под виртуализацией целевая строка
-  // может быть не смонтирована — скроллим по индексу через virtua (он её смонтирует), иначе фолбэк на DOM.
+  // Скролл к сообщению + мягкая подсветка (Telegram-стиль). Сообщение вне загруженного окна —
+  // сначала окно вокруг него (around).
   function focusMessage(messageId: string): void {
     const idx = messages.data?.findIndex((x) => x.id === messageId) ?? -1
     if (idx < 0) {
@@ -2754,8 +2818,8 @@ export function ChatWindow() {
   /**
    * Прокрутить к строке и только ПОТОМ подсветить — как в Telegram: подсветка, вспыхнувшая в
    * начале плавной прокрутки, к приезду уже гасла, и человек не видел, куда его привезли.
-   * Ждём остановки прокрутки, доводим строку на место без анимации (virtua к этому моменту
-   * измерила настоящие высоты, первая прокрутка шла по оценке) и тогда подсвечиваем.
+   * Ждём остановки прокрутки, доводим строку на место без анимации (по пути могли
+   * догрузиться снимки выше и сдвинуть цель) и тогда подсвечиваем.
    */
   function scrollToAndHighlight(idx: number, id: string, align: 'center' | 'start'): void {
     focusTargetRef.current = id
@@ -3023,42 +3087,82 @@ export function ChatWindow() {
     setAttachOpen(true)
   }
 
+  // Курсоры прямо из карты чата: догрузка зовётся цепочкой из кадра после прошлой страницы,
+  // и состояние React к этому моменту может ещё не обновиться. Карты нет (чат из кэша после
+  // перезагрузки вкладки) — состояние, выставленное эффектом смены чата.
+  function currentPager(chatId: string): Pager {
+    return (
+      pagerByChatRef.current.get(chatId) ?? {
+        older: olderCursor,
+        canOlder: canLoadOlder,
+        newer: newerCursor,
+        canNewer: canLoadNewer,
+      }
+    )
+  }
+
   async function loadOlder(): Promise<void> {
-    if (!activeId || !olderCursor) return
-    setLoadingOlder(true)
-    try {
-      const page = await fetchMessages(activeId, { limit: 30, cursor: olderCursor })
-      const older = [...page.items].reverse()
-      qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => [
-        ...older,
-        ...(old ?? []),
-      ])
-      setPager(activeId, { older: page.cursor, canOlder: page.hasNext })
-    } finally {
-      setLoadingOlder(false)
-    }
+    const chatId = activeId
+    if (!chatId) return
+    const cursor = currentPager(chatId).older
+    if (!cursor) return
+    const page = await fetchMessages(chatId, { limit: HISTORY_PAGE, cursor })
+    const older = [...page.items].reverse()
+    let trimmedAt: string | undefined
+    qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) => {
+      const prev = old ?? []
+      const seen = new Set(prev.map((m) => m.id))
+      // Окно разрослось — отрезаем низ (Telegram держит в ленте ограниченный кусок): человек
+      // наверху, а низ подгрузится заново, когда он долистает обратно.
+      const { list, cursor: newer } = trimNewest([...older.filter((m) => !seen.has(m.id)), ...prev])
+      trimmedAt = newer
+      return list
+    })
+    if (trimmedAt) {
+      // Хвост окна сменился, но это не «новое входящее»: автоскролл к низу не нужен.
+      lastMsgIdRef.current = trimmedAt
+      setPager(chatId, {
+        older: page.cursor,
+        canOlder: page.hasNext,
+        newer: trimmedAt,
+        canNewer: true,
+      })
+    } else setPager(chatId, { older: page.cursor, canOlder: page.hasNext })
   }
 
   // Подгрузка более НОВЫХ (вниз) — актуально после jump в «прыгнутое» окно (around).
   async function loadNewer(): Promise<void> {
-    if (!activeId || !newerCursor || loadingNewerRef.current) return
+    if (!activeId || loadingNewerRef.current) return
+    const cursorNewer = currentPager(activeId).newer
+    if (!cursorNewer) return
     loadingNewerRef.current = true
     try {
       const page = await fetchMessages(activeId, {
-        limit: 30,
-        cursor: newerCursor,
+        limit: HISTORY_PAGE,
+        cursor: cursorNewer,
         direction: 'newer',
       })
       const newer = [...page.items].reverse() // desc → asc (хронологически), в конец списка
+      let trimmedAt: string | undefined
       qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => {
         const prev = old ?? []
         const seen = new Set(prev.map((m) => m.id))
-        return [...prev, ...newer.filter((m) => !seen.has(m.id))]
+        // Окно разрослось — отрезаем верх, его снова подгрузит прокрутка вверх.
+        const { list, cursor: older } = trimOldest([
+          ...prev,
+          ...newer.filter((m) => !seen.has(m.id)),
+        ])
+        trimmedAt = older
+        return list
       })
       // Догрузка вниз — не «новое входящее»: не даём эффекту автоскролла увести к низу.
       const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
       lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
-      setPager(activeId, { newer: page.prevCursor, canNewer: page.hasPrev })
+      setPager(activeId, {
+        newer: page.prevCursor,
+        canNewer: page.hasPrev,
+        ...(trimmedAt ? { older: trimmedAt, canOlder: true } : {}),
+      })
       // Дошли до низа, а живые сообщения, пропущенные в «прыгнутом» окне, могли прийти уже
       // после того, как сервер собрал эту страницу, — добираем их одним запросом от хвоста.
       const tailId = updated?.[updated.length - 1]?.id
@@ -3954,8 +4058,10 @@ export function ChatWindow() {
             />
 
             <div className="relative flex min-h-0 flex-1 flex-col">
-              {/* Спиннер догрузки старых — оверлей, чтобы не влиять на измерение высот virtua (startMargin=0). */}
-              {loadingOlder && (
+              {/* Спиннер догрузки старых — только если человек упёрся в верх раньше, чем пришла
+                  страница: обычно история подгружается заранее и незаметно (Telegram). Оверлей,
+                  чтобы не сдвигать ленту. */}
+              {olderStalled && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center text-muted-foreground">
                   <span className="rounded-full bg-background/80 p-1 shadow-sm backdrop-blur">
                     <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -3963,7 +4069,7 @@ export function ChatWindow() {
                 </div>
               )}
               {/* Прилипшая дата: видна, только когда пометка дня уехала под верх ленты. */}
-              {floatingDay && !loadingOlder && (
+              {floatingDay && !olderStalled && (
                 <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
                   {/* Нажатие на дату — календарь переписки (Telegram). */}
                   <button
@@ -3974,7 +4080,10 @@ export function ChatWindow() {
                       floatingDayAt && setCalendarDay(formatYmd(new Date(floatingDayAt)))
                     }
                     className={cn(
-                      'rounded-full bg-muted/90 px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur transition-[opacity,background-color] duration-200 hover:bg-muted hover:text-foreground',
+                      // Та же плашка, что у пометки дня в ленте (Telegram): прилипшая дата —
+                      // её подмена, и выглядеть она должна так же.
+                      SERVICE_PILL_CLASS,
+                      'transition-opacity duration-200',
                       // Telegram: видна, пока ленту листают, и гаснет через секунду покоя.
                       floatingDayShown && listScrolling
                         ? 'pointer-events-auto opacity-100'
@@ -4002,7 +4111,11 @@ export function ChatWindow() {
                     сообщения: человек начинал их читать ровно в тот момент, когда они
                     сменялись реальной перепиской. */}
                 {messages.isLoading ? null : (
-                  <Virtualizer ref={virtualizerRef} scrollRef={messagesScrollRef} shift={shiftMode}>
+                  <MessageWindow
+                    ref={virtualizerRef}
+                    scrollRef={messagesScrollRef}
+                    stickToBottom={stickToBottom}
+                  >
                     {(messages.data ?? []).map((m, i) => {
                       const mine = m.senderId === myId
                       // Группировка подряд идущих сообщений одного автора: аватар/имя — только у первого в серии.
@@ -4072,7 +4185,7 @@ export function ChatWindow() {
                         />
                       )
                     })}
-                  </Virtualizer>
+                  </MessageWindow>
                 )}
               </div>
               {/* Кнопки справа над панелью ввода (Telegram): «к реакции», «к упоминанию» и
