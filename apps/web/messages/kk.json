@@ -2462,6 +2462,20 @@
     "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
+    "tgEmoji": {
+      "sections": "Эмодзи бөлімдері",
+      "recent": "Жиі қолданылатын",
+      "people": "Смайликтер мен адамдар",
+      "nature": "Жануарлар мен табиғат",
+      "foods": "Тағам мен сусын",
+      "activity": "Белсенділік",
+      "places": "Саяхат пен орындар",
+      "objects": "Заттар",
+      "symbols": "Таңбалар",
+      "flags": "Тулар",
+      "loadFailed": "Эмодзи жүктелмеді",
+      "nothingFound": "Ештеңе табылмады"
+    },
     "tgStickers": {
       "editorTitle": "Жаңа стикер",
       "editorHint": "Қиыңыз, жиек немесе жазу қосыңыз",

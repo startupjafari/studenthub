@@ -2462,6 +2462,20 @@
     "uploadingPercent": "Uploading media… {percent}%"
   },
   "Chats": {
+    "tgEmoji": {
+      "sections": "Emoji sections",
+      "recent": "Frequently used",
+      "people": "Smileys & people",
+      "nature": "Animals & nature",
+      "foods": "Food & drink",
+      "activity": "Activity",
+      "places": "Travel & places",
+      "objects": "Objects",
+      "symbols": "Symbols",
+      "flags": "Flags",
+      "loadFailed": "Couldn’t load emoji",
+      "nothingFound": "Nothing found"
+    },
     "tgStickers": {
       "editorTitle": "New sticker",
       "editorHint": "Crop it, add an outline or a caption",

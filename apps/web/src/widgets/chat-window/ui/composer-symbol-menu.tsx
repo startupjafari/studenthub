@@ -25,11 +25,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  EmojiPicker,
 } from '../../../shared/ui'
 import { prefersReducedMotion } from '../../../shared/lib'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
+import { ComposerEmojiTab } from './composer-emoji-tab'
 import { GifsTab, type PickedGif } from './composer-gifs-tab'
 
 export type SymbolTab = 'emoji' | 'stickers' | 'gifs'
@@ -97,7 +97,7 @@ export function ComposerSymbolMenu({
       className={cn(
         'flex flex-col overflow-hidden bg-popover',
         variant === 'popover'
-          ? 'h-[26rem] w-[21rem] rounded-xl border border-border shadow-lg'
+          ? 'h-[22.375rem] w-[24rem] rounded-xl border border-border shadow-lg'
           : 'h-[min(45dvh,20rem)] w-full',
       )}
     >
@@ -107,12 +107,7 @@ export function ComposerSymbolMenu({
         aria-label={tabs.find((x) => x.key === active)?.label}
       >
         {active === 'emoji' ? (
-          <EmojiPicker
-            size={variant === 'popover' ? 'lg' : 'dock'}
-            searchPlaceholder={t('emojiSearch')}
-            onPick={onEmoji}
-            className="h-full w-full rounded-none border-0 shadow-none"
-          />
+          <ComposerEmojiTab variant={variant} onPick={onEmoji} />
         ) : active === 'stickers' ? (
           <StickersTab onPick={onSticker} />
         ) : (
