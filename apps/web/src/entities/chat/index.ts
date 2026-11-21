@@ -239,7 +239,8 @@ export {
 export { GifVideo } from './ui/gif-video'
 export {
   composerKeys,
-  fetchStickerSets,
+  fetchStickerSetsSummary,
+  fetchCatalogStickerSet,
   fetchFavoriteStickers,
   addFavoriteStickerRequest,
   removeFavoriteStickerRequest,
@@ -256,6 +257,7 @@ export {
   sendScheduledNowRequest,
   type CatalogSticker,
   type StickerSet,
+  type StickerSetSummary,
   type CatalogGif,
   type CatalogGifPage,
   type RecentGif,

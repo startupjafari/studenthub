@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -8,10 +8,12 @@ import { Camera, Delete, FolderOpen, Plus, Settings2, Smile, Star, Sticker } fro
 import {
   addFavoriteStickerRequest,
   composerKeys,
+  fetchCatalogStickerSet,
   fetchFavoriteStickers,
-  fetchStickerSets,
+  fetchStickerSetsSummary,
   removeFavoriteStickerRequest,
   type CatalogSticker,
+  type StickerSetSummary,
 } from '../../../entities/chat'
 import {
   fetchAddedStickerSets,
@@ -30,6 +32,7 @@ import { MOTION, prefersReducedMotion } from '../../../shared/lib'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { cn } from '../../../shared/lib/utils'
 import { sectionAt } from '../lib/emoji-catalog'
+import { useNearView } from '../lib/use-near-view'
 import { ComposerEmojiTab } from './composer-emoji-tab'
 import { GifsTab, type PickedGif } from './composer-gifs-tab'
 
@@ -384,6 +387,90 @@ function StickerTools() {
   )
 }
 
+/**
+ * Раздел панели стикеров. У избранного и своих наборов стикеры приходят сразу; набор каталога
+ * знает только обложку и число стикеров — стикеры он догружает сам (`CatalogStickerGrid`).
+ */
+type StickerSection =
+  | { id: string; title: string; cover: CatalogSticker | null; stickers: CatalogSticker[] }
+  | { id: string; title: string; cover: CatalogSticker | null; catalog: StickerSetSummary }
+
+/** Сетка стикеров: Telegram — клетки по 72 px, лишнее место поровну между ними. */
+const stickerGrid =
+  'grid auto-rows-[4.5rem] grid-cols-[repeat(auto-fill,4.5rem)] justify-between gap-1'
+
+interface StickerGridProps {
+  favoriteIds: ReadonlySet<string>
+  onPick: (sticker: CatalogSticker) => void
+  onToggleFavorite: (id: string, on: boolean) => void
+}
+
+function StickerGrid({
+  stickers,
+  sectionId,
+  favoriteIds,
+  onPick,
+  onToggleFavorite,
+}: StickerGridProps & { stickers: CatalogSticker[]; sectionId: string }) {
+  return (
+    <div className={stickerGrid}>
+      {stickers.map((sticker) => (
+        <StickerCell
+          key={`${sectionId}-${sticker.id}`}
+          sticker={sticker}
+          favorite={favoriteIds.has(sticker.id)}
+          onPick={() => onPick(sticker)}
+          onToggleFavorite={() => onToggleFavorite(sticker.id, !favoriteIds.has(sticker.id))}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Стикеры набора каталога — по требованию, как в Telegram: пока набор не подъехал к окну,
+ * на его месте заглушки по числу стикеров. Высота раздела от загрузки не меняется, и переход
+ * по обложке попадает точно в набор.
+ */
+function CatalogStickerGrid({
+  set,
+  rootRef,
+  ...grid
+}: StickerGridProps & { set: StickerSetSummary; rootRef: RefObject<HTMLDivElement | null> }) {
+  const t = useTranslations('Chats')
+  const { ref, near } = useNearView<HTMLDivElement>(rootRef)
+  const query = useQuery({
+    queryKey: composerKeys.stickerSet(set.id),
+    queryFn: () => fetchCatalogStickerSet(set.id),
+    enabled: near,
+    staleTime: CATALOG_STALE_MS,
+  })
+  return (
+    <div ref={ref}>
+      {query.data ? (
+        <StickerGrid stickers={query.data.stickers} sectionId={set.id} {...grid} />
+      ) : query.isError ? (
+        <div className="flex h-[4.5rem] items-center justify-center gap-2 text-sm text-muted-foreground">
+          <span>{t('tgComposer.stickersLoadError')}</span>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            className="cursor-pointer font-medium text-primary hover:underline"
+          >
+            {t('tgComposer.retry')}
+          </button>
+        </div>
+      ) : (
+        <div className={stickerGrid} aria-busy>
+          {Array.from({ length: set.count }, (_, i) => (
+            <div key={i} className="size-[4.5rem] rounded-md bg-muted/60" />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
   const t = useTranslations('Chats')
   const tErr = useTranslations('Errors')
@@ -401,9 +488,10 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
     [],
   )
 
+  // Лёгкий каталог: обложки и число стикеров. Стикеры каждого набора — CatalogStickerGrid.
   const sets = useQuery({
     queryKey: composerKeys.stickerSets(),
-    queryFn: fetchStickerSets,
+    queryFn: fetchStickerSetsSummary,
     staleTime: CATALOG_STALE_MS,
   })
   const favorites = useQuery({
@@ -435,20 +523,36 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+  const grid: StickerGridProps = {
+    favoriteIds,
+    onPick,
+    onToggleFavorite: (id, on) => toggleFavorite.mutate({ id, on }),
+  }
 
-  const sections = [
+  const sections: StickerSection[] = [
     ...((favorites.data?.length ?? 0) > 0
       ? [
           {
             id: 'favorites',
             title: t('tgComposer.stickersFavorites'),
+            cover: null,
             stickers: favorites.data ?? [],
           },
         ]
       : []),
-    ...(added.data ?? []).filter((s) => s.stickers.length > 0),
-    ...(sets.data ?? []).filter((s) => s.stickers.length > 0),
+    ...(added.data ?? [])
+      .filter((s) => s.stickers.length > 0)
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        cover: s.stickers[0] ?? null,
+        stickers: s.stickers,
+      })),
+    ...(sets.data ?? [])
+      .filter((s) => s.count > 0 && s.cover)
+      .map((s) => ({ id: s.id, title: s.title, cover: s.cover, catalog: s })),
   ]
+
   const current = activeSet ?? sections[0]?.id ?? null
 
   // Активная обложка не уходит за край полосы: Telegram подкручивает её к центру.
@@ -550,10 +654,11 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
           >
             {s.id === 'favorites' ? (
               <Star className="size-5" aria-hidden />
-            ) : s.stickers[0] ? (
+            ) : s.cover ? (
               <img
-                src={s.stickers[0].url}
+                src={s.cover.url}
                 alt=""
+                loading="lazy"
                 draggable={false}
                 className="size-[1.875rem] object-contain"
               />
@@ -577,20 +682,11 @@ function StickersTab({ onPick }: { onPick: (s: CatalogSticker) => void }) {
             <h3 className="truncate px-1 pb-0.5 text-base font-medium leading-[1.6875rem] text-muted-foreground/75">
               {s.title}
             </h3>
-            {/* Telegram: клетки по 72 px, лишнее место — поровну между ними. */}
-            <div className="grid auto-rows-[4.5rem] grid-cols-[repeat(auto-fill,4.5rem)] justify-between gap-1">
-              {s.stickers.map((sticker) => (
-                <StickerCell
-                  key={`${s.id}-${sticker.id}`}
-                  sticker={sticker}
-                  favorite={favoriteIds.has(sticker.id)}
-                  onPick={() => onPick(sticker)}
-                  onToggleFavorite={() =>
-                    toggleFavorite.mutate({ id: sticker.id, on: !favoriteIds.has(sticker.id) })
-                  }
-                />
-              ))}
-            </div>
+            {'catalog' in s ? (
+              <CatalogStickerGrid set={s.catalog} rootRef={scrollRef} {...grid} />
+            ) : (
+              <StickerGrid stickers={s.stickers} sectionId={s.id} {...grid} />
+            )}
           </section>
         ))}
       </div>
