@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react'
 import { useTranslations } from 'next-intl'
 import { AlertCircle, Check, CheckCheck, Eye, Loader2, Pin } from 'lucide-react'
 import { formatViews } from '../../../entities/chat'
+import { formatDate } from '../../../shared/lib/date-format'
 import { cn } from '../../../shared/lib/utils'
 import type { MessageReadState } from './message-item'
 
@@ -36,7 +37,7 @@ export type MessageMetaProps = {
 }
 
 export function messageTime(createdAt: string, locale: string): string {
-  return new Date(createdAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  return formatDate(createdAt, locale, { hour: '2-digit', minute: '2-digit' })
 }
 
 /**

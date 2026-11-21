@@ -7,7 +7,15 @@ import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { identityColor } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
+/** Атрибут прокручиваемой ленты сообщений: по нему аватар находит её без чтения стилей. */
+export const MESSAGE_SCROLLER_ATTR = 'data-message-scroller'
+
 function scrollParentOf(el: HTMLElement): HTMLElement | null {
+  // Обычный случай — лента чата помечена атрибутом. Обход предков с getComputedStyle
+  // пересчитывал стили на каждом смонтированном аватаре: при подгрузке страницы истории
+  // это десятки принудительных пересчётов подряд.
+  const marked = el.closest<HTMLElement>(`[${MESSAGE_SCROLLER_ATTR}]`)
+  if (marked) return marked
   for (let p = el.parentElement; p; p = p.parentElement) {
     const o = getComputedStyle(p).overflowY
     if (o === 'auto' || o === 'scroll') return p
@@ -15,16 +23,49 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
   return null
 }
 
+// Общая очередь замеров всех аватаров: сначала все читают геометрию, затем все пишут стили —
+// одна раскладка на пачку вместо одной на аватар.
+type Measure = () => () => void
+const queued = new Set<Measure>()
+let commitQueued = false
+let frameQueued = 0
+
+function flushMeasures(): void {
+  commitQueued = false
+  if (frameQueued) cancelAnimationFrame(frameQueued)
+  frameQueued = 0
+  const jobs = [...queued]
+  queued.clear()
+  const writes = jobs.map((measure) => measure())
+  for (const write of writes) write()
+}
+
+function scheduleMeasure(measure: Measure, when: 'commit' | 'frame'): void {
+  queued.add(measure)
+  if (when === 'commit') {
+    if (!commitQueued) {
+      commitQueued = true
+      queueMicrotask(flushMeasures)
+    }
+  } else if (!frameQueued && !commitQueued) {
+    frameQueued = requestAnimationFrame(flushMeasures)
+  }
+}
+
+function cancelMeasure(measure: Measure): void {
+  queued.delete(measure)
+}
+
 /**
  * Аватар автора серии в группе (Telegram): стоит у нижнего сообщения серии и «прилипает» к
  * низу ленты, пока серия длиннее экрана, — листая длинный монолог, всё время видно, чей он.
  *
- * Лента виртуализирована (virtua): каждое сообщение — отдельный элемент, обернуть серию
+ * Лента — окно строк (MessageWindow): каждое сообщение — отдельный элемент, обернуть серию
  * общим контейнером нельзя. Поэтому у последнего сообщения стоит прозрачная колонка, которая
  * тянется вверх до первого сообщения серии, а аватар внутри неё — `position: sticky`.
  * Высоту колонки и отступ от низа (над плавающей панелью ввода) пишем прямо в стиль, без
- * перерисовки React. Первое сообщение серии выгружено виртуализацией — значит, оно далеко
- * выше экрана, и колонка просто тянется вверх с запасом.
+ * перерисовки React. Первое сообщение серии за краем окна — значит, оно далеко выше экрана,
+ * и колонка просто тянется вверх с запасом.
  */
 export function MessageGroupAvatar({
   sender,
@@ -45,34 +86,37 @@ export function MessageGroupAvatar({
     if (!slot || !column || !stick) return
     const scroller = scrollParentOf(slot)
     if (!scroller) return
-    let frame = 0
-    const update = (): void => {
-      frame = 0
+    // Чтение геометрии отдельно от записи стилей: аватаров в окне десятки, и пересчитывались
+    // они все разом (смонтировалась страница истории, сменилась высота ленты). Чередование
+    // «прочитал — записал» у каждого заставляло браузер раскладывать ленту заново на каждом.
+    const measure = (): (() => void) => {
       // Низ ленты прикрыт плавающей панелью ввода: лента держит под ней отступ снизу.
       const inset = parseFloat(getComputedStyle(scroller).paddingBottom) || 0
-      stick.style.bottom = `${inset}px`
-      if (!runStartId) return
-      const first = document.getElementById(`msg-${runStartId}`)
-      const top = first
-        ? first.getBoundingClientRect().top - slot.getBoundingClientRect().top
-        : -scroller.scrollHeight
-      column.style.top = `${Math.min(0, top)}px`
+      let top: number | null = null
+      if (runStartId) {
+        const first = document.getElementById(`msg-${runStartId}`)
+        top = first
+          ? first.getBoundingClientRect().top - slot.getBoundingClientRect().top
+          : -scroller.scrollHeight
+      }
+      return () => {
+        stick.style.bottom = `${inset}px`
+        if (top !== null) column.style.top = `${Math.min(0, top)}px`
+      }
     }
-    const schedule = (): void => {
-      if (!frame) frame = requestAnimationFrame(update)
-    }
-    update()
-    // Серия меняет высоту (догрузились снимки, пришло сообщение, сменилась высота панели
-    // ввода) — пересчёт по изменению размеров; при прокрутке первое сообщение серии может
-    // появиться или выгрузиться — пересчёт по прокрутке.
-    const ro = new ResizeObserver(schedule)
+    // Первый замер — до отрисовки (микрозадача после коммита), вместе со всеми аватарами,
+    // смонтированными этим же коммитом.
+    scheduleMeasure(measure, 'commit')
+    // Пересчёт — только по изменению размеров: догрузились снимки, пришло сообщение, окно
+    // ленты добавило или выгрузило строки (меняется высота содержимого), сменилась высота
+    // панели ввода. Прокрутка расстояние между аватаром и первым сообщением серии не меняет —
+    // оба едут вместе, — а обработчик прокрутки у каждого аватара читал раскладку на кадре.
+    const ro = new ResizeObserver(() => scheduleMeasure(measure, 'frame'))
     ro.observe(scroller)
     if (scroller.firstElementChild) ro.observe(scroller.firstElementChild)
-    scroller.addEventListener('scroll', schedule, { passive: true })
     return () => {
-      if (frame) cancelAnimationFrame(frame)
+      cancelMeasure(measure)
       ro.disconnect()
-      scroller.removeEventListener('scroll', schedule)
     }
   }, [runStartId])
 
