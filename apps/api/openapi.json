@@ -21305,6 +21305,58 @@
         ]
       }
     },
+    "/chats/stickers/sets/summary": {
+      "get": {
+        "operationId": "ChatStickersController_setsSummary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "[{ id, title, slug, count, cover: { id, emoji, width, height, animated, url, expiresAt } | null }]"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опубликованные наборы стикеров: обложка и число стикеров",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
+    "/chats/stickers/sets/{setId}": {
+      "get": {
+        "operationId": "ChatStickersController_set",
+        "parameters": [
+          {
+            "name": "setId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ id, title, slug, stickers: [{ id, emoji, width, height, animated, url, expiresAt }] }"
+          },
+          "404": {
+            "description": "NOT_FOUND — набора нет или он не опубликован"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Один опубликованный набор стикеров со ссылками на картинки",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/stickers/favorites": {
       "get": {
         "operationId": "ChatStickersController_favorites",
