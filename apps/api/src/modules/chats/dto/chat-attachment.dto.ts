@@ -4,6 +4,7 @@ import {
   ChatAttachmentMultipartStartSchema,
   ChatAttachmentMultipartUrlsSchema,
   ChatAttachmentPresignSchema,
+  ChatAttachmentUrlsSchema,
   MessageSendUploadedSchema,
 } from '@studenthub/shared-schemas'
 
@@ -18,3 +19,5 @@ export class ChatAttachmentMultipartAbortDto extends createZodDto(
   ChatAttachmentMultipartAbortSchema,
 ) {}
 export class MessageSendUploadedDto extends createZodDto(MessageSendUploadedSchema) {}
+/** Ссылки на вложения пачкой: лента чата просит их одним запросом, а не по запросу на файл. */
+export class ChatAttachmentUrlsDto extends createZodDto(ChatAttachmentUrlsSchema) {}

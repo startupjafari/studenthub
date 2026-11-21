@@ -37,6 +37,7 @@ import {
   ChatAttachmentMultipartStartDto,
   ChatAttachmentMultipartUrlsDto,
   ChatAttachmentPresignDto,
+  ChatAttachmentUrlsDto,
   MessageSendUploadedDto,
 } from './dto/chat-attachment.dto'
 import { AddChatMemberDto } from './dto/add-chat-member.dto'
@@ -230,6 +231,22 @@ export class ChatsController {
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник чата' })
   attachmentUrl(@CurrentUser() user: CurrentUserData, @Param('fileId') fileId: string) {
     return this.chats.getAttachmentUrl(user.sub, fileId)
+  }
+
+  // Пачкой: лента показывает сотни вложений, и по запросу на каждое быстрая прокрутка медиа-
+  // чата съедала общий лимит API. Один запрос — до 50 ссылок, ответ по файлу тот же, что выше.
+  @Post('attachments/urls')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Presigned URL к вложениям пачкой (до 50, по членству в чате)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ items: [{ fileId, url, expiresAt, mime, animation, …MediaInfo }] } — по каждому id то же, ' +
+      'что у GET /chats/attachments/:fileId/url; недоступных и несуществующих в ответе нет',
+  })
+  @ApiResponse({ status: 400, description: 'VALIDATION_ERROR — пусто, больше 50 или повторы' })
+  attachmentUrls(@CurrentUser() user: CurrentUserData, @Body() dto: ChatAttachmentUrlsDto) {
+    return this.chats.getAttachmentUrls(user.sub, dto.fileIds)
   }
 
   @Get(':id/messages')

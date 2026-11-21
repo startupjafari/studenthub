@@ -1,8 +1,10 @@
-import type {
-  ChatMessagesQueryInput,
-  CreateChatInput,
-  CreateChatPollInput,
-  MessageSearchKind,
+import {
+  ATTACHMENT_URLS_MAX,
+  type ChatAttachmentUrlsInput,
+  type ChatMessagesQueryInput,
+  type CreateChatInput,
+  type CreateChatPollInput,
+  type MessageSearchKind,
 } from '@studenthub/shared-schemas'
 import {
   api,
@@ -13,6 +15,7 @@ import {
 } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import { sortChats } from '../lib/sort-chats'
+import { createLinkBatcher } from '../lib/link-batcher'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type {
   BlockedUser,
@@ -329,14 +332,35 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
 }
 
 /**
+ * Ссылки на вложения пачкой (`POST /chats/attachments/urls`, до 50 id): по каждому файлу та
+ * же форма, что у одиночной ссылки. Недоступных и несуществующих в ответе нет — их в Map
+ * тоже не будет.
+ */
+export async function fetchAttachmentLinks(fileIds: string[]): Promise<Map<string, MediaLink>> {
+  const body: ChatAttachmentUrlsInput = { fileIds }
+  const { data } = await api.post<{ items: (MediaLink & { fileId: string })[] }>(
+    '/chats/attachments/urls',
+    body,
+  )
+  return new Map(data.items.map(({ fileId, ...link }) => [fileId, toMediaLink(link)]))
+}
+
+// Общий на вкладку: просьбы всех вложений ленты, правой колонки и превью за одно окно
+// сливаются в один запрос.
+const attachmentLinkBatcher = createLinkBatcher({
+  fetchMany: fetchAttachmentLinks,
+  maxBatch: ATTACHMENT_URLS_MAX,
+})
+
+/**
  * Ссылка на вложение и описание его вариантов (медиа-система): заглушка, srcset, постер, HLS.
  *
- * Голая строка — ответ API до медиа-системы, пока бэкенд выкатывается позже фронта:
- * оборачиваем её в описание «вариантов нет», и вложение показывается оригиналом.
+ * Запросы, сделанные почти одновременно, уходят одной пачкой (link-batcher): лента с сотней
+ * снимков иначе съедала лимит API. Файла нет в ответе — ошибка `LinkMissingError`, и у
+ * вложения, как и раньше, появляется «Повторить».
  */
-export async function fetchAttachmentLink(fileId: string): Promise<MediaLink> {
-  const { data } = await api.get<MediaLink | string>(`/chats/attachments/${fileId}/url`)
-  return toMediaLink(data)
+export function fetchAttachmentLink(fileId: string): Promise<MediaLink> {
+  return attachmentLinkBatcher(fileId)
 }
 
 // Опросы в чате (§38–39).
