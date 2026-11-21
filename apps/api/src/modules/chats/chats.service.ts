@@ -31,6 +31,7 @@ import type {
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import {
+  ATTACHMENT_URLS_MAX,
   CHAT_CHECKLIST_LIMITS,
   CLEARED_RANGES_MAX,
   chatCountsViews,
@@ -54,7 +55,12 @@ import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import { AvatarHistoryService } from '../files/avatar-history.service'
 import { MediaService } from '../media/media.service'
-import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import {
+  MEDIA_FILE_SELECT,
+  MEDIA_PREVIEW_SELECT,
+  type MediaFile,
+  type MediaInfo,
+} from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
 import { StoriesService } from '../stories/stories.service'
@@ -163,6 +169,17 @@ const MEDIA_CALENDAR_SCAN = 500
 /** Дата в поясе смотрящего как `YYYY-MM-DD`. `tzOffset` — минуты из `getTimezoneOffset`. */
 function localDayKey(at: Date, tzOffset: number): string {
   return new Date(at.getTime() - tzOffset * 60_000).toISOString().slice(0, 10)
+}
+
+/**
+ * Ссылка на вложение сообщения: оригинал, срок подписи, текущие mime/animation и описание
+ * вариантов. Одна форма у `GET /chats/attachments/:fileId/url` и у пачки `POST …/urls`.
+ */
+export type AttachmentLink = MediaInfo & {
+  url: string
+  expiresAt: string
+  mime: string
+  animation: boolean
 }
 
 /** Состояние очистки истории «для меня»: водораздел + отдельно вырезанные периоды. */
@@ -4352,10 +4369,7 @@ export class ChatsService implements OnModuleInit {
    * Объект, а не голая строка: клиенты кешируют ссылку и обязаны знать, когда она протухнет
    * (iOS и Android изначально декодировали именно `{ url, expiresAt }`).
    */
-  async getAttachmentUrl(
-    userId: string,
-    fileId: string,
-  ): Promise<MediaInfo & { url: string; expiresAt: string; mime: string; animation: boolean }> {
+  async getAttachmentUrl(userId: string, fileId: string): Promise<AttachmentLink> {
     const file = await this.files.findOrThrow(fileId)
     if (!file.messageId) throw new AppException('NOT_FOUND', 'Файл не является вложением сообщения')
     const msg = await this.prisma.message.findUnique({
@@ -4374,8 +4388,6 @@ export class ChatsService implements OnModuleInit {
     if (member && isCleared(msg.createdAt, member)) {
       throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
-    // Срок — конец окна подписи (common/minio/stable-sign): подпись округлена к его началу,
-    // и ссылка живёт меньше номинальных 15 минут — клиент должен знать настоящий срок.
     const now = Date.now()
     const [url, mediaFile] = await Promise.all([
       this.files.getPresignedUrl(fileId),
@@ -4384,12 +4396,90 @@ export class ChatsService implements OnModuleInit {
         select: { ...MEDIA_FILE_SELECT, animation: true },
       }),
     ])
-    // Варианты (srcset, постер, HLS) — той же проверкой доступа, что и оригинал; поля
-    // описания лежат рядом с `url`, одной формой для всех модулей.
-    //
-    // mime и `animation` — текущие, а не те, что у клиента в сообщении: GIF воркер переводит
-    // в MP4 уже после рассылки, и ссылка, взятая через пару секунд, ведёт на MP4. Клиент
-    // рисует вложение по этим полям, иначе MP4 попал бы в <img>.
+    return this.attachmentLink(mediaFile, url, now)
+  }
+
+  /**
+   * Ссылки на вложения пачкой (`POST /chats/attachments/urls`). Доступ тот же, что у
+   * `getAttachmentUrl`: файл — вложение неудалённого сообщения, смотрящий — незабаненный
+   * участник его чата, сообщение не попало в очищенное «у себя». Только проверяется всё
+   * разом: файлы, их сообщения и членство — одной выборкой, подписи — второй, а не по паре
+   * запросов на файл. Не прошедшие проверку и несуществующие молча выпадают из ответа: пачку
+   * собирает клиент из разных строк ленты, и одна удалённая не должна валить остальные.
+   */
+  async getAttachmentUrls(
+    userId: string,
+    fileIds: string[],
+  ): Promise<{ items: (AttachmentLink & { fileId: string })[] }> {
+    // Схема на границе уже отсекла повторы и пачки больше потолка; здесь — страховка для
+    // вызовов в обход DTO, чтобы выборка не разрасталась.
+    const ids = [...new Set(fileIds)].slice(0, ATTACHMENT_URLS_MAX)
+    if (ids.length === 0) return { items: [] }
+    const rows = await this.prisma.file.findMany({
+      where: {
+        id: { in: ids },
+        message: {
+          deletedAt: null,
+          chat: { members: { some: { userId, bannedAt: null } } },
+        },
+      },
+      select: {
+        ...MEDIA_FILE_SELECT,
+        animation: true,
+        message: {
+          select: {
+            createdAt: true,
+            chat: {
+              select: {
+                members: { where: { userId }, select: CLEARED_SELECT, take: 1 },
+              },
+            },
+          },
+        },
+      },
+      take: ids.length,
+    })
+    const visible = rows.filter((row) => {
+      const member = row.message?.chat.members[0]
+      return row.message && member && !isCleared(row.message.createdAt, member)
+    })
+    if (visible.length === 0) return { items: [] }
+    const now = Date.now()
+    const urls = await this.files.getPresignedUrls(visible.map((row) => row.id))
+    const links = new Map<string, AttachmentLink>()
+    await Promise.all(
+      visible.map(async (row) => {
+        const url = urls.get(row.id)
+        if (url) links.set(row.id, await this.attachmentLink(row, url, now))
+      }),
+    )
+    // Порядок запроса: клиенту проще сопоставлять, а Map выше порядок выборки не хранит.
+    const items: (AttachmentLink & { fileId: string })[] = []
+    for (const id of ids) {
+      const link = links.get(id)
+      if (link) items.push({ fileId: id, ...link })
+    }
+    return { items }
+  }
+
+  /**
+   * Ответ «ссылка на вложение» по уже проверенному файлу — общий для одиночной ссылки и
+   * пачки, чтобы формы не разъехались.
+   *
+   * Срок — конец окна подписи (common/minio/stable-sign): подпись округлена к его началу,
+   * и ссылка живёт меньше номинальных 15 минут — клиент должен знать настоящий срок.
+   * Варианты (srcset, постер, HLS) — той же проверкой доступа, что и оригинал; поля
+   * описания лежат рядом с `url`, одной формой для всех модулей.
+   *
+   * mime и `animation` — текущие, а не те, что у клиента в сообщении: GIF воркер переводит
+   * в MP4 уже после рассылки, и ссылка, взятая через пару секунд, ведёт на MP4. Клиент
+   * рисует вложение по этим полям, иначе MP4 попал бы в <img>.
+   */
+  private async attachmentLink(
+    mediaFile: MediaFile & { animation: boolean },
+    url: string,
+    now: number,
+  ): Promise<AttachmentLink> {
     return {
       ...(await this.media.describeOne(mediaFile, now)),
       url,

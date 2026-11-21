@@ -26,6 +26,11 @@ import {
 } from 'lucide-react'
 import { PromptDialog } from './prompt-dialog'
 import { ChatSpoiler, ChatUnderline } from './rich-text-chat-marks'
+import {
+  MarkdownSafeTable,
+  MarkdownTextFallback,
+  PasteTablesAsText,
+} from './rich-text-text-fallback'
 import { useScrollRow } from '../lib/use-scroll-row'
 import { lastGraphemeLength } from '../lib/grapheme'
 import { cn } from '../lib/utils'
@@ -238,7 +243,12 @@ export function RichTextEditor({
         link: { openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer nofollow' } },
       }),
       Image.configure({ inline: false }),
-      TableKit.configure({ table: { resizable: false } }),
+      // Таблица — своя: ту, что не ложится в GFM, она пишет текстом, а не заглушкой `[table]`.
+      TableKit.configure({ table: false }),
+      MarkdownSafeTable.configure({ resizable: false }),
+      // Где кнопки таблицы нет (чат, пост), таблиц не рисуют ни пузырь, ни лента: вставленная
+      // таблица сразу становится текстом — строка на строку, ячейки через табуляцию (Telegram).
+      ...(actions.includes('table') ? [] : [PasteTablesAsText]),
       Placeholder.configure({ placeholder: placeholder ?? '' }),
       // Подчёркнутый и спойлер — только там, где для них есть кнопки (поле чата, PROJECT.md
       // §3.6): в постах и статьях этих маркеров нет, и `++`/`||` там остаются текстом.
@@ -263,6 +273,8 @@ export function RichTextEditor({
         transformPastedText: true,
         transformCopiedText: true,
       }),
+      // Узел без markdown пишется своим текстом: заглушка `[имя]` теряла текст пользователя.
+      MarkdownTextFallback,
     ],
     content: value,
     editorProps: {

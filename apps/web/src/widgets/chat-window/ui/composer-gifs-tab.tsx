@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bookmark, Clock, Loader2, Search, TrendingUp } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 import {
   GifVideo,
   composerKeys,
@@ -16,6 +16,7 @@ import {
   type RecentGif,
 } from '../../../entities/chat'
 import { useInfiniteScroll } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 
 /** Что выбрали в панели GIF: запись каталога (по id) или свой файл (недавний, сохранённый). */
 export type PickedGif = { kind: 'catalog'; id: string } | { kind: 'recent'; fileId: string }
@@ -26,6 +27,40 @@ const CATALOG_STALE_MS = 10 * 60 * 1000
 
 /** Сколько держать палец на плитке, чтобы сохранить GIF или убрать его из сохранённых. */
 const ALT_PRESS_MS = 450
+
+/** Сетка GIF — три квадратные колонки, как в Telegram. */
+export const GIF_COLUMNS = 3
+
+/**
+ * Какие углы плитки скруглить: сетка читается одной карточкой, поэтому скругляются только
+ * внешние углы всего блока. Неполный последний ряд — правый нижний угол достаётся последней
+ * плитке, а правый край предпоследнего ряда тоже становится нижним углом блока.
+ */
+export function gridCorners(
+  index: number,
+  total: number,
+  columns = GIF_COLUMNS,
+): { topStart: boolean; topEnd: boolean; bottomStart: boolean; bottomEnd: boolean } {
+  const lastRowStart = Math.floor((total - 1) / columns) * columns
+  const lastRowFull = total - lastRowStart === columns
+  return {
+    topStart: index === 0,
+    topEnd: index === Math.min(columns, total) - 1,
+    bottomStart: index === lastRowStart,
+    bottomEnd:
+      index === total - 1 || (!lastRowFull && lastRowStart > 0 && index === lastRowStart - 1),
+  }
+}
+
+function cornerClass(index: number, total: number): string {
+  const c = gridCorners(index, total)
+  return cn(
+    c.topStart && 'rounded-ss-xl',
+    c.topEnd && 'rounded-se-xl',
+    c.bottomStart && 'rounded-es-xl',
+    c.bottomEnd && 'rounded-ee-xl',
+  )
+}
 
 /** Плитка «своего» GIF: старый image/gif — картинкой, MP4-анимация — роликом по кругу. */
 function FileGif({ gif }: { gif: RecentGif }) {
@@ -40,21 +75,19 @@ function FileGif({ gif }: { gif: RecentGif }) {
 }
 
 /**
- * Плитка GIF: соотношение сторон резервируется заранее, чтобы колонка не прыгала. Нажатие
- * отправляет; правый клик или долгое нажатие — второе действие (сохранить или убрать), как у
- * стикеров: меню из одного пункта было бы лишним шагом.
+ * Плитка GIF: квадрат сетки, ролик обрезается по центру (Telegram). Нажатие отправляет;
+ * правый клик или долгое нажатие — второе действие (сохранить или убрать), как у стикеров:
+ * меню из одного пункта было бы лишним шагом.
  */
 function GifTile({
-  width,
-  height,
+  className,
   label,
   hint,
   onPick,
   onAlt,
   children,
 }: {
-  width: number | null
-  height: number | null
+  className?: string
   label: string
   hint?: string
   onPick: () => void
@@ -68,7 +101,6 @@ function GifTile({
     press.current = null
   }
   useEffect(() => clear, [])
-  const ratio = width && height ? `${width} / ${height}` : '1 / 1'
   return (
     <button
       type="button"
@@ -103,22 +135,27 @@ function GifTile({
       onPointerCancel={clear}
       aria-label={label}
       title={hint}
-      className="mb-1 block w-full cursor-pointer break-inside-avoid overflow-hidden rounded-lg bg-muted outline-none select-none [-webkit-touch-callout:none] focus-visible:ring-2 focus-visible:ring-ring/40"
-      style={{ aspectRatio: ratio }}
+      className={cn(
+        'block aspect-square w-full cursor-pointer overflow-hidden bg-muted outline-none select-none [-webkit-touch-callout:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
+        className,
+      )}
     >
       {children}
     </button>
   )
 }
 
-function SectionTitle({ icon: Icon, children }: { icon: typeof Clock; children: React.ReactNode }) {
+/** Заголовок раздела — как у эмодзи и стикеров (Telegram `symbol-set-title`). */
+function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="flex items-center gap-1 pb-1 pt-1 text-xs font-medium text-muted-foreground">
-      <Icon className="size-3.5" aria-hidden />
+    <h3 className="truncate px-1 pb-0.5 text-base font-medium leading-[1.6875rem] text-muted-foreground/75">
       {children}
     </h3>
   )
 }
+
+/** Сетка GIF: три колонки, щель 2 px. */
+const gridClass = 'grid grid-cols-3 gap-0.5'
 
 function PanelMessage({ text, children }: { text: string; children?: React.ReactNode }) {
   return (
@@ -182,37 +219,49 @@ export function GifsTab({ onPick }: { onPick: (gif: PickedGif) => void }) {
   return (
     <div className="flex h-full flex-col">
       {!disabled && (
-        <div className="m-2 mb-1 shrink-0">
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={raw}
-              onChange={(e) => setRaw(e.target.value)}
-              placeholder={t('tgGifs.search')}
-              aria-label={t('tgGifs.search')}
-              className="h-9 w-full rounded-lg border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15"
-            />
-          </div>
-          {/* Атрибуция — условие использования каталога GIPHY: видна, пока виден поиск. */}
-          <p className="pt-1 text-right text-[0.65rem] font-medium tracking-wide text-muted-foreground">
+        // Поиск — капсула, как у эмодзи (Telegram). В отличие от Telegram, она не уезжает с
+        // лентой: в ней же подпись «Powered by GIPHY» — условие каталога, она видна всегда,
+        // пока на экране его выдача.
+        <div className="mx-2 mb-3 mt-1.5 flex h-[2.375rem] shrink-0 items-center rounded-full bg-foreground/[0.06] pl-3">
+          <Search className="pointer-events-none size-5 shrink-0 text-foreground/80" aria-hidden />
+          <input
+            type="search"
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            placeholder={t('tgGifs.search')}
+            aria-label={t('tgGifs.search')}
+            className="h-full min-w-0 flex-1 bg-transparent pl-2 pr-2 text-base outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:appearance-none"
+          />
+          {raw && (
+            <button
+              type="button"
+              aria-label={t('tgEmoji.clearSearch')}
+              title={t('tgEmoji.clearSearch')}
+              onClick={() => setRaw('')}
+              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-foreground/70 outline-none hover:bg-muted-foreground/[0.08] focus-visible:ring-4 focus-visible:ring-ring/20"
+            >
+              <X className="size-5" aria-hidden />
+            </button>
+          )}
+          <span className="shrink-0 pl-1 pr-3 text-[0.625rem] font-semibold uppercase tracking-wide text-muted-foreground">
             {t('tgGifs.poweredBy')}
-          </p>
+          </span>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-1 [scrollbar-gutter:stable]',
+          disabled && 'pt-1.5',
+        )}
+      >
         {savedItems.length > 0 && (
-          <section aria-label={t('tgGifs.saved')}>
-            <SectionTitle icon={Bookmark}>{t('tgGifs.saved')}</SectionTitle>
-            <div className="mb-2 columns-2 gap-1">
-              {savedItems.map((g) => (
+          <section aria-label={t('tgGifs.saved')} className="mb-3">
+            <SectionTitle>{t('tgGifs.saved')}</SectionTitle>
+            <div className={gridClass}>
+              {savedItems.map((g, i) => (
                 <GifTile
                   key={g.id}
-                  width={g.width}
-                  height={g.height}
+                  className={cornerClass(i, savedItems.length)}
                   label={t('tgComposer.gifSend')}
                   hint={t('tgGifs.savedHint')}
                   onPick={() => onPick({ kind: 'recent', fileId: g.fileId })}
@@ -225,14 +274,13 @@ export function GifsTab({ onPick }: { onPick: (gif: PickedGif) => void }) {
           </section>
         )}
         {recentItems.length > 0 && (
-          <section aria-label={t('tgGifs.recent')}>
-            <SectionTitle icon={Clock}>{t('tgGifs.recent')}</SectionTitle>
-            <div className="mb-2 columns-2 gap-1">
-              {recentItems.map((g) => (
+          <section aria-label={t('tgGifs.recent')} className="mb-3">
+            <SectionTitle>{t('tgGifs.recent')}</SectionTitle>
+            <div className={gridClass}>
+              {recentItems.map((g, i) => (
                 <GifTile
                   key={g.fileId}
-                  width={g.width}
-                  height={g.height}
+                  className={cornerClass(i, recentItems.length)}
                   label={t('tgComposer.gifSend')}
                   hint={t('tgGifs.recentHint')}
                   onPick={() => onPick({ kind: 'recent', fileId: g.fileId })}
@@ -247,12 +295,14 @@ export function GifsTab({ onPick }: { onPick: (gif: PickedGif) => void }) {
         {disabled ? (
           own === 0 && <PanelMessage text={t('tgGifs.empty')} />
         ) : catalog.isPending ? (
-          <div className="columns-2 gap-1" aria-busy>
-            {[120, 90, 140, 100, 80, 130].map((h, i) => (
+          <div className={gridClass} aria-busy>
+            {Array.from({ length: 9 }, (_, i) => (
               <div
                 key={i}
-                className="mb-1 animate-pulse rounded-lg bg-muted motion-reduce:animate-none"
-                style={{ height: h }}
+                className={cn(
+                  'aspect-square animate-pulse bg-muted motion-reduce:animate-none',
+                  cornerClass(i, 9),
+                )}
               />
             ))}
           </div>
@@ -270,15 +320,12 @@ export function GifsTab({ onPick }: { onPick: (gif: PickedGif) => void }) {
           <PanelMessage text={t('tgComposer.gifsEmpty')} />
         ) : (
           <section aria-label={searching ? t('tgGifs.search') : t('tgGifs.trending')}>
-            {!searching && own > 0 && (
-              <SectionTitle icon={TrendingUp}>{t('tgGifs.trending')}</SectionTitle>
-            )}
-            <div className="columns-2 gap-1">
-              {catalogItems.map((g) => (
+            {!searching && own > 0 && <SectionTitle>{t('tgGifs.trending')}</SectionTitle>}
+            <div className={gridClass}>
+              {catalogItems.map((g, i) => (
                 <GifTile
                   key={g.id}
-                  width={g.previewWidth}
-                  height={g.previewHeight}
+                  className={cornerClass(i, catalogItems.length)}
                   label={g.title || t('tgComposer.gifSend')}
                   onPick={() => onPick({ kind: 'catalog', id: g.id })}
                 >

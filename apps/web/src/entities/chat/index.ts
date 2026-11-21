@@ -138,7 +138,9 @@ export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
 export {
   AttachmentLinkProvider,
+  MediaNearProvider,
   useAttachmentLinkSource,
+  useMediaNear,
   type AttachmentLinkSource,
 } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
@@ -178,6 +180,7 @@ export {
   isGif,
   isViewable,
   isVideoNote,
+  isMusic,
   isVoice,
   mediaPreview,
   type AttachmentKind,
@@ -236,7 +239,8 @@ export {
 export { GifVideo } from './ui/gif-video'
 export {
   composerKeys,
-  fetchStickerSets,
+  fetchStickerSetsSummary,
+  fetchCatalogStickerSet,
   fetchFavoriteStickers,
   addFavoriteStickerRequest,
   removeFavoriteStickerRequest,
@@ -253,6 +257,7 @@ export {
   sendScheduledNowRequest,
   type CatalogSticker,
   type StickerSet,
+  type StickerSetSummary,
   type CatalogGif,
   type CatalogGifPage,
   type RecentGif,

@@ -1,3 +1,5 @@
+import { formatDate } from '../../../shared/lib/date-format'
+
 // Время в строке списка чатов — как в Telegram: по нему с первого взгляда видно, насколько
 // разговор свежий, и строка не тратит место на лишние цифры.
 //
@@ -20,10 +22,10 @@ export function chatListTime(iso: string, locale: string, now: Date = new Date()
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / DAY_MS)
-  if (dayDiff <= 0) return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-  if (dayDiff <= WEEK_WINDOW_DAYS) return d.toLocaleDateString(locale, { weekday: 'short' })
+  if (dayDiff <= 0) return formatDate(d, locale, { hour: '2-digit', minute: '2-digit' })
+  if (dayDiff <= WEEK_WINDOW_DAYS) return formatDate(d, locale, { weekday: 'short' })
   if (d.getFullYear() === now.getFullYear()) {
-    return d.toLocaleDateString(locale, { day: 'numeric', month: 'short' })
+    return formatDate(d, locale, { day: 'numeric', month: 'short' })
   }
-  return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return formatDate(d, locale, { day: '2-digit', month: '2-digit', year: '2-digit' })
 }

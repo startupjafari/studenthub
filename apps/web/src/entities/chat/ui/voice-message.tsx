@@ -65,14 +65,21 @@ export function VoiceMessage({
   seed,
   mine,
   size,
+  durationMs,
   meta,
 }: {
-  url: string
+  /** Ссылки может ещё не быть: без неё общий плеер спросит её у очереди чата сам. */
+  url?: string
   /** id вложения: и затравка запасной волны, и ключ трека в общем плеере. */
   seed: string
   mine: boolean
   /** Вес файла: по нему решаем, стоит ли вообще разбирать запись ради волны. */
   size: number
+  /**
+   * Длительность с сервера. С ней ширина волны и подпись «0:06» верные с первого кадра —
+   * раньше до разбора стояли средняя ширина и «0:00», и пузырь перестраивался.
+   */
+  durationMs?: number | null
   /** Подписи для панели плеера; нет — панель покажет запись без автора. */
   meta?: VoiceTrackMeta
 }) {
@@ -80,8 +87,9 @@ export function VoiceMessage({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const overlayRef = useRef<HTMLDivElement | null>(null)
   const rafRef = useRef(0)
-  const durationRef = useRef(0)
-  const [duration, setDuration] = useState(0)
+  const durationRef = useRef(durationMs ? durationMs / 1000 : 0)
+  const serverDuration = durationMs ? durationMs / 1000 : 0
+  const [duration, setDuration] = useState(serverDuration)
   const [current, setCurrent] = useState(0)
   const voice = useVoiceProfile(url, seed, size)
   const player = useAudioPlayer()
@@ -91,7 +99,8 @@ export function VoiceMessage({
 
   // Длительность у контейнера от MediaRecorder обычно не записана, поэтому пока она не
   // известна ни от элемента, ни из разбора — волна стоит на средней ширине.
-  const known = voice?.duration ?? duration
+  // Ширину держит серверная длительность: разбор уточняет громкость, но не размер волны.
+  const known = serverDuration || voice?.duration || duration
   const bars = useMemo(() => {
     const n = voiceBarCount(known)
     return voice ? resampleEnvelope(voice.envelope, n) : seededBars(seed, n)
@@ -111,7 +120,7 @@ export function VoiceMessage({
   // пузыря только для этого: он не играет, звук — в общем плеере.
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || !url) return
     const setDur = (d: number): void => {
       durationRef.current = d
       setDuration(d)
@@ -223,7 +232,7 @@ export function VoiceMessage({
     performer: meta?.performer,
     createdAt: meta?.createdAt,
     onGoTo: meta?.onGoTo,
-    duration: durationRef.current || undefined,
+    duration: durationRef.current || serverDuration || undefined,
   })
 
   function toggle(): void {
@@ -259,21 +268,25 @@ export function VoiceMessage({
   )
 
   return (
-    <div className="flex max-w-full items-center gap-2 py-0.5">
-      <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
+    <div className="flex max-w-full items-center gap-3 py-0.5">
+      {/* Свой элемент — только ради длительности: если её знает сервер, он не нужен вовсе. */}
+      {url && !serverDuration && (
+        <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
+      )}
       <button
         type="button"
         onClick={toggle}
         aria-label={playing ? t('pause') : t('play')}
         className={cn(
-          'flex size-9 shrink-0 items-center justify-center rounded-full',
+          // 48 px, как у Telegram: кнопка голосового и песни одного размера.
+          'flex size-12 shrink-0 items-center justify-center rounded-full',
           mine ? 'bg-primary-foreground text-primary' : 'bg-primary text-primary-foreground',
         )}
       >
         {playing ? (
-          <Pause className="size-4" aria-hidden />
+          <Pause className="size-5 fill-current" aria-hidden />
         ) : (
-          <Play className="size-4 translate-x-px" aria-hidden />
+          <Play className="size-5 translate-x-px fill-current" aria-hidden />
         )}
       </button>
       <div className="flex min-w-0 flex-col gap-1">
@@ -296,7 +309,7 @@ export function VoiceMessage({
         </div>
         <span
           className={cn(
-            'text-[0.7rem] tabular-nums',
+            'text-sm leading-tight tabular-nums',
             mine ? 'opacity-80' : 'text-muted-foreground',
           )}
         >

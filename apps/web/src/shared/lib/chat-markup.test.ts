@@ -75,6 +75,10 @@ describe('plainPreview — маркеры чата', () => {
     expect(plainPreview('||a||', { chatMarkup: false })).toBe('||a||')
   })
 
+  it('жёсткий перенос строки — без обратной черты', () => {
+    expect(plainPreview('Имя | Балл\\\nАня | 95')).toBe('Имя | Балл Аня | 95')
+  })
+
   it('прежняя разметка снимается как раньше', () => {
     expect(plainPreview('**срочно** по `ТЗ` [тут](https://x.kz)')).toBe('срочно по ТЗ тут')
   })

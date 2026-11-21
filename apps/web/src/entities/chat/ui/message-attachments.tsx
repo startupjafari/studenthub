@@ -20,15 +20,16 @@ import {
 } from '../../../shared/lib'
 import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useAttachmentLinkSource } from './attachment-link-source'
+import { useAttachmentLinkSource, useMediaNear } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
-import { isAnimation, isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
+import { isAnimation, isMusic, isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
 import { GifVideo } from './gif-video'
 import { albumLayout } from '../lib/album-layout'
 import type { ChatMediaItem, MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
 import { VoiceMessage, type VoiceTrackMeta } from './voice-message'
+import { MusicMessage } from './music-message'
 import { isVoiceRecording } from '../lib/audio-player'
 import { MediaViewer, type MediaViewerActions, type MediaViewerMeta } from './media-viewer'
 import { ChatMediaRailViewer, type ChatMediaRailContext } from './chat-media-rail-viewer'
@@ -269,10 +270,13 @@ function frameProps(att: MessageAttachment): { className: string; style?: CSSPro
 function useAttachmentUrl(att: MessageAttachment) {
   const hasLocal = !!att.localUrl
   const source = useAttachmentLinkSource()
+  // Строка ещё далеко от кадра — ссылку не просим (см. MediaNearProvider). Уже полученная
+  // остаётся в кэше и показывается сразу.
+  const near = useMediaNear()
   const q = useQuery({
     queryKey: [source.scope, att.id],
     queryFn: () => source.fetch(att.id),
-    enabled: !hasLocal,
+    enabled: !hasLocal && near,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   })
@@ -547,6 +551,26 @@ function Single({
     name: att.name || t('attachment'),
     mime: att.mime,
   })
+  // Нажали на файл, ссылки на который ещё нет: спрашиваем её и качаем, как только пришла.
+  const [fileWanted, setFileWanted] = useState(false)
+  const startDownload = download.start
+  useEffect(() => {
+    if (!fileWanted || !url) return
+    setFileWanted(false)
+    startDownload()
+    // startDownload пересоздаётся каждым рендером; запуск нужен по факту пришедшей ссылки.
+  }, [fileWanted, url])
+  // Ссылка так и не пришла (сеть, лимит запросов) — круг ожидания не висит вечно: через
+  // 10 с значок возвращается, и нажатие можно повторить.
+  useEffect(() => {
+    if (!fileWanted) return
+    const timer = setTimeout(() => setFileWanted(false), 10_000)
+    return () => clearTimeout(timer)
+  }, [fileWanted])
+  const requestFile = (): void => {
+    setFileWanted(true)
+    refetch()
+  }
   // Спойлер (§34): размыто до клика.
   const [revealed, setRevealed] = useState(false)
   const blurred = !!att.spoiler && !revealed
@@ -564,10 +588,14 @@ function Single({
     return <MediaFailed className={MEDIA_BOX} reason="send" onRetry={() => onRetry?.()} />
   }
 
-  if (isError || broken) {
+  // Строка файла, голосовое и песня ссылки не ждут: их вид от байтов не зависит, а ссылка
+  // нужна только по нажатию. Раньше документ с подписью, чья ссылка не пришла (лимит
+  // запросов, протухла), рисовался пустым серым кадром с кругом ↻, а пока ехала — полоской
+  // h-10, которая потом вырастала в строку файла.
+  if (framed && (isError || broken)) {
     return (
       <MediaFailed
-        className={framed ? MEDIA_BOX : 'w-56 max-w-full'}
+        className={MEDIA_BOX}
         onRetry={() => {
           setBroken(false)
           setPainted(false)
@@ -577,7 +605,7 @@ function Single({
     )
   }
 
-  if (isLoading || !url) {
+  if (framed && (isLoading || !url)) {
     // Пока едет presigned-ссылка, место под снимок уже знает его форму (если размеры есть).
     // Заливка без пульсации: мигающий прямоугольник посреди переписки притягивал взгляд
     // сильнее самих сообщений, а держать место надо — иначе лента прыгает под руками.
@@ -585,15 +613,11 @@ function Single({
     const frame = frameProps(att)
     return (
       <div
-        className={cn(
-          'relative overflow-hidden rounded-lg',
-          MEDIA_TINT,
-          framed ? frame.className : 'h-10 w-40',
-        )}
-        style={framed ? frame.style : undefined}
+        className={cn('relative overflow-hidden rounded-lg', MEDIA_TINT, frame.className)}
+        style={frame.style}
         aria-hidden
       >
-        {framed && att.placeholder && (
+        {att.placeholder && (
           <Lqip src={att.placeholder} className={blurred ? 'blur-xl' : undefined} />
         )}
       </div>
@@ -602,8 +626,27 @@ function Single({
 
   if (isVoice(att)) {
     return (
-      <span className={cn('relative inline-flex', uploading && 'opacity-60')}>
-        <VoiceMessage url={url} seed={att.id} mine={mine} size={att.size} meta={audioMeta} />
+      <span className={cn('relative inline-flex max-w-full', uploading && 'opacity-60')}>
+        {isMusic(att) ? (
+          <MusicMessage
+            url={url}
+            seed={att.id}
+            name={att.name}
+            size={att.size}
+            durationMs={att.durationMs}
+            mine={mine}
+            meta={audioMeta}
+          />
+        ) : (
+          <VoiceMessage
+            url={url}
+            seed={att.id}
+            mine={mine}
+            size={att.size}
+            durationMs={att.durationMs}
+            meta={audioMeta}
+          />
+        )}
         {uploading && (
           <span className="absolute right-1 top-1/2 -translate-y-1/2">
             <Loader2 className="size-4 animate-spin opacity-70" aria-hidden />
@@ -612,6 +655,113 @@ function Single({
       </span>
     )
   }
+
+  if (!framed) {
+    // Документ в стиле Telegram: значок-лист 54 px цвета типа файла с загнутым углом и
+    // расширением, справа имя (16 px) и вес. Нажатие скачивает файл в приложение с прогрессом
+    // на значке (второе нажатие — отмена), готовый — сохраняет на устройство. Ссылка не
+    // нужна для показа: нет её (далеко от экрана, не пришла) — нажатие сначала спросит её.
+    const dl = download.state
+    const loading = dl.status === 'loading'
+    const waiting = fileWanted && !loading
+    return (
+      <button
+        type="button"
+        // Упавшая отправка перехватывает нажатие: качать нечего — файл до сервера не доехал.
+        onClick={sendFailed ? () => onRetry?.() : url ? download.toggle : requestFile}
+        disabled={uploading}
+        aria-label={
+          sendFailed
+            ? t('sendFailedRetry')
+            : loading
+              ? t('downloadCancel')
+              : dl.status === 'ready'
+                ? t('save')
+                : t('download')
+        }
+        className="group/file flex min-w-[14rem] max-w-full cursor-pointer items-center gap-3 py-0.5 text-left disabled:cursor-default"
+      >
+        {/* Цвет задаёт тип документа (§7 карты): в переписке с десятком вложений он различает
+            архив, таблицу и картинку раньше, чем прочитано имя. */}
+        <span
+          className={cn(
+            'relative flex size-[3.375rem] shrink-0 items-end overflow-hidden rounded-md px-2 pb-1.5 text-white',
+            // Загнутый угол листа: верхний правый срезан, под срезом — тень сгиба.
+            '[clip-path:polygon(0_0,calc(100%-1.125rem)_0,100%_1.125rem,100%_100%,0_100%)]',
+            uploading ? 'bg-muted-foreground' : kind.className,
+          )}
+        >
+          <span
+            aria-hidden
+            className="absolute top-0 right-0 size-[1.125rem] rounded-bl-[0.25rem] bg-black/25"
+          />
+          {sendFailed || uploading || loading || waiting ? (
+            <span className="absolute inset-0 flex items-center justify-center">
+              {sendFailed ? (
+                <RotateCw className="size-6" aria-hidden />
+              ) : uploading || waiting ? (
+                <Loader2 className="size-6 animate-spin" aria-hidden />
+              ) : (
+                <X className="size-5" strokeWidth={2.5} aria-hidden />
+              )}
+              {loading && <ProgressRing progress={download.progress} />}
+            </span>
+          ) : (
+            <>
+              {/* Расширение, а при наведении — что сделает нажатие, как в Telegram. */}
+              <span className="text-sm leading-none font-semibold uppercase transition-opacity group-hover/file:opacity-0">
+                {kind.ext || <FileText className="size-5" aria-hidden />}
+              </span>
+              <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover/file:opacity-100">
+                {dl.status === 'ready' ? (
+                  <Check className="size-6" strokeWidth={2.5} aria-hidden />
+                ) : dl.status === 'error' ? (
+                  <RotateCw className="size-6" aria-hidden />
+                ) : (
+                  <ArrowDown className="size-6" strokeWidth={2.5} aria-hidden />
+                )}
+              </span>
+            </>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-base leading-tight font-medium">
+            {att.name || t('attachment')}
+          </span>
+          <span
+            className={cn(
+              'mt-0.5 block truncate text-sm leading-tight',
+              mine ? 'opacity-70' : 'text-muted-foreground',
+            )}
+          >
+            {/* Прогресс мегабайтами, а не процентами: «11.5 / 40.1 МБ» сразу говорит и сколько
+                осталось, и сколько весит файл, — процент отвечает только на первое. */}
+            {sendFailed ? (
+              <span className={mine ? 'underline' : 'text-destructive'}>{t('uploadFailed')}</span>
+            ) : uploading && att.progress != null ? (
+              formatBytesProgress(att.progress * att.size, att.size, unit)
+            ) : loading ? (
+              formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
+            ) : dl.status === 'ready' ? (
+              <>
+                {formatBytes(att.size, unit)} ·{' '}
+                <span className={cn('font-semibold', mine ? 'underline' : 'text-primary')}>
+                  {t('save')}
+                </span>
+              </>
+            ) : dl.status === 'error' ? (
+              <span className={mine ? 'underline' : 'text-destructive'}>{t('downloadFailed')}</span>
+            ) : (
+              formatBytes(att.size, unit)
+            )}
+          </span>
+        </span>
+      </button>
+    )
+  }
+
+  // Сюда доходят только кадры, а их ссылка проверена выше.
+  if (!url) return null
 
   if (isAnimatedNow(att, link)) {
     return (
@@ -716,7 +866,10 @@ function Single({
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
           // сработать вовсе) — подложку под кадр держим сами, без бесконечной пульсации.
-          sized ? frame.className : !painted && cn(MEDIA_BOX, MEDIA_TINT),
+          sized ? frame.className : !painted && MEDIA_BOX,
+          // Пока кадра нет — светлая подложка с ▶, а не чёрный квадрат: ролик без постера
+          // (.mov, кодек, который браузер не показывает) так и остаётся узнаваемым роликом.
+          !painted && MEDIA_TINT,
         )}
         style={sized ? frame.style : undefined}
       >
@@ -748,11 +901,17 @@ function Single({
             preload="metadata"
             muted
             onLoadedMetadata={(e) => {
-              setPainted(true)
               const d = e.currentTarget.duration
               if (Number.isFinite(d)) setDuration(d)
             }}
-            onError={() => setBroken(true)}
+            // Кадр готов — только если браузер вообще умеет показать дорожку: у .mov с HEVC
+            // метаданные есть, а картинки нет (videoWidth = 0), и на месте ролика был чёрный
+            // квадрат. Не умеет — остаётся подложка с ▶: открыть и скачать ролик можно.
+            onLoadedData={(e) => {
+              if (e.currentTarget.videoWidth > 0) setPainted(true)
+            }}
+            // onError нет намеренно: не показался первый кадр — не повод рисовать вместо
+            // ролика круг ошибки.
             className={cn(
               'max-h-64 max-w-full transition-opacity duration-200',
               sized && 'size-full object-cover',
@@ -792,102 +951,6 @@ function Single({
       </div>
     )
   }
-  // Карточка файла в стиле Telegram: круглая иконка + имя + размер. Нажатие скачивает файл
-  // в приложение с прогрессом на значке (второе нажатие — отмена), готовый — сохраняет на
-  // устройство. Раньше это была ссылка: браузер открывал PDF поверх приложения, а
-  // прогресса и отмены не было вовсе.
-  const dl = download.state
-  const loading = dl.status === 'loading'
-  return (
-    <button
-      type="button"
-      // Упавшая отправка перехватывает нажатие: качать нечего — файл до сервера не доехал.
-      onClick={sendFailed ? () => onRetry?.() : download.toggle}
-      disabled={uploading}
-      aria-label={
-        sendFailed
-          ? t('sendFailedRetry')
-          : loading
-            ? t('downloadCancel')
-            : dl.status === 'ready'
-              ? t('save')
-              : t('download')
-      }
-      className="flex min-w-[220px] cursor-pointer items-center gap-2 py-0.5 text-left disabled:cursor-default"
-    >
-      {/* Значок расширения (§7 карты): цвет задаёт тип документа — в переписке с десятком
-          вложений он различает архив, таблицу и картинку раньше, чем прочитано имя. */}
-      <span
-        className={cn(
-          'relative flex size-10 shrink-0 items-center justify-center rounded-full text-white',
-          uploading ? 'bg-muted-foreground' : kind.className,
-        )}
-      >
-        {sendFailed ? (
-          <RotateCw className="size-5" aria-hidden />
-        ) : uploading ? (
-          <Loader2 className="size-5 animate-spin" aria-hidden />
-        ) : loading ? (
-          <X className="size-4" strokeWidth={2.5} aria-hidden />
-        ) : kind.ext ? (
-          <span className="text-[0.6rem] font-bold uppercase leading-none tracking-tight">
-            {kind.ext}
-          </span>
-        ) : (
-          <FileText className="size-5" aria-hidden />
-        )}
-        {loading && <ProgressRing progress={download.progress} />}
-        {/* Угловой значок — что сделает нажатие: «↓» скачать, галочка — уже скачано.
-            Обводка цветом пузыря отделяет его от значка расширения. */}
-        {!uploading && !loading && !sendFailed && (
-          <span
-            aria-hidden
-            className={cn(
-              'absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border-2',
-              mine
-                ? 'border-primary bg-primary-foreground text-primary'
-                : 'border-muted bg-background text-foreground',
-            )}
-          >
-            {dl.status === 'ready' ? (
-              <Check className="size-2.5" strokeWidth={3.5} />
-            ) : dl.status === 'error' ? (
-              // Не скачалось — в углу знак повтора, а не «вниз»: нажатие пробует ещё раз,
-              // и значок обязан обещать то же, что обещает подпись.
-              <RotateCw className="size-2.5" strokeWidth={3.5} />
-            ) : (
-              <ArrowDown className="size-2.5" strokeWidth={3.5} />
-            )}
-          </span>
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{att.name || t('attachment')}</span>
-        <span className={cn('block text-xs', mine ? 'opacity-70' : 'text-muted-foreground')}>
-          {/* Прогресс мегабайтами, а не процентами: «11.5 / 40.1 МБ» сразу говорит и сколько
-              осталось, и сколько весит файл, — процент отвечает только на первое. */}
-          {sendFailed ? (
-            <span className={mine ? 'underline' : 'text-destructive'}>{t('uploadFailed')}</span>
-          ) : uploading && att.progress != null ? (
-            formatBytesProgress(att.progress * att.size, att.size, unit)
-          ) : loading ? (
-            formatBytesProgress(dl.loaded, dl.total ?? att.size, unit)
-          ) : dl.status === 'ready' ? (
-            <>
-              {formatBytes(att.size, unit)} ·{' '}
-              <span className={cn('font-semibold', mine ? 'underline' : 'text-primary')}>
-                {t('save')}
-              </span>
-            </>
-          ) : dl.status === 'error' ? (
-            <span className={mine ? 'underline' : 'text-destructive'}>{t('downloadFailed')}</span>
-          ) : (
-            formatBytes(att.size, unit)
-          )}
-        </span>
-      </span>
-    </button>
-  )
 }
 
 // Ширина альбома-мозаики в пузыре, px (уже — по ширине пузыря на узком экране).

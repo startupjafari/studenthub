@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import type { MessageReaction } from '../../../entities/chat'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
@@ -52,6 +53,7 @@ export function ReactionsStrip({
   ownBubble,
   onToggle,
   onShowReactors,
+  animateFromStart = false,
   className,
 }: {
   reactions: readonly MessageReaction[]
@@ -61,11 +63,20 @@ export function ReactionsStrip({
   /** `origin` — центр чипа: постановка с самого чипа садится на месте, без полёта. */
   onToggle: (emoji: string, origin?: FlightPoint) => void
   onShowReactors?: (emoji: string) => void
+  /**
+   * Полоса появилась вместе с первой реакцией у уже показанного сообщения — тогда и её чипы
+   * въезжают. Иначе (строка ленты только что смонтировалась с готовыми реакциями) первые
+   * чипы стоят сразу: анимация на каждом прокрученном в кадр сообщении — лишняя работа.
+   */
+  animateFromStart?: boolean
   className?: string
 }) {
   const t = useTranslations('Chats')
-  if (reactions.length === 0) return null
   const groups = groupReactions(reactions, myId)
+  // Что было на экране при монтировании: эмодзи → число. Анимируется только новое.
+  const shown = useRef<Map<string, number> | null>(null)
+  shown.current ??= animateFromStart ? new Map() : new Map(groups.map((g) => [g.emoji, g.count]))
+  if (reactions.length === 0) return null
   const withFaces = reactions.length <= MAX_FACES
 
   return (
@@ -93,7 +104,9 @@ export function ReactionsStrip({
           // Двойной клик по чипу — два переключения, а не реакция по умолчанию на сообщение.
           onDoubleClick={(e) => e.stopPropagation()}
           className={cn(
-            'flex h-[22px] items-center gap-1 rounded-full pr-1.5 pl-1 text-xs leading-none font-semibold tabular-nums outline-none duration-(--motion-control) animate-in fade-in-0 zoom-in-90 focus-visible:ring-2 focus-visible:ring-ring/40 active:scale-95',
+            'flex h-[22px] items-center gap-1 rounded-full pr-1.5 pl-1 text-xs leading-none font-semibold tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/40 active:scale-95',
+            !shown.current?.has(g.emoji) &&
+              'duration-(--motion-control) animate-in fade-in-0 zoom-in-90',
             ownBubble
               ? g.mine
                 ? 'bg-primary-foreground text-primary hover:bg-primary-foreground/90'
@@ -132,7 +145,10 @@ export function ReactionsStrip({
             // Новое число въезжает снизу — как счётчик в Telegram, без перерисовки чипа.
             <span
               key={g.count}
-              className="duration-(--motion-control) animate-in fade-in-0 slide-in-from-bottom-1"
+              className={cn(
+                shown.current?.get(g.emoji) !== g.count &&
+                  'duration-(--motion-control) animate-in fade-in-0 slide-in-from-bottom-1',
+              )}
               aria-hidden
             >
               {g.count}

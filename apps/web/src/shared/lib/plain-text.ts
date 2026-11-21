@@ -19,17 +19,21 @@ export function plainPreview(text: string, { chatMarkup = true } = {}): string {
         kind === 'spoiler' ? spoilerPlaceholder(plainPreview(inner, { chatMarkup: false })) : inner,
       )
     : withoutBlocks
-  return marked
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/(\*\*|__)(.*?)\1/g, '$2')
-    .replace(/(\*|_)(.*?)\1/g, '$2')
-    .replace(/~~(.*?)~~/g, '$1')
-    .replace(/^\s{0,3}>\s?/gm, '')
-    .replace(/^\s{0,3}[-*+]\s+/gm, '')
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/\\([\\`*_{}[\]()#+\-.!~>|])/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return (
+    marked
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+      .replace(/(\*|_)(.*?)\1/g, '$2')
+      .replace(/~~(.*?)~~/g, '$1')
+      .replace(/^\s{0,3}>\s?/gm, '')
+      .replace(/^\s{0,3}[-*+]\s+/gm, '')
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      // Жёсткий перенос (Shift+Enter, строки вставленной таблицы) — `\` в конце строки.
+      .replace(/\\\n/g, '\n')
+      .replace(/\\([\\`*_{}[\]()#+\-.!~>|])/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
 }

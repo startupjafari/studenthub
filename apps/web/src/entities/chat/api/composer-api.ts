@@ -8,6 +8,7 @@ import type { ChatMessage } from '../model/types'
 
 export const composerKeys = {
   stickerSets: () => ['chats', 'composer', 'sticker-sets'] as const,
+  stickerSet: (setId: string) => ['chats', 'composer', 'sticker-sets', 'set', setId] as const,
   stickerFavorites: () => ['chats', 'composer', 'sticker-favorites'] as const,
   gifsRecent: () => ['chats', 'composer', 'gifs-recent'] as const,
   gifsTrending: () => ['chats', 'composer', 'gifs-trending'] as const,
@@ -34,8 +35,29 @@ export interface StickerSet {
   stickers: CatalogSticker[]
 }
 
-export async function fetchStickerSets(): Promise<StickerSet[]> {
-  const { data } = await api.get<StickerSet[]>('/chats/stickers/sets')
+/**
+ * Набор каталога для полосы наборов: обложка и число стикеров, без самих стикеров. Панель
+ * рисуется по этой выдаче сразу, а стикеры набора догружаются, когда он доезжает до экрана.
+ */
+export interface StickerSetSummary {
+  id: string
+  title: string
+  slug: string
+  count: number
+  cover: CatalogSticker | null
+}
+
+/**
+ * Каталог целиком подписывает каждую картинку (тысячи ссылок, мегабайты) — веб берёт лёгкую
+ * выдачу и наборы по одному. `GET /chats/stickers/sets` остаётся для мобильных клиентов.
+ */
+export async function fetchStickerSetsSummary(): Promise<StickerSetSummary[]> {
+  const { data } = await api.get<StickerSetSummary[]>('/chats/stickers/sets/summary')
+  return data
+}
+
+export async function fetchCatalogStickerSet(setId: string): Promise<StickerSet> {
+  const { data } = await api.get<StickerSet>(`/chats/stickers/sets/${setId}`)
   return data
 }
 

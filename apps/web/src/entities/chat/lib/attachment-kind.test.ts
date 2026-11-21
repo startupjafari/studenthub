@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageAttachment } from '../model/types'
-import { attachmentKind, isAnimation, isVideoNote, isVoice, mediaPreview } from './attachment-kind'
+import {
+  attachmentKind,
+  isAnimation,
+  isMusic,
+  isVideoNote,
+  isViewable,
+  isVoice,
+  mediaPreview,
+} from './attachment-kind'
 
 const att = (over: Partial<MessageAttachment>): MessageAttachment =>
   ({ id: 'a', mime: 'application/zip', size: 1, ...over }) as MessageAttachment
@@ -49,6 +57,26 @@ describe('attachmentKind', () => {
     expect(isVideoNote(round)).toBe(true)
     expect(attachmentKind(round)).toBe('round')
     expect(mediaPreview([round])).toEqual({ kind: 'round', count: 1 })
+  })
+
+  // Telegram различает голосовое (волна) и музыку (строка с названием) — и в пузыре, и в списке.
+  it('аудиофайл с названием — музыка, запись рекордера и звук без имени — голосовое', () => {
+    const song = att({ name: 'Подкаст выпуск 4.mp3', mime: 'audio/mpeg' })
+    expect(isVoice(song)).toBe(true)
+    expect(isMusic(song)).toBe(true)
+    expect(attachmentKind(song)).toBe('audio')
+    expect(isMusic(att({ name: 'voice-001.ogg', mime: 'audio/ogg' }))).toBe(false)
+    expect(isMusic(att({ mime: 'audio/ogg' }))).toBe(false)
+    expect(isMusic(att({ name: 'doc.pdf', mime: 'application/pdf' }))).toBe(false)
+  })
+
+  // Раньше любой video/webm считался голосовым — ролик «Демо проекта.webm» рисовался волной.
+  it('webm с размерами кадра — видео, без размеров — старое голосовое', () => {
+    const clip = att({ name: 'Демо проекта.webm', mime: 'video/webm', width: 480, height: 270 })
+    expect(isVoice(clip)).toBe(false)
+    expect(isViewable(clip)).toBe(true)
+    expect(attachmentKind(clip)).toBe('video')
+    expect(attachmentKind(att({ mime: 'video/webm' }))).toBe('voice')
   })
 
   it('флаг кружка на не-видео ничего не меняет', () => {

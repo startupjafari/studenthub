@@ -13,6 +13,7 @@ import {
   ListChecks,
   MapPin,
   Mic,
+  Music,
   Newspaper,
   Play,
   UserRound,
@@ -20,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
+  attachmentKind,
   fetchAttachmentLink,
   isAnimation,
   isViewable,
@@ -29,6 +31,7 @@ import {
 } from '../../../entities/chat'
 import { MediaImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { isEmojiSupported } from '../../../shared/lib/emoji-support'
 import { plainPreview } from '../lib/format'
 import { parseProfileShare } from './shared-cards'
 import { SYSTEM_KEY } from './message-item'
@@ -37,14 +40,16 @@ import { SYSTEM_KEY } from './message-item'
 // снимок там, голосовое или архив, ещё до того как чат открыт.
 const PREVIEW_ICON: Record<AttachmentKind, LucideIcon> = {
   voice: Mic,
+  audio: Music,
   round: CirclePlay,
   photo: ImageIcon,
   video: Video,
   gif: ImagePlay,
   file: FileText,
 }
-const PREVIEW_KEY: Record<AttachmentKind, string> = {
+export const PREVIEW_KEY: Record<AttachmentKind, string> = {
   voice: 'previewVoice',
+  audio: 'previewMusic',
   round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
@@ -70,6 +75,30 @@ export type PreviewMessage = {
   checklist?: { title: string } | null
   sticker?: { emoji: string | null } | null
   sender?: { firstName: string } | null
+}
+
+/**
+ * Имя единственного файла или песни — им Telegram и подписывает такое сообщение в списке:
+ * «Лекция 3.pdf», «Подкаст выпуск 4», а не безликое «Файл». У песни расширение снимается — у
+ * Telegram там название трека. Несколько вложений или другой вид — null (остаётся «3 файла»).
+ */
+export function singleMediaName(media: readonly MessageAttachment[]): string | null {
+  const only = media.length === 1 ? media[0] : undefined
+  const name = only?.name?.trim()
+  if (!only || !name) return null
+  const kind = attachmentKind(only)
+  if (kind === 'file') return name
+  if (kind === 'audio') return name.replace(/\.[^.\s]{1,8}$/, '') || name
+  return null
+}
+
+/**
+ * Эмодзи стикера перед «Стикер» — если система его нарисует. Telegram рисует эмодзи
+ * картинками, у нас — шрифтом, и свежий смайл на старой Windows или в Linux без цветного
+ * шрифта превращался в «□ Стикер». Лучше просто «Стикер».
+ */
+export function stickerPreviewEmoji(emoji: string | null | undefined): string {
+  return emoji && isEmojiSupported(emoji) ? `${emoji} ` : ''
 }
 
 /** Снимок или ролик, которым можно подписать строку миниатюрой (Telegram-стиль). */
@@ -226,7 +255,7 @@ export function MessagePreview({
   if (message.sticker) {
     return (
       <>
-        {message.sticker.emoji ? `${message.sticker.emoji} ` : ''}
+        {stickerPreviewEmoji(message.sticker.emoji)}
         {t('previewSticker')}
       </>
     )
@@ -258,7 +287,7 @@ export function MessagePreview({
   if (!media) return null
   return (
     <PreviewWithIcon icon={PREVIEW_ICON[media.kind]}>
-      {t(PREVIEW_KEY[media.kind], { n: media.count })}
+      {singleMediaName(message.media ?? []) ?? t(PREVIEW_KEY[media.kind], { n: media.count })}
     </PreviewWithIcon>
   )
 }

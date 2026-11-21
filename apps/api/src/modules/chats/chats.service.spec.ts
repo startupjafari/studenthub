@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { MessageSendRestSchema } from '@studenthub/shared-schemas'
+import { ChatAttachmentUrlsSchema, MessageSendRestSchema } from '@studenthub/shared-schemas'
 import { ChatsService } from './chats.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { QueueService } from '../../common/queue'
@@ -128,6 +128,7 @@ function setup() {
     completeMultipart: jest.fn().mockResolvedValue({ id: 'f1' }),
     delete: jest.fn().mockResolvedValue(undefined),
     getPresignedUrl: jest.fn(),
+    getPresignedUrls: jest.fn().mockResolvedValue(new Map()),
     findOrThrow: jest.fn(),
     copyToMessage: jest.fn().mockResolvedValue({ id: 'copy-1' }),
   }
@@ -1140,6 +1141,132 @@ describe('ChatsService.getAttachmentUrl — доступ по членству',
     expect(link.url).toBe('https://minio/url')
     expect(Date.parse(link.expiresAt)).toBeGreaterThan(Date.now())
     expect(link.status).toBe('READY')
+  })
+})
+
+describe('ChatsService.getAttachmentUrls — ссылки пачкой', () => {
+  const mediaFile = (id: string) => ({
+    id,
+    bucket: 'chat-media',
+    mime: 'image/jpeg',
+    width: 800,
+    height: 600,
+    mediaStatus: 'READY',
+    placeholder: null,
+    durationMs: null,
+    variants: [],
+    animation: false,
+  })
+  // Строка выборки: файл, его сообщение и членство смотрящего (только поля очистки).
+  const row = (
+    id: string,
+    createdAt = new Date('2026-02-01T12:00:00Z'),
+    member: { clearedAt: Date | null; clearedRanges: unknown } = {
+      clearedAt: null,
+      clearedRanges: null,
+    },
+  ) => ({ ...mediaFile(id), message: { createdAt, chat: { members: [member] } } })
+
+  afterEach(() => jest.restoreAllMocks())
+
+  it('доступ проверяется в самой выборке: неудалённое сообщение, незабаненный участник', async () => {
+    const { service, prisma } = setup()
+    await service.getAttachmentUrls('u1', ['f1'])
+    const args = prisma.file.findMany.mock.calls[0]?.[0]
+    expect(args.where).toEqual({
+      id: { in: ['f1'] },
+      message: {
+        deletedAt: null,
+        chat: { members: { some: { userId: 'u1', bannedAt: null } } },
+      },
+    })
+    expect(args.select.message.select.chat.select.members.where).toEqual({ userId: 'u1' })
+  })
+
+  it('недоступные, несуществующие и очищенные «у себя» выпадают, остальные — в порядке запроса', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findMany.mockResolvedValue([
+      row('f3'),
+      // Сообщение из очищенного у себя периода — как и одиночная ссылка, не отдаём.
+      row('f2', new Date('2026-02-01T12:00:00Z'), {
+        clearedAt: new Date('2026-03-01T00:00:00Z'),
+        clearedRanges: null,
+      }),
+      row('f1'),
+    ])
+    files.getPresignedUrls.mockResolvedValue(
+      new Map([
+        ['f1', 'https://minio/f1'],
+        ['f3', 'https://minio/f3'],
+      ]),
+    )
+
+    const res = await service.getAttachmentUrls('u1', ['f1', 'f2', 'f3', 'gone'])
+
+    expect(res.items.map((i) => i.fileId)).toEqual(['f1', 'f3'])
+    expect(files.getPresignedUrls).toHaveBeenCalledWith(['f3', 'f1'])
+    expect(files.getPresignedUrls).toHaveBeenCalledTimes(1)
+  })
+
+  it('ничего не видно → пустой ответ, ссылки не подписываются', async () => {
+    const { service, prisma, files, media } = setup()
+    prisma.file.findMany.mockResolvedValue([])
+    expect(await service.getAttachmentUrls('u1', ['f1'])).toEqual({ items: [] })
+    expect(files.getPresignedUrls).not.toHaveBeenCalled()
+    expect(media.describeOne).not.toHaveBeenCalled()
+  })
+
+  it('повторы схлопываются, больше 50 в выборку не уходит', async () => {
+    const { service, prisma } = setup()
+    const many = Array.from({ length: 60 }, (_, i) => `f${i}`)
+    await service.getAttachmentUrls('u1', ['f0', 'f0', ...many])
+    const args = prisma.file.findMany.mock.calls[0]?.[0]
+    expect(args.where.id.in).toHaveLength(50)
+    expect(new Set(args.where.id.in).size).toBe(50)
+    expect(args.take).toBe(50)
+  })
+
+  it('схема: от 1 до 50 id, без повторов', () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `f${i}`)
+    expect(ChatAttachmentUrlsSchema.safeParse({ fileIds: ids(50) }).success).toBe(true)
+    expect(ChatAttachmentUrlsSchema.safeParse({ fileIds: ids(51) }).success).toBe(false)
+    expect(ChatAttachmentUrlsSchema.safeParse({ fileIds: [] }).success).toBe(false)
+    expect(ChatAttachmentUrlsSchema.safeParse({ fileIds: ['f1', 'f1'] }).success).toBe(false)
+  })
+
+  it('элемент пачки — ровно ответ одиночной ссылки плюс fileId', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-02-01T12:03:00Z'))
+    const { service, prisma, files, media } = setup()
+    media.describeOne.mockImplementation((f: { id: string }) =>
+      Promise.resolve({
+        status: 'READY',
+        sources: [{ width: 320, height: 240, url: `v-${f.id}` }],
+      }),
+    )
+    // Одиночная ссылка: своя проверка доступа и свои чтения.
+    files.findOrThrow.mockResolvedValue({ id: 'f1', messageId: 'm1' })
+    prisma.message.findUnique.mockResolvedValue({
+      chatId: 'c1',
+      deletedAt: null,
+      createdAt: new Date('2026-02-01T12:00:00Z'),
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({
+      id: 'mem1',
+      bannedAt: null,
+      clearedAt: null,
+      clearedRanges: null,
+    })
+    files.getPresignedUrl.mockResolvedValue('https://minio/f1')
+    prisma.file.findUniqueOrThrow.mockResolvedValue(mediaFile('f1'))
+    // Пачка.
+    prisma.file.findMany.mockResolvedValue([row('f1')])
+    files.getPresignedUrls.mockResolvedValue(new Map([['f1', 'https://minio/f1']]))
+
+    const single = await service.getAttachmentUrl('u1', 'f1')
+    const batch = await service.getAttachmentUrls('u1', ['f1'])
+
+    expect(batch.items).toEqual([{ fileId: 'f1', ...single }])
+    expect(single).toMatchObject({ url: 'https://minio/f1', mime: 'image/jpeg', animation: false })
   })
 })
 

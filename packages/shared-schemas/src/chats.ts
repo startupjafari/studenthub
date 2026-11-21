@@ -1081,6 +1081,23 @@ export type AuthRefreshInput = z.infer<typeof AuthRefreshSchema>
 // Пара presign/multipart своя, а не общая из /files, по тому же принципу, что у документов и
 // материалов: бакет определяет модуль, а членство в чате проверяется на каждом шаге.
 
+/** Сколько ссылок на вложения можно попросить одним запросом. */
+export const ATTACHMENT_URLS_MAX = 50
+
+/**
+ * Ссылки на вложения пачкой (`POST /chats/attachments/urls`): лента чата показывает сотни
+ * снимков, и запрос на каждый упирался в общий лимит API. Ответ по каждому id тот же, что у
+ * `GET /chats/attachments/:fileId/url`; недоступные и несуществующие в ответ не попадают.
+ */
+export const ChatAttachmentUrlsSchema = z
+  .object({ fileIds: z.array(entityId).min(1).max(ATTACHMENT_URLS_MAX) })
+  .strict()
+  .refine((v) => new Set(v.fileIds).size === v.fileIds.length, {
+    path: ['fileIds'],
+    message: vm('validation.common.duplicateIds'),
+  })
+export type ChatAttachmentUrlsInput = z.infer<typeof ChatAttachmentUrlsSchema>
+
 /** Подписанная ссылка на одиночный PUT вложения чата. */
 export const ChatAttachmentPresignSchema = z.object({ mime: z.string().min(1).max(120) }).strict()
 export type ChatAttachmentPresignInput = z.infer<typeof ChatAttachmentPresignSchema>
