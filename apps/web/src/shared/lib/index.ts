@@ -47,6 +47,8 @@ export {
   type SpringHandle,
 } from './spring'
 export { nowInTz, wallClockInTz, isoWeekParity, isoWeekParityOf, type NowInTz } from './tz-date'
+export { dateFormatter, formatDate } from './date-format'
+export { withStableCallbacks } from './with-stable-callbacks'
 export { useNowInTz } from './use-now-in-tz'
 export { safeNextPath } from './safe-next'
 export { isTrustedImageUrl } from './trusted-image'
