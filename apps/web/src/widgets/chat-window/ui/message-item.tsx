@@ -173,7 +173,7 @@ export const SERVICE_PILL_CLASS =
 const BIG_EMOJI_SIZE = ['', 'text-[5rem]', 'text-[4rem]', 'text-[3.5rem]'] as const
 
 // Единый корневой узел на сообщение (день-пилюля + разделитель + строка) — обязательно для
-// виртуализации (virtua): каждый ребёнок списка = один измеряемый элемент.
+// окна ленты (MessageWindow): каждый ребёнок списка = одна строка окна.
 function MessageItemInner({
   m,
   mine,
