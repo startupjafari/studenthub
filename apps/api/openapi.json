@@ -22363,6 +22363,39 @@
         ]
       }
     },
+    "/chats/attachments/urls": {
+      "post": {
+        "operationId": "ChatsController_attachmentUrls",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAttachmentUrlsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ items: [{ fileId, url, expiresAt, mime, animation, …MediaInfo }] } — по каждому id то же, что у GET /chats/attachments/:fileId/url; недоступных и несуществующих в ответе нет"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR — пусто, больше 50 или повторы"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Presigned URL к вложениям пачкой (до 50, по членству в чате)",
+        "tags": [
+          "Чаты"
+        ]
+      }
+    },
     "/chats/{id}/messages": {
       "get": {
         "operationId": "ChatsController_messages",
@@ -37158,6 +37191,25 @@
             "format": "date-time"
           }
         },
+        "additionalProperties": false
+      },
+      "ChatAttachmentUrlsDto": {
+        "type": "object",
+        "properties": {
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "fileIds"
+        ],
         "additionalProperties": false
       },
       "CreateChatPollDto": {
