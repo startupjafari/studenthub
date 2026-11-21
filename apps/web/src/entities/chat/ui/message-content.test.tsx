@@ -135,6 +135,25 @@ describe('MessageContent — подчёркнутый и спойлер', () => 
     expect(c.textContent).toBe('ответ 42 и 43')
   })
 
+  it('одинаковый текст у двух сообщений: открытый спойлер одного не открывает другой', () => {
+    // Разбор кэшируется по тексту, и оба пузыря получают одно и то же дерево элементов —
+    // состояние спойлера при этом у каждого своё.
+    const { container } = render(
+      <>
+        <div data-testid="a">
+          <MessageContent content="||общий секрет||" />
+        </div>
+        <div data-testid="b">
+          <MessageContent content="||общий секрет||" />
+        </div>
+      </>,
+    )
+    const [a, b] = Array.from(container.querySelectorAll<HTMLElement>('[data-testid]'))
+    fireEvent.click(a!.querySelector('[data-hidden]') as HTMLElement)
+    expect(a!.querySelector('[data-hidden]')).toBeNull()
+    expect(b!.querySelector('[data-hidden]')).not.toBeNull()
+  })
+
   it('спойлер открывается с клавиатуры', () => {
     const c = html('||тайна||')
     fireEvent.keyDown(c.querySelector('[data-hidden]') as HTMLElement, { key: 'Enter' })

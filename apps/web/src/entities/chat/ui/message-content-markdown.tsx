@@ -185,6 +185,40 @@ const MD_COMPONENTS: Components = {
     isSpoilerNode(node) ? <Spoiler>{children}</Spoiler> : <span>{children}</span>,
 }
 
+/**
+ * Разобранный markdown сообщения по тексту. Разбор (unified: парсер, плагины, сборка дерева)
+ * — самая дорогая часть монтирования пузыря, а окно ленты монтирует строки страницами по
+ * 50 и выгружает дальний край: те же сообщения при прокрутке туда-обратно разбирались
+ * заново. `Markdown` из react-markdown — чистая функция без хуков, её результат — обычные
+ * элементы React, их можно отдавать повторно. Только без подсветки поиска (у неё свои
+ * компоненты); спойлеры читают контекст при рендере, а не при разборе, — кэшу они не мешают.
+ */
+const PARSED_LIMIT = 800
+const parsed = new Map<string, ReactNode>()
+
+function parsedMarkdown(content: string): ReactNode {
+  const hit = parsed.get(content)
+  if (hit !== undefined) {
+    // Свежие — в конец: вытесняется давно не показанное.
+    parsed.delete(content)
+    parsed.set(content, hit)
+    return hit
+  }
+  const tree = ReactMarkdown({
+    children: content,
+    remarkPlugins: REMARK_PLUGINS,
+    allowedElements: ALLOWED_ELEMENTS,
+    unwrapDisallowed: true,
+    components: MD_COMPONENTS,
+  })
+  parsed.set(content, tree)
+  if (parsed.size > PARSED_LIMIT) {
+    const oldest = parsed.keys().next().value
+    if (oldest !== undefined) parsed.delete(oldest)
+  }
+  return tree
+}
+
 export function MessageContentMarkdown({
   content,
   highlight,
@@ -216,20 +250,26 @@ export function MessageContentMarkdown({
   }, [highlight])
   const [revealed, setRevealed] = useState(false)
   const spoilers = useMemo(() => ({ revealed, reveal: () => setRevealed(true) }), [revealed])
+  const cached = useMemo(
+    () => (highlight || !content ? null : parsedMarkdown(content)),
+    [content, highlight],
+  )
 
   if (!content) return null
   return (
     <SpoilerContext.Provider value={spoilers}>
       <div className={MD_CLASS}>
         {/* Формулы `$…$` вне контракта — остаются текстом, katex чату не нужен. */}
-        <ReactMarkdown
-          remarkPlugins={REMARK_PLUGINS}
-          allowedElements={ALLOWED_ELEMENTS}
-          unwrapDisallowed
-          components={components}
-        >
-          {content}
-        </ReactMarkdown>
+        {cached ?? (
+          <ReactMarkdown
+            remarkPlugins={REMARK_PLUGINS}
+            allowedElements={ALLOWED_ELEMENTS}
+            unwrapDisallowed
+            components={components}
+          >
+            {content}
+          </ReactMarkdown>
+        )}
       </div>
     </SpoilerContext.Provider>
   )

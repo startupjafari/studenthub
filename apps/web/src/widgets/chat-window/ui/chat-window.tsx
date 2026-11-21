@@ -188,6 +188,8 @@ import {
   useByteUnitLabel,
   useSetChatOpen,
   useSwipeRows,
+  formatDate,
+  withStableCallbacks,
 } from '../../../shared/lib'
 
 import { ChatCalendarModal } from './chat-calendar-modal'
@@ -219,6 +221,16 @@ import { QuickReactionPanel } from './quick-reaction-panel'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
+
+// Список чатов не зависит от прокрутки ленты, а ChatWindow рендерится на каждую подгруженную
+// страницу истории и на события прокрутки. Обработчики ему передаются стрелками прямо в JSX —
+// обёртка делает их постоянными, и строки списка перерисовываются только при смене данных.
+const StableConversationList = withStableCallbacks(ConversationList)
+// Правая колонка — по той же причине: её данные (чат, заголовок, статус) от ленты не зависят.
+const StableChatDetailsPanel = withStableCallbacks(ChatDetailsPanel)
+// Пустые списки одним объектом: `?? []` давал новый массив каждым рендером и ломал memo.
+const NO_FOLDERS: ChatFolder[] = []
+const NO_ITEMS: never[] = []
 
 /**
  * Вложение не влезло в лимит категории. Отдельный тип, потому что сообщение об этом
@@ -909,7 +921,7 @@ export function ChatWindow() {
   // Папка, на которой диалог должен открыться («Настроить папку» из меню вкладки).
   const [foldersEditId, setFoldersEditId] = useState<string | null>(null)
   const folders = useQuery({ queryKey: chatKeys.folders(), queryFn: fetchChatFolders })
-  const folderList: ChatFolder[] = folders.data ?? []
+  const folderList: ChatFolder[] = folders.data ?? NO_FOLDERS
 
   const folderError = (e: unknown) =>
     toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
@@ -2556,7 +2568,7 @@ export function ChatWindow() {
     const diff = Math.round((startOf(now) - startOf(d)) / 86_400_000)
     if (diff === 0) return t('today')
     if (diff === 1) return t('yesterday')
-    return d.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+    return formatDate(d, locale, { day: 'numeric', month: 'long', year: 'numeric' })
   }
 
   // #1: отправка по WS с nonce + пометка «отправляется» и таймаут «эхо не пришло → ошибка».
@@ -3347,7 +3359,7 @@ export function ChatWindow() {
     const q = listSearchTerm.toLowerCase()
     return q.length >= 2 ? list.filter((c) => chatTitle(c, t).toLowerCase().includes(q)) : []
   }, [list, listSearchTerm, t])
-  const msgMatches = listMsgResults.data?.items ?? []
+  const msgMatches = listMsgResults.data?.items ?? NO_ITEMS
   const pinnedList = pinned.data ?? []
   // Вкладки папок для окна пересылки: те же, что над списком чатов, но готовым составом —
   // сам диалог живёт в entities и о папках знать не может (слои FSD).
@@ -3670,7 +3682,7 @@ export function ChatWindow() {
 
   // Список чатов — на мобильном во весь экран; на десктопе порталится в сайдбар (embedded).
   const chatList = (
-    <ConversationList
+    <StableConversationList
       embedded={embedded}
       activeId={activeId}
       onOpenChat={setActiveId}
@@ -3723,7 +3735,7 @@ export function ChatWindow() {
       chatMatches={chatMatches}
       msgMatches={msgMatches}
       msgResultsLoading={listMsgResults.isLoading}
-      peopleMatches={listPeopleResults.data?.items ?? []}
+      peopleMatches={listPeopleResults.data?.items ?? NO_ITEMS}
       peopleLoading={listPeopleResults.isLoading}
       onOpenPerson={(u) => startDirect.mutate(u.id)}
       startingPersonId={startDirect.isPending ? (startDirect.variables ?? null) : null}
@@ -4096,6 +4108,7 @@ export function ChatWindow() {
               )}
               <div
                 ref={messagesScrollRef}
+                data-message-scroller=""
                 onScroll={onMessagesScroll}
                 onMouseDown={listGestures.onMouseDown}
                 onClickCapture={listGestures.onClickCapture}
@@ -4361,7 +4374,7 @@ export function ChatWindow() {
           сжимает переписку, в узком выезжает поверх неё. */}
       <RightColumn open={detailsOpen} wide={isWide} onClose={() => setDetailsOpen(false)}>
         {detailsProps && (
-          <ChatDetailsPanel
+          <StableChatDetailsPanel
             key={detailsProps.chat.id}
             {...detailsProps}
             variant={isWide ? 'column' : 'fullscreen'}
