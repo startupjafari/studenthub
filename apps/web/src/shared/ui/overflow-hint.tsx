@@ -22,6 +22,8 @@ import { toast } from 'sonner'
 const SHOW_DELAY = 200
 /** Пауза перед скрытием, мс: успеть довести курсор до кнопки «Копировать». */
 const HIDE_DELAY = 150
+/** Сколько после прокрутки не искать обрезанный текст под курсором, мс. */
+const SCROLL_QUIET = 150
 /** Сколько предков проверять от элемента под курсором: курсор бывает на вложенном span. */
 const MAX_DEPTH = 4
 /** Отступ подсказки от текста и от краёв окна, px. */
@@ -98,8 +100,17 @@ export function OverflowHint() {
     const inHint = (node: EventTarget | null): boolean =>
       node instanceof Node && !!box.current?.contains(node)
 
+    // Прокрутка колесом двигает текст под неподвижным курсором, и pointerover летит на каждый
+    // проехавший элемент — с getComputedStyle на каждом. Во время прокрутки и сразу после неё
+    // подсказка всё равно не нужна (scroll её прячет), поэтому такие события пропускаем.
+    let scrolledAt = 0
+    const onScroll = (): void => {
+      scrolledAt = performance.now()
+      hide()
+    }
     const onOver = (e: PointerEvent): void => {
       if (e.pointerType === 'touch' || inHint(e.target)) return
+      if (performance.now() - scrolledAt < SCROLL_QUIET) return
       const el = findClipped(e.target as Element)
       if (el) scheduleShow(el)
       else if (target.current && !target.current.contains(e.target as Node)) scheduleHide()
@@ -125,14 +136,14 @@ export function OverflowHint() {
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('pointerdown', onDown, true)
     // Текст уехал из-под подсказки — она уже не про то место.
-    window.addEventListener('scroll', hide, true)
+    window.addEventListener('scroll', onScroll, true)
     window.addEventListener('resize', hide)
     return () => {
       document.removeEventListener('pointerover', onOver, true)
       document.removeEventListener('focusin', onFocus, true)
       document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('scroll', hide, true)
+      window.removeEventListener('scroll', onScroll, true)
       window.removeEventListener('resize', hide)
       window.clearTimeout(showTimer.current)
       window.clearTimeout(hideTimer.current)
