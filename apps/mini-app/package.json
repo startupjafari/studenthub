@@ -28,7 +28,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "eslint": "^9.39.1",
-    "jsdom": "^25.0.1",
+    "jsdom": "^31.0.0",
     "size-limit": "^12.1.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.5",

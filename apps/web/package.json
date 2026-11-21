@@ -90,7 +90,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.39.1",
-    "jsdom": "^25.0.1",
+    "jsdom": "^31.0.0",
     "shadcn": "^4.23.0",
     "size-limit": "^12.1.0",
     "tailwindcss": "^4.1.16",
