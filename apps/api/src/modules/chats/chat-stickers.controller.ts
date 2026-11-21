@@ -22,6 +22,32 @@ export class ChatStickersController {
     return this.stickers.listPublished()
   }
 
+  // Лёгкий каталог для панели (Telegram): полоса наборов рисуется сразу, стикеры набора
+  // клиент догружает `sets/:setId`, когда набор доезжает до экрана. `GET sets` остаётся для
+  // клиентов, которые берут каталог целиком (iOS, Android).
+  @Get('sets/summary')
+  @ApiOperation({ summary: 'Опубликованные наборы стикеров: обложка и число стикеров' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '[{ id, title, slug, count, cover: { id, emoji, width, height, animated, url, expiresAt } | null }]',
+  })
+  setsSummary() {
+    return this.stickers.listPublishedSummary()
+  }
+
+  @Get('sets/:setId')
+  @ApiOperation({ summary: 'Один опубликованный набор стикеров со ссылками на картинки' })
+  @ApiResponse({
+    status: 200,
+    description:
+      '{ id, title, slug, stickers: [{ id, emoji, width, height, animated, url, expiresAt }] }',
+  })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — набора нет или он не опубликован' })
+  set(@Param('setId') setId: string) {
+    return this.stickers.publishedSet(setId)
+  }
+
   // `favorites` объявлен раньше `:stickerId/…`: статический сегмент не должен читаться как id.
   @Get('favorites')
   @ApiOperation({ summary: 'Мои избранные стикеры: свежие сверху, не больше 30' })

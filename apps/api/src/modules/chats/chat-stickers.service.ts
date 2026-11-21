@@ -81,6 +81,21 @@ export interface StickerSetDto {
   stickers: StickerDto[]
 }
 
+/**
+ * Набор в лёгкой выдаче каталога (`GET /chats/stickers/sets/summary`): без стикеров, только
+ * обложка (первый стикер) и их число. Панель рисует полосу наборов сразу, а стикеры каждого
+ * набора догружает `GET /chats/stickers/sets/:setId`, когда набор доезжает до экрана.
+ */
+export interface StickerSetSummaryDto {
+  id: string
+  title: string
+  slug: string
+  /** Сколько стикеров отдаст `GET /chats/stickers/sets/:setId` — под заглушки той же высоты. */
+  count: number
+  /** Первый стикер набора; `null` — набор пуст. */
+  cover: StickerDto | null
+}
+
 /** Набор в админской выдаче: ещё и неопубликованные, с порядком и флагом публикации. */
 export interface StickerSetAdminDto extends StickerSetDto {
   order: number
@@ -149,6 +164,66 @@ export class ChatStickersService {
       slug: set.slug,
       stickers: set.stickers.flatMap((sticker) => signed.get(sticker.id) ?? []),
     }))
+  }
+
+  /**
+   * Лёгкая выдача каталога: наборы по тому же порядку, что у `listPublished`, но вместо всех
+   * стикеров — обложка и их число. Полная выдача подписывает каждую картинку каталога
+   * (на сиде 2,7 тыс. ссылок, 1,45 МБ), а панели для первого кадра нужны только обложки.
+   */
+  async listPublishedSummary(): Promise<StickerSetSummaryDto[]> {
+    const sets = await this.prisma.stickerSet.findMany({
+      where: { ...CATALOG_WHERE, isPublished: true },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      take: STICKER_LIMITS.SETS_MAX,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        _count: { select: { stickers: true } },
+        stickers: {
+          select: STICKER_SELECT,
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+          take: 1,
+        },
+      },
+    })
+    const signed = await this.sign(sets.flatMap((set) => set.stickers))
+    return sets.map((set) => {
+      const first = set.stickers[0]
+      return {
+        id: set.id,
+        title: set.title,
+        slug: set.slug,
+        count: Math.min(set._count.stickers, STICKER_LIMITS.STICKERS_PER_SET_MAX),
+        cover: (first && signed.get(first.id)) ?? null,
+      }
+    })
+  }
+
+  /** Один опубликованный набор каталога со всеми стикерами — в форме элемента `listPublished`. */
+  async publishedSet(setId: string): Promise<StickerSetDto> {
+    const set = await this.prisma.stickerSet.findFirst({
+      where: { id: setId, ...CATALOG_WHERE, isPublished: true },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        stickers: {
+          select: STICKER_SELECT,
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+          take: STICKER_LIMITS.STICKERS_PER_SET_MAX,
+        },
+      },
+    })
+    if (!set) throw new AppException('NOT_FOUND', 'Набор стикеров не найден')
+    const signed = await this.sign(set.stickers)
+    return {
+      id: set.id,
+      title: set.title,
+      slug: set.slug,
+      stickers: set.stickers.flatMap((sticker) => signed.get(sticker.id) ?? []),
+    }
   }
 
   /**
