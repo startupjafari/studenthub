@@ -13,15 +13,9 @@ import {
   MessageContactCard,
   MessageContent,
   MessageLocationCard,
-  MessageStickerView,
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import {
-  attachmentStickerSource,
-  openStickerEditor,
-  openStickerSetPreview,
-} from '../../../entities/sticker-set'
 import {
   ChatSharedPost,
   ChatSharedProfile,
@@ -218,7 +212,7 @@ function MessageItemInner({
   const profileShare = m.sharedPost || m.poll || storyCard ? null : parseProfileShare(m.content)
 
   // ── Из чего состоит пузырь — от этого зависят форма, отступы и место времени ──
-  const special = !!(m.poll || m.sticker || m.location || m.contact || m.checklist || profileShare)
+  const special = !!(m.poll || m.location || m.contact || m.checklist || profileShare)
   const hasText = !special && !!m.content
   const hasPreview = !!m.linkPreview && !profileShare
   const showName = !mine && isGroup && firstOfRun
@@ -244,8 +238,8 @@ function MessageItemInner({
     !hasPreview &&
     !m.sharedPost &&
     !storyCard
-  // Стикер, крупные эмодзи и кружок живут без пузыря: подложка у них — только под временем.
-  const bare = bigEmoji > 0 || (!!m.sticker && m.media.length === 0) || roundOnly
+  // Крупные эмодзи и кружок живут без пузыря: подложка у них — только под временем.
+  const bare = bigEmoji > 0 || roundOnly
   // Снимки и видео без файлов — от края до края пузыря, как в Telegram.
   const mediaOnly = m.media.length > 0 && m.media.every(isViewable)
   const hasBelowMedia = hasText || special || !!m.sharedPost || storyCard || hasPreview
@@ -372,7 +366,6 @@ function MessageItemInner({
         onCopiedImage: (ok) => actions.copiedImage(ok),
         onForward: () => actions.forward(m),
         onDelete: () => actions.del(m),
-        onMakeSticker: (att) => openStickerEditor(attachmentStickerSource(att)),
       }}
       // Просмотрщик листает все фото и видео чата, а не только вложения этого сообщения.
       messageId={m.id}
@@ -397,17 +390,6 @@ function MessageItemInner({
       <>
         {header}
         {attachments}
-      </>
-    )
-  } else if (bare && m.sticker) {
-    const sticker = m.sticker
-    body = (
-      <>
-        {header}
-        <MessageStickerView
-          sticker={sticker}
-          onOpen={() => openStickerSetPreview({ setId: sticker.setId })}
-        />
       </>
     )
   } else {
@@ -458,11 +440,6 @@ function MessageItemInner({
         )}
         {m.poll ? (
           <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
-        ) : m.sticker ? (
-          <MessageStickerView
-            sticker={m.sticker}
-            onOpen={() => m.sticker && openStickerSetPreview({ setId: m.sticker.setId })}
-          />
         ) : m.location ? (
           <MessageLocationCard
             location={m.location}

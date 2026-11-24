@@ -410,7 +410,7 @@ function InviteScreen({ chat }: { chat: ChatListItem }) {
       setCopied(true)
       toast.success(t('linkCopied'))
     } catch {
-      toast.error(t('tgStickers.linkCopyFailed'))
+      toast.error(t('linkCopyFailed'))
     }
   }
   const share = async (): Promise<void> => {

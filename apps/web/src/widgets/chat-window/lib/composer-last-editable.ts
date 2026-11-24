@@ -19,7 +19,7 @@ export function lastEditableMessage(
     // Дальше — только более старые: если последнее своё уже нельзя править, то и их нельзя.
     if (now - new Date(m.createdAt).getTime() >= MESSAGE_EDIT_WINDOW_MS) return null
     if (m.id.startsWith('tmp:') || m.forwardedFromId) continue
-    if (m.poll || m.sticker || m.checklist || m.location || m.contact) continue
+    if (m.poll || m.checklist || m.location || m.contact) continue
     if (!m.content.trim()) continue
     return m
   }
