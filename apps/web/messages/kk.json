@@ -2724,8 +2724,6 @@
       "sent": "Жіберілді",
       "unreadCount": "{n, plural, one {# оқылмаған хабарлама} other {# оқылмаған хабарлама}}",
       "unreadShort": "Оқылмаған",
-      "fabClose": "Мәзірді жабу",
-      "fabNew": "Жаңа хабарлама",
       "newMessage": "Жаңа хабарлама",
       "clearRecent": "Тазалау",
       "fileNoName": "Атауы жоқ файл",

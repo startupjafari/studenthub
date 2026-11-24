@@ -2724,8 +2724,6 @@
       "sent": "Sent",
       "unreadCount": "{n, plural, one {# unread message} other {# unread messages}}",
       "unreadShort": "Unread",
-      "fabClose": "Close menu",
-      "fabNew": "New message",
       "newMessage": "New message",
       "clearRecent": "Clear",
       "fileNoName": "Untitled file",
