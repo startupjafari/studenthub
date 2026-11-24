@@ -8,8 +8,7 @@ import { apiGetPaged, apiGet, apiPatch, apiPost } from './client'
 
 export type ComplaintStatus = 'PENDING' | 'REVIEWING' | 'RESOLVED' | 'DISMISSED'
 export type ComplaintPriority = 'HIGH' | 'MEDIUM' | 'LOW'
-export type ComplaintTarget =
-  'POST' | 'STORY' | 'COMMENT' | 'MESSAGE' | 'USER' | 'CHAT' | 'STICKER_SET'
+export type ComplaintTarget = 'POST' | 'STORY' | 'COMMENT' | 'MESSAGE' | 'USER' | 'CHAT'
 
 export interface Complaint {
   id: string

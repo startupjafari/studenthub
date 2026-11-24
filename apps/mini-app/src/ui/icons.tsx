@@ -372,17 +372,6 @@ export function IconTargetChat(props: IconProps) {
   )
 }
 
-/** Набор стикеров: листок с загнутым уголком, как стикер в Telegram. */
-export function IconTargetStickerSet(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7l-7 7H6a2 2 0 0 1-2-2Z" strokeWidth="1.9" />
-      <path d="M13 20v-5a2 2 0 0 1 2-2h5" strokeWidth="1.9" />
-      <path d="M9 10h.01M15 10h.01" strokeWidth="2.4" />
-    </Svg>
-  )
-}
-
 // ── Поле ввода поддержки и действия с обращением ─────────────────────────
 
 /** Отправить: стрелка вверх, как круглая кнопка отправки в Telegram. */

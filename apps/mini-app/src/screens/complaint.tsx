@@ -41,7 +41,6 @@ const TARGET_KEY = {
   STORY: 'targetStory',
   COMMENT: 'targetComment',
   CHAT: 'targetChat',
-  STICKER_SET: 'targetStickerSet',
 } as const
 
 const PRIORITY_KEY = {
