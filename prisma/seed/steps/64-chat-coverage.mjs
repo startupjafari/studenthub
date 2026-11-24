@@ -1,11 +1,11 @@
 // Шаг «чаты: полное покрытие»: каждый сценарий чата, который умеют API и клиенты, хотя бы
-// раз в каждом вузе. Вложения всех форматов (фото- и видеоальбомы, GIF, спойлер, «без
-// сжатия», документы, архивы, голосовые, музыка), стикеры и избранные стикеры, пересылки,
-// ответы с цитатой, «без звука», правка и удаление, превью ссылок, карточки постов, все
-// системные события группы, опросы во всех режимах, трансляция геопозиции, персональные
-// настройки участника (архив, mute на время, порядок закрепов, «непрочитанное», очистка
-// истории, скрытие), папки с правилами, запрос на переписку и обращения в поддержку
-// платформы во всех состояниях и со всеми тегами.
+// раз в каждом вузе. Вложения всех форматов (фото- и видеоальбомы, картинка GIF, спойлер,
+// «без сжатия», документы, архивы, голосовые, музыка), пересылки, ответы с цитатой, «без
+// звука», правка и удаление, превью ссылок, карточки постов, все системные события группы,
+// опросы во всех режимах, трансляция геопозиции, персональные настройки участника (архив,
+// mute на время, порядок закрепов, «непрочитанное», очистка истории, скрытие), папки с
+// правилами, запрос на переписку и обращения в поддержку платформы во всех состояниях и со
+// всеми тегами.
 //
 // Почему не вероятностями: «с шансом 10 %» на маленьком вузе даёт ноль, и экран, который
 // надо проверить, оказывается пустым. Здесь каждый сценарий — детерминированная запись, а
@@ -30,7 +30,6 @@ import { phone } from '../data/people.mjs'
 import { formatCycler, formatFileRow, formatSamples } from '../lib/formats.mjs'
 import { child, id, uniPrefix } from '../lib/ids.mjs'
 import { makeRandom, SEED_BASE } from '../lib/rng.mjs'
-import { STICKER_SET_SLUG } from './95-stickers.mjs'
 
 const STAFF_ROLES = ['PLATFORM_ADMIN', 'PLATFORM_MODERATOR']
 const MINUTE = 60_000
@@ -213,17 +212,6 @@ export async function seedChatCoverage(prisma, writer, ctx) {
   let emojiSeq = 0
 
   // ── Справочники из базы ────────────────────────────────────────────────────
-  // Стикеры заводит общий шаг до вузов (95-stickers) — только при MinIO и только опубликованные
-  // набором клиенты увидят. Нет набора — нет ни стикеров в сообщениях, ни избранного.
-  const stickers = (
-    await prisma.sticker.findMany({
-      where: { set: { slug: STICKER_SET_SLUG, isPublished: true } },
-      select: { id: true },
-      orderBy: [{ order: 'asc' }, { id: 'asc' }],
-      take: 100,
-    })
-  ).map((s) => s.id)
-  const nextSticker = (n) => stickers[n % stickers.length]
   // Команда платформы — участники каждого обращения (как createTicket у SupportService).
   const staff = (
     await prisma.user.findMany({
@@ -416,13 +404,12 @@ export async function seedChatCoverage(prisma, writer, ctx) {
     return plan
   }
   // Пересылка — копия содержимого оригинала (как copyForward у сервиса): текст, превью,
-  // пост, стикер и вложения (новые строки File на тот же объект) плюс ссылка на источник.
+  // пост и вложения (новые строки File на тот же объект) плюс ссылка на источник.
   const forwardOf = (source) => ({
     forwardOf: source,
     content: source.content,
     ...(source.linkPreview ? { linkPreview: source.linkPreview } : {}),
     ...(source.sharedPostId ? { sharedPostId: source.sharedPostId } : {}),
-    ...(source.stickerId ? { stickerId: source.stickerId } : {}),
     ...(source.files ? { files: source.files, asDocument: source.asDocument } : {}),
   })
   const files = (samples, spoilerAt = []) =>
@@ -446,8 +433,8 @@ export async function seedChatCoverage(prisma, writer, ctx) {
     })
   }
 
-  // Слот 0 — медиа в чате группы: фотоальбом, фото+видео, спойлер, GIF, видео всех
-  // форматов, снимок «без сжатия».
+  // Слот 0 — медиа в чате группы: фотоальбом, фото+видео, спойлер, картинка GIF, видео
+  // всех форматов, снимок «без сжатия».
   if (media && media.images.length > 0) {
     const { group } = slot(0)
     const chatId = chatOf.grp(group)
@@ -518,9 +505,6 @@ export async function seedChatCoverage(prisma, writer, ctx) {
       deletedAfter: 30,
     })
     add(chatId, 'reply-deleted', s(5), { content: 'А что там было?', replyTo: deleted })
-    if (stickers.length > 0) {
-      add(chatId, 'sticker', s(1), { stickerId: nextSticker(index), reactions: [s(0)] })
-    }
     const groupPost = child(group.id, 'post', 0)
     if (posts.has(groupPost)) {
       add(chatId, 'post', s(2), { content: 'Посмотрите пост старосты', sharedPostId: groupPost })
@@ -610,7 +594,7 @@ export async function seedChatCoverage(prisma, writer, ctx) {
     }
   }
 
-  // Слот 4 — голосовые и музыка в личных чатах, стикер и его пересылка.
+  // Слот 4 — голосовые, музыка и карточка контакта в личных чатах.
   const g4 = slot(4, 2)
   if (g4) {
     const { group } = g4
@@ -645,12 +629,6 @@ export async function seedChatCoverage(prisma, writer, ctx) {
         emails: [`library@${uniPrefix(index)}.edu.kz`, `abonement@${uniPrefix(index)}.edu.kz`],
       },
     })
-    if (stickers.length > 0) {
-      const sticker = add(chatOf.grp(group), 'sticker-src', a, {
-        stickerId: nextSticker(index + 1),
-      })
-      add(pv0, 'fwd-sticker', a, forwardOf(sticker))
-    }
   }
 
   // Слот 6 — «Сохранённые» старосты: пересланное из чата группы, заметка, файл.
@@ -806,7 +784,6 @@ export async function seedChatCoverage(prisma, writer, ctx) {
       // Снятый закреп: pinnedAt обнулён, след — unpinnedAt (по нему догон узнаёт о снятии).
       unpinnedAt: p.pin === 'unpinned' ? after(p, 4) : null,
       sharedPostId: p.sharedPostId ?? null,
-      stickerId: p.stickerId ?? null,
       linkPreview: p.linkPreview,
       systemType: p.systemType ?? null,
       systemMeta: p.systemMeta,
@@ -917,7 +894,7 @@ export async function seedChatCoverage(prisma, writer, ctx) {
   // ── Персональные настройки участников ──────────────────────────────────────
   await applyMemberSettings(prisma, g0)
 
-  // ── Папки с правилами состава, избранные стикеры, отложенный ответ с цитатой ─
+  // ── Папки с правилами состава, отложенный ответ с цитатой ──────────────────
   const folders = [
     { name: 'Все группы', emoji: '📚', color: 0, includeGroups: true, excluded: chatOf.off(g0.group) }, // prettier-ignore
     { name: 'Друзья', emoji: '👥', color: 4, includeContacts: true, item: chatOf.pv(g0.group, 0) },
@@ -933,22 +910,6 @@ export async function seedChatCoverage(prisma, writer, ctx) {
     }
     if (item && g0.group.studentIds.length >= 2) {
       await writer.add('chatFolderItem', { id: child(folderId, 'i'), folderId, chatId: item })
-    }
-  }
-
-  if (stickers.length > 0) {
-    const fans = [...groups.slice(0, 3).map(({ group }) => group.starostaId), g0.faculty.teacherIds[0]] // prettier-ignore
-    for (const [ui, userId] of [...new Set(fans.filter(Boolean))].entries()) {
-      const count = Math.min(5, stickers.length)
-      for (let k = 0; k < count; k += 1) {
-        await writer.add('favoriteSticker', {
-          id: `${userId}-fst-${k}`,
-          userId,
-          stickerId: stickers[(ui * 3 + k) % stickers.length],
-          // «Свежие сверху»: первый в списке — добавленный последним.
-          createdAt: ago(k + 1),
-        })
-      }
     }
   }
 

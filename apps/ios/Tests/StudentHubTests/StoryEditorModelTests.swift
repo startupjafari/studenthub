@@ -617,8 +617,7 @@ final class StoryDocumentTests: XCTestCase {
             $0.scale = 1.4
             $0.rotation = 0.3
         }
-        document.add(.emoji("🔥"), size: StorySize(width: 0.25, height: 0.25))
-        document.add(.shape(StoryShapePayload(shape: .ellipse, color: StoryColor(hex: "#30D158")!.withAlpha(0.5))), size: StorySize(width: 0.4, height: 0.4))
+        document.add(.text(StoryTextPayload(text: "🔥")), size: StorySize(width: 0.25, height: 0.25))
         document.add(.roundVideo(StoryRoundVideoPayload(file: "round.mp4", duration: 7.5, startTime: 1)), size: StorySize(width: 0.45, height: 0.45))
         document.drawing.add(stroke([(0.1, 0.1), (0.2, 0.3)], brush: .neon, color: StoryColor(hex: "#BF5AF2")!))
         document.drawingTool.brush = .marker
@@ -641,10 +640,39 @@ final class StoryDocumentTests: XCTestCase {
         XCTAssertEqual(restored.duration, 8.5)
     }
 
+    /// Черновик прошлой версии со стикерами-эмодзи и фигурами (панель стикеров убрана):
+    /// незнакомые объекты пропускаются, остальное открывается как было.
+    func testDraftWithRemovedStickerLayersStillOpens() throws {
+        var document = photoDocument()
+        let textID = document.add(.text(StoryTextPayload(text: "Надпись")), size: StorySize(width: 0.6, height: 0.1))
+        document.caption = "Подпись"
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(document)) as? [String: Any])
+        var entities = try XCTUnwrap(json["entities"] as? [[String: Any]])
+        var emoji = entities[0]
+        emoji["id"] = UUID().uuidString
+        emoji["kind"] = ["emoji": ["_0": "🔥"]]
+        var shape = entities[0]
+        shape["id"] = UUID().uuidString
+        shape["kind"] = ["shape": ["_0": ["shape": "star", "color": ["red": 1, "green": 0, "blue": 0, "alpha": 1], "filled": true]]]
+        entities.insert(emoji, at: 0)
+        entities.append(shape)
+        json["entities"] = entities
+
+        let restored = try decoder.decode(StoryDocument.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored.entities.map(\.id), [textID])
+        XCTAssertEqual(restored.caption, "Подпись")
+        XCTAssertEqual(restored.background, document.background)
+    }
+
     func testEntitiesStayOrderedByZIndex() {
         var document = photoDocument()
-        let a = document.add(.emoji("A"), size: StorySize(width: 0.2, height: 0.2))
-        let b = document.add(.emoji("B"), size: StorySize(width: 0.2, height: 0.2))
+        let a = document.add(.text(StoryTextPayload(text: "A")), size: StorySize(width: 0.2, height: 0.2))
+        let b = document.add(.text(StoryTextPayload(text: "B")), size: StorySize(width: 0.2, height: 0.2))
         let snapshot = document
         document.bringToFront(b)
         XCTAssertEqual(document, snapshot, "уже сверху — без изменений")
@@ -654,7 +682,7 @@ final class StoryDocumentTests: XCTestCase {
 
     func testDuplicateCreatesNewEntityOnTop() throws {
         var document = photoDocument()
-        let id = document.add(.emoji("A"), size: StorySize(width: 0.2, height: 0.2))
+        let id = document.add(.text(StoryTextPayload(text: "A")), size: StorySize(width: 0.2, height: 0.2))
         let copy = try XCTUnwrap(document.duplicate(id))
         XCTAssertNotEqual(copy, id)
         XCTAssertEqual(document.entities.count, 2)

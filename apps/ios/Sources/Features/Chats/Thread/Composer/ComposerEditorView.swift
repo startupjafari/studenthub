@@ -20,13 +20,11 @@ struct ComposerEditorView: View {
     let close: (ComposerEditorExit) -> Void
     /// Отправка или сохранение правки — та же, что у кнопки панели ввода.
     let send: () -> Void
-    let sendSticker: (StickerSetDTO.Sticker) -> Void
-    let sendGif: (GifChoice) -> Void
     let reduceMotion: Bool
 
     @State private var editor = ComposerTextController()
     @State private var isFocused = false
-    /// Вместо клавиатуры — панель emoji, стикеров и GIF.
+    /// Вместо клавиатуры — панель emoji.
     @State private var showsPanel = false
 
     var body: some View {
@@ -73,14 +71,6 @@ struct ComposerEditorView: View {
                     },
                     onBackspace: {
                         if !editor.deleteBackward(), !model.composerText.isEmpty { model.composerText.removeLast() }
-                    },
-                    onSticker: { sticker in
-                        sendSticker(sticker)
-                        close(.sent)
-                    },
-                    onGif: { gif in
-                        sendGif(gif)
-                        close(.sent)
                     }
                 )
                 .frame(height: panelHeight)
@@ -210,7 +200,7 @@ struct ComposerEditorView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(showsPanel
                         ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
-                        : String(localized: "chats.panel.open", defaultValue: "Emoji, стикеры и GIF")))
+                        : String(localized: "chats.panel.emoji", defaultValue: "Эмодзи")))
                 }
                 .padding(.horizontal, Spacing.xs)
                 .composerGlass(in: Capsule())

@@ -62,7 +62,6 @@ export const chatKeys = {
   // Опросы чата для вкладки общих материалов (полные сообщения, свежие первыми).
   polls: (id: string) => ['chats', id, 'polls'] as const,
   poll: (pollId: string) => ['chats', 'poll', pollId] as const,
-  stickerUrl: (stickerId: string) => ['chats', 'sticker-url', stickerId] as const,
   blocked: () => ['chats', 'blocked'] as const,
   unread: () => ['chats', 'unread'] as const,
   folders: () => ['chats', 'folders'] as const,
@@ -425,16 +424,6 @@ export async function stopLiveLocationRequest(messageId: string): Promise<Messag
   return data
 }
 
-// Подписанная ссылка на картинку стикера каталога (срок — expiresAt).
-export async function fetchStickerUrl(
-  stickerId: string,
-): Promise<{ url: string; expiresAt: string }> {
-  const { data } = await api.get<{ url: string; expiresAt: string }>(
-    `/chats/stickers/${stickerId}/url`,
-  )
-  return data
-}
-
 // Общие материалы чата (§23): вложения по типу и ссылки.
 export interface ChatMediaPage {
   items: ChatMediaItem[]
@@ -446,9 +435,9 @@ export interface ChatMediaPage {
 }
 /**
  * Вид общих материалов: `voice` — всё аудио, `voice_note` — только голосовые, `music` — аудио
- * кроме голосовых, `gif` — анимации (`image/gif`).
+ * кроме голосовых.
  */
-export type ChatMediaType = 'media' | 'file' | 'voice' | 'voice_note' | 'music' | 'gif'
+export type ChatMediaType = 'media' | 'file' | 'voice' | 'voice_note' | 'music'
 
 /**
  * Страница материалов: свежие первыми. `older` (по умолчанию) — старше курсора, `newer` —

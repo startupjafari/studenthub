@@ -1,12 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { MessageAttachment } from '../../../entities/chat'
-
-const supported = vi.hoisted(() => ({ value: true }))
-vi.mock('../../../shared/lib/emoji-support', () => ({
-  isEmojiSupported: () => supported.value,
-}))
-
-import { singleMediaName, stickerPreviewEmoji } from './chat-list-preview'
+import { singleMediaName } from './chat-list-preview'
 
 const att = (over: Partial<MessageAttachment>): MessageAttachment =>
   ({ id: 'a', mime: 'application/pdf', size: 1, ...over }) as MessageAttachment
@@ -29,22 +23,5 @@ describe('singleMediaName', () => {
     expect(singleMediaName([att({ name: 'a.pdf' }), att({ name: 'b.pdf' })])).toBeNull()
     expect(singleMediaName([att({ name: '  ' })])).toBeNull()
     expect(singleMediaName([])).toBeNull()
-  })
-})
-
-describe('stickerPreviewEmoji', () => {
-  it('смайл, который система рисует, — перед подписью', () => {
-    supported.value = true
-    expect(stickerPreviewEmoji('🙂')).toBe('🙂 ')
-  })
-
-  // Вместо «□ Стикер» — просто «Стикер».
-  it('нераспознанный шрифтом смайл не показывается', () => {
-    supported.value = false
-    expect(stickerPreviewEmoji('🫥')).toBe('')
-  })
-
-  it('без эмодзи — пусто', () => {
-    expect(stickerPreviewEmoji(null)).toBe('')
   })
 })

@@ -17,9 +17,6 @@ export interface MessageAttachment {
   // Кружок (видеосообщение, как в Telegram): ролик рисуется кругом без пузыря, превью играет
   // без звука, нажатие — со звуком. Флаг отправителя: по байтам квадратное видео не отличить.
   videoNote?: boolean
-  // Анимация (GIF как в Telegram): сервер перевёл GIF в беззвучный MP4 (или взял готовый из
-  // GIPHY). Рисуется как GIF — автоплей без звука, по кругу, без панели плеера, с подписью.
-  animation?: boolean
   // Размеры изображения в пикселях (сервер считает их при загрузке): под снимок резервируется
   // точное место, пока идут байты. NULL/undefined — не картинка либо вложение старше полей.
   width?: number | null
@@ -52,7 +49,6 @@ export interface ReplyMediaPreview {
   spoiler?: boolean
   asDocument?: boolean
   videoNote?: boolean
-  animation?: boolean
 }
 
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
@@ -177,12 +173,11 @@ export interface ChatMessage {
   reactions: MessageReaction[]
   // Опрос (§38): не null → сообщение-опрос (рендерится как ChatPoll, не как текст).
   poll: ChatPoll | null
-  // Особые сообщения (у них пустой content): геопозиция, карточка контакта, чек-лист,
-  // стикер каталога. Необязательны — их нет у оптимистичных пузырей и у старого сервера.
+  // Особые сообщения (у них пустой content): геопозиция, карточка контакта, чек-лист.
+  // Необязательны — их нет у оптимистичных пузырей и у старого сервера.
   location?: MessageLocation | null
   contact?: MessageContact | null
   checklist?: MessageChecklist | null
-  sticker?: MessageSticker | null
   // Системное событие группы (§20): не null → служебное сообщение (member_added, title_changed, …).
   // sender = инициатор; systemMeta — денормализованные детали для текста.
   systemType: string | null
@@ -231,18 +226,6 @@ export interface MessageChecklist {
   items: MessageChecklistItem[]
 }
 
-// Стикер каталога или своего набора: картинку отдаёт подписанной ссылкой
-// GET /chats/stickers/:id/url. По `setId` открывается окно набора.
-export interface MessageSticker {
-  id: string
-  setId: string
-  emoji: string | null
-  width: number | null
-  height: number | null
-  /** Анимированный WebP (свой стикер из GIF или видео). У старых ответов поля нет. */
-  animated?: boolean
-}
-
 // Инлайн-превью ссылки (OG-мета) в сообщении.
 export interface LinkPreview {
   url: string
@@ -260,8 +243,6 @@ export interface ChatMediaItem {
   mime: string
   size: number
   hasPoster: boolean
-  /** GIF, переведённый в MP4 (`GET /chats/:id/media`). */
-  animation?: boolean
   width?: number | null
   height?: number | null
   placeholder?: string | null

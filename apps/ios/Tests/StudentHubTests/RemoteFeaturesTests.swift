@@ -11,10 +11,11 @@ final class RemoteFeaturesTests: XCTestCase {
     func testKnownNamesAreDecodedUnknownDropped() throws {
         let info = try decode("""
         {"platform":"ios","minimumVersion":"1.0.0",
-         "disabledFeatures":["liveLocation","fromTheFuture",42,"gifSearch","liveLocation"]}
+         "disabledFeatures":["liveLocation","fromTheFuture",42,"chatVideoUpload","liveLocation","stickers"]}
         """)
 
-        XCTAssertEqual(info.disabledFeatures, [.liveLocation, .gifSearch])
+        // `stickers` — имя выключателя убранной функции: эта сборка его не знает.
+        XCTAssertEqual(info.disabledFeatures, [.liveLocation, .chatVideoUpload])
     }
 
     /// Ответ старого сервера и кеш прежней сборки поля не знают — это «всё включено».
@@ -27,7 +28,7 @@ final class RemoteFeaturesTests: XCTestCase {
 
     /// Битое поле не должно стоить проверки версии, которая едет в том же ответе.
     func testMalformedFieldKeepsVersionAnswer() throws {
-        let info = try decode(#"{"platform":"ios","minimumVersion":"2.0.0","disabledFeatures":"stickers"}"#)
+        let info = try decode(#"{"platform":"ios","minimumVersion":"2.0.0","disabledFeatures":"liveLocation"}"#)
 
         XCTAssertEqual(info.disabledFeatures, [])
         XCTAssertEqual(info.minimumVersion, "2.0.0")
@@ -41,29 +42,28 @@ final class RemoteFeaturesTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let cache = DefaultsClientVersionCache(defaults: defaults)
 
-        cache.save(answer(disabled: [.chatVideoUpload, .stickers]))
+        cache.save(answer(disabled: [.chatVideoUpload]))
 
-        XCTAssertEqual(cache.load()?.disabledFeatures, [.chatVideoUpload, .stickers])
+        XCTAssertEqual(cache.load()?.disabledFeatures, [.chatVideoUpload])
         // Первый кадр после перезапуска уже знает, что выключено.
         let features = RemoteFeatures(cache: cache)
         XCTAssertFalse(features.isEnabled(.chatVideoUpload))
-        XCTAssertFalse(features.isEnabled(.stickers))
         XCTAssertTrue(features.isEnabled(.liveLocation))
     }
 
     // MARK: Применение через проверку версии
 
     func testServerAnswerTurnsFeaturesOffAndBackOn() async {
-        let api = StubVersionAPI(answer: answer(disabled: [.gifSearch]))
+        let api = StubVersionAPI(answer: answer(disabled: [.chatVideoUpload]))
         let features = RemoteFeatures(cache: MemoryVersionCache())
         let gate = UpdateGateModel(api: api, cache: MemoryVersionCache(), features: features, currentVersion: "1.0.0")
 
         await gate.check()
-        XCTAssertFalse(features.isEnabled(.gifSearch))
+        XCTAssertFalse(features.isEnabled(.chatVideoUpload))
 
         api.set(answer(disabled: []))
         await gate.check()
-        XCTAssertTrue(features.isEnabled(.gifSearch))
+        XCTAssertTrue(features.isEnabled(.chatVideoUpload))
     }
 
     /// Без сети действует последний ответ: функция, выключенная из-за поломки, не
@@ -84,22 +84,14 @@ final class RemoteFeaturesTests: XCTestCase {
     /// Неразобранная версия на сервере не отменяет выключение функций.
     func testSwitchesApplyEvenWithUnparsableVersion() async {
         let api = StubVersionAPI(answer: ClientVersionInfo(
-            platform: "ios", minimumVersion: "последняя", storeUrl: nil, disabledFeatures: [.stickers]
+            platform: "ios", minimumVersion: "последняя", storeUrl: nil, disabledFeatures: [.chatVideoUpload]
         ))
         let features = RemoteFeatures(cache: MemoryVersionCache())
         let gate = UpdateGateModel(api: api, cache: MemoryVersionCache(), features: features, currentVersion: "1.0.0")
 
         await gate.check()
 
-        XCTAssertFalse(features.isEnabled(.stickers))
-    }
-
-    // MARK: Экраны
-
-    /// Стикеры выключены — вкладки нет; emoji остаются всегда.
-    func testStickersTabHiddenWhenDisabled() {
-        XCTAssertEqual(ExpressionPanel.Tab.visible(disabled: []), [.gifs, .stickers, .emoji])
-        XCTAssertEqual(ExpressionPanel.Tab.visible(disabled: [.stickers, .gifSearch]), [.gifs, .emoji])
+        XCTAssertFalse(features.isEnabled(.chatVideoUpload))
     }
 
     // MARK: Помощники

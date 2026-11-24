@@ -22,7 +22,6 @@ const SHELL_FREE_PAGES = [
   '/employer/verify',
   '/forgot-password',
   '/join-chat/[id]',
-  '/addstickers/[slug]',
   '/legal/privacy',
   '/legal/terms',
   '/login',

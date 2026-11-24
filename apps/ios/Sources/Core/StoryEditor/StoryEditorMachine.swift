@@ -18,7 +18,6 @@ enum StoryTextInput: String, Codable, Sendable {
 enum StoryColorTarget: String, Codable, Sendable {
     case drawing
     case text
-    case shape
 }
 
 /// Откуда открыт редактор — куда вернуться по «×» без изменений.
@@ -43,14 +42,12 @@ enum StoryEditorState: Equatable, Sendable {
     case storyEditor
     /// Правка надписи.
     case textEditing(entityID: UUID, isNew: Bool, input: StoryTextInput)
-    /// Эмодзи, стикеры и фигуры.
-    case stickerSelection
     /// Рисование.
     case drawing
     case imageAdjustment
     case blurAdjustment
     case curvesAdjustment
-    /// Выбор цвета поверх рисования, текста или фигур.
+    /// Выбор цвета поверх рисования или текста.
     case colorPicker(StoryColorTarget)
     /// Запись круглого видео поверх фото.
     case roundVideoRecording
@@ -64,7 +61,7 @@ enum StoryEditorState: Equatable, Sendable {
     /// Инструмент редактора: отмена откатывает его правки, подтверждение — сохраняет.
     var isEditorTool: Bool {
         switch self {
-        case .textEditing, .stickerSelection, .drawing, .imageAdjustment, .blurAdjustment,
+        case .textEditing, .drawing, .imageAdjustment, .blurAdjustment,
              .curvesAdjustment, .colorPicker, .roundVideoRecording:
             return true
         default:
@@ -118,7 +115,6 @@ enum StoryEditorEvent: Equatable, Sendable {
     case mediaReady(StoryEditorOrigin)
     case beginText(entityID: UUID, isNew: Bool)
     case switchTextInput(StoryTextInput)
-    case openStickers
     case openDrawing
     case openAdjustments(StoryAdjustTab)
     case openRoundVideo
@@ -186,18 +182,13 @@ struct StoryEditorMachine: Equatable, Sendable {
             origin = from
             stack = from == .camera ? [.camera, .storyEditor] : [.camera, .gallery, .storyEditor]
 
-        case (.storyEditor, .beginText(let id, let isNew)), (.drawing, .beginText(let id, let isNew)),
-             (.stickerSelection, .beginText(let id, let isNew)):
+        case (.storyEditor, .beginText(let id, let isNew)), (.drawing, .beginText(let id, let isNew)):
             // Из вкладок рисования «Текст» сменяет инструмент, а не ложится поверх.
             if current != .storyEditor { pop() }
             push(.textEditing(entityID: id, isNew: isNew, input: .keyboard))
         case (.textEditing(let id, let isNew, _), .switchTextInput(let input)):
             replaceTop(.textEditing(entityID: id, isNew: isNew, input: input))
-        case (.storyEditor, .openStickers), (.drawing, .openStickers):
-            if current != .storyEditor { pop() }
-            push(.stickerSelection)
-        case (.storyEditor, .openDrawing), (.stickerSelection, .openDrawing):
-            if current != .storyEditor { pop() }
+        case (.storyEditor, .openDrawing):
             push(.drawing)
         case (.storyEditor, .openAdjustments(let tab)):
             push(.adjustment(tab))
@@ -208,8 +199,7 @@ struct StoryEditorMachine: Equatable, Sendable {
             replaceTop(.adjustment(tab))
         case (.storyEditor, .openRoundVideo):
             push(.roundVideoRecording)
-        case (.drawing, .openColorPicker(let target)), (.textEditing, .openColorPicker(let target)),
-             (.stickerSelection, .openColorPicker(let target)):
+        case (.drawing, .openColorPicker(let target)), (.textEditing, .openColorPicker(let target)):
             push(.colorPicker(target))
 
         case (let tool, .confirm) where tool.isEditorTool,

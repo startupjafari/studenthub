@@ -181,10 +181,6 @@ model User {
   messageReactions   MessageReaction[]
   chatPollVotes      ChatPollVote[]
   chatFolders        ChatFolder[]
-  // Избранные стикеры (06-chats.prisma, FavoriteSticker).
-  favoriteStickers   FavoriteSticker[]
-  // «Мои GIF» (39-chat-gifs.prisma, SavedGif).
-  savedGifs          SavedGif[]
   // «Удалить у себя»: сообщения, скрытые этим пользователем (06-chats.prisma, HiddenMessage).
   hiddenMessages     HiddenMessage[]
   // Карточки контакта в чатах, указывающие на этого пользователя (ChatContact.userId).
@@ -192,11 +188,6 @@ model User {
   // Пункты чек-листов: кто добавил и кто отметил выполненным (ChatChecklistItem).
   checklistItems     ChatChecklistItem[] @relation("ChecklistItemCreatedBy")
   checklistItemsDone ChatChecklistItem[] @relation("ChecklistItemDoneBy")
-  // Наборы стикеров: каталог, заведённый платформенным администратором, и личные наборы
-  // (StickerSet.createdById); снятые мной как модератором; добавленные себе (UserStickerSet).
-  stickerSets        StickerSet[]
-  stickerSetsRemoved StickerSet[]        @relation("StickerSetRemovedBy")
-  stickerSetsAdded   UserStickerSet[]
   // Группы (38-chat-groups.prisma): мои заявки на вступление, исключения из групп (меня и
   // мной) и история моих фото профиля.
   chatJoinRequests   ChatJoinRequest[]

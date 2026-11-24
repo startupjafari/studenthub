@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extractFrame, FfmpegError, probe, transcodeAnimation, transcodeHls } from './ffmpeg'
+import { extractFrame, FfmpegError, probe, transcodeHls } from './ffmpeg'
 import { planHlsLadder } from './media-plan'
 
 // Настоящий ffmpeg: проверяем, что команда перекодирования собрана правильно и ffmpeg её
@@ -134,124 +134,5 @@ suite('ffmpeg (настоящий бинарник)', () => {
     await expect(extractFrame('ffmpeg', evil, 0, join(dir, 'evil.jpg'))).rejects.toBeInstanceOf(
       FfmpegError,
     )
-  })
-
-  describe('GIF → MP4 (анимация)', () => {
-    // Маленький GIF нечётного размера: 101×77, 12 кадров/с, 2 секунды; правая половина кадра
-    // прозрачная — проверяем белую подложку.
-    let gif: string
-    beforeAll(() => {
-      gif = join(dir, 'source.gif')
-      execFileSync('ffmpeg', [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-y',
-        '-f',
-        'lavfi',
-        '-i',
-        "testsrc2=size=101x77:rate=12:duration=2,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(gt(X,50),0,255)'",
-        '-vf',
-        'split[a][b];[a]palettegen=reserve_transparent=1[p];[b][p]paletteuse=alpha_threshold=128',
-        gif,
-      ])
-    }, 60_000)
-
-    const encode = async (out: string, fps: number | null) => {
-      await transcodeAnimation({
-        ffmpeg: 'ffmpeg',
-        inputPath: gif,
-        outPath: out,
-        width: 100,
-        height: 76,
-        fps,
-        maxSeconds: 60,
-        crf: 23,
-        timeoutMs: 60_000,
-      })
-    }
-
-    it('даёт H.264 yuv420p без звука, с индексом в начале и таймингом GIF', async () => {
-      const out = join(dir, 'animation.mp4')
-      await encode(out, null)
-      const meta = await probe('ffprobe', out)
-      expect(meta).toMatchObject({ width: 100, height: 76, hasAudio: false })
-      expect(meta.durationMs).toBeGreaterThan(1800)
-      expect(meta.durationMs).toBeLessThan(2300)
-      const streams = JSON.parse(
-        execFileSync('ffprobe', [
-          '-v',
-          'error',
-          '-print_format',
-          'json',
-          '-show_streams',
-          out,
-        ]).toString(),
-      ) as { streams: { codec_name: string; pix_fmt: string; nb_frames: string }[] }
-      expect(streams.streams).toHaveLength(1)
-      expect(streams.streams[0]).toMatchObject({ codec_name: 'h264', pix_fmt: 'yuv420p' })
-      // Кадры GIF не размножаются под чужую частоту: 24 кадра за 2 секунды так и остаются.
-      expect(Number(streams.streams[0]?.nb_frames)).toBe(24)
-      // +faststart: атом moov лежит раньше mdat.
-      const head = readFileSync(out)
-      expect(head.indexOf('moov')).toBeLessThan(head.indexOf('mdat'))
-    }, 60_000)
-
-    it('прозрачные точки ложатся на белую подложку', async () => {
-      const out = join(dir, 'alpha.mp4')
-      await encode(out, null)
-      const pixel = execFileSync('ffmpeg', [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-i',
-        out,
-        '-frames:v',
-        '1',
-        '-vf',
-        'crop=8:8:88:30,scale=1:1',
-        '-f',
-        'rawvideo',
-        '-pix_fmt',
-        'gray',
-        '-',
-      ])
-      expect(pixel[0]).toBeGreaterThan(240)
-    }, 60_000)
-
-    it('потолок частоты прореживает кадры', async () => {
-      const out = join(dir, 'capped.mp4')
-      await encode(out, 6)
-      const frames = execFileSync('ffprobe', [
-        '-v',
-        'error',
-        '-select_streams',
-        'v:0',
-        '-show_entries',
-        'stream=nb_frames',
-        '-of',
-        'csv=p=0',
-        out,
-      ])
-        .toString()
-        .trim()
-      expect(Number(frames)).toBe(12)
-    }, 60_000)
-
-    it('вход — только GIF: ролик под видом GIF не разбирается', async () => {
-      await expect(
-        transcodeAnimation({
-          ffmpeg: 'ffmpeg',
-          inputPath: source,
-          outPath: join(dir, 'nope.mp4'),
-          width: 100,
-          height: 100,
-          fps: null,
-          maxSeconds: 60,
-          crf: 23,
-          timeoutMs: 60_000,
-        }),
-      ).rejects.toBeInstanceOf(FfmpegError)
-    })
   })
 })

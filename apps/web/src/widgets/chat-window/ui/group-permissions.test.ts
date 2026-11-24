@@ -10,14 +10,14 @@ const chat = (permissions: ChatListItem['permissions']) =>
   ({ id: 'c1', type: 'GROUP', permissions }) as ChatListItem
 
 describe('chatPermissionsOf / allowedCount', () => {
-  it('без поля (старый сервер) — умолчания: 6 из 8', () => {
+  it('без поля (старый сервер) — умолчания: 5 из 7', () => {
     expect(chatPermissionsOf(chat(undefined))).toEqual(DEFAULT_CHAT_PERMISSIONS)
-    expect(allowedCount(chat(undefined))).toBe(6)
+    expect(allowedCount(chat(undefined))).toBe(5)
   })
 
-  it('«писать» выключено — медиа, стикеры, ссылки и опросы тоже', () => {
+  it('«писать» выключено — медиа, ссылки и опросы тоже', () => {
     const p = chatPermissionsOf(chat({ ...DEFAULT_CHAT_PERMISSIONS, sendMessages: false }))
-    expect(p.sendMedia || p.sendStickers || p.embedLinks || p.sendPolls).toBe(false)
+    expect(p.sendMedia || p.embedLinks || p.sendPolls).toBe(false)
     // Остались закреп (по умолчанию открыт) и ничего больше.
     expect(allowedCount(chat({ ...DEFAULT_CHAT_PERMISSIONS, sendMessages: false }))).toBe(1)
   })

@@ -5,7 +5,6 @@ import { MediaImageProcessor } from './media-image.processor'
 import { MediaProcessingService } from './media-processing.service'
 import { MediaService } from './media.service'
 import { MediaVideoProcessor } from './media-video.processor'
-import { StickerProcessingService } from './sticker-processing.service'
 
 export interface MediaModuleOptions {
   /** Маршруты плейлистов HLS — только в процессе API. */
@@ -36,12 +35,7 @@ export class MediaModule {
       providers: [
         MediaService,
         ...(options.processors
-          ? [
-              MediaProcessingService,
-              StickerProcessingService,
-              MediaImageProcessor,
-              MediaVideoProcessor,
-            ]
+          ? [MediaProcessingService, MediaImageProcessor, MediaVideoProcessor]
           : []),
       ],
       exports: [MediaService],

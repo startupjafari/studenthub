@@ -1,10 +1,4 @@
-import {
-  ANIMATION_MAX_FPS,
-  ANIMATION_MAX_SIDE,
-  HLS_LADDER,
-  IMAGE_WIDTHS,
-  POSTER_WIDTHS,
-} from './media.constants'
+import { HLS_LADDER, IMAGE_WIDTHS, POSTER_WIDTHS } from './media.constants'
 
 // Чистые расчёты медиа-конвейера: что генерировать для данного оригинала. Отдельно от
 // sharp/ffmpeg, чтобы правила «не больше исходного» проверялись тестом без бинарников.
@@ -72,44 +66,6 @@ export function planHlsLadder(width: number, height: number): HlsRendition[] {
     ]
   }
   return rungs.map((r) => ({ ...r, ...scale(r.short) }))
-}
-
-export interface AnimationPlan {
-  /** Стороны MP4: чётные, длинная — не больше ANIMATION_MAX_SIDE. */
-  width: number
-  height: number
-  /** Потолок частоты кадров; `null` — тайминг GIF как есть. */
-  fps: number | null
-}
-
-// Задержка кадра GIF короче 20 мс браузеры (и демультиплексор gif у ffmpeg) считают за
-// 100 мс: старые GIF ставили 0, рассчитывая на «как можно быстрее» у просмотрщиков девяностых.
-const GIF_MIN_DELAY_MS = 20
-const GIF_DEFAULT_DELAY_MS = 100
-
-/**
- * Что делать с GIF `width × height` из `frames` кадров с задержками `delaysMs`.
- * `null` — кадр один: это не анимация, а картинка, и в MP4 её не переводим.
- */
-export function planAnimation(
-  width: number,
-  height: number,
-  frames: number,
-  delaysMs: readonly number[] = [],
-): AnimationPlan | null {
-  if (width <= 0 || height <= 0 || frames <= 1) return null
-  const scale = Math.min(1, ANIMATION_MAX_SIDE / Math.max(width, height))
-  let totalMs = 0
-  for (let i = 0; i < frames; i++) {
-    const d = delaysMs[i] ?? GIF_DEFAULT_DELAY_MS
-    totalMs += d < GIF_MIN_DELAY_MS ? GIF_DEFAULT_DELAY_MS : d
-  }
-  const avgFps = (frames * 1000) / totalMs
-  return {
-    width: even(width * scale),
-    height: even(height * scale),
-    fps: avgFps > ANIMATION_MAX_FPS ? ANIMATION_MAX_FPS : null,
-  }
 }
 
 /** Момент кадра для постера: секунда от начала, но не дальше середины короткого ролика. */

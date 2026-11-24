@@ -136,79 +136,34 @@ final class AttachmentTests: XCTestCase {
         XCTAssertFalse(music.isVoice)
     }
 
-    // MARK: GIF беззвучным MP4
+    // MARK: GIF — обычная картинка
 
-    /// `animation` — новое поле: старый сервер его не шлёт, и вложение остаётся обычным
-    /// видео, а с полем — GIF-роликом.
-    func testAnimationFlagDecodesWithAndWithoutField() throws {
-        let gif = try JSONCoding.decoder.decode(
+    /// Присланный `.gif` — обычная картинка: в пузыре снимок, в превью списка «Фото».
+    /// Поле `animation` от старого сервера разбор не ломает — его просто нет в модели.
+    func testGifIsPlainImage() throws {
+        let decoded = try JSONCoding.decoder.decode(
             ChatAttachmentDTO.self,
-            from: Data(#"{"id":"f-1","mime":"video/mp4","size":10,"name":"cat.gif","spoiler":false,"asDocument":false,"width":320,"height":240,"animation":true}"#.utf8)
+            from: Data(#"{"id":"f-1","mime":"image/gif","size":10,"name":"cat.gif","spoiler":false,"asDocument":false,"width":320,"height":240,"animation":true}"#.utf8)
         )
-        let old = try JSONCoding.decoder.decode(
-            ChatAttachmentDTO.self,
-            from: Data(#"{"id":"f-2","mime":"video/mp4","size":10,"name":"clip.mp4","spoiler":null,"asDocument":null,"width":null,"height":null}"#.utf8)
+        XCTAssertEqual(decoded.mime, "image/gif")
+
+        let gif = AttachmentRecord(
+            id: "3", messageId: "m", mime: "image/gif", name: "cat.gif",
+            size: nil, width: nil, height: nil, localPath: nil
         )
+        XCTAssertEqual(gif.chatKind, .photo)
 
-        XCTAssertEqual(gif.animation, true)
-        XCTAssertNil(old.animation)
-    }
-
-    /// Флаг доходит до базы, а GIF-роликом считается только видео: старые GIF с
-    /// `image/gif` остаются картинкой.
-    func testAnimationIsStoredAndOnlyVideoCounts() async throws {
-        let database = try await seeded()
-        let store = MessageStore(database: database)
-        let incoming = ChatMessageDTO(
-            id: "m-1", chatId: "c-1", seq: 1, senderId: "u-1", content: "",
-            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
-            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_000),
-            media: [
-                ChatAttachmentDTO(
-                    id: "file-gif", mime: "video/mp4", size: 100, name: "cat.gif",
-                    spoiler: nil, asDocument: nil, width: 10, height: 20, animation: true
-                ),
-                ChatAttachmentDTO(
-                    id: "file-video", mime: "video/mp4", size: 100, name: "clip.mp4",
-                    spoiler: nil, asDocument: nil, width: 10, height: 20
-                ),
-            ]
+        let row = ChatListRow(
+            id: "c-1", type: "PRIVATE", title: "Чат", avatarUrl: nil, unreadCount: 0, muted: false,
+            pinnedAt: nil, archivedAt: nil, requestIncoming: false,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            subject: nil, online: false, mutedImportantOnly: false, othersReadAt: nil,
+            draftText: nil, lastContent: "", lastSenderId: "u-1",
+            lastCreatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            lastDeletedAt: nil, lastSenderName: nil, lastSystemType: nil, lastExtras: nil,
+            lastAttachmentMime: "image/gif", lastAttachmentName: "cat.gif", isOwner: false
         )
-
-        try await store.save(messages: [incoming], chatID: "c-1")
-
-        try await database.reader.read { db in
-            let gif = try AttachmentRecord.fetchOne(db, key: "file-gif")
-            let video = try AttachmentRecord.fetchOne(db, key: "file-video")
-            XCTAssertEqual(gif?.isAnimation, true)
-            XCTAssertEqual(video?.isAnimation, false)
-        }
-        let legacyGif = AttachmentRecord(
-            id: "3", messageId: "m", mime: "image/gif", name: "old.gif",
-            size: nil, width: nil, height: nil, localPath: nil, animation: true
-        )
-        XCTAssertFalse(legacyGif.isAnimation)
-    }
-
-    /// Превью в списке чатов: GIF-ролик — «GIF», обычный ролик — по-прежнему видео.
-    func testChatListPreviewSaysGifForAnimation() {
-        func row(animation: Bool?) -> ChatListRow {
-            var row = ChatListRow(
-                id: "c-1", type: "PRIVATE", title: "Чат", avatarUrl: nil, unreadCount: 0, muted: false,
-                pinnedAt: nil, archivedAt: nil, requestIncoming: false,
-                updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
-                subject: nil, online: false, mutedImportantOnly: false, othersReadAt: nil,
-                draftText: nil, lastContent: "", lastSenderId: "u-1",
-                lastCreatedAt: Date(timeIntervalSince1970: 1_800_000_000),
-                lastDeletedAt: nil, lastSenderName: nil, lastSystemType: nil, lastExtras: nil,
-                lastAttachmentMime: "video/mp4", lastAttachmentName: "cat.gif", isOwner: false
-            )
-            row.lastAttachmentAnimation = animation
-            return row
-        }
-
-        XCTAssertEqual(row(animation: true).attachmentPreview, String(localized: "chats.preview.gif", defaultValue: "GIF"))
-        XCTAssertEqual(row(animation: nil).attachmentPreview, String(localized: "chats.preview.video", defaultValue: "Видео"))
+        XCTAssertEqual(row.attachmentPreview, String(localized: "chats.preview.photo", defaultValue: "Фото"))
     }
 
     private func seeded() async throws -> AppDatabase {

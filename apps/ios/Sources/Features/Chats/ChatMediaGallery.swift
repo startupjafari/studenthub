@@ -336,9 +336,7 @@ final class ChatMediaGallery {
         guard let entry = window.entry(id), !entry.isResolved, resolving.insert(id).inserted else { return }
         defer { resolving.remove(id) }
         let stored = try? await ChatListQueries(database: AppServices.database).fetchAttachment(id: id)
-        // Своя копия GIF-ролика — исходный `.gif`: его просмотр не сыграет, берём MP4 по ссылке.
-        if let stored, let path = stored.localPath, FileManager.default.fileExists(atPath: path),
-           !stored.isAnimation || stored.localAnimationFile != nil {
+        if let stored, let path = stored.localPath, FileManager.default.fileExists(atPath: path) {
             let media = PostDTO.Media(
                 id: entry.media.id,
                 url: URL(filePath: path).absoluteString,
@@ -346,8 +344,7 @@ final class ChatMediaGallery {
                 width: entry.media.width,
                 height: entry.media.height,
                 placeholder: entry.media.placeholder,
-                durationMs: entry.media.durationMs,
-                animation: entry.media.animation
+                durationMs: entry.media.durationMs
             )
             window.resolve(id, with: media)
             return
@@ -357,7 +354,7 @@ final class ChatMediaGallery {
         window.resolve(id, with: PostDTO.Media(
             id: media.id,
             url: signed.url.absoluteString,
-            // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
+            // Тип — по ссылке, если сервер его прислал: он новее ответа галереи.
             mime: signed.mime ?? media.mime,
             width: media.width,
             height: media.height,
@@ -365,8 +362,7 @@ final class ChatMediaGallery {
             durationMs: media.durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls,
-            animation: media.animation == true || signed.animation
+            hls: signed.hls
         ))
     }
 
@@ -380,8 +376,7 @@ final class ChatMediaGallery {
                 width: item.width,
                 height: item.height,
                 placeholder: item.placeholder,
-                durationMs: item.durationMs,
-                animation: item.animation
+                durationMs: item.durationMs
             ),
             messageID: item.messageId.isEmpty ? nil : item.messageId,
             senderID: item.sender?.id,

@@ -22,7 +22,6 @@ import {
   isRateLimited,
   linkRetry,
   linkRetryDelay,
-  mediaGridItems,
   MediaTab,
   sharedItemDate,
   videoTileMode,
@@ -113,11 +112,6 @@ describe('плитка видео', () => {
     expect(formatDuration(724_400)).toBe('12:04')
     expect(formatDuration(-5)).toBe('0:00')
   })
-
-  it('GIF в сетку «Медиа» не попадают — у них своя вкладка', () => {
-    const list = [item('a'), item('g', { mime: 'video/mp4', animation: true }), item('v')]
-    expect(mediaGridItems(list).map((it) => it.id)).toEqual(['a', 'v'])
-  })
 })
 
 describe('displayUrl', () => {
@@ -161,13 +155,11 @@ describe('MediaTab: ссылки только у видимых плиток', (
           hls: null,
           expiresAt: '2026-11-20T20:00:00Z',
           mime: 'image/png',
-          animation: false,
         }) as unknown as Awaited<ReturnType<typeof fetchAttachmentLink>>,
     )
     vi.mocked(fetchChatMedia).mockResolvedValue({
       items: [
         item('photo'),
-        item('gif', { mime: 'video/mp4', animation: true, hasPoster: true }),
         item('mov', { mime: 'video/quicktime', name: 'clip.mov', durationMs: 4000 }),
       ],
       hasNext: false,
@@ -190,7 +182,7 @@ describe('MediaTab: ссылки только у видимых плиток', (
     }
   }
 
-  it('без GIF, ссылку просит только показанный снимок, .mov — заглушка без запроса', async () => {
+  it('ссылку просит только показанный снимок, .mov — заглушка без запроса', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={qc}>{children}</QueryClientProvider>

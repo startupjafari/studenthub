@@ -35,6 +35,29 @@ struct StoryDocument: Codable, Equatable, Sendable {
         self.background = background
     }
 
+    /// Разбор черновика. Объект незнакомого вида (стикеры-эмодзи и фигуры прошлых версий,
+    /// вид из будущей версии) пропускается, а не роняет весь черновик: остальное
+    /// редактирование человека дороже одного объекта.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+        id = try container.decode(UUID.self, forKey: .id)
+        background = try container.decode(StoryBackgroundMedia.self, forKey: .background)
+        mediaTransform = try container.decode(StoryTransform.self, forKey: .mediaTransform)
+        backdrop = try container.decode([StoryColor].self, forKey: .backdrop)
+        adjustments = try container.decode(StoryAdjustments.self, forKey: .adjustments)
+        blur = try container.decode(StoryBlur.self, forKey: .blur)
+        curves = try container.decode(StoryToneCurves.self, forKey: .curves)
+        entities = try container.decode([SkippingUnknown<StoryEntity>].self, forKey: .entities).compactMap(\.value)
+        drawing = try container.decode(StoryDrawing.self, forKey: .drawing)
+        drawingTool = try container.decode(StoryDrawingTool.self, forKey: .drawingTool)
+        textDefaults = try container.decode(StoryTextPayload.self, forKey: .textDefaults)
+        caption = try container.decode(String.self, forKey: .caption)
+        videoTrim = try container.decodeIfPresent(StoryTimeRange.self, forKey: .videoTrim)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+    }
+
     // MARK: Объекты
 
     func entity(_ id: UUID) -> StoryEntity? {
@@ -134,6 +157,15 @@ struct StoryDocument: Codable, Equatable, Sendable {
     }
 }
 
+/// Элемент списка, который не роняет весь список: не разобрался — `nil`, и его пропускают.
+private struct SkippingUnknown<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
 /// Фон истории.
 enum StoryBackgroundMedia: Codable, Equatable, Sendable {
     /// Фото (в том числе собранный коллаж) — файл в рабочей папке и размер в пикселях.
@@ -168,8 +200,6 @@ struct StoryTimeRange: Codable, Equatable, Sendable {
 struct StoryEntity: Codable, Equatable, Identifiable, Sendable {
     enum Kind: Codable, Equatable, Sendable {
         case text(StoryTextPayload)
-        case emoji(String)
-        case shape(StoryShapePayload)
         case image(StoryImagePayload)
         case roundVideo(StoryRoundVideoPayload)
     }
@@ -277,31 +307,6 @@ struct StoryTextPayload: Codable, Equatable, Sendable {
     }
 
     var isBlank: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-}
-
-/// Накладная фигура (раздел «Стикеры» → «Фигуры»): собственный цвет и прозрачность.
-struct StoryShapePayload: Codable, Equatable, Sendable {
-    enum Shape: String, Codable, CaseIterable, Sendable {
-        case rectangle
-        case ellipse
-        case bubble
-        case star
-        case arrow
-        case heart
-    }
-
-    var shape: Shape
-    var color: StoryColor
-    var filled: Bool = false
-
-    /// Стороны по умолчанию в долях ширины холста.
-    var defaultSize: StorySize {
-        switch shape {
-        case .arrow: return StorySize(width: 0.5, height: 0.2)
-        case .rectangle: return StorySize(width: 0.45, height: 0.32)
-        default: return StorySize(width: 0.4, height: 0.4)
-        }
-    }
 }
 
 /// Картинка поверх фона — второе фото из галереи.

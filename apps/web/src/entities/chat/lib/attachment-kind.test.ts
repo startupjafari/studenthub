@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { MessageAttachment } from '../model/types'
 import {
   attachmentKind,
-  isAnimation,
   isMusic,
   isVideoNote,
   isViewable,
@@ -29,13 +28,9 @@ describe('attachmentKind', () => {
     expect(attachmentKind(att({ mime: 'video/mp4' }))).toBe('video')
   })
 
-  // GIF как в Telegram: и переведённый в MP4, и старый image/gif — «GIF», а не «Видео»/«Фото».
-  it('GIF — анимация-MP4 и старый image/gif', () => {
-    expect(attachmentKind(att({ mime: 'video/mp4', animation: true }))).toBe('gif')
-    expect(attachmentKind(att({ mime: 'image/gif' }))).toBe('gif')
-    expect(isAnimation(att({ mime: 'video/mp4', animation: true }))).toBe(true)
-    expect(isAnimation(att({ mime: 'image/gif', animation: true }))).toBe(false)
-    // «Без сжатия» перевешивает: строка файла.
+  // GIF — обычная картинка: браузер сам её анимирует.
+  it('GIF — фото, «без сжатия» — файл', () => {
+    expect(attachmentKind(att({ mime: 'image/gif' }))).toBe('photo')
     expect(attachmentKind(att({ mime: 'image/gif', asDocument: true }))).toBe('file')
   })
 

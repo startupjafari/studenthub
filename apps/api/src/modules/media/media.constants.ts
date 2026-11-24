@@ -33,18 +33,6 @@ export const HLS_LADDER = [
   { short: 1080, videoKbps: 5000, audioKbps: 128 },
 ] as const
 
-/**
- * GIF → MP4 (анимация как в Telegram). Длинная сторона — не больше 720: пузырь чата и
- * просмотрщик на телефоне шире не показывают, а GIF крупнее почти не бывает. Частота — не
- * выше 30 к/с: больше глаз в зацикленной картинке не различит, а декодер телефона греется.
- * Длительность — минута: дальше это уже ролик, а не GIF. CRF 23 — как у HLS: палитра GIF
- * и так беднее, чем кодек способен испортить.
- */
-export const ANIMATION_MAX_SIDE = 720
-export const ANIMATION_MAX_FPS = 30
-export const ANIMATION_MAX_SECONDS = 60
-export const ANIMATION_CRF = 23
-
 /** Длина сегмента HLS, с. 4 — компромисс между скоростью старта и числом запросов. */
 export const HLS_SEGMENT_SECONDS = 4
 

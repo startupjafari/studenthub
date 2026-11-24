@@ -44,27 +44,13 @@ export function isVideoNote(att: MessageAttachment): boolean {
   return !!att.videoNote && !att.asDocument && att.mime.startsWith('video/')
 }
 
-/**
- * Анимация — GIF, переведённый сервером в беззвучный MP4: рисуется как GIF (автоплей без
- * звука, по кругу, без панели плеера, подпись «GIF»), а не роликом с кнопкой ▶.
- */
-export function isAnimation(att: Pick<MessageAttachment, 'mime' | 'animation' | 'asDocument'>) {
-  return !!att.animation && !att.asDocument && att.mime.startsWith('video/')
-}
-
-/** GIF в любом виде: анимация-MP4 или старый image/gif. */
-export function isGif(att: Pick<MessageAttachment, 'mime' | 'animation' | 'asDocument'>) {
-  return isAnimation(att) || (att.mime === 'image/gif' && !att.asDocument)
-}
-
 /** Как вложение называется в превью списка чатов. */
-export type AttachmentKind = 'voice' | 'audio' | 'round' | 'photo' | 'video' | 'gif' | 'file'
+export type AttachmentKind = 'voice' | 'audio' | 'round' | 'photo' | 'video' | 'file'
 
 export function attachmentKind(att: MessageAttachment): AttachmentKind {
   if (isVoice(att)) return isMusic(att) ? 'audio' : 'voice'
   if (isVideoNote(att)) return 'round'
   if (!isViewable(att)) return 'file'
-  if (isGif(att)) return 'gif'
   return att.mime.startsWith('video/') ? 'video' : 'photo'
 }
 

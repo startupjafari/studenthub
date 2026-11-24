@@ -11,10 +11,6 @@ enum RemoteFeature: String, Codable, CaseIterable, Sendable {
     case chatVideoUpload
     /// Трансляция геопозиции в чате (отправка одной точки остаётся).
     case liveLocation
-    /// Поиск и популярные GIF из каталога; свои недавние GIF остаются.
-    case gifSearch
-    /// Вкладка стикеров в панели выражений.
-    case stickers
     /// Имя, которого эта сборка не знает: функция новее сборки, выключать здесь нечего.
     case unknown
 

@@ -427,7 +427,6 @@ describe('ChatsService.editMessage / deleteMessage — только автор',
   it.each([
     ['опрос', { poll: { id: 'p1' } }],
     ['чек-лист', { checklist: { id: 'cl1' } }],
-    ['стикер', { stickerId: 's1' }],
     ['геопозиция', { location: { messageId: 'm1' } }],
     ['контакт', { contact: { messageId: 'm1' } }],
     ['системное событие', { systemType: 'member_added' }],
@@ -1155,7 +1154,6 @@ describe('ChatsService.getAttachmentUrls — ссылки пачкой', () => {
     placeholder: null,
     durationMs: null,
     variants: [],
-    animation: false,
   })
   // Строка выборки: файл, его сообщение и членство смотрящего (только поля очистки).
   const row = (
@@ -1266,7 +1264,7 @@ describe('ChatsService.getAttachmentUrls — ссылки пачкой', () => {
     const batch = await service.getAttachmentUrls('u1', ['f1'])
 
     expect(batch.items).toEqual([{ fileId: 'f1', ...single }])
-    expect(single).toMatchObject({ url: 'https://minio/f1', mime: 'image/jpeg', animation: false })
+    expect(single).toMatchObject({ url: 'https://minio/f1', mime: 'image/jpeg' })
   })
 })
 

@@ -18,13 +18,10 @@ struct StoryEditorChrome: View {
                 textTopBar
             case .drawing:
                 StoryDrawingPanel(model: model, canvas: canvas)
-            case .stickerSelection:
-                StoryStickerPanel(model: model, canvas: canvas)
             case .imageAdjustment, .blurAdjustment, .curvesAdjustment:
                 StoryAdjustPanel(model: model, canvas: canvas)
             case .colorPicker(let target):
                 if target == .drawing { StoryDrawingPanel(model: model, canvas: canvas).allowsHitTesting(false) }
-                if target == .shape { StoryStickerPanel(model: model, canvas: canvas).allowsHitTesting(false) }
                 StoryColorPickerSheet(model: model, canvas: canvas)
             case .roundVideoRecording:
                 StoryRoundVideoOverlay(model: model, canvas: canvas)
@@ -249,10 +246,6 @@ private struct StoryMainChrome: View {
                 model.beginText()
             }
             .accessibilityIdentifier("story.editor.text")
-            StoryToolButton(symbol: "face.smiling", label: String(localized: "stories.editor.stickers", defaultValue: "Стикеры")) {
-                model.openStickers()
-            }
-            .accessibilityIdentifier("story.editor.stickers")
             Menu {
                 Button {
                     Task { await model.openRoundVideo() }

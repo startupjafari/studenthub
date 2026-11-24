@@ -536,8 +536,7 @@ struct MessageStore: Sendable {
                 placeholder: item.placeholder,
                 durationMs: item.durationMs,
                 spoiler: item.spoiler ?? false,
-                asDocument: item.asDocument ?? false,
-                animation: item.animation ?? false
+                asDocument: item.asDocument ?? false
             )
         }
         // Те же вложения в том же порядке — ничего не пишем: удаление и вставка заново

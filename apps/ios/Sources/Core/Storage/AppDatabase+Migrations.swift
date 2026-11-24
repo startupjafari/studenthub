@@ -292,6 +292,14 @@ extension AppDatabase {
             }
         }
 
+        migrator.registerMigration("removeStickersGifs_dropAttachmentAnimation") { db in
+            // GIF больше не отдельный вид: сервер не шлёт `animation`, присланный `.gif` —
+            // обычная картинка. Колонка из прошлой миграции больше никем не читается.
+            try db.alter(table: AttachmentRecord.databaseTableName) { table in
+                table.drop(column: "animation")
+            }
+        }
+
         return migrator
     }
 }

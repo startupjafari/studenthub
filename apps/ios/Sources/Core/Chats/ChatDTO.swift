@@ -54,9 +54,6 @@ struct ChatAttachmentDTO: Decodable, Equatable {
     /// Размытое превью (LQIP) и длительность — у фото и видео, пока не скачан файл.
     var placeholder: String? = nil
     var durationMs: Int? = nil
-    /// GIF, который сервер хранит беззвучным MP4: в пузыре играет сам по кругу. Старый
-    /// сервер и старые сообщения поля не шлют — это обычное видео.
-    var animation: Bool? = nil
 }
 
 /// Человек в сообщении: автор, автор ответа, автор пересланного.
@@ -100,7 +97,6 @@ struct ChatMessageDTO: Decodable, Equatable {
     var location: MessageExtras.Location? = nil
     var contact: MessageExtras.Contact? = nil
     var checklist: MessageExtras.Checklist? = nil
-    var sticker: MessageExtras.Sticker? = nil
 
     struct Reaction: Decodable, Equatable {
         let emoji: String
@@ -169,8 +165,7 @@ struct ChatMessageDTO: Decodable, Equatable {
             poll: poll,
             location: location,
             contact: contact,
-            checklist: checklist,
-            sticker: sticker
+            checklist: checklist
         )
     }
 }
@@ -277,15 +272,6 @@ struct MessageExtras: Codable, Hashable {
         let items: [Item]
     }
 
-    /// Стикер из каталога: картинку отдаёт `GET /chats/stickers/:id/url`.
-    struct Sticker: Codable, Hashable {
-        let id: String
-        var setId: String? = nil
-        var emoji: String? = nil
-        var width: Int? = nil
-        var height: Int? = nil
-    }
-
     var reactions: [ReactionGroup] = []
     var replySenderName: String?
     var replyContent: String?
@@ -299,14 +285,13 @@ struct MessageExtras: Codable, Hashable {
     var location: Location?
     var contact: Contact?
     var checklist: Checklist?
-    var sticker: Sticker?
 
     /// Есть ли содержимое вида, известного этой сборке. Сообщение без текста, файлов и такого
     /// содержимого — новый вид из будущей версии: его рисуют заглушкой «обновите приложение»,
     /// а не пустым пузырём (IOS_RULES 9.2.8). Новый вид — добавить сюда, иначе он станет заглушкой.
     var hasKnownContent: Bool {
         sharedPost != nil || sharedStory != nil || poll != nil || location != nil || contact != nil
-            || checklist != nil || sticker != nil
+            || checklist != nil
     }
 }
 

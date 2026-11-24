@@ -27,7 +27,6 @@ const PREVIEW_KEY: Record<AttachmentKind, string> = {
   round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
-  gif: 'tgGifs.preview',
   file: 'previewFile',
 }
 
@@ -297,7 +296,7 @@ const THUMB_MIN_W = 72
 function PinnedThumb({ message }: { message: ChatMessage }) {
   const media = message.media.find((a) => {
     const kind = attachmentKind(a)
-    return kind === 'photo' || kind === 'video' || kind === 'gif'
+    return kind === 'photo' || kind === 'video'
   })
   const source = useAttachmentLinkSource()
   const hasLocal = !!media?.localUrl
@@ -310,9 +309,7 @@ function PinnedThumb({ message }: { message: ChatMessage }) {
   })
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   if (!media) return null
-  // GIF-анимация — тоже ролик: миниатюра — её постер. Тип — по ссылке, если она его знает
-  // (GIF переводится в MP4 после отправки).
-  const isVideo = (link.data?.mime ?? media.mime).startsWith('video/')
+  const isVideo = media.mime.startsWith('video/')
   const data = link.data
   const src = hasLocal
     ? isVideo
@@ -421,7 +418,6 @@ function pinnedSummary(m: ChatMessage, t: ReturnType<typeof useTranslations<'Cha
   if (m.location) return m.location.title || t('previewLocation')
   if (m.contact) return t('previewContact', { name: m.contact.name })
   if (m.checklist) return t('previewChecklist', { title: m.checklist.title })
-  if (m.sticker) return [m.sticker.emoji, t('previewSticker')].filter(Boolean).join(' ')
   if (m.sharedPost) return t('previewPost')
   if (m.sharedStory) return t('previewStory')
   const media = mediaPreview(m.media)

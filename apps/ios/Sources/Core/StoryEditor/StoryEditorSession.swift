@@ -39,7 +39,7 @@ struct StoryEditorSession: Sendable {
     @discardableResult
     mutating func send(_ event: StoryEditorEvent) -> Bool {
         switch event {
-        case .confirm, .cancel, .beginText, .openStickers, .openDrawing, .openAdjustments, .openRoundVideo,
+        case .confirm, .cancel, .beginText, .openDrawing, .openAdjustments, .openRoundVideo,
              .openColorPicker, .requestClose, .discard, .saveDraft:
             assertionFailure("событие редактора идёт через свой метод сессии: \(event)")
             return false
@@ -83,7 +83,7 @@ struct StoryEditorSession: Sendable {
         let isNew = id == nil
         if let id, document.entity(id) == nil { return nil }
         // Смена вкладки рисования на «Текст» подтверждает рисование.
-        let switching = state == .drawing || state == .stickerSelection
+        let switching = state == .drawing
         let snapshot = document
         var targetID = id
         if isNew {
@@ -102,9 +102,6 @@ struct StoryEditorSession: Sendable {
     mutating func switchTextInput(_ input: StoryTextInput) -> Bool {
         machine.send(.switchTextInput(input))
     }
-
-    @discardableResult
-    mutating func openStickers() -> Bool { openTool(.openStickers) }
 
     @discardableResult
     mutating func openDrawing() -> Bool { openTool(.openDrawing) }
@@ -152,7 +149,7 @@ struct StoryEditorSession: Sendable {
     // MARK: Правки
 
     /// Правка внутри инструмента или на холсте. Вне инструмента (перетаскивание надписи,
-    /// удаление стикера) — отдельный шаг «Назад»; внутри — шаг всего инструмента.
+    /// удаление объекта) — отдельный шаг «Назад»; внутри — шаг всего инструмента.
     mutating func edit(recordingStep: Bool = true, _ change: (inout StoryDocument) -> Void) {
         guard var document else { return }
         let before = document
@@ -225,12 +222,7 @@ struct StoryEditorSession: Sendable {
 
     private mutating func openTool(_ event: StoryEditorEvent) -> Bool {
         guard let document else { return false }
-        let switching = state == .drawing || state == .stickerSelection
-        let isPicker: Bool
-        if case .openColorPicker = event { isPicker = true } else { isPicker = false }
         guard machine.send(event) else { return false }
-        // Вкладки рисования «Рисунок / Стикеры» сменяют инструмент: прежний подтверждается.
-        if switching, !isPicker { commitTopSnapshot() }
         toolSnapshots.append(document)
         return true
     }

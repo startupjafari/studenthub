@@ -64,20 +64,20 @@ describe('ClientVersionService', () => {
     const service = serviceWith({
       IOS_MIN_SUPPORTED_VERSION: '1.0.0',
       ANDROID_MIN_SUPPORTED_VERSION: '1.0.0',
-      CLIENT_DISABLED_FEATURES: ['liveLocation', 'gifSearch'],
+      CLIENT_DISABLED_FEATURES: ['liveLocation', 'chatPolls'],
       IOS_DISABLED_FEATURES: ['chatVideoUpload', 'liveLocation'],
-      ANDROID_DISABLED_FEATURES: ['stickers'],
+      ANDROID_DISABLED_FEATURES: ['storyEditor'],
     })
 
     expect(service.info('ios').disabledFeatures).toEqual([
       'liveLocation',
-      'gifSearch',
+      'chatPolls',
       'chatVideoUpload',
     ])
     expect(service.info('android').disabledFeatures).toEqual([
       'liveLocation',
-      'gifSearch',
-      'stickers',
+      'chatPolls',
+      'storyEditor',
     ])
   })
 })

@@ -8,7 +8,6 @@ import {
   Download,
   FileText,
   Image as ImageIcon,
-  ImagePlay,
   Link2,
   Loader2,
   Mic,
@@ -21,7 +20,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  GifVideo,
   chatKeys,
   fetchAttachmentLink,
   fetchChatLinks,
@@ -51,7 +49,7 @@ import { chatListTime } from '../lib/list-time'
 import { ManageEmpty } from './group-manage-kit'
 
 // Вкладки общих материалов правой колонки (Telegram-стиль): медиа сеткой три в ряд, файлы,
-// ссылки, голосовые, музыка, GIF и опросы. Колонка прокручивается целиком (профиль сверху,
+// ссылки, голосовые, музыка и опросы. Колонка прокручивается целиком (профиль сверху,
 // вкладки липнут к верху), поэтому страницы подгружаются сами, когда список доходит до
 // низа, — кнопки «Загрузить ещё» нет, как и в Telegram.
 
@@ -210,14 +208,6 @@ function canPlayVideo(mime: string): boolean {
     playable.set(mime, ok)
   }
   return ok
-}
-
-/**
- * Сетка «Медиа» — снимки и видео, как фильтр «фото и видео» в Telegram: GIF живут на своей
- * вкладке, в общей сетке они были бы второй копией.
- */
-export function mediaGridItems(items: readonly ChatMediaItem[]): ChatMediaItem[] {
-  return items.filter((it) => !it.animation)
 }
 
 // Пустая вкладка — компактно, как в Telegram: значок и строка по центру под вкладками, а не
@@ -433,11 +423,9 @@ export function MediaTab({ chatId, onJump }: { chatId: string; onJump: (id: stri
   const [viewer, setViewer] = useState<string | null>(null)
   const gridRef = useRef<HTMLDivElement | null>(null)
   const q = useMediaPages(chatId, 'media')
-  const items = mediaGridItems(q.data?.pages.flatMap((p) => p.items) ?? [])
+  const items = q.data?.pages.flatMap((p) => p.items) ?? []
   if (q.isLoading) return <GridSkeleton />
   if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  // Пустая сетка при ещё не загруженных страницах (в первой были одни GIF) — не «пусто»:
-  // маячок сам подтянет следующую.
   if (items.length === 0 && !q.hasNextPage)
     return <TabEmpty icon={ImageIcon} title={t('tgRight.emptyMedia')} />
   // Просмотрщик листает все медиа чата по времени (старые слева), как из ленты: сетка идёт
@@ -758,84 +746,6 @@ export function FileTab({
         onLoad={() => void q.fetchNextPage()}
       />
     </ListIsland>
-  )
-}
-
-// ── GIF: анимированная сетка ─────────────────────────────────────────────────
-// Оригинал, а не копия: уменьшенные варианты медиа-системы статичны, и GIF в них не
-// двигается. Клик — к сообщению в переписке, как у файлов.
-function GifThumb({ item, onJump }: { item: ChatMediaItem; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const [ref, near] = useNearView<HTMLButtonElement>()
-  const link = useFileLink(item.id, near)
-  const [ready, setReady] = useState(false)
-  return (
-    <button
-      ref={ref}
-      type="button"
-      onClick={() => (link.isError && !link.data ? void link.refetch() : onJump(item.messageId))}
-      aria-label={t('goToMessage')}
-      className="relative aspect-square overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-    >
-      {/* Заглушка лежит под роликом, пока у него нет кадра: пустая клетка не мигает. */}
-      {item.placeholder && !ready && (
-        <MediaImage
-          media={{ placeholder: item.placeholder }}
-          alt=""
-          className="absolute inset-0 size-full"
-        />
-      )}
-      {!item.placeholder && !link.data && !link.isError && (
-        <span className="absolute inset-0 animate-pulse bg-muted" aria-hidden />
-      )}
-      {link.data && (link.data.mime ?? item.mime).startsWith('video/') ? (
-        // GIF, переведённый в MP4: ролик по кругу без звука, вне экрана — на паузе.
-        <GifVideo
-          src={link.data.url}
-          poster={link.data.poster[0]?.url}
-          onReady={() => setReady(true)}
-          className="absolute inset-0 size-full object-cover"
-        />
-      ) : link.data ? (
-        // Подписанная ссылка на приватный бакет: next/image её не оптимизирует.
-        <img
-          src={link.data.url}
-          alt=""
-          loading="lazy"
-          onLoad={() => setReady(true)}
-          className="absolute inset-0 size-full object-cover"
-        />
-      ) : null}
-      {link.isError && !link.data && (
-        <span className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-          <RotateCcw className="size-5" aria-hidden />
-        </span>
-      )}
-    </button>
-  )
-}
-
-export function GifTab({ chatId, onJump }: { chatId: string; onJump: (id: string) => void }) {
-  const t = useTranslations('Chats')
-  const q = useMediaPages(chatId, 'gif')
-  const items = q.data?.pages.flatMap((p) => p.items) ?? []
-  if (q.isLoading) return <GridSkeleton />
-  if (q.isError && items.length === 0) return <TabError onRetry={() => void q.refetch()} />
-  if (items.length === 0) return <TabEmpty icon={ImagePlay} title={t('tgRight.emptyGif')} />
-  return (
-    <>
-      <div className="grid grid-cols-3 gap-px">
-        {items.map((it) => (
-          <GifThumb key={it.id} item={it} onJump={onJump} />
-        ))}
-      </div>
-      <PageSentinel
-        hasNext={q.hasNextPage}
-        loading={q.isFetchingNextPage}
-        failed={q.isFetchNextPageError}
-        onLoad={() => void q.fetchNextPage()}
-      />
-    </>
   )
 }
 

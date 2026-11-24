@@ -15,7 +15,6 @@ import {
   Pencil,
   Pin,
   RotateCcw,
-  Sticker,
   UserCheck,
   UserMinus,
   UserPlus,
@@ -67,7 +66,6 @@ import { InfoCard } from './profile-info-card'
 const ICONS: Record<ChatPermissionKey, LucideIcon> = {
   sendMessages: MessageSquare,
   sendMedia: ImageIcon,
-  sendStickers: Sticker,
   embedLinks: Link2,
   sendPolls: BarChart3,
   addMembers: UserPlus,
@@ -77,13 +75,13 @@ const ICONS: Record<ChatPermissionKey, LucideIcon> = {
 
 /**
  * Права по смыслу, двумя секциями: что участник может отправлять — и что он может делать
- * с самой группой. Восемь переключателей подряд одним столбцом читались как список без
+ * с самой группой. Семь переключателей подряд одним столбцом читались как список без
  * начала и конца.
  */
 const PERM_SECTIONS: { title: string; keys: readonly ChatPermissionKey[] }[] = [
   {
     title: 'tgGroups.permSectionMessages',
-    keys: ['sendMessages', 'sendMedia', 'sendStickers', 'embedLinks', 'sendPolls'],
+    keys: ['sendMessages', 'sendMedia', 'embedLinks', 'sendPolls'],
   },
   { title: 'tgGroups.permSectionMembers', keys: ['addMembers', 'pinMessages', 'changeInfo'] },
 ]
@@ -91,7 +89,6 @@ const PERM_SECTIONS: { title: string; keys: readonly ChatPermissionKey[] }[] = [
 /** Права, которые без «писать» не включаются (как в Telegram — строки гаснут). */
 const SEND_DEPENDENT: ReadonlySet<ChatPermissionKey> = new Set([
   'sendMedia',
-  'sendStickers',
   'embedLinks',
   'sendPolls',
 ])
@@ -103,7 +100,7 @@ export function chatPermissionsOf(chat: ChatListItem): ChatPermissions {
   return chat.permissions ? resolveChatPermissions(chat.permissions) : DEFAULT_CHAT_PERMISSIONS
 }
 
-/** Сколько прав из восьми открыто — значение строки «Разрешения» на главном экране. */
+/** Сколько прав из семи открыто — значение строки «Разрешения» на главном экране. */
 export function allowedCount(chat: ChatListItem): number {
   const p = chatPermissionsOf(chat)
   return CHAT_PERMISSION_KEYS.filter((k) => p[k]).length
@@ -199,8 +196,8 @@ export function PermissionsScreen({ chat }: { chat: ChatListItem }) {
               />
             ))}
           </InfoCard>
-          {/* Почему погасли медиа, стикеры, ссылки и опросы — одной подписью под секцией, а
-              не одной и той же строкой под каждым из четырёх переключателей. */}
+          {/* Почему погасли медиа, ссылки и опросы — одной подписью под секцией, а
+              не одной и той же строкой под каждым из трёх переключателей. */}
           {i === 0 && (
             <Reveal open={sendOff}>
               <CardHint>{t('tgGroups.permNeedsSend')}</CardHint>

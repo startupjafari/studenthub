@@ -214,15 +214,7 @@ struct MediaViewer: View {
 
     @ViewBuilder
     private func page(_ item: PostDTO.Media) -> some View {
-        if item.isAnimation, let url = item.playbackURL {
-            // GIF беззвучным MP4 — по кругу, без контролов и звука, как GIF в Telegram.
-            // Открыт касанием — играет и при «уменьшении движения»; чужая страница — пауза.
-            LoopingVideoView(url: url, isPlaying: selection == item.id, gravity: .resizeAspect)
-                .contentShape(Rectangle())
-                .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
-                .safeAreaPadding(.top, MediaViewerBar.height)
-                .safeAreaPadding(.bottom, MediaViewerBar.height)
-        } else if item.isVideo, let url = item.playbackURL {
+        if item.isVideo, let url = item.playbackURL {
             // Видео — под панелью, а не под ней: контролы плеера и кнопки панели не
             // перекрывают друг друга.
             ViewerVideo(id: item.id, url: url, isActive: selection == item.id, resign: resign?(item))
