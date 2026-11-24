@@ -54,7 +54,6 @@ import {
   prefersReducedMotion,
   useBackClose,
   useBodyScrollLock,
-  useHls,
 } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -72,6 +71,7 @@ import {
   flyToOrigin,
   useConfirm,
 } from '../../../shared/ui'
+import { StoryVideo } from './story-video'
 import {
   addStoryReactionRequest,
   deleteStoryRequest,
@@ -556,13 +556,17 @@ export function StoryViewer({
   // Раскрытый блок принадлежит кадру: перешли к другому — панель закрывается.
   useEffect(() => setExpanded(null), [storyId])
 
-  // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора.
+  // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора. Снимок —
+  // в кэш браузера; ролик — целым плеером (StoryVideo), который при переходе играет сразу.
   const nextCard = ring?.stories[storyIndex + 1] ?? rings[ringIndex + 1]?.stories[0]
   useEffect(() => warmStory(nextCard), [nextCard])
+  const nextVideo =
+    nextCard?.media?.mime.startsWith('video/') && nextCard.id !== failedStoryId
+      ? nextCard
+      : undefined
 
-  // Видео — адаптивным HLS (качество под сеть), запасной путь — оригинал.
+  // Элемент ролика на экране (его отдаёт StoryVideo) — для паузы и запуска.
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
-  useHls(videoEl, story?.media?.hls, story?.media?.url)
 
   // Пауза видео — вместе с паузой кадра: удержание, меню, фон вкладки.
   useEffect(() => {
@@ -1109,27 +1113,25 @@ export function StoryViewer({
         onPointerCancel={endGesture}
         onPointerLeave={endGesture}
       >
+        {/* Ролики — текущий и прогреваемый следующий — одним списком с ключом-id: при
+            переходе React сохраняет элемент следующего, и он играет без загрузки с нуля. */}
+        {[isVideo ? story : undefined, nextVideo].map(
+          (card) =>
+            card?.media && (
+              <StoryVideo
+                key={card.id}
+                media={card.media}
+                active={card.id === story.id}
+                muted={muted}
+                onActiveElement={setVideoEl}
+                onProgress={setProgress}
+                onEnded={goNext}
+                onError={() => setFailedStoryId(card.id)}
+              />
+            ),
+        )}
         {story.media && !failed ? (
-          isVideo ? (
-            <video
-              key={story.id}
-              ref={setVideoEl}
-              // При HLS источник ставит useHls; иначе — оригинал, как раньше.
-              src={story.media.hls ? undefined : story.media.url}
-              poster={pickSource(story.media.poster, 1280)?.url}
-              className="size-full object-contain"
-              autoPlay
-              playsInline
-              muted={muted}
-              controls={false}
-              onTimeUpdate={(e) => {
-                const el = e.currentTarget
-                if (el.duration > 0) setProgress(el.currentTime / el.duration)
-              }}
-              onEnded={goNext}
-              onError={() => setFailedStoryId(story.id)}
-            />
-          ) : (
+          isVideo ? null : (
             // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
             // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
             <MediaImage
