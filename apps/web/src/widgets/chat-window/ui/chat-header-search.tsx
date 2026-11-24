@@ -38,10 +38,10 @@ const LOAD_MORE_EDGE_PX = 80
  * сообщению и прячет выдачу, чтобы было видно переписку вокруг. Возврат в поле снова её
  * показывает.
  *
- * Справа, как в Telegram, только два действия: «От: …» (автор; ищет и без слов, стоит меткой
- * перед полем и снимается крестиком) и «Перейти к дате». Счётчик «3 из 57» и стрелки
- * появляются, когда есть совпадения: до поиска шагать не по чему, и серые стрелки только
- * путали.
+ * Справа — только фильтр «От: …» (автор; в группах; ищет и без слов, стоит меткой перед полем
+ * и снимается крестиком). Календаря в поиске нет: к дню ведёт нажатие на плашку даты в ленте.
+ * Счётчик «3 из 57» и стрелки появляются, когда есть совпадения: до поиска шагать не по чему,
+ * и серые стрелки только путали.
  *
  * На ПК всё это стоит в шапке справа.
  * На телефоне им там тесно — они уезжают в нижнюю панель ({@link ChatHeaderSearchFooter}),
@@ -53,7 +53,6 @@ export function ChatHeaderSearch({
   isPhone,
   members,
   myId,
-  calendar,
 }: {
   search: ChatHeaderSearchState
   /** Фильтр «От кого» — только там, где авторов больше одного собеседника. */
@@ -61,8 +60,6 @@ export function ChatHeaderSearch({
   isPhone: boolean
   members: readonly ChatMemberInfo[]
   myId?: string
-  /** Переход к дате — календарь переписки (его собирает окно чата). */
-  calendar: ReactNode
 }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
@@ -216,7 +213,6 @@ export function ChatHeaderSearch({
             <SearchCounter search={search} />
             <SearchArrows search={search} />
             {isGroup && <SenderFilterButton search={search} />}
-            {calendar}
           </>
         )}
       </header>
@@ -339,25 +335,21 @@ export function ChatHeaderSearch({
 }
 
 /**
- * Нижняя панель поиска на телефоне (Telegram: footer MiddleSearch): автор, календарь,
- * «3 из 57», «списком/в чате» и стрелки. Высота — как у панели ввода, которую она
+ * Нижняя панель поиска на телефоне (Telegram: footer MiddleSearch): автор, «3 из 57», «списком/в чате» и стрелки. Высота — как у панели ввода, которую она
  * заменяет, чтобы лента не прыгала при входе в поиск.
  */
 export function ChatHeaderSearchFooter({
   search,
   isGroup,
-  calendar,
 }: {
   search: ChatHeaderSearchState
   isGroup: boolean
-  calendar: ReactNode
 }) {
   const t = useTranslations('Chats')
   return (
     <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-30 border-t border-border bg-background px-2 py-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))]">
       <div className="flex h-11 items-center gap-1">
         {isGroup && <SenderFilterButton search={search} />}
-        {calendar}
         <span className="flex min-w-0 flex-1 justify-center">
           <SearchCounter search={search} />
         </span>
