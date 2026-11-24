@@ -130,103 +130,6 @@ enum StoryStrokeRenderer {
     }
 }
 
-/// Фигуры раздела «Стикеры».
-enum StoryShapeRenderer {
-    static func path(_ shape: StoryShapePayload.Shape, in rect: CGRect) -> CGPath {
-        switch shape {
-        case .rectangle:
-            return CGPath(roundedRect: rect, cornerWidth: rect.width * 0.06, cornerHeight: rect.width * 0.06, transform: nil)
-        case .ellipse:
-            return CGPath(ellipseIn: rect, transform: nil)
-        case .bubble:
-            let path = CGMutablePath()
-            let body = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * 0.8)
-            path.addPath(CGPath(roundedRect: body, cornerWidth: body.height * 0.3, cornerHeight: body.height * 0.3, transform: nil))
-            path.move(to: CGPoint(x: rect.minX + rect.width * 0.22, y: body.maxY - 1))
-            path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.16, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.4, y: body.maxY - 1))
-            path.closeSubpath()
-            return path
-        case .star:
-            let path = CGMutablePath()
-            let center = CGPoint(x: rect.midX, y: rect.midY)
-            let outer = min(rect.width, rect.height) / 2
-            let inner = outer * 0.45
-            for index in 0..<10 {
-                let radius = index.isMultiple(of: 2) ? outer : inner
-                let angle = -CGFloat.pi / 2 + CGFloat(index) * .pi / 5
-                let point = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-                index == 0 ? path.move(to: point) : path.addLine(to: point)
-            }
-            path.closeSubpath()
-            return path
-        case .arrow:
-            let path = CGMutablePath()
-            let shaft = rect.height * 0.22
-            let headLength = rect.width * 0.32
-            path.move(to: CGPoint(x: rect.minX, y: rect.midY - shaft / 2))
-            path.addLine(to: CGPoint(x: rect.maxX - headLength, y: rect.midY - shaft / 2))
-            path.addLine(to: CGPoint(x: rect.maxX - headLength, y: rect.minY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.maxX - headLength, y: rect.maxY))
-            path.addLine(to: CGPoint(x: rect.maxX - headLength, y: rect.midY + shaft / 2))
-            path.addLine(to: CGPoint(x: rect.minX, y: rect.midY + shaft / 2))
-            path.closeSubpath()
-            return path
-        case .heart:
-            let path = CGMutablePath()
-            let w = rect.width
-            let h = rect.height
-            path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-            path.addCurve(
-                to: CGPoint(x: rect.minX, y: rect.minY + h * 0.3),
-                control1: CGPoint(x: rect.midX - w * 0.1, y: rect.maxY - h * 0.15),
-                control2: CGPoint(x: rect.minX, y: rect.minY + h * 0.6)
-            )
-            path.addArc(
-                center: CGPoint(x: rect.minX + w * 0.25, y: rect.minY + h * 0.28),
-                radius: w * 0.25,
-                startAngle: .pi * 1.03,
-                endAngle: 0,
-                clockwise: false
-            )
-            path.addArc(
-                center: CGPoint(x: rect.minX + w * 0.75, y: rect.minY + h * 0.28),
-                radius: w * 0.25,
-                startAngle: .pi,
-                endAngle: -0.03 * .pi,
-                clockwise: false
-            )
-            path.addCurve(
-                to: CGPoint(x: rect.midX, y: rect.maxY),
-                control1: CGPoint(x: rect.maxX, y: rect.minY + h * 0.6),
-                control2: CGPoint(x: rect.midX + w * 0.1, y: rect.maxY - h * 0.15)
-            )
-            path.closeSubpath()
-            return path
-        }
-    }
-
-    static func draw(_ payload: StoryShapePayload, in context: CGContext, size: CGSize, canvasWidth: CGFloat) {
-        let line = max(2, canvasWidth * 0.014)
-        let rect = CGRect(origin: .zero, size: size).insetBy(dx: line, dy: line)
-        let path = path(payload.shape, in: rect)
-        context.saveGState()
-        context.addPath(path)
-        if payload.filled {
-            context.setFillColor(payload.color.cgColor)
-            context.fillPath()
-        } else {
-            context.setStrokeColor(payload.color.cgColor)
-            context.setLineWidth(line)
-            context.setLineJoin(.round)
-            context.setLineCap(.round)
-            context.strokePath()
-        }
-        context.restoreGState()
-    }
-}
-
 /// Объекты холста: размер и отрисовка в собственных координатах (левый верх — 0,0).
 enum StoryEntityRenderer {
     /// Размер объекта до масштаба на холсте шириной `canvasWidth`.
@@ -248,15 +151,6 @@ enum StoryEntityRenderer {
         switch entity.kind {
         case .text(let payload):
             StoryTextLayout(payload: payload, canvasWidth: canvasWidth).draw(in: context)
-        case .emoji(let emoji):
-            UIGraphicsPushContext(context)
-            let font = UIFont.systemFont(ofSize: size.height * 0.82)
-            let text = NSAttributedString(string: emoji, attributes: [.font: font])
-            let bounds = text.boundingRect(with: size, options: [.usesLineFragmentOrigin], context: nil)
-            text.draw(at: CGPoint(x: (size.width - bounds.width) / 2, y: (size.height - bounds.height) / 2))
-            UIGraphicsPopContext()
-        case .shape(let payload):
-            StoryShapeRenderer.draw(payload, in: context, size: size, canvasWidth: canvasWidth)
         case .image(let payload):
             guard let picture = image(payload.file) else { return }
             UIGraphicsPushContext(context)

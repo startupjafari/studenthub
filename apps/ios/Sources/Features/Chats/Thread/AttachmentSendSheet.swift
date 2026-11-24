@@ -97,7 +97,8 @@ enum AttachmentStaging {
     }
 
     /// Снимок или ролик из сетки недавних «Фото». Ролик перекодируется в MP4 (сервер MOV
-    /// не берёт), GIF уходит как есть — иначе анимация превратилась бы в один кадр.
+    /// не берёт). GIF — обычная картинка, но уходит файлом как есть: перекодирование
+    /// оставило бы от него один кадр.
     static func stage(_ asset: PHAsset, highQuality: Bool = false) async throws -> StagedAttachment {
         if asset.mediaType == .video {
             guard videoAllowed else { throw Failure.videoDisabled }

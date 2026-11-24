@@ -37,7 +37,7 @@ struct ChatThreadView: View {
     /// Где на экране панели над перепиской (поиск, закреплённое, трансляция): лента
     /// уходит под них, её отступ сверху — до их низа.
     @State private var topBars: CGRect = .zero
-    /// Открыта панель emoji и стикеров — экран не отступает от клавиатуры.
+    /// Открыта панель emoji — экран не отступает от клавиатуры.
     @State private var composerPanelShown = false
     /// Фото и видео сообщения — в своём просмотре, как в Telegram.
     @State private var viewer: ChatMediaViewerRequest?
@@ -554,9 +554,6 @@ struct ChatThreadView: View {
             guard model == nil else { return }
             ChatOpenSignpost.begin(chatID: chatID)
             KeyboardFrame.shared.start()
-            // Избранные стикеры — для пункта меню сообщения-стикера: без них «в избранном
-            // ли» отвечало бы «нет» у каждого.
-            Task { await StickerCatalog.shared.loadFavorites() }
             // Быстрая реакция (двойной тап) — своя, из настроек чатов на сервере.
             Task { await ChatReactions.refresh() }
             hiddenPinned = UserDefaults.standard.string(forKey: Self.hiddenPinnedKey(chatID))
@@ -966,7 +963,6 @@ struct ChatThreadView: View {
                 isGroup: context.isGroup,
                 capabilities: capabilities,
                 readCount: readCount,
-                favoriteSticker: message.extras?.sticker.map { StickerCatalog.shared.isFavorite($0.id) },
                 attachments: item.attachments
             ),
             canReact: message.remoteId != nil && message.deletedAt == nil && message.systemType == nil
@@ -1076,7 +1072,6 @@ struct ChatThreadView: View {
         case .report: handle(.report, message: message, model: model)
         case .delete: handle(.delete, message: message, model: model)
         case .select: handle(.select, message: message, model: model)
-        case .favoriteSticker(let isFavorite): toggleFavorite(stickerOf: message, isFavorite: isFavorite)
         case .saveMedia(let kind): saveMedia(of: message, kind: kind)
         case .saveFile: saveFile(of: message)
         }
@@ -1149,31 +1144,6 @@ struct ChatThreadView: View {
         }
     }
 
-    /// Стикер из сообщения — в избранное или из него. Картинка в избранном ищется по
-    /// каталогу; стикера нет в загруженных наборах — запись без ссылки, она подпишется
-    /// по id, когда панель её покажет.
-    private func toggleFavorite(stickerOf message: MessageRecord, isFavorite: Bool) {
-        guard let sticker = message.extras?.sticker else { return }
-        let catalog = StickerCatalog.shared
-        let entry = catalog.sticker(id: sticker.id) ?? StickerSetDTO.Sticker(
-            id: sticker.id,
-            emoji: sticker.emoji,
-            width: sticker.width,
-            height: sticker.height,
-            url: "",
-            expiresAt: nil
-        )
-        Task {
-            if let failure = await catalog.setFavorite(!isFavorite, sticker: entry) {
-                model?.actionFailure = failure
-            } else {
-                showToast(isFavorite
-                    ? String(localized: "chats.stickers.unfavorited", defaultValue: "Стикер удалён из избранного")
-                    : String(localized: "chats.stickers.favorited", defaultValue: "Стикер добавлен в избранное"))
-            }
-        }
-    }
-
     private func perform(_ request: DeleteRequest, forEveryone: Bool) {
         guard let model else { return }
         Task {
@@ -1232,9 +1202,7 @@ struct ChatThreadView: View {
     /// Снимок для просмотра: свой файл на диске — сразу, чужой — по свежей подписанной
     /// ссылке с уменьшенными копиями и HLS ролика.
     private static func viewerMedia(_ file: AttachmentRecord) async -> PostDTO.Media? {
-        // Своя копия GIF-ролика — исходный `.gif`: его просмотр не сыграет, берём MP4 по ссылке.
-        if let path = file.localPath, FileManager.default.fileExists(atPath: path),
-           !file.isAnimation || file.localAnimationFile != nil {
+        if let path = file.localPath, FileManager.default.fileExists(atPath: path) {
             return PostDTO.Media(
                 id: file.id,
                 url: URL(filePath: path).absoluteString,
@@ -1242,12 +1210,11 @@ struct ChatThreadView: View {
                 width: file.width,
                 height: file.height,
                 placeholder: file.placeholder,
-                durationMs: file.durationMs,
-                animation: file.isAnimation
+                durationMs: file.durationMs
             )
         }
         guard let signed = try? await AppServices.attachmentURLs.media(for: file.id) else { return nil }
-        // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
+        // Тип — по ссылке, если сервер его прислал: он новее вложения в сообщении.
         return PostDTO.Media(
             id: file.id,
             url: signed.url.absoluteString,
@@ -1258,8 +1225,7 @@ struct ChatThreadView: View {
             durationMs: file.durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls,
-            animation: file.isAnimation || signed.animation
+            hls: signed.hls
         )
     }
 

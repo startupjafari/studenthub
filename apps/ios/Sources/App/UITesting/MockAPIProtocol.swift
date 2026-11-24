@@ -325,8 +325,6 @@
             }
             route("GET", "chats/folders") { _ in Self.ok([Any]()) }
             route("GET", "chats/saved") { _ in Self.ok(["id": "chat-saved"]) }
-            route("GET", "chats/stickers/sets") { _ in Self.ok([Any]()) }
-            route("GET", "chats/gifs/recent") { _ in Self.ok([Any]()) }
 
             route("GET", "chats/:id/messages") { [unowned self] request in
                 let id = request.params["id"] ?? ""

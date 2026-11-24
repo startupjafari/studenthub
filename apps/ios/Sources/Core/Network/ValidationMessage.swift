@@ -71,7 +71,6 @@ enum ValidationMessage {
         case "validation.chats.folderEmoji": return String(localized: "validation.chats.folderEmoji", defaultValue: "Значок папки — один эмодзи")
         case "validation.chats.folderChatExcluded": return String(localized: "validation.chats.folderChatExcluded", defaultValue: "Чат не может быть одновременно в папке и в исключениях")
         case "validation.chats.contactEmpty": return String(localized: "validation.chats.contactEmpty", defaultValue: "Укажите хотя бы один телефон или адрес почты")
-        case "validation.chats.stickerSlug": return String(localized: "validation.chats.stickerSlug", defaultValue: "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков")
         case "validation.chats.livePeriod": return String(localized: "validation.chats.livePeriod", defaultValue: "Трансляция: 15 минут, 1 час или 8 часов")
         case "validation.documents.typeCode": return String(localized: "validation.documents.typeCode", defaultValue: "Код: заглавные латинские, цифры, подчёркивание")
         case "validation.library.isbn": return String(localized: "validation.library.isbn", defaultValue: "ISBN — 10 или 13 цифр")

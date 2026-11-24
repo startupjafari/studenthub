@@ -11,14 +11,11 @@
 # хранилища (MinIO), а не запросы к API: токен им не нужен. Загрузка на сервер:
 urlsession Sources/Core/Chats/AttachmentUploader.swift
 urlsession Sources/Core/StudentStudy/StudentStudyAPI.swift
-# Скачивание: картинки, файлы чата и «Поделиться», голосовые, GIF, сохранение медиа.
+# Скачивание: картинки, файлы чата и «Поделиться», голосовые, сохранение медиа.
 # Цель — общий загрузчик в Core (как ImageDownloads), экраны без своего URLSession.
 urlsession Sources/Core/Images/ImageDownloads.swift
 urlsession Sources/DesignSystem/Toolkit.swift
-urlsession Sources/Features/Chats/ChatSharedContentView.swift
 urlsession Sources/Features/Chats/Thread/ChatFileDownloads.swift
-urlsession Sources/Features/Chats/Thread/Emoji/ExpressionPanel.swift
-urlsession Sources/Features/Chats/Thread/MessageKindViews.swift
 urlsession Sources/Features/Chats/Thread/VoicePlayback.swift
 urlsession Sources/Features/Feed/MediaViewer.swift
 

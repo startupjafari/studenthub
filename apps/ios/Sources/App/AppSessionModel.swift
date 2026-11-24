@@ -85,7 +85,6 @@ final class AppSessionModel {
         case .none:
             // Сессия не поднялась — отложенная ссылка из пуша никому не адресована.
             AppServices.router.reset()
-            GifPanelCache.shared.clear()
             state = .signedOut
         }
         // Выход, отложенный без сети в прошлый раз, досылаем, пока есть возможность.
@@ -159,7 +158,6 @@ final class AppSessionModel {
         await AppServices.realtime.stop()
         LiveLocationSharing.shared.suspend()
         AppServices.router.reset()
-        GifPanelCache.shared.clear()
         Observability.identify(userID: nil)
         twoFactorSetupDemanded = false
         state = .signedOut
@@ -191,7 +189,6 @@ final class AppSessionModel {
         // Память — тоже данные прежнего человека: открытый чат в стеке навигации и
         // его id в трекере ошибок.
         AppServices.router.reset()
-        GifPanelCache.shared.clear()
         Observability.identify(userID: nil)
         twoFactorSetupDemanded = false
         state = .signedOut

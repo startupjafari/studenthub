@@ -84,11 +84,6 @@ class StoryEntityView: UIView {
         case .text(let payload):
             accessibilityLabel = payload.text
             accessibilityValue = "\(payload.font.rawValue),\(payload.style.rawValue),\(payload.color.hex)"
-        case .emoji(let emoji):
-            accessibilityLabel = emoji
-        case .shape(let shape):
-            accessibilityLabel = String(localized: "stories.editor.shape", defaultValue: "Фигура")
-            accessibilityValue = shape.shape.rawValue
         case .image:
             accessibilityLabel = String(localized: "stories.editor.image", defaultValue: "Картинка")
         case .roundVideo:
@@ -175,8 +170,6 @@ extension StoryEntity {
     var accessibilityKind: String {
         switch kind {
         case .text: return "text"
-        case .emoji: return "emoji"
-        case .shape: return "shape"
         case .image: return "image"
         case .roundVideo: return "roundVideo"
         }

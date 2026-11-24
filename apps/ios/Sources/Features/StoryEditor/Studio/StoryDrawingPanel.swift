@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Режим «Рисунок»: отмена и повтор сверху, толщина слева, кисти и цвета снизу,
-/// вкладки «Рисунок / Стикеры / Текст» и подтверждение.
+/// вкладки «Рисунок / Текст» и подтверждение.
 struct StoryDrawingPanel: View {
     let model: StoryStudioModel
     let canvas: CGRect
@@ -154,8 +154,6 @@ struct StoryDrawingPanel: View {
             HStack(spacing: Spacing.xl) {
                 tab(String(localized: "stories.drawing.tab.draw", defaultValue: "Рисунок"), selected: true) {}
                     .accessibilityIdentifier("story.drawing.tab.draw")
-                tab(String(localized: "stories.drawing.tab.stickers", defaultValue: "Стикеры"), selected: false) { model.openStickers() }
-                    .accessibilityIdentifier("story.drawing.tab.stickers")
                 tab(String(localized: "stories.drawing.tab.text", defaultValue: "Текст"), selected: false) { model.beginText() }
                     .accessibilityIdentifier("story.drawing.tab.text")
             }

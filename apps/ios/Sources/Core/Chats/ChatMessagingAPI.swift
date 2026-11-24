@@ -1,7 +1,7 @@
 import Foundation
 
 // Маршруты переписки «как в Telegram»: пересылка пачкой, «удалить у себя», новые виды
-// сообщений (геопозиция, контакт, список, стикер, GIF), закрытие опроса. Контракты —
+// сообщений (геопозиция, контакт, список), закрытие опроса. Контракты —
 // docs/PROJECT.md, раздел чатов.
 
 /// Сообщение как строка списка (вкладка «Опросы» в информации о чате).
@@ -58,67 +58,7 @@ struct ContactCardDraft: Encodable, Equatable, Sendable {
     let emails: [String]
 }
 
-struct StickerSetDTO: Decodable, Equatable, Identifiable, Sendable {
-    struct Sticker: Decodable, Equatable, Identifiable, Sendable {
-        let id: String
-        let emoji: String?
-        let width: Int?
-        let height: Int?
-        let url: String
-        let expiresAt: Date?
-    }
-
-    let id: String
-    let title: String
-    let slug: String
-    let stickers: [Sticker]
-}
-
-/// Элемент списка, который не роняет весь ответ: не разобрался — `nil`, и его пропускают.
-private struct LossyElement<Value: Decodable>: Decodable {
-    let value: Value?
-
-    init(from decoder: Decoder) throws {
-        value = try? Value(from: decoder)
-    }
-}
-
-struct SignedURLDTO: Decodable, Equatable {
-    let url: String
-    let expiresAt: Date?
-}
-
-struct RecentGifDTO: Decodable, Equatable, Identifiable, Sendable {
-    let fileId: String
-    let width: Int?
-    let height: Int?
-    let url: String
-    let expiresAt: Date?
-
-    var id: String { fileId }
-}
-
-/// GIF из внешнего каталога (GIPHY) через прокси сервера: ключ живёт только там.
-struct ExternalGifDTO: Decodable, Equatable, Identifiable, Sendable {
-    let id: String
-    let title: String?
-    let width: Int?
-    let height: Int?
-    let previewUrl: String
-    let previewWidth: Int?
-    let previewHeight: Int?
-}
-
-struct ExternalGifPageDTO: Decodable, Equatable, Sendable {
-    let items: [ExternalGifDTO]
-    let nextOffset: Int?
-}
-
 protocol ChatMessaging: Sendable {
-    /// Популярные (пустой запрос) или найденные GIF. Без ключа на сервере — 503
-    /// `FEATURE_DISABLED`.
-    func searchGifs(_ query: String, offset: Int) async throws -> ExternalGifPageDTO
-    func sendExternalGif(chatID: String, gifID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
     func forward(messageIDs: [String], to chatIDs: [String], comment: String?, hideSender: Bool, requestID: UUID) async throws -> ForwardResultDTO
     func hide(messageIDs: [String], chatID: String) async throws -> HiddenMessagesDTO
     func deleteForEveryone(messageIDs: [String], chatID: String) async throws -> DeletedMessagesDTO
@@ -139,44 +79,9 @@ protocol ChatMessaging: Sendable {
     func addChecklistItem(checklistID: String, text: String) async throws -> MessageExtras.Checklist
     func removeChecklistItem(checklistID: String, itemID: String) async throws -> MessageExtras.Checklist
     func toggleChecklistItem(checklistID: String, itemID: String, done: Bool) async throws -> MessageExtras.Checklist
-    func stickerSets() async throws -> [StickerSetDTO]
-    func stickerURL(id: String) async throws -> SignedURLDTO
-    func sendSticker(chatID: String, stickerID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
-    /// Избранные стикеры — свежие сверху, не больше 30 (сервер вытесняет самый старый).
-    func favoriteStickers() async throws -> [StickerSetDTO.Sticker]
-    /// Добавить в избранное (повтор поднимает наверх) или убрать.
-    func setFavoriteSticker(_ favorite: Bool, stickerID: String) async throws
-    func recentGifs() async throws -> [RecentGifDTO]
-    func sendGif(chatID: String, fileID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO
 }
 
 extension ChatsAPI: ChatMessaging {
-    func searchGifs(_ query: String, offset: Int) async throws -> ExternalGifPageDTO {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var items = [URLQueryItem(name: "offset", value: String(offset)), URLQueryItem(name: "limit", value: "24")]
-        if term.isEmpty {
-            return try await client.send(.get("chats/gifs/trending", query: items), as: ExternalGifPageDTO.self)
-        }
-        items.append(URLQueryItem(name: "q", value: String(term.prefix(50))))
-        return try await client.send(.get("chats/gifs/search", query: items), as: ExternalGifPageDTO.self)
-    }
-
-    func sendExternalGif(chatID: String, gifID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
-        struct Body: Encodable {
-            let provider: String
-            let id: String
-            let replyToId: String?
-            let nonce: String
-        }
-        return try await client.send(
-            try .post(
-                "chats/\(chatID)/gif/external",
-                json: Body(provider: "giphy", id: gifID, replyToId: replyToID, nonce: nonce)
-            ),
-            as: ChatMessageDTO.self
-        )
-    }
-
     func forward(messageIDs: [String], to chatIDs: [String], comment: String?, hideSender: Bool, requestID: UUID) async throws -> ForwardResultDTO {
         struct Body: Encodable {
             let messageIds: [String]
@@ -354,55 +259,6 @@ extension ChatsAPI: ChatMessaging {
         try await client.send(
             try .post("chats/checklists/\(checklistID)/items/\(itemID)/toggle", json: ["done": done]),
             as: MessageExtras.Checklist.self
-        )
-    }
-
-    func stickerSets() async throws -> [StickerSetDTO] {
-        try await client.send(.get("chats/stickers/sets"), as: [StickerSetDTO].self)
-    }
-
-    func stickerURL(id: String) async throws -> SignedURLDTO {
-        try await client.send(.get("chats/stickers/\(id)/url"), as: SignedURLDTO.self)
-    }
-
-    func sendSticker(chatID: String, stickerID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
-        struct Body: Encodable {
-            let stickerId: String
-            let replyToId: String?
-            let nonce: String
-        }
-        return try await client.send(
-            try .post("chats/\(chatID)/sticker", json: Body(stickerId: stickerID, replyToId: replyToID, nonce: nonce)),
-            as: ChatMessageDTO.self
-        )
-    }
-
-    func favoriteStickers() async throws -> [StickerSetDTO.Sticker] {
-        // Терпимо к чужим строкам: стикер без id или ссылки пропускаем, а не роняем всё.
-        try await client.send(.get("chats/stickers/favorites"), as: [LossyElement<StickerSetDTO.Sticker>].self).compactMap(\.value)
-    }
-
-    func setFavoriteSticker(_ favorite: Bool, stickerID: String) async throws {
-        let path = "chats/stickers/favorites/\(stickerID)"
-        try await client.send(favorite ? .post(path) : Endpoint(method: .delete, path: path))
-    }
-
-    func recentGifs() async throws -> [RecentGifDTO] {
-        try await client.send(
-            .get("chats/gifs/recent", query: [URLQueryItem(name: "limit", value: "50")]),
-            as: [RecentGifDTO].self
-        )
-    }
-
-    func sendGif(chatID: String, fileID: String, replyToID: String?, nonce: String) async throws -> ChatMessageDTO {
-        struct Body: Encodable {
-            let fileId: String
-            let replyToId: String?
-            let nonce: String
-        }
-        return try await client.send(
-            try .post("chats/\(chatID)/gif", json: Body(fileId: fileID, replyToId: replyToID, nonce: nonce)),
-            as: ChatMessageDTO.self
         )
     }
 }

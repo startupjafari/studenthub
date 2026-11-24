@@ -13569,29 +13569,6 @@
         }
       }
     },
-    "validation.chats.stickerSlug": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Короткое имя: латиница, цифры, «-» и «_», от 2 до 64 знаков"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Қысқа атау: латын әріптері, сандар, «-» және «_», 2–64 таңба"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters"
-          }
-        }
-      }
-    },
     "validation.chats.livePeriod": {
       "extractionState": "manual",
       "localizations": {
@@ -96033,23 +96010,6 @@
         }
       }
     },
-    "chats.preview.gif": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF"
-          }
-        }
-      }
-    },
     "chats.preview.code": {
       "extractionState": "manual",
       "localizations": {
@@ -96063,23 +96023,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Код"
-          }
-        }
-      }
-    },
-    "chats.preview.sticker": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер"
           }
         }
       }
@@ -96118,57 +96061,6 @@
         }
       }
     },
-    "chats.sticker.a11y": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер %@"
-          }
-        }
-      }
-    },
-    "chats.gifs.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Здесь появятся GIF, которые вы отправляли. Новый GIF — через скрепку из «Фото»."
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мұнда сіз жіберген GIF-тер шығады. Жаңа GIF — қыстырғыш арқылы «Фото»-дан."
-          }
-        }
-      }
-    },
-    "chats.gifs.searchOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск GIF временно недоступен"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF іздеу уақытша қолжетімсіз"
-          }
-        }
-      }
-    },
     "chats.panel.backspace": {
       "extractionState": "manual",
       "localizations": {
@@ -96203,23 +96095,6 @@
         }
       }
     },
-    "chats.panel.gif": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF"
-          }
-        }
-      }
-    },
     "chats.panel.keyboard": {
       "extractionState": "manual",
       "localizations": {
@@ -96233,57 +96108,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пернетақта"
-          }
-        }
-      }
-    },
-    "chats.panel.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emoji, стикеры и GIF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emoji, стикерлер және GIF"
-          }
-        }
-      }
-    },
-    "chats.panel.stickers": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикеры"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикерлер"
-          }
-        }
-      }
-    },
-    "chats.stickers.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наборов стикеров пока нет — их добавляет администратор платформы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады"
           }
         }
       }
@@ -96658,57 +96482,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ дейін · жаңа ғана жаңартылды"
-          }
-        }
-      }
-    },
-    "chats.gifs.results": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Найдено"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Табылды"
-          }
-        }
-      }
-    },
-    "chats.gifs.trending": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Популярные"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Танымал"
-          }
-        }
-      }
-    },
-    "chats.panel.searchGif": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поиск GIF"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF іздеу"
           }
         }
       }
@@ -97100,23 +96873,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ашу"
-          }
-        }
-      }
-    },
-    "chats.stickers.filter": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикеры %@"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикерлер %@"
           }
         }
       }
@@ -98313,23 +98069,6 @@
         }
       }
     },
-    "chats.stickers.favorites": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Избранные стикеры"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Таңдаулы стикерлер"
-          }
-        }
-      }
-    },
     "chats.share.pick": {
       "extractionState": "manual",
       "localizations": {
@@ -98449,23 +98188,6 @@
         }
       }
     },
-    "chats.stickers.favorited": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер добавлен в избранное"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер таңдаулыларға қосылды"
-          }
-        }
-      }
-    },
     "chats.viewer.shareScope": {
       "extractionState": "manual",
       "localizations": {
@@ -98496,23 +98218,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Хабарлама толығымен өшіріледі — альбомның қалған тіркемелерімен бірге (барлығы %lld)"
-          }
-        }
-      }
-    },
-    "chats.stickers.favorite": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить в избранное"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Таңдаулыларға қосу"
           }
         }
       }
@@ -98585,23 +98290,6 @@
         }
       }
     },
-    "chats.stickers.unfavorite": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить из избранного"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Таңдаулылардан өшіру"
-          }
-        }
-      }
-    },
     "chats.viewer.counter": {
       "extractionState": "manual",
       "localizations": {
@@ -98615,23 +98303,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%2$lld ішінен %1$lld"
-          }
-        }
-      }
-    },
-    "chats.stickers.unfavorited": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер удалён из избранного"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикер таңдаулылардан өшірілді"
           }
         }
       }
@@ -98870,23 +98541,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сурет кенебі"
-          }
-        }
-      }
-    },
-    "stories.editor.shape": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фигура"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пішін"
           }
         }
       }
@@ -100166,23 +99820,6 @@
         }
       }
     },
-    "stories.drawing.tab.stickers": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикеры"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикерлер"
-          }
-        }
-      }
-    },
     "stories.drawing.tab.text": {
       "extractionState": "manual",
       "localizations": {
@@ -100455,23 +100092,6 @@
         }
       }
     },
-    "stories.editor.stickers": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикеры"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стикерлер"
-          }
-        }
-      }
-    },
     "stories.editor.saveDraft": {
       "extractionState": "manual",
       "localizations": {
@@ -100689,193 +100309,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Редакторға оралу"
-          }
-        }
-      }
-    },
-    "stories.stickers.emoji": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эмодзи"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Эмодзи"
-          }
-        }
-      }
-    },
-    "stories.stickers.shapes": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фигуры"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пішіндер"
-          }
-        }
-      }
-    },
-    "stories.stickers.photo": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото"
-          }
-        }
-      }
-    },
-    "stories.stickers.pickPhoto": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выбрать фото"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото таңдау"
-          }
-        }
-      }
-    },
-    "stories.stickers.filled": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Заливка"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Құю"
-          }
-        }
-      }
-    },
-    "stories.shape.rectangle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Прямоугольник"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тіктөртбұрыш"
-          }
-        }
-      }
-    },
-    "stories.shape.ellipse": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Круг"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Шеңбер"
-          }
-        }
-      }
-    },
-    "stories.shape.bubble": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Облачко"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бұлтша"
-          }
-        }
-      }
-    },
-    "stories.shape.star": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Звезда"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жұлдыз"
-          }
-        }
-      }
-    },
-    "stories.shape.arrow": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Стрелка"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Көрсеткі"
-          }
-        }
-      }
-    },
-    "stories.shape.heart": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сердце"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жүрек"
           }
         }
       }

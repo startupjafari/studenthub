@@ -291,8 +291,6 @@ struct InlineVideoView: View {
 
 extension PostDTO.Media {
     var isVideo: Bool { mime?.hasPrefix("video/") == true || hls != nil }
-    /// GIF беззвучным MP4: в просмотре — по кругу, без контролов и звука.
-    var isAnimation: Bool { animation == true && mime?.hasPrefix("video/") == true }
     var isImage: Bool { mime?.hasPrefix("image/") == true || (mime == nil && hls == nil) }
 
     /// Ширина к высоте. Без размеров — квадрат: так плитка не прыгает после загрузки.

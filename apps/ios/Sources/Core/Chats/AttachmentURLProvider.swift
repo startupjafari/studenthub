@@ -91,7 +91,6 @@ actor AttachmentURLProvider {
         let hls: String?
         /// Что лежит по ссылке сейчас. Старый сервер полей не шлёт.
         var mime: String? = nil
-        var animation: Bool? = nil
     }
 
     private func finish(_ task: Task<AttachmentMedia, Error>) async throws -> (AttachmentMedia, Date) {
@@ -108,8 +107,7 @@ actor AttachmentURLProvider {
             poster: answer.poster ?? [],
             hls: answer.hls,
             expiresAt: answer.expiresAt,
-            mime: answer.mime,
-            animation: answer.animation ?? false
+            mime: answer.mime
         )
     }
 
@@ -133,10 +131,7 @@ struct AttachmentMedia: Sendable {
     let hls: String?
     /// Конец подписи по часам сервера.
     var expiresAt: Date? = nil
-    /// Тип файла по ссылке — он новее, чем у вложения в сообщении: медиа-система через
-    /// пару секунд после отправки переводит GIF в беззвучный MP4, и сообщение ещё
-    /// говорит `image/gif`, а ссылка ведёт уже на ролик. `nil` — старый сервер.
+    /// Тип файла по ссылке — он новее, чем у вложения в сообщении: медиа-система может
+    /// переложить файл уже после отправки. `nil` — старый сервер.
     var mime: String? = nil
-    /// По ссылке — GIF беззвучным MP4 (см. `mime`).
-    var animation: Bool = false
 }
