@@ -1549,7 +1549,6 @@
     <string name="chats_panel_backspace">Өшіру</string>
     <string name="chats_panel_emoji">Эмодзи</string>
     <string name="chats_panel_keyboard">Пернетақта</string>
-    <string name="chats_panel_open">Emoji, стикерлер және GIF</string>
     <string name="chats_panel_search">Іздеу</string>
     <string name="chats_photo">Фотосурет</string>
     <string name="chats_pin">Бекіту</string>
@@ -4641,7 +4640,6 @@
     <string name="stories_drawing_redo">Қайталау</string>
     <string name="stories_drawing_size">Қалыңдық</string>
     <string name="stories_drawing_tab_draw">Сурет</string>
-    <string name="stories_drawing_tab_stickers">Стикерлер</string>
     <string name="stories_drawing_tab_text">Мәтін</string>
     <string name="stories_drawing_undo">Болдырмау</string>
     <string name="stories_editor_addPhoto">Үстіне фото қосу</string>
@@ -4662,8 +4660,6 @@
     <string name="stories_editor_roundVideo">Дөңгелек бейне</string>
     <string name="stories_editor_saveDraft">Жобаны сақтау</string>
     <string name="stories_editor_saved">«Фото»-ға сақталды</string>
-    <string name="stories_editor_shape">Пішін</string>
-    <string name="stories_editor_stickers">Стикерлер</string>
     <string name="stories_editor_text">Мәтін</string>
     <string name="stories_editor_undo">Қадамды болдырмау</string>
     <string name="stories_gallery_cancelSelect">Бас тарту</string>
@@ -4687,18 +4683,7 @@
     <string name="stories_publish_back">Редакторға оралу</string>
     <string name="stories_reply">Авторға жауап беру</string>
     <string name="stories_report_title">Стористе не дұрыс емес?</string>
-    <string name="stories_shape_arrow">Көрсеткі</string>
-    <string name="stories_shape_bubble">Бұлтша</string>
-    <string name="stories_shape_ellipse">Шеңбер</string>
-    <string name="stories_shape_heart">Жүрек</string>
-    <string name="stories_shape_rectangle">Тіктөртбұрыш</string>
-    <string name="stories_shape_star">Жұлдыз</string>
     <string name="stories_sound">Дыбыс</string>
-    <string name="stories_stickers_emoji">Эмодзи</string>
-    <string name="stories_stickers_filled">Құю</string>
-    <string name="stories_stickers_photo">Фото</string>
-    <string name="stories_stickers_pickPhoto">Фото таңдау</string>
-    <string name="stories_stickers_shapes">Пішіндер</string>
     <string name="stories_text_alignment">Туралау</string>
     <string name="stories_text_back">Артқа</string>
     <string name="stories_text_emoji">Эмодзи</string>

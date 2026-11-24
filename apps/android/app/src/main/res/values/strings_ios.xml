@@ -1549,7 +1549,6 @@
     <string name="chats_panel_backspace">Стереть</string>
     <string name="chats_panel_emoji">Эмодзи</string>
     <string name="chats_panel_keyboard">Клавиатура</string>
-    <string name="chats_panel_open">Emoji, стикеры и GIF</string>
     <string name="chats_panel_search">Поиск</string>
     <string name="chats_photo">Фотография</string>
     <string name="chats_pin">Закрепить</string>
@@ -4641,7 +4640,6 @@
     <string name="stories_drawing_redo">Повторить</string>
     <string name="stories_drawing_size">Толщина</string>
     <string name="stories_drawing_tab_draw">Рисунок</string>
-    <string name="stories_drawing_tab_stickers">Стикеры</string>
     <string name="stories_drawing_tab_text">Текст</string>
     <string name="stories_drawing_undo">Отменить</string>
     <string name="stories_editor_addPhoto">Добавить фото поверх</string>
@@ -4662,8 +4660,6 @@
     <string name="stories_editor_roundVideo">Круглое видео</string>
     <string name="stories_editor_saveDraft">Сохранить черновик</string>
     <string name="stories_editor_saved">Сохранено в «Фото»</string>
-    <string name="stories_editor_shape">Фигура</string>
-    <string name="stories_editor_stickers">Стикеры</string>
     <string name="stories_editor_text">Текст</string>
     <string name="stories_editor_undo">Отменить шаг</string>
     <string name="stories_gallery_cancelSelect">Отмена</string>
@@ -4687,18 +4683,7 @@
     <string name="stories_publish_back">Назад к редактору</string>
     <string name="stories_reply">Ответить автору</string>
     <string name="stories_report_title">Что не так с историей?</string>
-    <string name="stories_shape_arrow">Стрелка</string>
-    <string name="stories_shape_bubble">Облачко</string>
-    <string name="stories_shape_ellipse">Круг</string>
-    <string name="stories_shape_heart">Сердце</string>
-    <string name="stories_shape_rectangle">Прямоугольник</string>
-    <string name="stories_shape_star">Звезда</string>
     <string name="stories_sound">Звук</string>
-    <string name="stories_stickers_emoji">Эмодзи</string>
-    <string name="stories_stickers_filled">Заливка</string>
-    <string name="stories_stickers_photo">Фото</string>
-    <string name="stories_stickers_pickPhoto">Выбрать фото</string>
-    <string name="stories_stickers_shapes">Фигуры</string>
     <string name="stories_text_alignment">Выравнивание</string>
     <string name="stories_text_back">Назад</string>
     <string name="stories_text_emoji">Эмодзи</string>
