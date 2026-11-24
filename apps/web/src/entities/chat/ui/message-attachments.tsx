@@ -721,10 +721,9 @@ function Single({
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            {t('spoiler')}
-          </button>
+            aria-label={t('spoiler')}
+            className="media-spoiler cursor-pointer rounded-lg"
+          />
         )}
         {painted && !uploading && !blurred && !isGif && <ImagePrewarm url={url} link={link} />}
         {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
@@ -815,10 +814,9 @@ function Single({
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="absolute inset-0 flex cursor-pointer items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            {t('spoiler')}
-          </button>
+            aria-label={t('spoiler')}
+            className="media-spoiler cursor-pointer"
+          />
         ) : (
           <button
             type="button"
@@ -980,11 +978,7 @@ function GridTile({
           />
         </>
       )}
-      {blurred && painted && (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
-          {t('spoiler')}
-        </span>
-      )}
+      {blurred && painted && <span aria-hidden className="media-spoiler pointer-events-none" />}
       {/* Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
           Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик. */}
       {!uploading && (
