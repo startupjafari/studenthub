@@ -12,14 +12,8 @@ import { PasswordService } from '../src/common/security/password.service'
 
 const PASSWORD = 'Passw0rd!'
 
-// PNG 1×1 — минимальная настоящая картинка для стикера (тип проверяется по содержимому).
-const PNG_1X1 = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
-)
-
 // Функции чатов Telegram-уровня на настоящей БД: особые сообщения, повтор по nonce,
-// пересылка пачкой, «удалить у себя», пачкой у всех, закрытие опроса, чек-листы, стикеры.
+// пересылка пачкой, «удалить у себя», пачкой у всех, закрытие опроса, чек-листы.
 describe('Chats (e2e) — функции Telegram-уровня', () => {
   let app: NestFastifyApplication
   let prisma: PrismaService
@@ -52,7 +46,7 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
 
   beforeEach(async () => {
     await prisma.$executeRawUnsafe(
-      'TRUNCATE TABLE stickers, sticker_sets, message_reactions, messages, chat_members, chats, notifications, refresh_tokens, files, audit_logs, users, universities RESTART IDENTITY CASCADE',
+      'TRUNCATE TABLE message_reactions, messages, chat_members, chats, notifications, refresh_tokens, files, audit_logs, users, universities RESTART IDENTITY CASCADE',
     )
     await prisma.university.create({ data: { id: 'uni-a', name: 'Uni A' } })
   })
@@ -404,78 +398,6 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
       .expect(422)
   })
 
-  it('стикеры: админ заводит и публикует набор, студент видит каталог и отправляет', async () => {
-    await makeUser('root@p.io', 'PLATFORM_ADMIN')
-    const root = await login('root@p.io')
-    const { a, chatId } = await pair()
-
-    await request(server)
-      .post('/api/v1/admin/sticker-sets')
-      .set(auth(a))
-      .send({ title: 'Нет', slug: 'no' })
-      .expect(403)
-    const set = await request(server)
-      .post('/api/v1/admin/sticker-sets')
-      .set(auth(root))
-      .send({ title: 'Кампус', slug: 'campus' })
-      .expect(201)
-    const setId = set.body.data.id as string
-    const withSticker = await request(server)
-      .post(`/api/v1/admin/sticker-sets/${setId}/stickers`)
-      .set(auth(root))
-      .field('emoji', '🎓')
-      .attach('file', PNG_1X1, { filename: 's.png', contentType: 'image/png' })
-      .expect(201)
-    const stickerId = withSticker.body.data.stickers[0].id as string
-
-    // Неопубликованный набор каталогу не виден и отправить из него нельзя.
-    const hidden = await request(server).get('/api/v1/chats/stickers/sets').set(auth(a)).expect(200)
-    expect(hidden.body.data).toEqual([])
-    await request(server)
-      .post(`/api/v1/chats/${chatId}/sticker`)
-      .set(auth(a))
-      .send({ stickerId })
-      .expect(404)
-
-    await request(server)
-      .patch(`/api/v1/admin/sticker-sets/${setId}`)
-      .set(auth(root))
-      .send({ isPublished: true })
-      .expect(200)
-    const sets = await request(server).get('/api/v1/chats/stickers/sets').set(auth(a)).expect(200)
-    expect(sets.body.data[0]).toEqual(
-      expect.objectContaining({
-        slug: 'campus',
-        stickers: [
-          expect.objectContaining({
-            id: stickerId,
-            emoji: '🎓',
-            width: 1,
-            height: 1,
-            url: expect.any(String),
-            expiresAt: expect.any(String),
-          }),
-        ],
-      }),
-    )
-    const sent = await request(server)
-      .post(`/api/v1/chats/${chatId}/sticker`)
-      .set(auth(a))
-      .send({ stickerId })
-      .expect(201)
-    expect(sent.body.data.sticker).toEqual(
-      expect.objectContaining({ id: stickerId, setId, emoji: '🎓' }),
-    )
-
-    // Удалили набор — у отправленного сообщения стикер «недоступен».
-    await request(server).delete(`/api/v1/admin/sticker-sets/${setId}`).set(auth(root)).expect(204)
-    const after = await prisma.message.findUniqueOrThrow({
-      where: { id: sent.body.data.id },
-      select: { stickerId: true },
-    })
-    expect(after.stickerId).toBeNull()
-    expect(await prisma.file.count()).toBe(0)
-  })
   it('трансляция геопозиции: точка, частота, догон, остановка, пересылка снимком', async () => {
     const { a, b, chatId } = await pair()
     const sent = await request(server)
@@ -575,30 +497,5 @@ describe('Chats (e2e) — функции Telegram-уровня', () => {
       .post(`/api/v1/chats/messages/${copyId}/live-location/stop`)
       .set(auth(b))
       .expect(404)
-  })
-
-  it('поиск GIF без GIPHY_API_KEY — 503 FEATURE_DISABLED', async () => {
-    const { a, chatId } = await pair()
-    const trending = await request(server)
-      .get('/api/v1/chats/gifs/trending')
-      .set(auth(a))
-      .expect(503)
-    expect(trending.body.error.code).toBe('FEATURE_DISABLED')
-    await request(server)
-      .get('/api/v1/chats/gifs/search')
-      .query({ q: 'кот' })
-      .set(auth(a))
-      .expect(503)
-    await request(server).get('/api/v1/chats/gifs/search').query({ q: '' }).set(auth(a)).expect(422)
-    await request(server)
-      .post(`/api/v1/chats/${chatId}/gif/external`)
-      .set(auth(a))
-      .send({ provider: 'giphy', id: 'abc123' })
-      .expect(503)
-    await request(server)
-      .post(`/api/v1/chats/${chatId}/gif/external`)
-      .set(auth(a))
-      .send({ provider: 'giphy', id: '../../x' })
-      .expect(422)
   })
 })

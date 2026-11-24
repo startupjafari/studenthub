@@ -236,7 +236,6 @@ describe('Пересылка пачкой: hideCaptions и noLinkPreview ком�
       chatId: 'c0',
       linkPreview: null,
       sharedPostId: null,
-      stickerId: null,
       poll: null,
       location: null,
       contact: null,

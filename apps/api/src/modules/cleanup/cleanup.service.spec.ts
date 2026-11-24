@@ -388,10 +388,6 @@ describe('CleanupService', () => {
         {
           bucket: 'MINIO_BUCKET_CHAT',
           messageId: null,
-          // Картинки стикеров каталога живут без сообщения — их не трогаем.
-          sticker: { is: null },
-          // И «Мои GIF» — своя запись пользователя без сообщения.
-          savedGif: { is: null },
           createdAt: { lt: expect.any(Date) },
         },
         { bucket: 'MINIO_BUCKET_MATERIALS', materialId: null },
