@@ -474,9 +474,9 @@ export type PollVoteInput = z.infer<typeof PollVoteSchema>
 // Общие материалы чата (§23, правый sidebar): вложения по типу.
 // media — фото/видео; file — документы/прочее; voice — аудио/голосовые.
 // voice — всё аудио (как раньше, для веба); voice_note — только голосовые (`voice-…`);
-// music — аудио кроме голосовых; gif — только image/gif.
+// music — аудио кроме голосовых.
 export const ChatMediaTypeSchema = z
-  .enum(['media', 'file', 'voice', 'voice_note', 'music', 'gif'])
+  .enum(['media', 'file', 'voice', 'voice_note', 'music'])
   .default('media')
 
 export const ChatMediaQuerySchema = CursorPaginationSchema.extend({
@@ -730,7 +730,7 @@ export function chatCountsViews(type: string): boolean {
   return CHAT_VIEW_COUNTED_TYPES.includes(type as ChatTypeValue)
 }
 
-/** Общие поля отправки особых сообщений (геопозиция, контакт, чек-лист, стикер, GIF). */
+/** Общие поля отправки особых сообщений (геопозиция, контакт, чек-лист). */
 const richMessageFields = {
   replyToId: entityId.optional(),
   nonce: z.string().min(1).max(CHAT_NONCE_MAX).optional(),
@@ -832,126 +832,9 @@ export type ChatChecklistItemAddInput = z.infer<typeof ChatChecklistItemAddSchem
 export const ChatChecklistItemToggleSchema = z.object({ done: z.boolean() }).strict()
 export type ChatChecklistItemToggleInput = z.infer<typeof ChatChecklistItemToggleSchema>
 
-/** Стикер из каталога (`POST /chats/:id/sticker`). */
-export const ChatStickerSendSchema = z
-  .object({ stickerId: entityId, ...richMessageFields })
-  .strict()
-export type ChatStickerSendInput = z.infer<typeof ChatStickerSendSchema>
-
-/** Повторная отправка GIF (`POST /chats/:id/gif`) — файла из чата, где отправитель участник. */
-export const ChatGifSendSchema = z.object({ fileId: entityId, ...richMessageFields }).strict()
-export type ChatGifSendInput = z.infer<typeof ChatGifSendSchema>
-
-/** Недавние GIF (`GET /chats/gifs/recent`). */
-export const ChatGifRecentQuerySchema = z
-  .object({ limit: z.coerce.number().int().positive().max(50).default(30) })
-  .strict()
-export type ChatGifRecentQueryInput = z.infer<typeof ChatGifRecentQuerySchema>
-
-/** «Мои GIF» как в Telegram: не больше 200, сверх лимита вытесняется самый давний. */
-export const SAVED_GIFS_LIMIT = 200
-
-/**
- * Сохранить GIF себе (`POST /chats/gifs/saved`): `fileId` — GIF-вложение сообщения в чате,
- * где я участник (старый image/gif или анимация-MP4).
- */
-export const ChatSavedGifCreateSchema = z.object({ fileId: entityId }).strict()
-export type ChatSavedGifCreateInput = z.infer<typeof ChatSavedGifCreateSchema>
-
-/** Поиск GIF во внешнем каталоге: потолок выдачи за раз и длина запроса. */
-export const GIF_SEARCH_LIMITS = { LIMIT_MAX: 50, LIMIT_DEFAULT: 24, QUERY_MAX: 50 } as const
-
-const gifPage = {
-  offset: z.coerce.number().int().min(0).max(4999).default(0),
-  limit: z.coerce
-    .number()
-    .int()
-    .positive()
-    .max(GIF_SEARCH_LIMITS.LIMIT_MAX)
-    .default(GIF_SEARCH_LIMITS.LIMIT_DEFAULT),
-}
-
-/** Популярные GIF каталога (`GET /chats/gifs/trending`). */
-export const ChatGifTrendingQuerySchema = z.object(gifPage).strict()
-export type ChatGifTrendingQueryInput = z.infer<typeof ChatGifTrendingQuerySchema>
-
-/** Поиск GIF в каталоге (`GET /chats/gifs/search`). */
-export const ChatGifSearchQuerySchema = z
-  .object({ q: z.string().trim().min(1).max(GIF_SEARCH_LIMITS.QUERY_MAX), ...gifPage })
-  .strict()
-export type ChatGifSearchQueryInput = z.infer<typeof ChatGifSearchQuerySchema>
-
-/** Внешние каталоги GIF. Сейчас один — GIPHY. */
-export const CHAT_GIF_PROVIDERS = ['giphy'] as const
-
-/**
- * GIF из внешнего каталога (`POST /chats/:id/gif/external`). Клиент передаёт только id —
- * адрес картинки сервер берёт у каталога сам (ссылке клиента не верим: SSRF).
- */
-export const ChatGifExternalSendSchema = z
-  .object({
-    provider: z.enum(CHAT_GIF_PROVIDERS),
-    id: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[A-Za-z0-9]+$/),
-    ...richMessageFields,
-  })
-  .strict()
-export type ChatGifExternalSendInput = z.infer<typeof ChatGifExternalSendSchema>
-
 /** Опросы чата (`GET /chats/:id/polls`) — свежие первыми. */
 export const ChatPollsQuerySchema = CursorPaginationSchema
 export type ChatPollsQueryInput = z.infer<typeof ChatPollsQuerySchema>
-
-/** Каталог стикеров: картинка не больше 512 КБ, только png/webp/gif. */
-export const STICKER_LIMITS = {
-  MAX_BYTES: 512 * 1024,
-  MIMES: ['image/png', 'image/webp', 'image/gif'],
-  TITLE_MAX: 64,
-  SETS_MAX: 100,
-  STICKERS_PER_SET_MAX: 200,
-} as const
-
-/** Сколько стикеров помнит «Избранное»: сверх — вытесняется самый давний. */
-export const FAVORITE_STICKERS_MAX = 30
-
-/** Набор стикеров (`POST /admin/sticker-sets`). slug — латиница, цифры, `-` и `_`. */
-export const StickerSetCreateSchema = z
-  .object({
-    title: z.string().trim().min(1).max(STICKER_LIMITS.TITLE_MAX),
-    slug: z
-      .string()
-      .trim()
-      .regex(/^[a-z0-9][a-z0-9_-]{1,63}$/, vm('validation.chats.stickerSlug')),
-  })
-  .strict()
-export type StickerSetCreateInput = z.infer<typeof StickerSetCreateSchema>
-
-export const StickerSetUpdateSchema = z
-  .object({
-    title: z.string().trim().min(1).max(STICKER_LIMITS.TITLE_MAX).optional(),
-    order: z.number().int().min(0).max(100_000).optional(),
-    isPublished: z.boolean().optional(),
-  })
-  .strict()
-  .refine((v) => v.title !== undefined || v.order !== undefined || v.isPublished !== undefined, {
-    message: vm('validation.common.nothingToChange'),
-  })
-export type StickerSetUpdateInput = z.infer<typeof StickerSetUpdateSchema>
-
-/** Поля multipart загрузки стикера (`POST /admin/sticker-sets/:id/stickers`) кроме файла. */
-export const StickerUploadFieldsSchema = z
-  .object({
-    emoji: z
-      .string()
-      .max(REACTION_EMOJI_MAX)
-      .refine(isSingleEmoji, vm('validation.chats.reactionEmoji'))
-      .optional(),
-  })
-  .strict()
-export type StickerUploadFieldsInput = z.infer<typeof StickerUploadFieldsSchema>
 
 // Поделиться постом в чат (:id — цель): postId — пост (должен быть виден отправителю),
 // comment — необязательная подпись. В сообщении сохраняется sharedPostId → превью-карточка.
@@ -1045,7 +928,7 @@ export type TypingInput = z.infer<typeof TypingSchema>
  * - `UPLOADING_PHOTO` / `UPLOADING_VIDEO` / `UPLOADING_FILE` — отправка вложения.
  *
  * Аудиофайла отдельным действием нет: mp3 уходит обычным вложением через скрепку, и для
- * получателя это «отправляет файл…». Стикеров, GIF, геолокации и контактов в продукте нет —
+ * получателя это «отправляет файл…». Геолокации и контактов в продукте нет —
  * действий под них не заводим.
  */
 export const CHAT_ACTIONS = [

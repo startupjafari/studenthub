@@ -76,7 +76,6 @@ export const VALIDATION_MESSAGE_KEYS = [
   'validation.chats.scheduleTooFar',
   'validation.chats.reactionEmoji',
   'validation.chats.contactEmpty',
-  'validation.chats.stickerSlug',
   'validation.chats.livePeriod',
   'validation.chats.folderEmoji',
   'validation.chats.folderChatExcluded',
