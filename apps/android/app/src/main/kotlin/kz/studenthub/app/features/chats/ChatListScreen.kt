@@ -198,7 +198,6 @@ fun ChatRow(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    row.lastHasAnimation -> Text(stringResource(R.string.chats_preview_gif), style = AppType.meta, color = colors.mutedForeground)
                     row.lastHasMedia -> Text(stringResource(R.string.chats_photo), style = AppType.meta, color = colors.mutedForeground)
                 }
             }

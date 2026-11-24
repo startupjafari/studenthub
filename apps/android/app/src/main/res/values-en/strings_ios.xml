@@ -32,7 +32,6 @@
     <string name="validation_chats_scheduleInPast">The send time must be in the future</string>
     <string name="validation_chats_scheduleTooFar">You can schedule at most a year ahead</string>
     <string name="validation_chats_spoilerIndexes">Expected attachment numbers separated by commas</string>
-    <string name="validation_chats_stickerSlug">Short name: Latin letters, digits, “-” and “_”, 2 to 64 characters</string>
     <string name="validation_common_duplicateIds">IDs must not repeat</string>
     <string name="validation_common_nothingToChange">Nothing to change</string>
     <string name="validation_common_pageLimit">At most 100 records per page</string>

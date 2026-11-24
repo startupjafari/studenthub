@@ -135,17 +135,8 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
     suspend fun attachmentUrl(fileId: String): AttachmentLink =
         client.send(Endpoint.get("chats/attachments/$fileId/url"), AttachmentLink.serializer())
 
-    /**
-     * `mime` и `animation` — каким файл стал к моменту запроса: воркер переводит GIF в MP4
-     * уже после сообщения, и ссылка тогда ведёт на MP4, хотя вложение ещё `image/gif`.
-     */
     @Serializable
-    data class AttachmentLink(
-        val url: String,
-        @Serializable(InstantSerializer::class) val expiresAt: Instant? = null,
-        val mime: String? = null,
-        val animation: Boolean = false,
-    )
+    data class AttachmentLink(val url: String, @Serializable(InstantSerializer::class) val expiresAt: Instant? = null)
 
     /** Без полей уходит `{}`: срок и режим «только важные» приложение пока не выбирает. */
     @Serializable

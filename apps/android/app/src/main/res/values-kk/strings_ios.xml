@@ -1437,10 +1437,6 @@
     <string name="chats_forwarded_many">%1$s чатқа жіберілді</string>
     <string name="chats_forwarded_one">%1$s чатқа жіберілді</string>
     <string name="chats_forwardedFrom">%1$s қайта жіберді</string>
-    <string name="chats_gifs_empty">Мұнда сіз жіберген GIF-тер шығады. Жаңа GIF — қыстырғыш арқылы «Фото»-дан.</string>
-    <string name="chats_gifs_results">Табылды</string>
-    <string name="chats_gifs_searchOff">GIF іздеу уақытша қолжетімсіз</string>
-    <string name="chats_gifs_trending">Танымал</string>
     <string name="chats_group_addMembers">Қатысушыларды қосу</string>
     <string name="chats_group_create">Құру</string>
     <string name="chats_group_description">Сипаттама</string>
@@ -1552,12 +1548,9 @@
     <string name="chats_online">желіде</string>
     <string name="chats_panel_backspace">Өшіру</string>
     <string name="chats_panel_emoji">Эмодзи</string>
-    <string name="chats_panel_gif">GIF</string>
     <string name="chats_panel_keyboard">Пернетақта</string>
     <string name="chats_panel_open">Emoji, стикерлер және GIF</string>
     <string name="chats_panel_search">Іздеу</string>
-    <string name="chats_panel_searchGif">GIF іздеу</string>
-    <string name="chats_panel_stickers">Стикерлер</string>
     <string name="chats_photo">Фотосурет</string>
     <string name="chats_pin">Бекіту</string>
     <string name="chats_pinned_hide">Бекітілгенді жасыру</string>
@@ -1596,9 +1589,7 @@
     <string name="chats_preview_audio">Аудио</string>
     <string name="chats_preview_code">Код</string>
     <string name="chats_preview_file">Файл</string>
-    <string name="chats_preview_gif">GIF</string>
     <string name="chats_preview_photo">Фото</string>
-    <string name="chats_preview_sticker">Стикер</string>
     <string name="chats_preview_unsupported">Бұл хабарламаны қолданбаның осы нұсқасы көрсете алмайды — қолданбаны жаңартыңыз</string>
     <string name="chats_preview_video">Бейне</string>
     <string name="chats_preview_voice">Дауыстық хабарлама</string>
@@ -1667,14 +1658,6 @@
     <string name="chats_spoiler">Спойлер</string>
     <string name="chats_spoiler_hidden">жасырын мәтін</string>
     <string name="chats_spoiler_reveal">Спойлерді көрсету</string>
-    <string name="chats_sticker_a11y">Стикер %1$s</string>
-    <string name="chats_stickers_empty">Стикер жинақтары әлі жоқ — оларды платформа әкімшісі қосады</string>
-    <string name="chats_stickers_favorite">Таңдаулыларға қосу</string>
-    <string name="chats_stickers_favorited">Стикер таңдаулыларға қосылды</string>
-    <string name="chats_stickers_favorites">Таңдаулы стикерлер</string>
-    <string name="chats_stickers_filter">Стикерлер %1$s</string>
-    <string name="chats_stickers_unfavorite">Таңдаулылардан өшіру</string>
-    <string name="chats_stickers_unfavorited">Стикер таңдаулылардан өшірілді</string>
     <string name="chats_stories_open">Сторилерді ашу</string>
     <string name="chats_storyExpired">Сторис енді қолжетімсіз</string>
     <string name="chats_storyReply">Сториске жауап</string>
@@ -5897,7 +5880,6 @@
     <string name="validation_chats_scheduleInPast">Жіберу уақыты болашақта болуы керек</string>
     <string name="validation_chats_scheduleTooFar">Бір жылдан артық кейінге қалдыруға болмайды</string>
     <string name="validation_chats_spoilerIndexes">Тіркеме нөмірлері үтір арқылы күтілді</string>
-    <string name="validation_chats_stickerSlug">Қысқа атау: латын әріптері, сандар, «-» және «_», 2–64 таңба</string>
     <string name="validation_common_duplicateIds">Идентификаторлар қайталанады</string>
     <string name="validation_common_nothingToChange">Өзгертетін ештеңе жоқ</string>
     <string name="validation_common_pageLimit">Беттеп шығарғанда — 100 жазбадан аспайды</string>

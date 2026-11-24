@@ -11,19 +11,16 @@ import java.time.Instant
  */
 class AttachmentUrls(private val fetch: suspend (String) -> ChatsApi.AttachmentLink) {
     private val lock = Mutex()
-    private val cache = mutableMapOf<String, Pair<ChatsApi.AttachmentLink, Instant>>()
+    private val cache = mutableMapOf<String, Pair<String, Instant>>()
 
-    suspend fun url(fileId: String): String? = link(fileId)?.url
-
-    /** Ссылка целиком — с тем, каким файл стал на сервере (`mime`, `animation`). */
-    suspend fun link(fileId: String): ChatsApi.AttachmentLink? {
-        lock.withLock { cache[fileId] }?.let { (link, until) ->
-            if (until.isAfter(Instant.now().plusSeconds(30))) return link
+    suspend fun url(fileId: String): String? {
+        lock.withLock { cache[fileId] }?.let { (url, until) ->
+            if (until.isAfter(Instant.now().plusSeconds(30))) return url
         }
         val answer = runCatching { fetch(fileId) }.getOrNull() ?: return null
         val until = answer.expiresAt ?: Instant.now().plusSeconds(600)
-        lock.withLock { cache[fileId] = answer to until }
-        return answer
+        lock.withLock { cache[fileId] = answer.url to until }
+        return answer.url
     }
 
     /** Подписанные ссылки прошлой сессии — тоже доступ к её файлам: при выходе их забываем. */

@@ -3,11 +3,13 @@ package kz.studenthub.app.core.storage
 import android.content.Context
 import androidx.room.AutoMigration
 import androidx.room.Database
+import androidx.room.DeleteColumn
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.immediateTransaction
+import androidx.room.migration.AutoMigrationSpec
 import androidx.room.useWriterConnection
 import java.time.Instant
 
@@ -31,14 +33,20 @@ import java.time.Instant
         PairEntity::class,
         PairChangeEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     // Новые таблицы и столбцы без правки старых — автомиграция по сохранённым схемам.
     // Сложные изменения (переименования, перенос данных) пишутся миграцией руками.
     // 3: автор и детали системных сообщений в `message`; новая аудитория, заменяющий и
     //    время внесения в `pairChange`.
     // 4: признак `animation` у вложения — GIF, перекодированный сервером в MP4.
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    // 5: признак `animation` убран вместе с GIF-анимациями: `.gif` теперь обычная картинка.
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5, spec = AppDatabase.DropAttachmentAnimation::class),
+    ],
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -51,6 +59,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folders(): FolderDao
 
     abstract fun schedule(): ScheduleDao
+
+    /** 4 → 5: удаление столбца автомиграция сама не угадает — его называет спецификация. */
+    @DeleteColumn(tableName = "attachment", columnName = "animation")
+    class DropAttachmentAnimation : AutoMigrationSpec
 
     companion object {
         private const val NAME = "studenthub.db"
