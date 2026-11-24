@@ -156,13 +156,7 @@ import { ChatHeaderPinned } from './chat-header-pinned'
 import { ChatHeaderSearch, ChatHeaderSearchFooter } from './chat-header-search'
 import { ChatHeaderSelection } from './chat-header-selection'
 import { ChatHeaderStatus } from './chat-header-status'
-import {
-  Button,
-  DateJumpPicker,
-  formatYmd,
-  useConfirm,
-  type RichTextHandle,
-} from '../../../shared/ui'
+import { Button, formatYmd, useConfirm, type RichTextHandle } from '../../../shared/ui'
 import { MessageWindow, type MessageWindowHandle } from './message-window'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -316,12 +310,6 @@ const LIST_REFRESH_MIN_INTERVAL_MS = 1000
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
-// Иконочные кнопки шапок чата (обычная, поиск, выбор сообщений) — одна геометрия на все три
-// режима: 44 px под палец (§13) и 40 px под курсор, иконка внутри size-5. Раньше в одном ряду
-// стояли кнопки 32 и 36 px, и шапка читалась как собранная из разных наборов.
-const HEADER_ICON_BTN =
-  'flex size-11 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:size-10'
-
 export function ChatWindow() {
   const t = useTranslations('Chats')
   const actionLabelOf = useChatActionLabel()
@@ -503,9 +491,6 @@ export function ChatWindow() {
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   // Отправленная правка до подтверждения: при отказе сервера текст возвращается в поле ввода.
   const pendingEditRef = useRef<{ message: ChatMessage; content: string } | null>(null)
-  // Дата перехода по истории: хранится, чтобы поле показывало выбранное значение, а не
-  // возвращалось к плейсхолдеру — иначе непонятно, к какому дню прокручен чат.
-  const [jumpDate, setJumpDate] = useState('')
   // День, на пилюлю которого нажали: открыт календарь переписки (Telegram-стиль).
   const [calendarDay, setCalendarDay] = useState<string | null>(null)
   // Докнутая правая панель деталей (десктоп ≥xl): профиль/участники/медиа без ухода из чата.
@@ -3240,36 +3225,6 @@ export function ChatWindow() {
   })
   const chatSearchOpen = chatSearch.open
   const chatSearchTerm = chatSearch.highlight
-  // Переход к дате из поиска (#5): клик по числу сразу прокручивает историю к этому дню и
-  // закрывает календарь. Будущее закрыто — сообщений там заведомо нет. Режим диапазона
-  // очищает историю за период «у себя».
-  const searchCalendar = (
-    <DateJumpPicker
-      className={HEADER_ICON_BTN}
-      value={jumpDate}
-      onChange={(ymd) => {
-        setJumpDate(ymd)
-        if (ymd) void jumpToDate(ymd)
-      }}
-      max={formatYmd(new Date())}
-      aria-label={t('jumpToDate')}
-      dayThumbs={dayThumbs}
-      onViewChange={(y, m) => setCalendarMonth(`${y}-${String(m + 1).padStart(2, '0')}`)}
-      rangeAction={{
-        label: t('clearHistory'),
-        destructive: true,
-        onSubmit: (from, to) => {
-          void confirm({
-            title: t('clearPeriodConfirm', { from, to }),
-            destructive: true,
-          }).then((ok) => {
-            if (ok) clearPeriod.mutate({ from, to })
-          })
-        },
-      }}
-    />
-  )
-
   // Подпись действия для шапки (Telegram-стиль): в группе — с именем начавшего раньше всех.
   const actionSummary = summarizeActors(activeId ? actionsByChat[activeId] : undefined)
   const actorName = actionSummary
@@ -3978,7 +3933,6 @@ export function ChatWindow() {
                 isPhone={isPhone}
                 members={membersQuery.data ?? []}
                 myId={myId}
-                calendar={searchCalendar}
               />
             )}
             <ChatHeader
@@ -4217,11 +4171,7 @@ export function ChatWindow() {
               {/* Нижняя панель поиска — только на телефоне (Telegram): автор, календарь,
                   счётчик и стрелки. На ПК всё это в шапке поиска, а поле ввода остаётся. */}
               {chatSearchOpen && isPhone && (
-                <ChatHeaderSearchFooter
-                  search={chatSearch}
-                  isGroup={activeIsGroup}
-                  calendar={searchCalendar}
-                />
+                <ChatHeaderSearchFooter search={chatSearch} isGroup={activeIsGroup} />
               )}
               {!activeChat?.requestIncoming && !(chatSearchOpen && isPhone) && (
                 <div
@@ -4447,7 +4397,6 @@ export function ChatWindow() {
           onClose={() => setCalendarDay(null)}
           onJump={(ymd) => {
             setCalendarDay(null)
-            setJumpDate(ymd)
             void jumpToDate(ymd)
           }}
           onClear={(from, to) => {
