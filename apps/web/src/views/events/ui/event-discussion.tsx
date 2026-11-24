@@ -39,6 +39,7 @@ import {
   ALBUM_MAX_ITEMS,
   AttachmentDialog,
   AttachmentLinkProvider,
+  EmojiPanelPopover,
   MessageAttachments,
   MessageContent,
   MessageContextMenu,
@@ -64,7 +65,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  EmojiPicker,
   Skeleton,
   Textarea,
   useConfirm,
@@ -840,11 +840,7 @@ function CommentComposer({
               </Button>
               {emojiOpen && (
                 <div className="absolute right-0 bottom-full z-50 pb-2">
-                  <EmojiPicker
-                    size="lg"
-                    searchPlaceholder={tChat('emojiSearch')}
-                    onPick={insertEmoji}
-                  />
+                  <EmojiPanelPopover onPick={insertEmoji} />
                 </div>
               )}
             </div>

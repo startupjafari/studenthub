@@ -27,6 +27,7 @@ import {
 import {
   ALBUM_MAX_ITEMS,
   AttachmentDialog,
+  EmojiPanelPopover,
   MessageAttachments,
   MessageContent,
   ReactionBar,
@@ -47,7 +48,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  EmojiPicker,
   Textarea,
 } from '../../../shared/ui'
 import {
@@ -552,11 +552,7 @@ export function SupportComposer({
               </Button>
               {emojiOpen && (
                 <div className="absolute right-0 bottom-full z-50 pb-2">
-                  <EmojiPicker
-                    size="lg"
-                    searchPlaceholder={tChat('emojiSearch')}
-                    onPick={insertEmoji}
-                  />
+                  <EmojiPanelPopover onPick={insertEmoji} />
                 </div>
               )}
             </div>

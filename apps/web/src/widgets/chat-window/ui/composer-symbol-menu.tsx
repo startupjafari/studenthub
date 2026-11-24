@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Delete } from 'lucide-react'
+import { EmojiPanel } from '../../../entities/chat'
 import { MOTION } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { ComposerEmojiTab } from './composer-emoji-tab'
 
 /**
  * Панель на экране с учётом ухода: после `open = false` она ещё `MOTION.exit` мс видна с
@@ -56,7 +56,7 @@ export function ComposerSymbolMenu({
       )}
     >
       <div className="min-h-0 flex-1" role="region" aria-label={t('emoji')}>
-        <ComposerEmojiTab variant={variant} onPick={onEmoji} />
+        <EmojiPanel variant={variant} onPick={onEmoji} />
       </div>
       {onBackspace && (
         // Нижняя полоса 48 px: ⌫ — у правого края, как в Telegram.

@@ -1,6 +1,7 @@
 'use client'
 
-// Вкладка «Эмодзи» панели ввода — по образцу Telegram Web A. Сверху полоса: кнопка «Недавних»
+// Панель эмодзи — по образцу Telegram Web A: вкладка «Эмодзи» панели ввода и полный набор
+// реакций в меню сообщения (там над разделами — крупная сетка реакций, `featured`). Сверху полоса: кнопка «Недавних»
 // и «пилюля» разделов (смайлы и люди, животные, еда, спорт, транспорт, предметы, символы,
 // флаги). Пока в кадре «Недавние», пилюля свёрнута в один значок; стоит докрутить до разделов —
 // раскрывается и держит активный по центру. Поиск — первой строкой ленты; при фокусе полоса
@@ -117,13 +118,19 @@ const sectionButton =
 const sectionIdle = 'text-foreground/70 hover:bg-muted-foreground/[0.08] hover:text-foreground'
 const sectionActive = 'bg-muted-foreground/[0.12] text-foreground'
 
-export function ComposerEmojiTab({
-  variant,
-  onPick,
-}: {
+export interface EmojiPanelProps {
   variant: 'popover' | 'dock'
   onPick: (emoji: string) => void
-}) {
+  /**
+   * Реакции чата — первым блоком, без заголовка, над «Недавними» (Telegram: полный набор
+   * реакций открывается сеткой доступных реакций). Нет — обычная панель эмодзи.
+   */
+  featured?: readonly string[]
+  /** Уже поставленные мной реакции — отмечены подложкой. */
+  chosen?: ReadonlySet<string>
+}
+
+export function EmojiPanel({ variant, onPick, featured, chosen }: EmojiPanelProps) {
   const t = useTranslations('Chats')
   const locale = DATA_LOCALE[useLocale()] ?? 'ru'
   const [catalog, setCatalog] = useState<Catalog | null>(null)
@@ -346,17 +353,24 @@ export function ComposerEmojiTab({
               </p>
             )
           ) : (
-            sections.map((s) => (
-              <section
-                key={s.id}
-                data-emoji-section={s.id}
-                aria-label={title(s.id, s.groupLabel)}
-                className="mb-3"
-              >
-                <SectionTitle>{title(s.id, s.groupLabel)}</SectionTitle>
-                <EmojiGrid dock={dock} emojis={s.emojis} onPick={pick} />
-              </section>
-            ))
+            <>
+              {featured && featured.length > 0 && (
+                <section aria-label={t('tgReactions.title')} className="mb-3">
+                  <EmojiGrid dock={dock} emojis={featured} chosen={chosen} onPick={pick} />
+                </section>
+              )}
+              {sections.map((s) => (
+                <section
+                  key={s.id}
+                  data-emoji-section={s.id}
+                  aria-label={title(s.id, s.groupLabel)}
+                  className="mb-3"
+                >
+                  <SectionTitle>{title(s.id, s.groupLabel)}</SectionTitle>
+                  <EmojiGrid dock={dock} emojis={s.emojis} onPick={pick} />
+                </section>
+              ))}
+            </>
           )}
         </div>
       </div>
@@ -453,10 +467,12 @@ function CategoryPill({
 const EmojiGrid = memo(function EmojiGrid({
   dock,
   emojis,
+  chosen,
   onPick,
 }: {
   dock: boolean
   emojis: readonly string[]
+  chosen?: ReadonlySet<string>
   onPick: (emoji: string) => void
 }) {
   return (
@@ -480,7 +496,11 @@ const EmojiGrid = memo(function EmojiGrid({
           // Нажатие не уводит фокус из поля ввода: курсор остаётся на месте вставки.
           onMouseDown={(ev) => ev.preventDefault()}
           onClick={() => onPick(e)}
-          className="flex size-9 cursor-pointer items-center justify-center rounded-md text-[1.875rem] leading-none outline-none hover:bg-muted focus-visible:bg-muted motion-safe:active:scale-90"
+          aria-pressed={chosen ? chosen.has(e) : undefined}
+          className={cn(
+            'flex size-9 cursor-pointer items-center justify-center rounded-md text-[1.875rem] leading-none outline-none hover:bg-muted focus-visible:bg-muted motion-safe:active:scale-90',
+            chosen?.has(e) && 'bg-primary/15 hover:bg-primary/20',
+          )}
         >
           {e}
         </button>

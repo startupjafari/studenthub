@@ -23,12 +23,12 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  EmojiPicker,
   Modal,
 } from '../../../shared/ui'
 import { formatBytes, useByteUnitLabel } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { fileKind } from '../lib/file-kind'
+import { EmojiPanelPopover } from './emoji-panel-popover'
 
 /**
  * Потолок вложений в одном альбоме. Столько же держит Telegram, и причина та же: мозаика из
@@ -692,7 +692,7 @@ export function AttachmentDialog({
                 collisionPadding={8}
                 className="z-[110] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
               >
-                <EmojiPicker size="lg" searchPlaceholder={t('emojiSearch')} onPick={insertEmoji} />
+                <EmojiPanelPopover onPick={insertEmoji} />
               </PopoverPrimitive.Content>
             </PopoverPrimitive.Portal>
           </PopoverPrimitive.Root>
