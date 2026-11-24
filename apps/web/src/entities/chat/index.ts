@@ -150,6 +150,8 @@ export {
 } from './ui/chat-media-rail-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
+export { EmojiPanel } from './ui/emoji-panel'
+export { EmojiPanelPopover } from './ui/emoji-panel-popover'
 export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'
 export {
   AttachmentDialog,

@@ -2476,6 +2476,7 @@
       "clearSearch": "Іздеуді тазалау"
     },
     "tgReactions": {
+      "title": "Реакциялар",
       "quickTitle": "Жылдам реакция",
       "quickDefaultLabel": "{emoji} — әдепкі",
       "quickSet": "Жылдам реакция: {emoji}",

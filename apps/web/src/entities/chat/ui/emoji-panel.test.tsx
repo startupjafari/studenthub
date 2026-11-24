@@ -25,7 +25,7 @@ vi.mock('frimousse', () => ({
 
 vi.mock('../../../shared/lib/emoji-support', () => ({ isEmojiSupported: () => true }))
 
-import { ComposerEmojiTab } from './composer-emoji-tab'
+import { EmojiPanel } from './emoji-panel'
 
 beforeAll(() => {
   // jsdom не прокручивает элементы: полоса разделов и лента зовут scrollTo.
@@ -39,7 +39,7 @@ beforeEach(() => {
 describe('Вкладка эмодзи', () => {
   it('выбор эмодзи вставляет его и запоминает первым в «Недавних»', async () => {
     const onPick = vi.fn()
-    render(<ComposerEmojiTab variant="popover" onPick={onPick} />)
+    render(<EmojiPanel variant="popover" onPick={onPick} />)
     const nature = await screen.findByRole('region', { name: 'Животные и природа' })
     await userEvent.click(within(nature).getByRole('button', { name: '🐱' }))
     expect(onPick).toHaveBeenCalledWith('🐱')
@@ -47,7 +47,7 @@ describe('Вкладка эмодзи', () => {
   })
 
   it('полоса: «Недавние» подсвечены, разделы свёрнуты в пилюлю', async () => {
-    render(<ComposerEmojiTab variant="popover" onPick={() => {}} />)
+    render(<EmojiPanel variant="popover" onPick={() => {}} />)
     const recent = await screen.findByRole('button', { name: 'tgEmoji.recent' })
     expect(recent).toHaveAttribute('aria-pressed', 'true')
     // Свёрнутая пилюля — одна кнопка в порядке Tab: остальные разделы скрыты.
@@ -59,7 +59,7 @@ describe('Вкладка эмодзи', () => {
   })
 
   it('поиск показывает выдачу, крестик и Escape очищают запрос', async () => {
-    render(<ComposerEmojiTab variant="popover" onPick={() => {}} />)
+    render(<EmojiPanel variant="popover" onPick={() => {}} />)
     await screen.findByRole('region', { name: 'Животные и природа' })
     const box = screen.getByRole('searchbox')
     await userEvent.type(box, 'кош')

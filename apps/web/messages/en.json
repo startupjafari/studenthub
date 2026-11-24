@@ -2476,6 +2476,7 @@
       "clearSearch": "Clear search"
     },
     "tgReactions": {
+      "title": "Reactions",
       "quickTitle": "Quick reaction",
       "quickDefaultLabel": "{emoji} — default",
       "quickSet": "Quick reaction: {emoji}",

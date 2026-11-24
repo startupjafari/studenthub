@@ -2476,6 +2476,7 @@
       "clearSearch": "Очистить поиск"
     },
     "tgReactions": {
+      "title": "Реакции",
       "quickTitle": "Быстрая реакция",
       "quickDefaultLabel": "{emoji} — по умолчанию",
       "quickSet": "Быстрая реакция: {emoji}",
