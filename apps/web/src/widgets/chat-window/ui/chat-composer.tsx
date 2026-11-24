@@ -381,13 +381,15 @@ export function ChatComposer({
   // и пункт открывал бы тот же диалог файлов — лишний ряд в меню.
   const canCapture = useMediaQuery('(pointer: coarse)')
 
-  // Выбрали «Ответить» (меню, свайп, кнопка) — курсор сразу в поле, как в Telegram: ответ
-  // пишут тут же, без лишнего клика по полю. Два кадра ожидания: меню сообщения при
-  // закрытии возвращает фокус на свою кнопку, и наш фокус должен прийти после него.
+  // Выбрали «Ответить» или «Изменить» (меню, свайп, кнопка, ↑) — курсор сразу в поле, в
+  // конец текста, как в Telegram: ответ и правку пишут тут же, без лишнего клика по полю.
+  // Два кадра ожидания: меню сообщения при закрытии возвращает фокус на свою кнопку, и наш
+  // фокус должен прийти после него; к тому же кадру редактор успевает принять текст правки.
   const replyId = replyTo?.id
+  const editId = editing?.id
   const replyThumb = replyTo ? replyThumbOf(replyTo.media) : null
   useEffect(() => {
-    if (!replyId) return
+    if (!replyId && !editId) return
     let inner = 0
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => composerRef.current?.focus())
@@ -396,7 +398,7 @@ export function ChatComposer({
       cancelAnimationFrame(outer)
       cancelAnimationFrame(inner)
     }
-  }, [replyId, composerRef])
+  }, [replyId, editId, composerRef])
 
   // Вставка emoji из пикера (§12) в позицию курсора поля ввода.
   function insertEmoji(emoji: string): void {
