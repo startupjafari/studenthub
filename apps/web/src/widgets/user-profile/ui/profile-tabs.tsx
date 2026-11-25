@@ -28,7 +28,7 @@ import { ProfilePosts, authorPostsQuery } from './profile-posts'
 import { ProfileMediaGrid } from './profile-media-grid'
 import { ProfileArticles } from './profile-articles'
 import { ProfilePolls } from './profile-polls'
-import type { ContentModeration } from '../lib/content-moderation'
+import type { ContentModeration } from '../../../entities/user'
 
 export type ProfileTabId =
   'profile' | 'posts' | 'photos' | 'videos' | 'articles' | 'polls' | 'settings'
