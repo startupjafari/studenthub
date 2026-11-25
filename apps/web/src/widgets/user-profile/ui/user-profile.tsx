@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -84,10 +85,6 @@ const VideoCreateModal = dynamic(
   () => import('./profile-create-modals').then((m) => m.VideoCreateModal),
   { ssr: false },
 )
-const ArticleEditorModal = dynamic(
-  () => import('./article-editor-modal').then((m) => m.ArticleEditorModal),
-  { ssr: false },
-)
 const PollCreateModal = dynamic(
   () => import('./poll-create-modal').then((m) => m.PollCreateModal),
   { ssr: false },
@@ -147,6 +144,7 @@ export function UserProfile({
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
+  const router = useRouter()
   // Фото и видео из меню «+» — сразу системный выбор файла, без промежуточного окна с
   // зоной загрузки: из меню человек уже сказал, что хочет добавить. Выбор открывается
   // только синхронно из нажатия, поэтому поля лежат здесь и «кликаются» из пункта меню.
@@ -157,6 +155,8 @@ export function UserProfile({
   const quickCreate = (kind: CreateKind): void => {
     if (kind === 'photo') photoInputRef.current?.click()
     else if (kind === 'video') videoInputRef.current?.click()
+    // Статью пишут на отдельной странице редактора, а не в окне.
+    else if (kind === 'article') router.push('/articles/new')
     else setCreateModal(kind)
   }
 
@@ -283,9 +283,6 @@ export function UserProfile({
       )}
       {createModal === 'video' && pickedFile && (
         <VideoCreateModal userId={u.id} initialFile={pickedFile} onClose={closeCreate} />
-      )}
-      {createModal === 'article' && (
-        <ArticleEditorModal userId={u.id} onClose={() => setCreateModal(null)} />
       )}
       {createModal === 'poll' && (
         <PollCreateModal userId={u.id} onClose={() => setCreateModal(null)} />
