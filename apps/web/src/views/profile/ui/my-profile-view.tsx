@@ -8,6 +8,7 @@ import { Building2, GraduationCap, UserRound, type LucideIcon } from 'lucide-rea
 import { Role } from '@studenthub/shared-types'
 import { CompanyProfile, UniversityProfile, UserProfile } from '../../../widgets/user-profile'
 import { StoryHighlightsRow, StoryViewer } from '../../../widgets/stories-rail'
+import { ArticleWindowHost } from '../../../widgets/article-window'
 import { companyKeys, fetchMyCompany } from '../../../entities/company'
 import { fetchUniversityPage, universityKeys } from '../../../entities/university'
 import { useAppSelector } from '../../../shared/store'
@@ -16,9 +17,19 @@ import { SegmentedTabs } from '../../../shared/ui'
 // Публикуют от имени вуза — у них второй профиль: страница университета.
 const UNIVERSITY_PAGE_ROLES: readonly Role[] = [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR]
 
-// Свой профиль: виджет профиля + окно сторис для кольца вокруг аватара и ряд «Актуального».
-// Склейка здесь, а не в виджете: виджеты друг друга не импортируют (FRONTEND_RULES §2.1).
+// Свой профиль: виджет профиля + окно сторис для кольца вокруг аватара, ряд «Актуального» и
+// окно статьи из адреса (`?article=`). Склейка здесь, а не в виджете: виджеты друг друга не
+// импортируют (FRONTEND_RULES §2.1).
 export function MyProfileView() {
+  return (
+    <>
+      <MyProfiles />
+      <ArticleWindowHost />
+    </>
+  )
+}
+
+function MyProfiles() {
   const role = useAppSelector((s) => s.auth.role)
   const universityId = useAppSelector((s) => s.auth.universityId)
   // У работодателя и у админа/модератора вуза два профиля: свой и страница организации —

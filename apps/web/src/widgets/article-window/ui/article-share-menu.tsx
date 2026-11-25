@@ -11,7 +11,10 @@ import {
   DropdownMenuTrigger,
 } from '../../../shared/ui'
 
-/** Постоянный адрес статьи. На сервере window нет — там ссылка не нужна. */
+/**
+ * Постоянная ссылка на статью: `/articles/<id>` открывает её окном на странице владельца.
+ * На сервере window нет — там ссылка не нужна.
+ */
 function articleUrl(id: string): string {
   return typeof window === 'undefined' ? '' : `${window.location.origin}/articles/${id}`
 }

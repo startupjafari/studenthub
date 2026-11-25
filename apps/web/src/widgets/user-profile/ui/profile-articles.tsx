@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import type { ArticleCategory } from '@studenthub/shared-schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -10,7 +9,9 @@ import { useTranslations } from 'next-intl'
 import { Bookmark, Clock, Eye, FileText, MessageCircle, Pencil, Trash2 } from 'lucide-react'
 import {
   ArticleCover,
+  articleWindowHref,
   deleteProfileArticle,
+  openArticleWindow,
   profileContentKeys,
   type ProfileArticleCard,
 } from '../../../entities/profile-content'
@@ -27,7 +28,7 @@ import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../../../entities/user'
-import { newArticleHref, useOwnerKey } from '../lib/content-owner'
+import { useOwnerKey } from '../lib/content-owner'
 import { ownerArticlesQuery } from '../lib/owner-queries'
 
 function errCode(e: unknown): string {
@@ -47,14 +48,13 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const router = useRouter()
   // Страница компании — её статьи; иначе — статьи пользователя userId.
   const { owner, key: ownerKey } = useOwnerKey(userId)
 
-  // Статью пишут на отдельной странице редактора, а не в окне поверх профиля.
+  // Статью пишут в окне редактора поверх профиля (`?article=new`).
   useEffect(() => {
     if (openCreate === undefined) return
-    router.push(newArticleHref(owner))
+    openArticleWindow({ mode: 'new', as: owner.kind })
     onConsumed?.()
   }, [openCreate])
   const q = useQuery(ownerArticlesQuery(owner))
@@ -196,7 +196,7 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
                   article={a}
                   isOwner={isOwner}
                   canModerate={!isOwner && !!moderation?.content}
-                  onEdit={() => router.push(`/articles/${a.id}/edit`)}
+                  onEdit={() => openArticleWindow({ mode: 'edit', id: a.id })}
                   onDelete={() => {
                     void confirm({ title: t('articleDeleteConfirm'), destructive: true }).then(
                       (ok) => {
@@ -252,13 +252,19 @@ function ArticleCard({
   onModerate: () => void
 }) {
   const t = useTranslations('Profile')
+  const pathname = usePathname()
 
   return (
     <MosaicTile>
-      {/* Статья открывается своей страницей (/articles/<id>), а не окном: у неё есть
-          адрес — его можно переслать, открыть в новой вкладке и вернуться назад. */}
-      <Link
-        href={`/articles/${a.id}`}
+      {/* Статья открывается окном поверх профиля (`?article=<id>`): у окна есть адрес — его
+          можно переслать и открыть в новой вкладке, «назад» закрывает окно. */}
+      <a
+        href={articleWindowHref(pathname, { mode: 'read', id: a.id })}
+        onClick={(e) => {
+          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+          e.preventDefault()
+          openArticleWindow({ mode: 'read', id: a.id })
+        }}
         className="absolute inset-0 text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:ring-inset"
       >
         <ArticleCover
@@ -305,7 +311,7 @@ function ArticleCard({
             )}
           </span>
         </span>
-      </Link>
+      </a>
 
       {isOwner && (
         <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">

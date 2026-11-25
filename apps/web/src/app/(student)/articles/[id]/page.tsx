@@ -1,8 +1,8 @@
-import { ArticlePageView } from '../../../../views/article'
+import { ArticleLinkView } from '../../../../views/article'
 
-// Постоянная ссылка на статью: /articles/<id>. Группа (student) не добавляет сегмент в адрес,
-// а её оболочка доступна всем ролям — как /posts/<id> и /profile/<id>.
+// Постоянная ссылка на статью: /articles/<id>. Своей страницы у статьи нет — ссылка
+// открывает её окном на странице владельца (views/article).
 export default async function ArticlePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  return <ArticlePageView articleId={id} />
+  return <ArticleLinkView articleId={id} />
 }

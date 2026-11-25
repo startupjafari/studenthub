@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -69,6 +68,7 @@ import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
 import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
 import { canCreateStory, useAuthorStories } from '../../../entities/story'
+import { openArticleWindow } from '../../../entities/profile-content'
 
 // Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
 // поста/фото/видео/опроса) грузятся динамически — только при открытии, а не на каждом
@@ -144,7 +144,6 @@ export function UserProfile({
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
-  const router = useRouter()
   // Фото и видео из меню «+» — сразу системный выбор файла, без промежуточного окна с
   // зоной загрузки: из меню человек уже сказал, что хочет добавить. Выбор открывается
   // только синхронно из нажатия, поэтому поля лежат здесь и «кликаются» из пункта меню.
@@ -155,8 +154,8 @@ export function UserProfile({
   const quickCreate = (kind: CreateKind): void => {
     if (kind === 'photo') photoInputRef.current?.click()
     else if (kind === 'video') videoInputRef.current?.click()
-    // Статью пишут на отдельной странице редактора, а не в окне.
-    else if (kind === 'article') router.push('/articles/new')
+    // Статью пишут в окне редактора поверх профиля.
+    else if (kind === 'article') openArticleWindow({ mode: 'new', as: 'user' })
     else setCreateModal(kind)
   }
 
