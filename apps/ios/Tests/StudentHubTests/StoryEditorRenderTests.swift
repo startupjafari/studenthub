@@ -346,7 +346,7 @@ final class StoryEditorRenderTests: XCTestCase {
             to: workspace.url(for: roundFile)
         )
         document.add(.roundVideo(StoryRoundVideoPayload(file: roundFile, duration: 2)), center: StoryPoint(x: 0.5, y: 0.4), size: StorySize(width: 0.45, height: 0.45))
-        document.add(.emoji("🔥"), center: StoryPoint(x: 0.2, y: 0.8), size: StorySize(width: 0.2, height: 0.2))
+        document.add(.text(StoryTextPayload(text: "🔥")), center: StoryPoint(x: 0.2, y: 0.8), size: StorySize(width: 0.2, height: 0.2))
         XCTAssertTrue(document.producesVideo)
 
         let result = try await StoryExporter.export(document, workspace: workspace)

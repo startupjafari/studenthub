@@ -2,7 +2,6 @@ package kz.studenthub.app.core
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.AttachmentSending
 import kz.studenthub.app.core.chats.AttachmentUpload
@@ -15,7 +14,6 @@ import kz.studenthub.app.core.chats.ChatMessageDto
 import kz.studenthub.app.core.chats.ChatMessageSending
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.ChatUpdatesDto
-import kz.studenthub.app.core.chats.ChatsApi
 import kz.studenthub.app.core.chats.DraftSaving
 import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
@@ -395,53 +393,6 @@ class AttachmentTest {
         assertTrue(AttachmentEntity("3", "m", "video/webm", "voice-2.webm", null, null, null, null).isVoice)
         assertTrue(AttachmentEntity("4", "m", "video/mp4", "voice-3.m4a", null, null, null, null).isVoice)
         assertFalse(AttachmentEntity("2", "m", "audio/mpeg", "song.mp3", null, null, null, null).isVoice)
-    }
-
-    /** GIF в виде MP4: флаг `animation`; старые сообщения его не шлют — тогда это не GIF. */
-    @Test
-    fun animationFlagIsDecodedWithDefault() {
-        val gif = AppJson.decodeFromString(
-            ChatAttachmentDto.serializer(),
-            """{"id":"f1","mime":"video/mp4","width":320,"height":240,"animation":true}""",
-        )
-        assertTrue(gif.animation)
-        val old = AppJson.decodeFromString(ChatAttachmentDto.serializer(), """{"id":"f2","mime":"video/mp4"}""")
-        assertFalse(old.animation)
-    }
-
-    /** Ссылка говорит, каким файл стал: воркер переводит GIF в MP4 после сообщения. */
-    @Test
-    fun attachmentLinkCarriesConvertedKind() {
-        val link = AppJson.decodeFromString(
-            ChatsApi.AttachmentLink.serializer(),
-            """{"url":"https://s3/a.mp4","mime":"video/mp4","animation":true,"poster":[],"hls":null}""",
-        )
-        assertEquals("video/mp4", link.mime)
-        assertTrue(link.animation)
-        val old = AppJson.decodeFromString(ChatsApi.AttachmentLink.serializer(), """{"url":"https://s3/a.png"}""")
-        assertNull(old.mime)
-        assertFalse(old.animation)
-    }
-
-    /** Анимация — только `video/…` с флагом; старый `image/gif` остаётся картинкой. */
-    @Test
-    fun animationNeedsFlagAndVideoMime() {
-        assertTrue(AttachmentEntity("1", "m", "video/mp4", "a.mp4", null, null, null, null, animation = true).isGifVideo)
-        assertFalse(AttachmentEntity("2", "m", "video/mp4", "clip.mp4", null, null, null, null).isGifVideo)
-        val legacy = AttachmentEntity("3", "m", "image/gif", "a.gif", null, null, null, null, animation = true)
-        assertFalse(legacy.isGifVideo)
-        assertTrue(legacy.isImage)
-    }
-
-    /** Флаг доезжает до базы, и список чатов подписывает такое сообщение «GIF». */
-    @Test
-    fun animationIsStoredAndMarksListPreview() = runTest {
-        val media = listOf(ChatAttachmentDto("f1", "video/mp4", 10, "a.mp4", animation = true))
-        ChatStore(db).saveChats(listOf(chatDto("c1", last = messageDto("m1", "c1", 1, content = "", media = media))))
-        assertTrue(db.messages().attachments("m1").single().animation)
-        val row = db.chats().observeAll().first().single()
-        assertTrue(row.lastHasMedia)
-        assertTrue(row.lastHasAnimation)
     }
 
     private class StubStorage(private val fail: Boolean = false) : AttachmentSending {

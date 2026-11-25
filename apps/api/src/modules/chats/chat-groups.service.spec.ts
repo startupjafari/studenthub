@@ -170,12 +170,11 @@ function denied(field: string) {
 const closed = (over: Partial<ChatPermissions>) => ({ ...DEFAULT_CHAT_PERMISSIONS, ...over })
 
 describe('Права группы: общие правила (shared-schemas)', () => {
-  it('выключенное «писать» гасит медиа, стикеры, ссылки и опросы, но не закреп и состав', () => {
+  it('выключенное «писать» гасит медиа, ссылки и опросы, но не закреп и состав', () => {
     const p = resolveChatPermissions({ sendMessages: false, addMembers: true })
     expect(p).toMatchObject({
       sendMessages: false,
       sendMedia: false,
-      sendStickers: false,
       embedLinks: false,
       sendPolls: false,
       addMembers: true,
@@ -262,18 +261,7 @@ describe('Права группы во всех путях отправки', ()
     ).rejects.toEqual(denied('sendPolls'))
   })
 
-  it('стикер и GIF — право «стикеры и GIF»; геопозиция — «писать»', async () => {
-    const { service } = setup({ permissions: closed({ sendStickers: false }) })
-    await expect(
-      service.sendRichMessage(MEMBER, 'c1', { data: { stickerId: 's1' } }),
-    ).rejects.toEqual(denied('sendStickers'))
-    const copy = jest.fn()
-    await expect(
-      service.sendRichMessage(MEMBER, 'c1', { data: {}, attachments: copy }),
-    ).rejects.toEqual(denied('sendStickers'))
-    // Копия GIF не создаётся, если отправка запрещена.
-    expect(copy).not.toHaveBeenCalled()
-
+  it('геопозиция — право «писать»', async () => {
     const muted = setup({ permissions: closed({ sendMessages: false }) })
     await expect(
       muted.service.sendLocation(MEMBER, 'c1', { lat: 43.2, lng: 76.9 }),
@@ -287,7 +275,6 @@ describe('Права группы во всех путях отправки', ()
       chatId: 'c2',
       content: '',
       media: [{ id: 'f1' }],
-      stickerId: null,
       poll: null,
       checklist: null,
       sharedPostId: null,
@@ -307,7 +294,6 @@ describe('Права группы во всех путях отправки', ()
         createdAt: new Date(),
         content: 'Q?',
         media: [],
-        stickerId: null,
         poll: { question: 'Q?' },
         checklist: null,
         sharedPostId: null,
@@ -339,7 +325,6 @@ describe('Права группы во всех путях отправки', ()
       createdAt: new Date(),
       forwardedFromId: null,
       content: 'было',
-      stickerId: null,
       systemType: null,
       poll: null,
       checklist: null,
@@ -563,7 +548,6 @@ describe('Права группы через сокет (ChatGateway → ChatsSe
       createdAt: new Date(),
       forwardedFromId: null,
       content: 'было',
-      stickerId: null,
       systemType: null,
       poll: null,
       checklist: null,

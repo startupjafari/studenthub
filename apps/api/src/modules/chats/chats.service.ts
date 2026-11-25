@@ -26,7 +26,6 @@ import type {
   LiveLocationUpdateInput,
   ChatContactInput,
   ChatChecklistCreateInput,
-  ChatGifRecentQueryInput,
   ScheduleMessageInput,
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
@@ -76,14 +75,6 @@ import { mentionsName } from './chat-mentions'
 import type { ChatAttentionCounts, ChatAttentionHook } from './chat-attention.types'
 import { mergeSearchPages, messageSearchArms, messageSearchWhere } from './chat-search'
 import { CHECKLIST_SELECT, toChecklistDto, type ChecklistDto } from './checklist-dto'
-import {
-  GIF_FILE_SELECT,
-  GIF_FILE_WHERE,
-  gifFingerprint,
-  isGifFile,
-  toGifItems,
-  type GifItemDto,
-} from './chat-gif-items'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -102,7 +93,6 @@ const SENDER_SELECT = { select: { id: true, firstName: true, lastName: true, ava
 const CHAT_PERMISSION_DENIED_TEXT: Record<ChatPermissionKey, string> = {
   sendMessages: 'Отправка сообщений в этой группе ограничена',
   sendMedia: 'В этой группе запрещено отправлять медиа и файлы',
-  sendStickers: 'В этой группе запрещено отправлять стикеры и GIF',
   embedLinks: 'В этой группе запрещено отправлять ссылки',
   sendPolls: 'В этой группе запрещено создавать опросы и чек-листы',
   addMembers: 'Добавлять участников в этой группе могут только администраторы',
@@ -172,14 +162,13 @@ function localDayKey(at: Date, tzOffset: number): string {
 }
 
 /**
- * Ссылка на вложение сообщения: оригинал, срок подписи, текущие mime/animation и описание
+ * Ссылка на вложение сообщения: оригинал, срок подписи, текущий mime и описание
  * вариантов. Одна форма у `GET /chats/attachments/:fileId/url` и у пачки `POST …/urls`.
  */
 export type AttachmentLink = MediaInfo & {
   url: string
   expiresAt: string
   mime: string
-  animation: boolean
 }
 
 /** Состояние очистки истории «для меня»: водораздел + отдельно вырезанные периоды. */
@@ -284,13 +273,12 @@ function richChecklistText(create: unknown): string {
 
 /**
  * Права группы, которые нужны пересылке (§8.3): по содержимому каждого источника и
- * комментария. Пересланный опрос, стикер или альбом требует того же права, что и свой.
+ * комментария. Пересланный опрос или альбом требует того же права, что и свой.
  */
 function forwardNeeds(
   sources: {
     content: string | null
     media: unknown[]
-    stickerId: string | null
     poll: unknown
     checklist: unknown
   }[],
@@ -301,7 +289,6 @@ function forwardNeeds(
     for (const key of messagePermissionNeeds({
       text: s.content,
       media: s.media.length > 0,
-      sticker: s.stickerId != null,
       poll: s.poll != null || s.checklist != null,
     })) {
       needs.add(key)
@@ -431,8 +418,6 @@ function mediaMimeWhere(type: ChatMediaQueryInput['type']): Prisma.FileWhereInpu
       OR: [{ name: null }, { NOT: { name: { startsWith: VOICE_NOTE_PREFIX } } }],
     }
   }
-  // GIF — и старые image/gif, и переведённые в MP4 (анимации).
-  if (type === 'gif') return { OR: [{ mime: 'image/gif' }, { animation: true }] }
   if (type === 'media')
     return { OR: [{ mime: { startsWith: 'image/' } }, { mime: { startsWith: 'video/' } }] }
   return {
@@ -452,8 +437,6 @@ type ChatMediaRow = {
   mime: string
   size: number
   hasPoster: boolean
-  /** GIF, переведённый в MP4: в сетке — постер с подписью «GIF», в просмотрщике — по кругу. */
-  animation?: boolean
   width: number | null
   height: number | null
   placeholder: string | null
@@ -512,8 +495,6 @@ const REPLY_MEDIA_SELECT = {
   spoiler: true,
   asDocument: true,
   videoNote: true,
-  // GIF как MP4: миниатюра цитаты — постер, подпись «GIF».
-  animation: true,
 } satisfies Prisma.FileSelect
 
 const MESSAGE_SELECT = {
@@ -545,8 +526,6 @@ const MESSAGE_SELECT = {
       asDocument: true,
       // Кружок: клиент рисует ролик кругом без пузыря (превью без звука, по нажатию — со звуком).
       videoNote: true,
-      // Анимация (GIF, переведённый в MP4): автоплей без звука по кругу, подпись «GIF».
-      animation: true,
       width: true,
       height: true,
       ...MEDIA_PREVIEW_SELECT,
@@ -618,14 +597,11 @@ const MESSAGE_SELECT = {
       options: { select: { id: true, text: true, order: true }, orderBy: { order: 'asc' } },
     },
   },
-  // Особые сообщения: геопозиция, карточка контакта, чек-лист, стикер каталога. У таких
-  // сообщений `content` пустой, и клиент рисует пузырь по этим полям.
+  // Особые сообщения: геопозиция, карточка контакта, чек-лист. У таких сообщений `content`
+  // пустой, и клиент рисует пузырь по этим полям.
   location: { select: LOCATION_SELECT },
   contact: { select: { name: true, phones: true, emails: true, userId: true } },
   checklist: { select: CHECKLIST_SELECT },
-  sticker: {
-    select: { id: true, setId: true, emoji: true, width: true, height: true, animated: true },
-  },
 } satisfies Prisma.MessageSelect
 
 type MessageDbRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
@@ -680,8 +656,8 @@ function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
 }
 
 /**
- * Что читается у сообщения-источника пересылки. Карточка поста, опрос, геопозиция, контакт,
- * чек-лист и стикер — содержимое сообщения наравне с текстом: без них пересылка поста
+ * Что читается у сообщения-источника пересылки. Карточка поста, опрос, геопозиция, контакт
+ * и чек-лист — содержимое сообщения наравне с текстом: без них пересылка поста
  * приходила пустым пузырём, а опрос — голым вопросом.
  */
 const FORWARD_SOURCE_SELECT = {
@@ -692,7 +668,6 @@ const FORWARD_SOURCE_SELECT = {
   content: true,
   linkPreview: true,
   sharedPostId: true,
-  stickerId: true,
   poll: {
     select: {
       question: true,
@@ -732,7 +707,6 @@ const FORWARD_SOURCE_SELECT = {
       spoiler: true,
       asDocument: true,
       videoNote: true,
-      animation: true,
     },
   },
 } satisfies Prisma.MessageSelect
@@ -800,14 +774,8 @@ function forwardedContent(
 /** Связанные записи особого сообщения (sendRichMessage). */
 type RichMessageData = Pick<
   Prisma.MessageUncheckedCreateInput,
-  'location' | 'contact' | 'checklist' | 'stickerId'
+  'location' | 'contact' | 'checklist'
 >
-
-/**
- * Во сколько раз больше строк читают недавние GIF, чем отдают: повторы одного GIF (копии с
- * новым ключом) склеиваются после выборки, и страница не должна от этого пустеть.
- */
-const GIF_RECENT_SCAN_FACTOR = 4
 
 /** Итог пересылки пачкой по одному чату-получателю. */
 export interface ForwardBatchResult {
@@ -2197,7 +2165,6 @@ export class ChatsService implements OnModuleInit {
         mime: true,
         size: true,
         posterKey: true,
-        animation: true,
         width: true,
         height: true,
         placeholder: true,
@@ -2226,7 +2193,6 @@ export class ChatsService implements OnModuleInit {
       size: f.size,
       // Постер у видео чата готовит медиа-система; posterKey — прежний путь медиа профиля.
       hasPoster: !!f.posterKey || (f.mediaStatus === 'READY' && f.mime.startsWith('video/')),
-      animation: f.animation,
       width: f.width,
       height: f.height,
       placeholder: f.placeholder,
@@ -3925,7 +3891,6 @@ export class ChatsService implements OnModuleInit {
         createdAt: true,
         forwardedFromId: true,
         content: true,
-        stickerId: true,
         systemType: true,
         // Сообщения «не текстового вида» — содержимое в связанной записи, а не в `content`.
         poll: { select: { id: true } },
@@ -3941,18 +3906,11 @@ export class ChatsService implements OnModuleInit {
     if (msg.forwardedFromId) {
       throw new AppException('FORBIDDEN', 'Пересланное сообщение нельзя изменить')
     }
-    // У опроса, чек-листа, стикера, геопозиции, контакта и системного события `content` пустой:
+    // У опроса, чек-листа, геопозиции, контакта и системного события `content` пустой:
     // правка дописала бы к ним текст, которого клиенты под такой карточкой не рисуют (или рисуют
     // по-разному), а `editedAt` пометил бы «изменено» то, что не менялось. Пункты чек-листа и
     // опрос меняются своими эндпоинтами.
-    if (
-      msg.poll ||
-      msg.checklist ||
-      msg.location ||
-      msg.contact ||
-      msg.stickerId ||
-      msg.systemType
-    ) {
+    if (msg.poll || msg.checklist || msg.location || msg.contact || msg.systemType) {
       throw new AppException('VALIDATION_ERROR', 'Это сообщение нельзя редактировать')
     }
     await this.assertMembership(senderId, msg.chatId)
@@ -4393,7 +4351,7 @@ export class ChatsService implements OnModuleInit {
       this.files.getPresignedUrl(fileId),
       this.prisma.file.findUniqueOrThrow({
         where: { id: fileId },
-        select: { ...MEDIA_FILE_SELECT, animation: true },
+        select: MEDIA_FILE_SELECT,
       }),
     ])
     return this.attachmentLink(mediaFile, url, now)
@@ -4425,7 +4383,6 @@ export class ChatsService implements OnModuleInit {
       },
       select: {
         ...MEDIA_FILE_SELECT,
-        animation: true,
         message: {
           select: {
             createdAt: true,
@@ -4470,13 +4427,9 @@ export class ChatsService implements OnModuleInit {
    * и ссылка живёт меньше номинальных 15 минут — клиент должен знать настоящий срок.
    * Варианты (srcset, постер, HLS) — той же проверкой доступа, что и оригинал; поля
    * описания лежат рядом с `url`, одной формой для всех модулей.
-   *
-   * mime и `animation` — текущие, а не те, что у клиента в сообщении: GIF воркер переводит
-   * в MP4 уже после рассылки, и ссылка, взятая через пару секунд, ведёт на MP4. Клиент
-   * рисует вложение по этим полям, иначе MP4 попал бы в <img>.
    */
   private async attachmentLink(
-    mediaFile: MediaFile & { animation: boolean },
+    mediaFile: MediaFile,
     url: string,
     now: number,
   ): Promise<AttachmentLink> {
@@ -4485,7 +4438,6 @@ export class ChatsService implements OnModuleInit {
       url,
       expiresAt: signingWindow(now).expiresAt.toISOString(),
       mime: mediaFile.mime,
-      animation: mediaFile.animation,
     }
   }
 
@@ -5060,8 +5012,6 @@ export class ChatsService implements OnModuleInit {
           // результатом не нужен. Если у оригинала его нет — доберём job'ом ниже.
           linkPreview: linkPreview === null ? undefined : (linkPreview as Prisma.InputJsonValue),
           sharedPostId: source.sharedPostId,
-          // Стикер — ссылка на каталог, копировать нечего.
-          stickerId: source.stickerId,
           ...forwardedContent(source, userId),
         },
         copies,
@@ -5086,16 +5036,13 @@ export class ChatsService implements OnModuleInit {
     return message
   }
 
-  // ── Особые сообщения: геопозиция, контакт, чек-лист, стикер, GIF ───────────
+  // ── Особые сообщения: геопозиция, контакт, чек-лист ────────────────────────
 
   /**
    * Сообщение особого вида — общий путь для REST: те же проверки, что у текста (членство,
    * блокировка, антифлуд, потолок запроса на переписку, ответ в этом же чате), тот же повтор
    * по nonce и та же доставка (`message:new` с nonce эхом). `content` у таких сообщений
-   * пустой: содержимое — в связанной записи или во вложении.
-   *
-   * `attachments` — вложения, которые принимаются до сообщения (копия GIF). Зовётся после
-   * проверок, чтобы отказ не оставлял копий; неотправленные копии убираются.
+   * пустой: содержимое — в связанной записи.
    */
   async sendRichMessage(
     senderId: string,
@@ -5104,36 +5051,25 @@ export class ChatsService implements OnModuleInit {
       replyToId?: string
       nonce?: string
       data: RichMessageData
-      attachments?: () => Promise<PendingAttachment[]>
     },
   ): Promise<MessageRow> {
     const { message } = await this.withNonce(senderId, chatId, input.nonce, async () => {
       await this.assertMembership(senderId, chatId)
-      // Права группы (§8.3): стикер и GIF (вложение-копия) — «стикеры и GIF», чек-лист — как
-      // опрос, геопозиция и контакт — обычное сообщение. Текст в названии чек-листа или
-      // пунктах может нести ссылку.
+      // Права группы (§8.3): чек-лист — как опрос, геопозиция и контакт — обычное сообщение.
+      // Текст в названии чек-листа или пунктах может нести ссылку.
       const checklist = input.data.checklist?.create
       await this.assertCanSend(chatId, senderId, {
         needs: messagePermissionNeeds({
-          sticker: input.data.stickerId != null || input.attachments != null,
           poll: checklist != null,
           text: checklist ? richChecklistText(checklist) : undefined,
         }),
       })
       await this.assertReplyInChat(chatId, input.replyToId)
-      const attachments: PendingAttachment[] = []
-      let created: { id: string }
-      try {
-        if (input.attachments) attachments.push(...(await input.attachments()))
-        created = await this.createWithAttachments(
-          { chatId, senderId, content: '', replyToId: input.replyToId, ...input.data },
-          attachments,
-          false,
-        )
-      } catch (error) {
-        await this.discardAttachments(attachments)
-        throw error
-      }
+      const created = await this.createWithAttachments(
+        { chatId, senderId, content: '', replyToId: input.replyToId, ...input.data },
+        [],
+        false,
+      )
       const sent = toClientMessage(
         await this.prisma.message.findUniqueOrThrow({
           where: { id: created.id },
@@ -5322,86 +5258,6 @@ export class ChatsService implements OnModuleInit {
     await this.assertMembership(userId, chatId)
     // Отметка пункта — как голос в опросе: права отправки группы (§8.3) её не ограничивают.
     await this.assertCanSend(chatId, userId, { skipQuota: true, needs: [] })
-  }
-
-  /**
-   * Недавние GIF, которые человек сам отправлял (`GET /chats/gifs/recent`), — свежие первыми.
-   *
-   * Повторная отправка GIF заводит копию файла с новым ключом, поэтому «тот же» GIF лежит
-   * несколькими записями. Склеиваем их по размеру в байтах и сторонам кадра — у одинаковых
-   * байтов они совпадают, а у разных GIF совпасть всем трём почти невозможно. Только из чатов,
-   * где человек ещё участник: из остальных повторить GIF ему не дадут (`sendGif`).
-   */
-  async recentGifs(userId: string, query: ChatGifRecentQueryInput): Promise<GifItemDto[]> {
-    const rows = await this.prisma.file.findMany({
-      where: {
-        // И старые image/gif, и переведённые в MP4.
-        ...GIF_FILE_WHERE,
-        message: {
-          senderId: userId,
-          deletedAt: null,
-          chat: { members: { some: { userId, bannedAt: null } } },
-        },
-      },
-      select: GIF_FILE_SELECT,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: query.limit * GIF_RECENT_SCAN_FACTOR,
-    })
-    const seen = new Set<string>()
-    const picked = rows.filter((row) => {
-      const fingerprint = gifFingerprint(row)
-      if (seen.has(fingerprint)) return false
-      seen.add(fingerprint)
-      return true
-    })
-    picked.length = Math.min(picked.length, query.limit)
-    const items = await toGifItems(picked, this.files, this.media)
-    return picked.flatMap((row) => items.get(row.id) ?? [])
-  }
-
-  /**
-   * Повторить GIF (`POST /chats/:id/gif`): файл должен быть вложением живого сообщения в чате,
-   * где отправитель участник, — по тому же правилу, что ссылка на вложение, — или его же
-   * GIF из «Моих GIF». Копия — новая запись File на новый ключ, как при пересылке; флаг
-   * анимации копия наследует.
-   */
-  async sendGif(
-    senderId: string,
-    chatId: string,
-    input: { fileId: string; replyToId?: string; nonce?: string },
-  ): Promise<MessageRow> {
-    const file = await this.prisma.file.findUnique({
-      where: { id: input.fileId },
-      select: {
-        id: true,
-        bucket: true,
-        key: true,
-        mime: true,
-        size: true,
-        name: true,
-        width: true,
-        height: true,
-        animation: true,
-        message: { select: { chatId: true, deletedAt: true } },
-        savedGif: { select: { userId: true } },
-      },
-    })
-    if (!file || !isGifFile({ mime: file.mime, animation: file.animation === true })) {
-      throw new AppException('NOT_FOUND', 'GIF не найден')
-    }
-    // Свой сохранённый GIF — без чата: он у человека, даже когда источник удалили.
-    if (file.savedGif?.userId !== senderId) {
-      if (!file.message || file.message.deletedAt) {
-        throw new AppException('NOT_FOUND', 'GIF не найден')
-      }
-      await this.assertMembership(senderId, file.message.chatId)
-    }
-    return this.sendRichMessage(senderId, chatId, {
-      replyToId: input.replyToId,
-      nonce: input.nonce,
-      data: {},
-      attachments: async () => [{ id: (await this.files.copyToMessage(file, senderId)).id }],
-    })
   }
 
   // ── Поделиться постом (Ф9+ share-to-chat) ──────────────────────────────────
@@ -6012,7 +5868,7 @@ export class ChatsService implements OnModuleInit {
     // count — сколько сообщений действие добавит разом (пересылка пачкой): потолок
     // непринятого запроса сверяется со всей пачкой, а не с первым сообщением.
     // needs — права группы, которые нужны действию (§8.3 «Разрешения»): по умолчанию
-    // `sendMessages`; вложения, стикеры, ссылки и опросы добавляют свои (messagePermissionNeeds).
+    // `sendMessages`; вложения, ссылки и опросы добавляют свои (messagePermissionNeeds).
     // Пустой список — действие над уже отправленным, правами отправки не ограничено.
     opts: {
       skipFlood?: boolean

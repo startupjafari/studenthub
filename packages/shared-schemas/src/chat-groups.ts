@@ -11,7 +11,6 @@ import { vm } from './validation-messages.js'
  * - `sendMessages` — писать вообще (текст, геопозиция, контакт). Выключено — выключено всё
  *   остальное из отправки: Telegram держит именно такую зависимость.
  * - `sendMedia` — фото, видео, файлы, голосовые и кружки.
- * - `sendStickers` — стикеры и GIF.
  * - `embedLinks` — сообщения со ссылками.
  * - `sendPolls` — опросы и чек-листы.
  * - `addMembers` — добавлять людей в группу.
@@ -23,7 +22,6 @@ import { vm } from './validation-messages.js'
 export const CHAT_PERMISSION_KEYS = [
   'sendMessages',
   'sendMedia',
-  'sendStickers',
   'embedLinks',
   'sendPolls',
   'addMembers',
@@ -36,7 +34,6 @@ export const ChatPermissionsSchema = z
   .object({
     sendMessages: z.boolean(),
     sendMedia: z.boolean(),
-    sendStickers: z.boolean(),
     embedLinks: z.boolean(),
     sendPolls: z.boolean(),
     addMembers: z.boolean(),
@@ -53,7 +50,6 @@ export type ChatPermissions = z.infer<typeof ChatPermissionsSchema>
 export const DEFAULT_CHAT_PERMISSIONS: ChatPermissions = {
   sendMessages: true,
   sendMedia: true,
-  sendStickers: true,
   embedLinks: true,
   sendPolls: true,
   addMembers: false,
@@ -62,12 +58,7 @@ export const DEFAULT_CHAT_PERMISSIONS: ChatPermissions = {
 }
 
 /** Права, которые зависят от `sendMessages`: без права писать нельзя и их. */
-const SEND_DEPENDENT: readonly ChatPermissionKey[] = [
-  'sendMedia',
-  'sendStickers',
-  'embedLinks',
-  'sendPolls',
-]
+const SEND_DEPENDENT: readonly ChatPermissionKey[] = ['sendMedia', 'embedLinks', 'sendPolls']
 
 /**
  * Права группы из хранимого значения (`Chat.permissions`, Json): поверх умолчаний, лишнее и
@@ -131,8 +122,6 @@ export interface ChatSendContent {
   text?: string | null
   /** Вложения: фото, видео, файлы, голосовые. */
   media?: boolean
-  /** Стикер или GIF. */
-  sticker?: boolean
   /** Опрос или чек-лист. */
   poll?: boolean
 }
@@ -144,7 +133,6 @@ export interface ChatSendContent {
 export function messagePermissionNeeds(content: ChatSendContent): ChatPermissionKey[] {
   const needs: ChatPermissionKey[] = ['sendMessages']
   if (content.media) needs.push('sendMedia')
-  if (content.sticker) needs.push('sendStickers')
   if (content.poll) needs.push('sendPolls')
   if (containsLink(content.text)) needs.push('embedLinks')
   return needs

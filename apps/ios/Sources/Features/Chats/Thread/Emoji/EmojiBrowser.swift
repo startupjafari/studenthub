@@ -253,7 +253,7 @@ struct EmojiSearchResults: View {
     }
 }
 
-/// Emoji и стикер под пальцем подрастают, как в Telegram.
+/// Emoji под пальцем подрастает, как в Telegram.
 struct ReactionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

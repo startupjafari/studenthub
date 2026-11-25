@@ -223,8 +223,6 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var spoiler: Bool = false
     /// Отправлено «как файл»: картинка в пузыре — строкой файла, а не превью (§9).
     var asDocument: Bool = false
-    /// GIF, который сервер хранит беззвучным MP4 (`animation` у вложения сообщения).
-    var animation: Bool = false
 
     enum Columns {
         static let messageId = Column(CodingKeys.messageId)
@@ -235,9 +233,6 @@ struct AttachmentRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
     var showsAsPhoto: Bool { isImage && !asDocument }
     /// Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет.
     var isVoice: Bool { mime.hasPrefix("audio/") && (name?.hasPrefix("voice-") ?? false) }
-    /// GIF в виде ролика: играет сам, без звука и по кругу, как GIF в Telegram. Старые
-    /// GIF с `image/gif` сюда не попадают — они картинка.
-    var isAnimation: Bool { animation && mime.hasPrefix("video/") }
 }
 
 

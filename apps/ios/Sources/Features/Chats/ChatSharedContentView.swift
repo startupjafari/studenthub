@@ -20,7 +20,6 @@ final class ChatSharedContent {
     let files: PagedLoader<ChatMediaItemDTO>
     let voice: PagedLoader<ChatMediaItemDTO>
     let music: PagedLoader<ChatMediaItemDTO>
-    let gifs: PagedLoader<ChatMediaItemDTO>
     let links: PagedLoader<ChatLinkItemDTO>
     /// Опросы — сами сообщения: вопрос, варианты, закрыт ли.
     let polls: PagedLoader<ChatMessageDTO>
@@ -43,7 +42,6 @@ final class ChatSharedContent {
         files = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .file, page: $0) }
         voice = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .voiceNote, page: $0) }
         music = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .music, page: $0) }
-        gifs = PagedLoader(limit: Self.pageSize) { try await api.media(chatID: chatID, kind: .gif, page: $0) }
         links = PagedLoader(limit: Self.pageSize) { try await api.links(chatID: chatID, page: $0) }
         polls = PagedLoader(limit: Self.pageSize) { try await api.polls(chatID: chatID, page: $0) }
         player.onFinish = { [weak self] in self?.playNext() }
@@ -55,7 +53,6 @@ final class ChatSharedContent {
         case .file: return files
         case .voice, .voiceNote: return voice
         case .music: return music
-        case .gif: return gifs
         }
     }
 
@@ -195,7 +192,7 @@ private extension ChatMediaItemDTO {
         PostDTO.Media(
             id: id,
             url: signed.url.absoluteString,
-            // Тип — по ссылке, если сервер его прислал: GIF мог уже стать беззвучным MP4.
+            // Тип — по ссылке, если сервер его прислал: он новее ответа вкладки.
             mime: signed.mime ?? mime,
             width: width,
             height: height,
@@ -203,8 +200,7 @@ private extension ChatMediaItemDTO {
             durationMs: durationMs,
             sources: signed.sources.isEmpty ? nil : signed.sources,
             poster: signed.poster.isEmpty ? nil : signed.poster,
-            hls: signed.hls,
-            animation: isAnimation || signed.animation
+            hls: signed.hls
         )
     }
 
@@ -270,7 +266,6 @@ struct ChatContentList: View {
         case .music: audioRows(shared.music, isMusic: true)
         case .voice: audioRows(shared.voice, isMusic: false)
         case .links: linkRows
-        case .gifs: gifGrid
         case .polls: pollRows
         }
     }
@@ -370,37 +365,6 @@ struct ChatContentList: View {
                 }
                 .contextMenu { showInChatButton(item.messageId) }
                 .task { await loader.loadMore(after: item) }
-            }
-            footer(loader)
-        }
-    }
-
-    // MARK: GIF
-
-    @ViewBuilder
-    private var gifGrid: some View {
-        let loader = shared.gifs
-        if loader.items.isEmpty {
-            placeholder(loader)
-        } else {
-            ForEach(MediaGridRow.rows(loader.items)) { row in
-                HStack(spacing: MediaGridRow.gap) {
-                    ForEach(row.items) { item in
-                        ChatGifThumb(item: item)
-                            .onTapGesture { Task { await shared.open(item) } }
-                            .contextMenu { showInChatButton(item.messageId) }
-                            .accessibilityAddTraits(.isButton)
-                    }
-                    ForEach(row.items.count..<MediaGridRow.columns, id: \.self) { _ in
-                        Color.clear.aspectRatio(1, contentMode: .fit)
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: MediaGridRow.gap, trailing: 0))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .task(id: row.items.last?.id) {
-                    if let last = row.items.last { await loader.loadMore(after: last) }
-                }
             }
             footer(loader)
         }
@@ -520,68 +484,6 @@ struct ChatContentList: View {
     }
 }
 
-/// Плитка вкладки GIF — анимированная, из оригинала (уменьшенные копии анимацию теряют).
-/// GIF, который сервер хранит беззвучным MP4 (`animation`), — ролик по кругу поверх
-/// постера; при «уменьшении движения» ролик стоит, виден постер.
-private struct ChatGifThumb: View {
-    let item: ChatMediaItemDTO
-
-    @State private var image: UIImage?
-    /// Ролик GIF беззвучным MP4 — вместо разбора GIF.
-    @State private var animationURL: URL?
-    @Environment(\.displayScale) private var displayScale
-    @Environment(\.motionReduced) private var reduceMotion
-
-    var body: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                ZStack {
-                    if let image {
-                        if image.images != nil {
-                            AnimatedImageView(image: image)
-                        } else {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                        }
-                    } else {
-                        Palette.muted
-                    }
-                    if let animationURL, !reduceMotion {
-                        LoopingVideoView(url: animationURL)
-                            .allowsHitTesting(false)
-                    }
-                }
-            }
-            .clipped()
-            .accessibilityLabel(Text(String(localized: "chats.preview.gif", defaultValue: "GIF")))
-            .task(id: item.id) { await load() }
-    }
-
-    private func load() async {
-        let key = "gif-tab:\(item.id)"
-        if !item.isAnimation, let cached = AnimatedGIF.cached(key) {
-            image = cached
-            return
-        }
-        guard let media = try? await AppServices.attachmentURLs.media(for: item.id) else { return }
-        // Ссылка новее ответа вкладки: `image/gif` мог уже стать беззвучным MP4.
-        if item.isAnimation || media.animation {
-            animationURL = media.url
-            // Постер под роликом — его же берёт сетка «Медиа» (`ChatMediaThumbnails`).
-            if item.isAnimation {
-                image = await ChatMediaThumbnails.shared.image(for: item, pixels: ChatMediaThumbnails.points * displayScale)
-            }
-            return
-        }
-        guard let (data, _) = try? await URLSession.shared.data(from: media.url) else { return }
-        image = await Task.detached(priority: .utility) {
-            AnimatedGIF.decode(data, maxPixelSize: 300, key: key)
-        }.value
-    }
-}
-
 /// Ряд сетки медиа: три плитки с зазором 2 pt, как медиа в Telegram и профиле.
 private struct MediaGridRow: Identifiable {
     static let columns = 3
@@ -631,16 +533,7 @@ private struct ChatMediaThumb: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if item.isAnimation {
-                    // GIF беззвучным MP4: подпись «GIF», а не «играть» с длительностью.
-                    Text(String(localized: "chats.preview.gif", defaultValue: "GIF"))
-                        .font(Typography.tabular(.caption2.weight(.semibold)))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Spacing.xs)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(Spacing.xs)
-                } else if item.isVideo {
+                if item.isVideo {
                     HStack(spacing: 2) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 8, weight: .bold))
@@ -668,11 +561,9 @@ private struct ChatMediaThumb: View {
                 }
             }
             .accessibilityElement()
-            .accessibilityLabel(Text(item.isAnimation
-                ? String(localized: "chats.preview.gif", defaultValue: "GIF")
-                : item.isVideo
-                    ? String(localized: "chats.preview.video", defaultValue: "Видео")
-                    : String(localized: "chats.preview.photo", defaultValue: "Фото")))
+            .accessibilityLabel(Text(item.isVideo
+                ? String(localized: "chats.preview.video", defaultValue: "Видео")
+                : String(localized: "chats.preview.photo", defaultValue: "Фото")))
             .accessibilityAddTraits(.isButton)
     }
 

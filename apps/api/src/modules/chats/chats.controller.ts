@@ -72,16 +72,10 @@ import { MessageIdsDto } from './dto/message-ids.dto'
 import {
   ChatChecklistCreateDto,
   ChatContactDto,
-  ChatGifExternalSendDto,
-  ChatGifRecentQueryDto,
-  ChatGifSendDto,
   ChatLocationDto,
   ChatPollsQueryDto,
-  ChatStickerSendDto,
   LiveLocationUpdateDto,
 } from './dto/chat-rich-message.dto'
-import { ChatStickersService } from './chat-stickers.service'
-import { ChatGifsService } from './chat-gifs.service'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -92,8 +86,6 @@ export class ChatsController {
   constructor(
     private readonly chats: ChatsService,
     private readonly branding: ExportBrandingService,
-    private readonly stickers: ChatStickersService,
-    private readonly gifs: ChatGifsService,
   ) {}
 
   @Get()
@@ -224,9 +216,7 @@ export class ChatsController {
   @ApiOperation({ summary: 'Presigned URL к вложению сообщения (по членству в чате)' })
   @ApiResponse({
     status: 200,
-    description:
-      '{ url, expiresAt, mime, animation, …MediaInfo } — оригинал и варианты; mime/animation ' +
-      'текущие (GIF после перевода в MP4 — video/mp4 + animation)',
+    description: '{ url, expiresAt, mime, …MediaInfo } — оригинал и варианты',
   })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник чата' })
   attachmentUrl(@CurrentUser() user: CurrentUserData, @Param('fileId') fileId: string) {
@@ -241,7 +231,7 @@ export class ChatsController {
   @ApiResponse({
     status: 200,
     description:
-      '{ items: [{ fileId, url, expiresAt, mime, animation, …MediaInfo }] } — по каждому id то же, ' +
+      '{ items: [{ fileId, url, expiresAt, mime, …MediaInfo }] } — по каждому id то же, ' +
       'что у GET /chats/attachments/:fileId/url; недоступных и несуществующих в ответе нет',
   })
   @ApiResponse({ status: 400, description: 'VALIDATION_ERROR — пусто, больше 50 или повторы' })
@@ -283,7 +273,7 @@ export class ChatsController {
   @Get(':id/media')
   @ApiOperation({
     summary:
-      'Общие материалы: media|file|voice|voice_note|music|gif (cursor, только участник). ' +
+      'Общие материалы: media|file|voice|voice_note|music (cursor, только участник). ' +
       'voice — всё аудио, voice_note — голосовые, music — аудио кроме голосовых',
   })
   @ApiResponse({ status: 200, description: 'Страница вложений по типу' })
@@ -554,7 +544,7 @@ export class ChatsController {
     return this.chats.deleteMessageRest(user.sub, messageId)
   }
 
-  // ── Особые сообщения: геопозиция, контакт, чек-лист, стикер, GIF ───────────
+  // ── Особые сообщения: геопозиция, контакт, чек-лист ────────────────────────
 
   @Post(':id/location')
   @ApiOperation({
@@ -632,63 +622,6 @@ export class ChatsController {
     @Body() dto: ChatChecklistCreateDto,
   ) {
     return this.chats.sendChecklist(user.sub, id, dto)
-  }
-
-  @Post(':id/sticker')
-  @ApiOperation({ summary: 'Отправить стикер из опубликованного набора' })
-  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
-  @ApiResponse({ status: 404, description: 'NOT_FOUND — стикера нет или набор не опубликован' })
-  sendSticker(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: ChatStickerSendDto,
-  ) {
-    return this.stickers.send(user.sub, id, dto)
-  }
-
-  @Get('gifs/recent')
-  @ApiOperation({ summary: 'Недавние GIF, которые я отправлял (свежие первыми, ≤ 50)' })
-  @ApiResponse({
-    status: 200,
-    description:
-      '[{ fileId, mime, animation, width, height, url, poster, placeholder, expiresAt, ' +
-      'fingerprint }] — ' +
-      'работает и без GIPHY_API_KEY',
-  })
-  recentGifs(@CurrentUser() user: CurrentUserData, @Query() query: ChatGifRecentQueryDto) {
-    return this.chats.recentGifs(user.sub, query)
-  }
-
-  @Post(':id/gif')
-  @ApiOperation({ summary: 'Отправить GIF повторно (файл из чата, где я участник)' })
-  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
-  @ApiResponse({ status: 404, description: 'NOT_FOUND — файла нет, это не GIF или нет доступа' })
-  sendGif(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: ChatGifSendDto,
-  ) {
-    return this.chats.sendGif(user.sub, id, dto)
-  }
-
-  @Post(':id/gif/external')
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  @ApiOperation({
-    summary: 'Отправить GIF из каталога (GIPHY) по id — сервер сам скачивает и хранит копию',
-  })
-  @ApiResponse({ status: 201, description: 'Сообщение создано и разослано (message:new)' })
-  @ApiResponse({
-    status: 404,
-    description: 'NOT_FOUND — GIF нет в каталоге или нет доступа к чату',
-  })
-  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — GIF больше 10 МБ' })
-  @ApiResponse({ status: 503, description: 'FEATURE_DISABLED — GIPHY_API_KEY не задан' })
-  sendExternalGif(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: ChatGifExternalSendDto,
-  ) {
-    return this.gifs.sendExternal(user.sub, id, dto)
   }
 
   @Get(':id/pinned')

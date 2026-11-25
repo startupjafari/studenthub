@@ -29,7 +29,7 @@ struct MessageComposerView: View {
     /// Снимки из листа вложений не подготовились к отправке.
     @State private var attachFailure: String?
     @State private var showsScanner = false
-    /// Вместо клавиатуры открыта панель emoji, стикеров и GIF.
+    /// Вместо клавиатуры открыта панель emoji.
     @State private var showsPanel = false
     @State private var pickingContact = false
     /// «Выбрать из Галереи» во вкладке «Файл»: снимки уходят файлами.
@@ -192,7 +192,7 @@ struct MessageComposerView: View {
             .frame(minHeight: ControlHeight.chatInput)
             }
 
-            // Панель emoji, стикеров и GIF — на месте клавиатуры и той же высоты.
+            // Панель emoji — на месте клавиатуры и той же высоты.
             if showsPanel {
                 ExpressionPanel(
                     // В место курсора, как в Telegram, а не в конец; поле ещё не
@@ -203,17 +203,6 @@ struct MessageComposerView: View {
                     onBackspace: {
                         guard !editor.deleteBackward(), !model.composerText.isEmpty else { return }
                         model.composerText.removeLast()
-                    },
-                    onSticker: { sticker in
-                        sentTick += 1
-                        Task { await model.sendSticker(id: sticker.id) }
-                    },
-                    onGif: { choice in
-                        sentTick += 1
-                        switch choice {
-                        case .recent(let gif): Task { await model.sendGif(fileID: gif.fileId) }
-                        case .external(let gif): Task { await model.sendExternalGif(id: gif.id) }
-                        }
                     }
                 )
                 .frame(height: panelHeight)
@@ -384,7 +373,7 @@ struct MessageComposerView: View {
         .accessibilityIdentifier("chat.expressions")
         .accessibilityLabel(Text(showsPanel
             ? String(localized: "chats.panel.keyboard", defaultValue: "Клавиатура")
-            : String(localized: "chats.panel.open", defaultValue: "Emoji, стикеры и GIF")))
+            : String(localized: "chats.panel.emoji", defaultValue: "Эмодзи")))
     }
 
     /// Высота панели — как у последней клавиатуры за вычетом нижнего отступа экрана
@@ -462,17 +451,6 @@ struct MessageComposerView: View {
             model: model,
             close: { [editorPresenter] exit in editorPresenter.dismiss(exit) },
             send: sendDraft,
-            sendSticker: { sticker in
-                sentTick += 1
-                Task { await model.sendSticker(id: sticker.id) }
-            },
-            sendGif: { choice in
-                sentTick += 1
-                switch choice {
-                case .recent(let gif): Task { await model.sendGif(fileID: gif.fileId) }
-                case .external(let gif): Task { await model.sendExternalGif(id: gif.id) }
-                }
-            },
             reduceMotion: reduceMotion
         )
         editorPresenter.present(editor) { exit in
@@ -802,7 +780,7 @@ struct ComposerBarBackground: ViewModifier {
     }
 }
 
-/// Открыта ли панель emoji, стикеров и GIF: экран чата на это время не отступает от
+/// Открыта ли панель emoji: экран чата на это время не отступает от
 /// клавиатуры.
 struct ComposerPanelShown: PreferenceKey {
     static let defaultValue = false

@@ -33,11 +33,7 @@ import {
   composerKeys,
   fetchScheduledMessages,
   scheduleMessageRequest,
-  sendCatalogGifRequest,
   sendChecklistRequest,
-  sendRecentGifRequest,
-  sendStickerRequest,
-  type CatalogSticker,
   type ChatMemberInfo,
   type ChatMessage,
   type RoundVideoRecorderController,
@@ -58,12 +54,7 @@ import { ComposerMainButton, type MainButtonMode, type RecordKind } from './comp
 import { ComposerRoundPreview } from './composer-round-preview'
 import { ReplyThumb, replyThumbOf } from './message-reply-quote'
 import { ComposerMentionList } from './composer-mention-list'
-import {
-  ComposerSymbolMenu,
-  useSymbolMenuPresence,
-  type PickedGif,
-  type SymbolTab,
-} from './composer-symbol-menu'
+import { ComposerSymbolMenu, useSymbolMenuPresence } from './composer-symbol-menu'
 import { ComposerScheduleDialog } from './composer-schedule-dialog'
 import { ComposerScheduledPanel } from './composer-scheduled-panel'
 import { ComposerChecklistCreator } from './composer-checklist-creator'
@@ -251,8 +242,8 @@ export type ChatComposerProps = {
   round?: RoundVideoRecorderController
   recMMSS: string
   /**
-   * Открытый чат: по нему поле ввода само шлёт стикеры, GIF и чек-листы и ставит
-   * отложенные. Нет чата — этих действий нет.
+   * Открытый чат: по нему поле ввода само шлёт чек-листы и ставит отложенные. Нет чата —
+   * этих действий нет.
    */
   chatId?: string | null
   /** «Отправить без звука» из меню кнопки отправки. Нет обработчика — пункта нет. */
@@ -266,8 +257,8 @@ export type ChatComposerProps = {
   onEditLast?: () => boolean
   /**
    * Права рядового участника группы (§8.3, «Разрешения»). null — ограничений нет (не группа,
-   * админ или владелец). Без права писать — плашка вместо поля; запрещённые пункты скрепки,
-   * стикеры и голосовые прячутся. Сервер проверяет то же самое сам.
+   * админ или владелец). Без права писать — плашка вместо поля; запрещённые пункты скрепки
+   * и голосовые прячутся. Сервер проверяет то же самое сам.
    */
   restrictions?: ChatPermissions | null
 }
@@ -309,7 +300,6 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const canMedia = restrictions?.sendMedia !== false
   const canPolls = restrictions?.sendPolls !== false
-  const canStickers = restrictions?.sendStickers !== false
   const t = useTranslations('Chats')
   const locale = useLocale()
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
@@ -321,9 +311,6 @@ export function ChatComposer({
   // (ResponsiveHoverButton), закрытие через 250 мс после ухода курсора (useMouseInside).
   const emoji = useHoverMenu({ openDelayMs: 200, closeDelayMs: 250 })
   const emojiPresence = useSymbolMenuPresence(emoji.open)
-  // Последняя вкладка панели символов (эмодзи · стикеры · GIF) переживает закрытие панели —
-  // как в Telegram: кто отправляет стикеры, открывает панель сразу на них.
-  const [symbolTab, setSymbolTab] = useState<SymbolTab>('emoji')
   // Меню кнопки «Отправить» (без звука · позже): точка вызова, а не флаг.
   const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -394,13 +381,15 @@ export function ChatComposer({
   // и пункт открывал бы тот же диалог файлов — лишний ряд в меню.
   const canCapture = useMediaQuery('(pointer: coarse)')
 
-  // Выбрали «Ответить» (меню, свайп, кнопка) — курсор сразу в поле, как в Telegram: ответ
-  // пишут тут же, без лишнего клика по полю. Два кадра ожидания: меню сообщения при
-  // закрытии возвращает фокус на свою кнопку, и наш фокус должен прийти после него.
+  // Выбрали «Ответить» или «Изменить» (меню, свайп, кнопка, ↑) — курсор сразу в поле, в
+  // конец текста, как в Telegram: ответ и правку пишут тут же, без лишнего клика по полю.
+  // Два кадра ожидания: меню сообщения при закрытии возвращает фокус на свою кнопку, и наш
+  // фокус должен прийти после него; к тому же кадру редактор успевает принять текст правки.
   const replyId = replyTo?.id
+  const editId = editing?.id
   const replyThumb = replyTo ? replyThumbOf(replyTo.media) : null
   useEffect(() => {
-    if (!replyId) return
+    if (!replyId && !editId) return
     let inner = 0
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => composerRef.current?.focus())
@@ -409,7 +398,7 @@ export function ChatComposer({
       cancelAnimationFrame(outer)
       cancelAnimationFrame(inner)
     }
-  }, [replyId, composerRef])
+  }, [replyId, editId, composerRef])
 
   // Вставка emoji из пикера (§12) в позицию курсора поля ввода.
   function insertEmoji(emoji: string): void {
@@ -423,37 +412,11 @@ export function ChatComposer({
   const onApiError = (e: unknown): void => {
     toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
   }
-  // Стикер, GIF и чек-лист уходят REST-запросом и приезжают в ленту событием message:new —
-  // оптимистичного пузыря у них нет, как и у опроса. Ответ, если он был, на них и уходит.
+  // Чек-лист уходит REST-запросом и приезжает в ленту событием message:new — оптимистичного
+  // пузыря у него нет, как и у опроса. Ответ, если он был, на него и уходит.
   const replyFields = (): { replyToId?: string } => (replyTo ? { replyToId: replyTo.id } : {})
   const afterRichSend = (): void => {
     if (replyTo) onCancelReply()
-  }
-  const sendSticker = useMutation({
-    mutationFn: (sticker: CatalogSticker) =>
-      sendStickerRequest(chatId as string, sticker.id, replyFields()),
-    onSuccess: afterRichSend,
-    onError: onApiError,
-  })
-  const sendGif = useMutation({
-    mutationFn: (gif: PickedGif) =>
-      gif.kind === 'catalog'
-        ? sendCatalogGifRequest(chatId as string, gif.id, replyFields())
-        : sendRecentGifRequest(chatId as string, gif.fileId, replyFields()),
-    onSuccess: () => {
-      afterRichSend()
-      void qc.invalidateQueries({ queryKey: composerKeys.gifsRecent() })
-    },
-    onError: onApiError,
-  })
-  // Стикер и GIF закрывают панель: выбор сделан, дальше человек смотрит в ленту.
-  const pickSticker = (sticker: CatalogSticker): void => {
-    emoji.close()
-    sendSticker.mutate(sticker)
-  }
-  const pickGif = (gif: PickedGif): void => {
-    emoji.close()
-    sendGif.mutate(gif)
   }
   const sendChecklist = useMutation({
     mutationFn: (
@@ -1047,10 +1010,9 @@ export function ChatComposer({
                     </button>
                   </div>
                 )}
-                {/* Панель символов (Telegram SymbolMenu): эмодзи · стикеры · GIF. Эмодзи
-                    встают в позицию курсора, и панель остаётся открытой для нескольких;
-                    стикер и GIF уходят сразу. Раскрывается наведением — смайл выбирают
-                    глазами, и клик «чтобы посмотреть» тут лишний шаг. Кнопка живёт внутри
+                {/* Панель эмодзи (Telegram SymbolMenu). Эмодзи встают в позицию курсора, и
+                    панель остаётся открытой для нескольких. Раскрывается наведением — смайл
+                    выбирают глазами, и клик «чтобы посмотреть» тут лишний шаг. Кнопка живёт внутри
                     капсулы поля, поэтому её диаметр — высота капсулы минус скругление. */}
                 <div
                   ref={emoji.ref}
@@ -1083,12 +1045,7 @@ export function ChatComposer({
                     >
                       <ComposerSymbolMenu
                         variant="popover"
-                        tab={symbolTab}
-                        onTabChange={setSymbolTab}
-                        allowMedia={!!chatId && !editing && canStickers}
                         onEmoji={insertEmoji}
-                        onSticker={pickSticker}
-                        onGif={pickGif}
                         onBackspace={backspace}
                       />
                     </div>
@@ -1174,7 +1131,7 @@ export function ChatComposer({
         </div>
       )}
 
-      {/* Панель символов на телефоне — ПОД полем ввода, на месте клавиатуры, как в Telegram.
+      {/* Панель эмодзи на телефоне — ПОД полем ввода, на месте клавиатуры, как в Telegram.
           Всплывающее окно у кнопки здесь не работает: оно шириной в половину экрана, висит
           над полем и закрывает собой последние сообщения — то есть ровно то, к чему смайл
           и подбирают. Панель уезжает вниз вместе с полем и занимает всю ширину. */}
@@ -1183,16 +1140,7 @@ export function ChatComposer({
         // скругления и рамка остаются только сверху — панель встаёт на место клавиатуры и
         // с трёх сторон уходит за кромку, как в Telegram.
         <div className="-mx-3 -mb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)-var(--kb-inset,0px)))] overflow-hidden rounded-t-2xl border-t border-border bg-popover duration-200 animate-in slide-in-from-bottom-2 motion-reduce:animate-none lg:hidden">
-          <ComposerSymbolMenu
-            variant="dock"
-            tab={symbolTab}
-            onTabChange={setSymbolTab}
-            allowMedia={!!chatId && !editing && canStickers}
-            onEmoji={insertEmoji}
-            onSticker={pickSticker}
-            onGif={pickGif}
-            onBackspace={backspace}
-          />
+          <ComposerSymbolMenu variant="dock" onEmoji={insertEmoji} onBackspace={backspace} />
         </div>
       )}
 

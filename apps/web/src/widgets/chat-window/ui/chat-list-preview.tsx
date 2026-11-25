@@ -9,7 +9,6 @@ import {
   CirclePlay,
   FileText,
   ImageIcon,
-  ImagePlay,
   ListChecks,
   MapPin,
   Mic,
@@ -23,7 +22,6 @@ import {
 import {
   attachmentKind,
   fetchAttachmentLink,
-  isAnimation,
   isViewable,
   mediaPreview,
   type AttachmentKind,
@@ -31,7 +29,6 @@ import {
 } from '../../../entities/chat'
 import { MediaImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { isEmojiSupported } from '../../../shared/lib/emoji-support'
 import { plainPreview } from '../lib/format'
 import { parseProfileShare } from './shared-cards'
 import { SYSTEM_KEY } from './message-item'
@@ -44,7 +41,6 @@ const PREVIEW_ICON: Record<AttachmentKind, LucideIcon> = {
   round: CirclePlay,
   photo: ImageIcon,
   video: Video,
-  gif: ImagePlay,
   file: FileText,
 }
 export const PREVIEW_KEY: Record<AttachmentKind, string> = {
@@ -53,7 +49,6 @@ export const PREVIEW_KEY: Record<AttachmentKind, string> = {
   round: 'tgMessage.previewRound',
   photo: 'previewPhoto',
   video: 'previewVideo',
-  gif: 'tgGifs.preview',
   file: 'previewFile',
 }
 
@@ -73,7 +68,6 @@ export type PreviewMessage = {
   location?: { title: string | null } | null
   contact?: { name: string } | null
   checklist?: { title: string } | null
-  sticker?: { emoji: string | null } | null
   sender?: { firstName: string } | null
 }
 
@@ -90,15 +84,6 @@ export function singleMediaName(media: readonly MessageAttachment[]): string | n
   if (kind === 'file') return name
   if (kind === 'audio') return name.replace(/\.[^.\s]{1,8}$/, '') || name
   return null
-}
-
-/**
- * Эмодзи стикера перед «Стикер» — если система его нарисует. Telegram рисует эмодзи
- * картинками, у нас — шрифтом, и свежий смайл на старой Windows или в Linux без цветного
- * шрифта превращался в «□ Стикер». Лучше просто «Стикер».
- */
-export function stickerPreviewEmoji(emoji: string | null | undefined): string {
-  return emoji && isEmojiSupported(emoji) ? `${emoji} ` : ''
 }
 
 /** Снимок или ролик, которым можно подписать строку миниатюрой (Telegram-стиль). */
@@ -135,9 +120,7 @@ export function PreviewThumb({
     gcTime: 15 * 60 * 1000,
   })
   const data = needLink ? link.data : undefined
-  // Тип — по ссылке, если она его знает: GIF после отправки переводится в MP4.
-  const isVideo = (data?.mime ?? att.mime).startsWith('video/')
-  const gif = isAnimation(att) || !!data?.animation
+  const isVideo = att.mime.startsWith('video/')
   const variants = (isVideo ? data?.poster : data?.sources) ?? []
   // Оригинал — запасной кандидат srcset; у видео оригинал — ролик, картинкой он не станет.
   const src = isVideo ? variants[variants.length - 1]?.url : data?.url
@@ -162,8 +145,7 @@ export function PreviewThumb({
         sizes={large ? '(max-width: 640px) 33vw, 120px' : '20px'}
         className={cn('size-full', att.spoiler && (large ? 'blur-xl' : 'blur-[2px]'))}
       />
-      {/* У GIF кнопки ▶ нет: он играет сам, как в Telegram. */}
-      {isVideo && !gif && (
+      {isVideo && (
         <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
           <Play className={cn('fill-current', large ? 'size-6' : 'size-2.5')} />
         </span>
@@ -250,14 +232,6 @@ export function MessagePreview({
       <PreviewWithIcon icon={ListChecks}>
         {t('previewChecklist', { title: message.checklist.title })}
       </PreviewWithIcon>
-    )
-  }
-  if (message.sticker) {
-    return (
-      <>
-        {stickerPreviewEmoji(message.sticker.emoji)}
-        {t('previewSticker')}
-      </>
     )
   }
   if (message.sharedPost) {

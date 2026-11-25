@@ -132,12 +132,11 @@ describe('MediaService.schedule', () => {
     )
   })
 
-  it('GIF чата — в очередь видео (перевод в MP4), GIF ленты — в очередь фото', async () => {
+  it('GIF — обычная картинка: в очередь фото и в чате, и в ленте', async () => {
     const { service, queue } = setup()
     await service.schedule({ id: FILE_ID, bucket: 'chat-media', mime: 'image/gif' })
     await service.schedule({ id: FILE_ID, bucket: 'posts-media', mime: 'image/gif' })
-    expect(queue.enqueue.mock.calls.map((c) => c[0])).toEqual(['media-video', 'media-image'])
-    expect(queue.enqueue.mock.calls[0][3]).toMatchObject({ attempts: 2 })
+    expect(queue.enqueue.mock.calls.map((c) => c[0])).toEqual(['media-image', 'media-image'])
   })
 
   it('документ, аватар и аудио не обрабатываются', async () => {
@@ -181,14 +180,14 @@ describe('MediaService.scheduleCopy', () => {
     )
   })
 
-  it('копия GIF чата — в очереди видео: копия переводится в MP4', async () => {
+  it('копия GIF чата — в очереди фото, как у любой картинки', async () => {
     const { service, prisma, queue } = setup()
     prisma.file.findUnique.mockResolvedValue({ mediaStatus: MediaStatus.READY })
 
     await service.scheduleCopy(SOURCE_ID, { ...target, mime: 'image/gif' })
 
     expect(queue.enqueue).toHaveBeenCalledWith(
-      'media-video',
+      'media-image',
       'copy-media-variants',
       { sourceId: SOURCE_ID, fileId: FILE_ID },
       expect.anything(),

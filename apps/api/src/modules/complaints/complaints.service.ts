@@ -96,7 +96,6 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   STORY: 'на историю',
   COMMENT: 'на комментарий',
   CHAT: 'на группу',
-  STICKER_SET: 'на набор стикеров',
 }
 
 // Ответ на невидимую цель — слово в слово как на несуществующую (getTarget).
@@ -107,7 +106,6 @@ const NOT_FOUND_MESSAGE: Record<ComplaintTargetType, string> = {
   STORY: 'Сторис не найдена',
   COMMENT: 'Комментарий не найден',
   CHAT: 'Группа не найдена',
-  STICKER_SET: 'Набор стикеров не найден',
 }
 
 // Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
@@ -708,7 +706,7 @@ export class ComplaintsService {
     ctx: RequestContext,
   ): Promise<void> {
     if (input.action === 'DELETE_CONTENT') {
-      await this.softDeleteTarget(complaint.targetType, complaint.targetId, actor.sub)
+      await this.softDeleteTarget(complaint.targetType, complaint.targetId)
     } else if (input.action === 'BLOCK_USER' && ownerId) {
       // Срок делает блокировку временной: её снимет крон, а не память модератора.
       const until = input.blockDays
@@ -1031,27 +1029,6 @@ export class ComplaintsService {
             }
           : null
       }
-      case ComplaintTargetType.STICKER_SET: {
-        // Название набора и число стикеров. Картинки модератор смотрит по ссылке набора.
-        const set = await this.prisma.stickerSet.findUnique({
-          where: { id },
-          select: {
-            title: true,
-            slug: true,
-            deletedAt: true,
-            removedAt: true,
-            _count: { select: { stickers: { where: { deletedAt: null } } } },
-          },
-        })
-        return set
-          ? {
-              title: set.title,
-              text: `/addstickers/${set.slug}`,
-              mediaCount: set._count.stickers,
-              deleted: set.deletedAt !== null || set.removedAt !== null,
-            }
-          : null
-      }
       case ComplaintTargetType.CHAT: {
         // Название и описание группы — то, на что жалуются; переписку модератор открывает
         // жалобами на конкретные сообщения, а не целиком по жалобе на группу.
@@ -1162,30 +1139,12 @@ export class ComplaintsService {
           ownerId: c.createdById,
         }
       }
-      case ComplaintTargetType.STICKER_SET: {
-        // Только личные наборы: каталог платформы ведёт PLATFORM_ADMIN, жаловаться на него
-        // некому разбирать. Нарушитель — владелец набора, вуз — его вуз.
-        const s = await this.prisma.stickerSet.findFirst({
-          where: {
-            id: targetId,
-            kind: 'USER',
-            ...(opts.includeDeleted ? {} : { deletedAt: null, removedAt: null }),
-          },
-          select: { createdById: true, createdBy: { select: { universityId: true } } },
-        })
-        if (!s) throw new AppException('NOT_FOUND', 'Набор стикеров не найден')
-        return { universityId: s.createdBy?.universityId ?? null, ownerId: s.createdById }
-      }
       default:
         throw new AppException('BAD_REQUEST', 'Неизвестный тип цели')
     }
   }
 
-  private async softDeleteTarget(
-    type: ComplaintTargetType,
-    targetId: string,
-    actorId: string,
-  ): Promise<void> {
+  private async softDeleteTarget(type: ComplaintTargetType, targetId: string): Promise<void> {
     const now = new Date()
     if (type === ComplaintTargetType.POST) {
       await this.prisma.post.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
@@ -1212,14 +1171,6 @@ export class ComplaintsService {
       // У сторис мягкого удаления нет: она живёт сутки и удаляется физически вместе с
       // медиа. Делает это владелец домена — он же знает про объект в MinIO (§2.1).
       await this.stories.removeByModeration(targetId)
-    } else if (type === ComplaintTargetType.STICKER_SET) {
-      // Набор скрывается у всех: из панелей, по ссылке и в уже отправленных сообщениях
-      // (GET /chats/stickers/:id/url отдаёт NOT_FOUND). Строки «добавлен» и картинки
-      // остаются — отмена снятия вернёт набор как был. Кто снял — в removedById.
-      await this.prisma.stickerSet.updateMany({
-        where: { id: targetId, kind: 'USER', removedAt: null },
-        data: { removedAt: now, removedById: actorId },
-      })
     }
   }
 }

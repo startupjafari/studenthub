@@ -78,7 +78,7 @@ final class ChatListQueryTests: XCTestCase {
     }
 
     /// Пустое сообщение неизвестного вида — заглушка «обновите приложение», а не пустая
-    /// строка; известный вид без текста (стикер) — своё превью (IOS_RULES 9.2.8).
+    /// строка; известный вид без текста (контакт) — своё превью (IOS_RULES 9.2.8).
     func testUnknownEmptyMessageIsPreviewedAsUnsupported() throws {
         let database = try AppDatabase.inMemory()
         try database.writer.write { db in
@@ -88,12 +88,12 @@ final class ChatListQueryTests: XCTestCase {
             try unknown.insert(db)
             try db.execute(sql: "UPDATE chat SET lastMessageId = 'm-1' WHERE id = 'c-1'")
             try chat(id: "c-2").insert(db)
-            var sticker = message(id: "m-2", chatId: "c-2", seq: 1)
-            sticker.content = ""
+            var contact = message(id: "m-2", chatId: "c-2", seq: 1)
+            contact.content = ""
             var extras = MessageExtras()
-            extras.sticker = MessageExtras.Sticker(id: "s-1", emoji: "🙂")
-            sticker.extras = extras
-            try sticker.insert(db)
+            extras.contact = MessageExtras.Contact(name: "Айгерим")
+            contact.extras = extras
+            try contact.insert(db)
             try db.execute(sql: "UPDATE chat SET lastMessageId = 'm-2' WHERE id = 'c-2'")
         }
 
@@ -105,7 +105,7 @@ final class ChatListQueryTests: XCTestCase {
             rows.first { $0.id == "c-1" }?.preview,
             "Сообщение не поддерживается этой версией — обновите приложение"
         )
-        XCTAssertEqual(rows.first { $0.id == "c-2" }?.preview, "🙂 Стикер")
+        XCTAssertEqual(rows.first { $0.id == "c-2" }?.preview, "👤 Айгерим")
     }
 
     /// Реакции, пересылка и превью ссылки — не содержимое: пустое сообщение с ними одними

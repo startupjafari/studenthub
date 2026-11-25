@@ -1,14 +1,12 @@
 import { Role } from '@studenthub/shared-types'
 import {
   CreateChatFolderSchema,
-  FAVORITE_STICKERS_MAX,
   UpdateChatFolderSchema,
   chatInFolder,
   type ChatFolderRule,
 } from '@studenthub/shared-schemas'
 import { ChatsService, type MessageRow } from './chats.service'
 import { ChatFoldersService } from './chat-folders.service'
-import { ChatStickersService, USABLE_STICKER_WHERE } from './chat-stickers.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -16,7 +14,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 
 // Чаты как Telegram, волна 2 (контракт iOS): «пометить как новое», порядок закреплённых,
 // прочтение пачкой, открепить все, отложенные с «отправить сейчас», позиция и направление
-// медиа, отмена загрузки вложения, total поиска, папки с правилами, избранные стикеры.
+// медиа, отмена загрузки вложения, total поиска, папки с правилами.
 
 function setup() {
   const prisma = {
@@ -914,109 +912,5 @@ describe('Папки: порядок, заглушение, исключения
       ],
     })
     expect(prisma.chatFolder.update.mock.calls[0][0].data).toEqual({ includeGroups: true })
-  })
-})
-
-// ── Избранные стикеры ─────────────────────────────────────────────────────────
-
-function stickersSetup() {
-  const models = {
-    sticker: { findFirst: jest.fn() },
-    favoriteSticker: {
-      upsert: jest.fn().mockResolvedValue({}),
-      findMany: jest.fn().mockResolvedValue([]),
-      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-    },
-  }
-  const prisma = {
-    ...models,
-    $transaction: jest.fn((fn: (tx: typeof models) => unknown) => fn(models)),
-  }
-  const files = { getPresignedUrls: jest.fn().mockResolvedValue(new Map()) }
-  const realtime = { emitToUser: jest.fn() }
-  const service = new ChatStickersService(
-    prisma as unknown as PrismaService,
-    files as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    realtime as never,
-  )
-  return { service, prisma, files, realtime }
-}
-
-describe('Избранные стикеры', () => {
-  it('добавление поднимает наверх; сверх лимита вытесняются самые давние', async () => {
-    const { service, prisma, realtime } = stickersSetup()
-    prisma.sticker.findFirst.mockResolvedValue({ id: 'st1' })
-    prisma.favoriteSticker.findMany.mockResolvedValue([{ id: 'old-1' }])
-    await service.addFavorite('u1', 'st1')
-    expect(prisma.favoriteSticker.upsert).toHaveBeenCalledWith({
-      where: { userId_stickerId: { userId: 'u1', stickerId: 'st1' } },
-      create: { userId: 'u1', stickerId: 'st1' },
-      update: { createdAt: expect.any(Date) },
-    })
-    expect(prisma.favoriteSticker.findMany.mock.calls[0][0]).toMatchObject({
-      where: { userId: 'u1' },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: FAVORITE_STICKERS_MAX,
-    })
-    expect(prisma.favoriteSticker.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['old-1'] } },
-    })
-    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'stickers:favorites-changed', {})
-  })
-
-  it('стикер неопубликованного набора — NOT_FOUND, избранное не меняется', async () => {
-    const { service, prisma } = stickersSetup()
-    prisma.sticker.findFirst.mockResolvedValue(null)
-    await expect(service.addFavorite('u1', 'st-скрытый')).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    })
-    // Опубликованный каталог или живой личный набор, готовый и не убранный стикер.
-    expect(prisma.sticker.findFirst).toHaveBeenCalledWith({
-      where: { id: 'st-скрытый', ...USABLE_STICKER_WHERE },
-      select: { id: true },
-    })
-    expect(prisma.favoriteSticker.upsert).not.toHaveBeenCalled()
-  })
-
-  it('список — только опубликованные, свежие сверху, не больше 30, в форме стикера каталога', async () => {
-    const { service, prisma, files } = stickersSetup()
-    const sticker = {
-      id: 'st1',
-      emoji: '😀',
-      width: 512,
-      height: 512,
-      order: 0,
-      fileId: 'file1',
-      animated: false,
-    }
-    prisma.favoriteSticker.findMany.mockResolvedValue([{ sticker }])
-    files.getPresignedUrls.mockResolvedValue(new Map([['file1', 'https://s/1']]))
-    const list = await service.listFavorites('u1')
-    expect(prisma.favoriteSticker.findMany.mock.calls[0][0]).toMatchObject({
-      where: { userId: 'u1', sticker: USABLE_STICKER_WHERE },
-      take: FAVORITE_STICKERS_MAX,
-    })
-    expect(list).toEqual([
-      {
-        id: 'st1',
-        emoji: '😀',
-        width: 512,
-        height: 512,
-        animated: false,
-        url: 'https://s/1',
-        expiresAt: expect.any(String),
-      },
-    ])
-  })
-
-  it('удаление идемпотентно', async () => {
-    const { service, prisma } = stickersSetup()
-    await expect(service.removeFavorite('u1', 'st1')).resolves.toBeUndefined()
-    expect(prisma.favoriteSticker.deleteMany).toHaveBeenCalledWith({
-      where: { userId: 'u1', stickerId: 'st1' },
-    })
   })
 })

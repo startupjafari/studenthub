@@ -203,11 +203,6 @@ struct ChatInfoView: View {
             return shared.links.items.isEmpty ? 120 : CGFloat(shared.links.items.count) * rowHeight
         case .polls:
             return shared.polls.items.isEmpty ? 120 : CGFloat(shared.polls.items.count) * rowHeight
-        case .gifs:
-            let count = shared.gifs.items.count
-            guard count > 0 else { return 120 }
-            let tile = max(0, (viewport.width - 48) / 3)
-            return CGFloat((count + 2) / 3) * (tile + 2)
         }
     }
 
@@ -965,7 +960,7 @@ private struct MemberRow: View {
 
 /// Разделы содержимого чата.
 enum ChatMediaKindTab: String, CaseIterable, Identifiable {
-    case media, files, music, voice, links, gifs, polls
+    case media, files, music, voice, links, polls
     var id: String { rawValue }
 
     var title: String {
@@ -975,7 +970,6 @@ enum ChatMediaKindTab: String, CaseIterable, Identifiable {
         case .music: return String(localized: "chats.info.music", defaultValue: "Музыка")
         case .voice: return String(localized: "chats.info.voice", defaultValue: "Голосовые")
         case .links: return String(localized: "chats.info.links", defaultValue: "Ссылки")
-        case .gifs: return String(localized: "chats.preview.gif", defaultValue: "GIF")
         case .polls: return String(localized: "chats.info.polls", defaultValue: "Опросы")
         }
     }
@@ -986,7 +980,6 @@ enum ChatMediaKindTab: String, CaseIterable, Identifiable {
         case .files: return .file
         case .music: return .music
         case .voice: return .voiceNote
-        case .gifs: return .gif
         case .links, .polls: return nil
         }
     }

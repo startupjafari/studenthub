@@ -39,7 +39,7 @@ import {
   NotificationsRow,
   PeerInfoRows,
 } from './profile-info-card'
-import { FileTab, GifTab, LinksTab, MediaTab, PollsTab } from './shared-media'
+import { FileTab, LinksTab, MediaTab, PollsTab } from './shared-media'
 
 // Панель вкладки: flex-колонка не ниже экрана колонки — иначе на короткой вкладке
 // прилипшие вкладки отрывались бы от верха при переключении. `data-[state=active]:flex`,
@@ -415,7 +415,6 @@ export function ChatDetailsPanel({
       'links',
       'music',
       'voice',
-      'gif',
       'polls',
     ],
     [isGroup],
@@ -577,9 +576,6 @@ export function ChatDetailsPanel({
                     <TabsTrigger value="voice" className="flex-none">
                       {t('tabVoice')}
                     </TabsTrigger>
-                    <TabsTrigger value="gif" className="flex-none">
-                      {t('tabGif')}
-                    </TabsTrigger>
                     <TabsTrigger value="polls" className="flex-none">
                       {t('tabPolls')}
                     </TabsTrigger>
@@ -609,9 +605,6 @@ export function ChatDetailsPanel({
                   </TabsContent>
                   <TabsContent value="voice" className={TAB_PANE}>
                     <FileTab chatId={chat.id} type="voice_note" onJump={onJump} />
-                  </TabsContent>
-                  <TabsContent value="gif" className={TAB_PANE}>
-                    <GifTab chatId={chat.id} onJump={onJump} />
                   </TabsContent>
                   <TabsContent value="polls" className={TAB_PANE}>
                     <PollsTab chatId={chat.id} onJump={onJump} />

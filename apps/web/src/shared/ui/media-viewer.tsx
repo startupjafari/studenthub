@@ -59,11 +59,6 @@ export interface MediaViewerMedia {
   sources?: readonly MediaSource[]
   poster?: readonly MediaSource[]
   hls?: string | null
-  /**
-   * Анимация (GIF, переведённый в беззвучный MP4): играет по кругу без звука и без панели
-   * плеера, как GIF в Telegram.
-   */
-  animation?: boolean
 }
 
 /**
@@ -636,22 +631,6 @@ export function MediaViewer({
                   ) : (
                     <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
                   )
-                ) : isVideo && media?.animation ? (
-                  // GIF: открыли сами — играет и при «уменьшении движения», как и в Telegram.
-                  <video
-                    ref={setMedia}
-                    src={src}
-                    poster={pickSource(media.poster, 1280)?.url}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    disablePictureInPicture
-                    onLoadedMetadata={measureFit}
-                    style={transform}
-                    className="h-full max-h-full w-auto max-w-full rounded-lg object-contain transition-transform"
-                    onClick={(e) => e.stopPropagation()}
-                  />
                 ) : isVideo ? (
                   <VideoPlayer
                     src={src}
@@ -673,8 +652,13 @@ export function MediaViewer({
                     src={src}
                     // Копия по размеру экрана: 2048 на большом мониторе, оригинал — только если он
                     // шире всех копий. Скачивание по-прежнему отдаёт оригинал (downloadUrl).
-                    srcSet={srcSetOf(media?.sources, { url: src, width: media?.width })}
-                    sizes="100vw"
+                    // GIF — всегда оригиналом: копия была бы первым кадром.
+                    srcSet={
+                      cur.mime === 'image/gif'
+                        ? undefined
+                        : srcSetOf(media?.sources, { url: src, width: media?.width })
+                    }
+                    sizes={cur.mime === 'image/gif' ? undefined : '100vw'}
                     alt={cur.name ?? ''}
                     draggable={false}
                     // width/height задают пропорцию до загрузки — заглушка фоном ложится ровно в

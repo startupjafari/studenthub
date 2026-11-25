@@ -9,14 +9,11 @@ import {
   Flag,
   Forward,
   Heart,
-  ImageMinus,
-  ImagePlus,
   Link2,
   Pencil,
   Pin,
   PinOff,
   Reply,
-  Sticker,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -26,10 +23,8 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
-  EmojiPicker,
   MENU_EXIT_MS,
   MenuSeparator,
-  splitDanger,
   type MenuAnchor,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -40,6 +35,7 @@ import {
   useDismissAnimation,
 } from '../../../shared/lib'
 import type { ChatMessage, MessageReaction } from '../model/types'
+import { EmojiPanelPopover } from './emoji-panel-popover'
 
 /**
  * Действия меню. Обязательны реакция, ответ и копирование — они есть у любой переписки.
@@ -57,11 +53,6 @@ export interface MessageMenuActions {
   onForward?: () => void
   onDelete?: () => void
   onSelect?: () => void
-  /**
-   * «Сделать стикером» — у сообщения с фото, GIF или видео: открывает редактор своего
-   * стикера. Нет — пункта нет.
-   */
-  onMakeSticker?: () => void
   /** Пожаловаться на чужое сообщение. Нет — пункта нет (роль жалоб не подаёт). */
   onReport?: () => void
   /** Список отреагировавших (пункт «N реакций» с лицами, как в Telegram). Нет — пункта нет. */
@@ -71,10 +62,6 @@ export interface MessageMenuActions {
    * Нет — жеста нет: быстрая реакция есть только у чатов.
    */
   onSetDefaultReaction?: (emoji: string) => void
-  /**
-   * «Сохранить в GIF» / «Убрать из GIF» у сообщения с GIF (useSavedGifMenu). Нет — пункта нет.
-   */
-  gif?: { saved: boolean; onToggle: () => void }
 }
 
 /**
@@ -173,9 +160,9 @@ function ReactionsRow({
       ref={row.ref}
       className={cn(
         'overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-        // Без своего backdrop-blur: размытие даёт затемнение под пилюлей, а второй фильтр
-        // поверх первого на телефоне стоит кадров.
-        'max-w-full rounded-full border border-border bg-popover px-1.5 py-1',
+        // Размытие — только на ПК (как у карточки действий): на телефоне под пилюлей уже
+        // размытое затемнение, а второй фильтр поверх первого стоит кадров.
+        'max-w-full rounded-full border border-border bg-popover px-1.5 py-1 md:bg-popover/85 md:backdrop-blur-xl',
         pill ? 'shadow-xl' : 'shadow-lg',
         row.overflowing && 'cursor-grab',
         row.dragging && 'cursor-grabbing select-none',
@@ -253,9 +240,17 @@ function ReactionsRow({
           aria-label={pickerLabel}
           title={pickerLabel}
           onClick={onOpenPicker}
-          className={cn(btn, 'text-muted-foreground')}
+          className={cn(btn, 'ml-0.5 text-muted-foreground')}
         >
-          <ChevronDown className={pill ? 'size-6' : 'size-5'} aria-hidden />
+          {/* Стрелка — в своём кружке, как в Telegram: видно, что это кнопка, а не эмодзи. */}
+          <span
+            className={cn(
+              'flex items-center justify-center rounded-full bg-muted',
+              pill ? 'size-9' : 'size-8',
+            )}
+          >
+            <ChevronDown className={pill ? 'size-5' : 'size-4'} aria-hidden />
+          </span>
         </button>
       </div>
     </div>
@@ -404,28 +399,24 @@ export function MessageContextMenu({
       actions.onPin,
     ),
     { key: 'copy', label: t('copyText'), icon: Copy, onClick: actions.onCopy },
-    ...optional(
-      'gif',
-      actions.gif?.saved ? t('tgGifs.unsave') : t('tgGifs.save'),
-      actions.gif?.saved ? ImageMinus : ImagePlus,
-      actions.gif?.onToggle,
-    ),
     ...optional('link', t('copyLink'), Link2, actions.onCopyLink),
     ...optional('forward', t('forward'), Forward, actions.onForward),
-    ...optional('sticker', t('tgStickers.makeSticker'), Sticker, actions.onMakeSticker),
     ...optional('select', t('select'), CheckCheck, actions.onSelect),
     ...(!mine ? optional('report', t('report'), Flag, actions.onReport, true) : []),
     ...(canDelete ? optional('delete', t('delete'), Trash2, actions.onDelete, true) : []),
   ]
 
+  // Действия как в Telegram: значок 20 px в цвет текста, строки со скруглённой подсветкой
+  // внутри карточки, без линии перед опасными — «Удалить» выделен только красным и стоит
+  // последним (порядок задаёт `items`).
   const actionsList = (variant: 'menu' | 'card'): React.ReactNode => {
     const rowClass = (danger?: boolean): string =>
       cn(
-        'flex w-full cursor-pointer items-center text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted active:bg-muted',
-        variant === 'card' ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
+        'flex w-full cursor-pointer items-center gap-3 rounded-lg text-left font-medium outline-none transition-colors hover:bg-foreground/[0.07] focus-visible:bg-foreground/[0.07] active:bg-foreground/[0.1]',
+        variant === 'card' ? 'px-3 py-2.5 text-[15px]' : 'px-3 py-1.5 text-sm',
         danger ? 'text-destructive' : 'text-foreground',
       )
-    const iconClass = cn('shrink-0 opacity-80', variant === 'card' ? 'size-5' : 'size-4')
+    const iconClass = 'size-5 shrink-0'
     const row = (it: ActionDef): React.ReactNode => {
       const Icon = it.icon
       return (
@@ -441,10 +432,8 @@ export function MessageContextMenu({
         </button>
       )
     }
-    // Опасные пункты — всегда в конце и за линией (см. MenuSeparator).
-    const { safe, danger } = splitDanger(items)
     return (
-      <div className="py-1">
+      <div className="p-1">
         {/* «N реакций» с лицами — сводка над действиями (в Telegram — тот же пункт меню). */}
         {onShowReactors && (
           <>
@@ -472,9 +461,7 @@ export function MessageContextMenu({
             <MenuSeparator />
           </>
         )}
-        {safe.map(row)}
-        {safe.length > 0 && danger.length > 0 && <MenuSeparator />}
-        {danger.map(row)}
+        {items.map(row)}
       </div>
     )
   }
@@ -496,6 +483,16 @@ export function MessageContextMenu({
   const rowEmojis: readonly string[] = defaultReaction
     ? [defaultReaction, ...CHAT_REACTION_EMOJIS.filter((e) => e !== defaultReaction)]
     : CHAT_REACTION_EMOJIS
+  // Полный набор — та же панель, что в поле ввода: реакции чата сеткой сверху, ниже
+  // «Часто используемые» и все разделы (Telegram).
+  const fullPicker = (className: string): React.ReactNode => (
+    <EmojiPanelPopover
+      featured={rowEmojis}
+      chosen={chosen}
+      onPick={(e) => reactAndClose(e)}
+      className={cn('rounded-2xl md:bg-popover/90 md:backdrop-blur-xl', className)}
+    />
+  )
   const rowProps = {
     emojis: rowEmojis,
     chosen,
@@ -536,11 +533,11 @@ export function MessageContextMenu({
         )}
       >
         {pickerOpen ? (
-          <EmojiPicker searchPlaceholder={t('emojiSearch')} onPick={(e) => reactAndClose(e)} />
+          fullPicker('h-[24rem] w-[22rem]')
         ) : (
           <>
             <ReactionsRow {...rowProps} />
-            <div className="w-64 overflow-hidden rounded-2xl border border-border bg-popover shadow-lg">
+            <div className="w-60 overflow-hidden rounded-xl border border-border bg-popover shadow-lg md:bg-popover/85 md:backdrop-blur-xl">
               {actionsList('menu')}
             </div>
           </>
@@ -559,11 +556,7 @@ export function MessageContextMenu({
         onBackdropTap={dismiss}
         above={
           pickerOpen ? (
-            <EmojiPicker
-              className="w-full"
-              searchPlaceholder={t('emojiSearch')}
-              onPick={(e) => reactAndClose(e)}
-            />
+            fullPicker('h-[min(50dvh,24rem)] w-full max-w-full')
           ) : (
             <ReactionsRow variant="pill" {...rowProps} />
           )

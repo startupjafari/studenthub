@@ -75,25 +75,17 @@ export const ErrorCode = {
   // Запрос с тем же ключом идемпотентности ещё выполняется (POST /chats/forward с тем же
   // requestId): повторять его сейчас нечего — ответ появится, когда первый закончится.
   REQUEST_IN_PROGRESS: 'REQUEST_IN_PROGRESS',
-  // Функция выключена конфигурацией сервера (например, поиск GIF без GIPHY_API_KEY): повтор
+  // Функция выключена конфигурацией сервера (например, интеграция без ключа): повтор
   // не поможет, клиент прячет её вход. Отдельно от MAINTENANCE — платформа при этом работает.
   FEATURE_DISABLED: 'FEATURE_DISABLED',
   // Трансляция геопозиции уже закончилась (истёк срок или её остановили): точку больше не
   // двигают. Отдельно от CONFLICT: клиент гасит трансляцию у себя, а не показывает ошибку.
   LIVE_LOCATION_ENDED: 'LIVE_LOCATION_ENDED',
   // Админ группы запретил участникам этот вид отправки или действия (экран «Разрешения»:
-  // медиа, стикеры, ссылки, опросы, закрепление…). Какое право — в details[0].field.
+  // медиа, ссылки, опросы, закрепление…). Какое право — в details[0].field.
   // Отдельно от FORBIDDEN: клиент пишет «в этой группе запрещено …» и прячет пункт, а не
   // «недостаточно прав». Старые клиенты показывают message — он тоже человеческий.
   CHAT_PERMISSION_DENIED: 'CHAT_PERMISSION_DENIED',
-  // Упёрлись в лимит своих стикеров: наборов на человека, стикеров в наборе или добавленных
-  // наборов. Какой — в details[0].field (`sets` | `stickers` | `added`). Отдельно от
-  // CONFLICT: клиент объясняет, что убрать, а не «конфликт данных».
-  STICKER_LIMIT_REACHED: 'STICKER_LIMIT_REACHED',
-  // Файл не годится в стикер: не картинка/GIF/видео, «бомба» (слишком много пикселей или
-  // кадров), битый, или стикер не уложился в 512 КБ даже на минимальном качестве.
-  // Отдельно от FILE_TYPE_NOT_ALLOWED: тип может быть верным, клиент просит другой файл.
-  STICKER_SOURCE_INVALID: 'STICKER_SOURCE_INVALID',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -150,8 +142,6 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   FEATURE_DISABLED: 503,
   LIVE_LOCATION_ENDED: 409,
   CHAT_PERMISSION_DENIED: 403,
-  STICKER_LIMIT_REACHED: 409,
-  STICKER_SOURCE_INVALID: 422,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

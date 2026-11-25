@@ -8,7 +8,7 @@ import XCTest
 final class ChatTelegramFeaturesTests: XCTestCase {
     // MARK: Контракт
 
-    func testMessageWithLocationContactChecklistAndStickerDecodes() throws {
+    func testMessageWithLocationContactAndChecklistDecodes() throws {
         let json = Data(
             """
             {"id":"m-1","chatId":"c-1","seq":7,"senderId":"u-1","content":"","replyToId":null,
@@ -20,7 +20,6 @@ final class ChatTelegramFeaturesTests: XCTestCase {
                "items":[{"id":"i-1","text":"Паспорт","order":0,"done":true,"doneAt":"2026-11-12T09:00:00.000Z",
                  "doneBy":{"id":"u-2","firstName":"Ерлан","lastName":"Ахметов"}},
                  {"id":"i-2","text":"Направление","order":1,"done":false,"doneAt":null,"doneBy":null}]},
-             "sticker":{"id":"s-1","setId":"set-1","emoji":"🎓","width":512,"height":512},
              "poll":{"id":"p-1","question":"Когда?","description":"Выберите день","multiple":false,
                "anonymous":true,"allowRevote":true,"closed":false,"options":[{"id":"o-1","text":"Пн","order":0}]}}
             """.utf8
@@ -35,7 +34,6 @@ final class ChatTelegramFeaturesTests: XCTestCase {
         XCTAssertEqual(extras.checklist?.items.filter(\.done).count, 1)
         XCTAssertEqual(extras.checklist?.items.first?.doneBy?.name, "Ахметов Ерлан")
         XCTAssertEqual(extras.checklist?.othersCanMark, false)
-        XCTAssertEqual(extras.sticker?.emoji, "🎓")
         XCTAssertEqual(extras.poll?.description, "Выберите день")
     }
 
@@ -46,7 +44,14 @@ final class ChatTelegramFeaturesTests: XCTestCase {
         let extras = try JSONDecoder().decode(MessageExtras.self, from: json)
         XCTAssertNil(extras.location)
         XCTAssertNil(extras.checklist)
-        XCTAssertNil(extras.sticker)
+    }
+
+    /// Стикеры убраны, а в базе остались сообщения-стикеры прошлых версий: лишнее поле
+    /// не ломает разбор, сообщение остаётся без известного содержимого (заглушка).
+    func testStoredStickerExtrasStillDecode() throws {
+        let json = Data(#"{"reactions":[],"isForwarded":false,"sticker":{"id":"s-1","emoji":"🎓"}}"#.utf8)
+        let extras = try JSONDecoder().decode(MessageExtras.self, from: json)
+        XCTAssertFalse(extras.hasKnownContent)
     }
 
     func testForwardResultDecodesPartialFailure() throws {
@@ -61,34 +66,11 @@ final class ChatTelegramFeaturesTests: XCTestCase {
         XCTAssertEqual(result.results.last?.code, "FORBIDDEN")
     }
 
-    func testStickerSetsDecode() throws {
-        let json = Data(
-            """
-            [{"id":"set-1","title":"Студенты","slug":"students",
-              "stickers":[{"id":"s-1","emoji":"🎓","width":512,"height":512,
-                "url":"https://files.example/s-1.webp?sig=1","expiresAt":"2026-11-12T08:15:00.000Z"}]}]
-            """.utf8
-        )
-        let sets = try JSONCoding.decoder.decode([StickerSetDTO].self, from: json)
-        XCTAssertEqual(sets.first?.stickers.first?.emoji, "🎓")
-        XCTAssertNotNil(sets.first?.stickers.first?.expiresAt)
-    }
-
     func testMediaKindsMatchServerValues() {
         XCTAssertEqual(ChatMediaKind.voiceNote.rawValue, "voice_note")
         XCTAssertEqual(ChatMediaKind.music.rawValue, "music")
-        XCTAssertEqual(ChatMediaKind.gif.rawValue, "gif")
         XCTAssertEqual(ChatMediaKindTab.voice.kind, .voiceNote)
         XCTAssertNil(ChatMediaKindTab.polls.kind)
-    }
-
-    func testExternalGifPageDecodes() throws {
-        let json = Data(
-            #"{"items":[{"id":"abc123","title":"Ура","width":480,"height":270,"previewUrl":"https://media.giphy.com/media/abc123/200w.gif","previewWidth":200,"previewHeight":113}],"nextOffset":24}"#.utf8
-        )
-        let page = try JSONCoding.decoder.decode(ExternalGifPageDTO.self, from: json)
-        XCTAssertEqual(page.items.first?.id, "abc123")
-        XCTAssertEqual(page.nextOffset, 24)
     }
 
     // MARK: Пересылка

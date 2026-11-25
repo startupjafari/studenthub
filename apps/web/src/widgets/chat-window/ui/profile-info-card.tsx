@@ -266,7 +266,7 @@ function InviteLinkRow({ url }: { url: string }) {
     } catch {
       // Буфер недоступен (нет разрешения, небезопасный контекст) — ссылку видно в поле,
       // её можно выделить и скопировать руками.
-      toast.error(t('tgStickers.linkCopyFailed'))
+      toast.error(t('linkCopyFailed'))
     }
   }
 

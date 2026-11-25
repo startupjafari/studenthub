@@ -13,7 +13,6 @@ import { ArrowDown, Check, FileText, Loader2, Play, RotateCw, X } from 'lucide-r
 import {
   formatBytes,
   formatBytesProgress,
-  pickSource,
   srcSetOf,
   useByteUnitLabel,
   useFileDownload,
@@ -23,8 +22,7 @@ import { cn } from '../../../shared/lib/utils'
 import { useAttachmentLinkSource, useMediaNear } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
-import { isAnimation, isMusic, isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
-import { GifVideo } from './gif-video'
+import { isMusic, isVideoNote, isViewable, isVoice } from '../lib/attachment-kind'
 import { albumLayout } from '../lib/album-layout'
 import type { ChatMediaItem, MessageAttachment } from '../model/types'
 import type { MediaLink } from '../../../shared/api'
@@ -414,103 +412,6 @@ function bubbleSizes(att: MessageAttachment): string {
   return `(max-width: 480px) 80vw, ${width}px`
 }
 
-/** Подпись «GIF» в углу кадра — у пузыря и у ячейки альбома одна. */
-function GifBadge() {
-  const t = useTranslations('Chats')
-  return (
-    <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.6rem] font-semibold uppercase text-white">
-      {t('tgGifs.badge')}
-    </span>
-  )
-}
-
-/** Сервер перевёл GIF в MP4 — по флагу вложения или, если сообщение старше перевода, по ссылке. */
-function isAnimatedNow(att: MessageAttachment, link: MediaLink | undefined): boolean {
-  // Свой только что отправленный GIF играет из локального файла — а это сам GIF, не MP4.
-  if (att.asDocument || att.localUrl) return false
-  if (isAnimation(att)) return true
-  return !!link?.animation && (link.mime ?? '').startsWith('video/')
-}
-
-/**
- * GIF в пузыре как в Telegram: беззвучный MP4 играет сам и по кругу, без кнопки ▶, длительности
- * и панели плеера; в углу — «GIF». Нажатие открывает просмотрщик, где он тоже крутится.
- */
-function AnimationFrame({
-  att,
-  url,
-  link,
-  uploading,
-  onOpen,
-  onCancel,
-  onBroken,
-}: {
-  att: MessageAttachment
-  url: string
-  link: MediaLink | undefined
-  uploading: boolean
-  onOpen?: () => void
-  onCancel?: () => void
-  onBroken: () => void
-}) {
-  const t = useTranslations('Chats')
-  const [painted, setPainted] = useState(false)
-  const [revealed, setRevealed] = useState(false)
-  const blurred = !!att.spoiler && !revealed
-  // Размеры MP4 — из ссылки: у сообщения, разосланного до перевода, они от GIF (та же пропорция).
-  const width = link?.width ?? att.width
-  const height = link?.height ?? att.height
-  const sized = !!width && !!height
-  const frame = frameProps({ ...att, width, height })
-  const poster = pickSource(link?.poster, 640)?.url
-  return (
-    <div
-      data-media-origin={att.id}
-      className={cn(
-        'relative block w-fit max-w-full overflow-hidden rounded-lg',
-        sized ? frame.className : cn(MEDIA_BOX, MEDIA_TINT),
-      )}
-      style={sized ? frame.style : undefined}
-    >
-      <GifVideo
-        src={url}
-        poster={poster}
-        paused={blurred || uploading}
-        onReady={() => setPainted(true)}
-        onError={onBroken}
-        className={cn(
-          'block transition-opacity duration-200',
-          sized ? 'size-full object-cover' : 'max-h-64 max-w-full',
-          !painted && 'opacity-0',
-          blurred && 'scale-105 blur-xl',
-        )}
-      />
-      {!painted && <Lqip src={att.placeholder ?? link?.placeholder} />}
-      {uploading ? (
-        <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />
-      ) : blurred ? (
-        <button
-          type="button"
-          onClick={() => setRevealed(true)}
-          className="absolute inset-0 flex cursor-pointer items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
-        >
-          {t('spoiler')}
-        </button>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={onOpen}
-            aria-label={t('tgGifs.open')}
-            className="absolute inset-0 cursor-pointer"
-          />
-          <GifBadge />
-        </>
-      )}
-    </div>
-  )
-}
-
 function Single({
   att,
   mine,
@@ -763,20 +664,6 @@ function Single({
   // Сюда доходят только кадры, а их ссылка проверена выше.
   if (!url) return null
 
-  if (isAnimatedNow(att, link)) {
-    return (
-      <AnimationFrame
-        att={att}
-        url={url}
-        link={link}
-        uploading={uploading}
-        onOpen={onOpen}
-        onCancel={onCancel}
-        onBroken={() => setBroken(true)}
-      />
-    )
-  }
-
   if (isViewable(att) && att.mime.startsWith('image/')) {
     // GIF (image/gif) автопроигрывается нативно как <img>; для остальных — lazy-загрузка (§30).
     const isGif = att.mime === 'image/gif'
@@ -834,12 +721,10 @@ function Single({
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            {t('spoiler')}
-          </button>
+            aria-label={t('spoiler')}
+            className="media-spoiler cursor-pointer rounded-lg"
+          />
         )}
-        {isGif && painted && !uploading && !blurred && <GifBadge />}
         {painted && !uploading && !blurred && !isGif && <ImagePrewarm url={url} link={link} />}
         {uploading && <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />}
       </span>
@@ -929,10 +814,9 @@ function Single({
           <button
             type="button"
             onClick={() => setRevealed(true)}
-            className="absolute inset-0 flex cursor-pointer items-center justify-center text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            {t('spoiler')}
-          </button>
+            aria-label={t('spoiler')}
+            className="media-spoiler cursor-pointer"
+          />
         ) : (
           <button
             type="button"
@@ -982,9 +866,7 @@ function GridTile({
   const { url, link, isLoading, isError, refetch } = useAttachmentUrl(att)
   // См. пояснение в Single: упавшая отправка не «грузится».
   const uploading = !!att.uploading && !sendFailed
-  // Тип — по ссылке, если она его знает: GIF переводится в MP4 уже после отправки.
-  const gif = isAnimatedNow(att, link)
-  const isVid = gif || att.mime.startsWith('video/')
+  const isVid = att.mime.startsWith('video/')
   const [painted, setPainted] = useState(false)
   const [broken, setBroken] = useState(false)
   const [duration, setDuration] = useState<number | null>(null)
@@ -1057,12 +939,10 @@ function GridTile({
               )}
             />
           )}
-          {/* GIF в альбоме — постер с подписью, без ▶ и длительности: играет в просмотрщике. */}
-          {!uploading && !blurred && gif && <GifBadge />}
-          {!uploading && !blurred && !gif && (
+          {!uploading && !blurred && (
             <DurationBadge seconds={att.durationMs ? att.durationMs / 1000 : duration} />
           )}
-          {!uploading && !blurred && !gif && (
+          {!uploading && !blurred && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/15">
               <span className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white">
                 <Play className="size-5 translate-x-0.5" aria-hidden />
@@ -1098,11 +978,7 @@ function GridTile({
           />
         </>
       )}
-      {blurred && painted && (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.65rem] font-semibold uppercase tracking-wide text-white">
-          {t('spoiler')}
-        </span>
-      )}
+      {blurred && painted && <span aria-hidden className="media-spoiler pointer-events-none" />}
       {/* Битую ячейку клик перезагружает: открывать просмотрщик с той же ссылкой бессмысленно.
           Ячейка под спойлером первым кликом открывается, и только вторым — просмотрщик. */}
       {!uploading && (
@@ -1118,7 +994,6 @@ function GridTile({
         !uploading &&
         !blurred &&
         !failed &&
-        !gif &&
         (isVid ? (
           <MediaDownloadPill
             att={att}

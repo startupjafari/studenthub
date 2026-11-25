@@ -147,13 +147,7 @@ struct MessageBubbleView: View {
                 .frame(width: min(avatarSize, 44), height: min(avatarSize, 44))
                 .accessibilityHidden(true)
             }
-            Group {
-                if let sticker = extras.sticker, !isDeleted {
-                    stickerBubble(sticker)
-                } else {
-                    bubble
-                }
-            }
+            bubble
                 .bubbleAnchor(message.id, part: .bubble, enabled: !isMenuPreview)
                 // Долгое нажатие и двойной тап-реакцию ловит лента (UIKit), а не пузырь:
                 // то же касание ведёт открывшееся меню к пункту, не отрывая пальца
@@ -389,42 +383,6 @@ struct MessageBubbleView: View {
         return extras.reactions.map { "\($0.emoji) \($0.userIds.count.formatted())" }.joined(separator: ", ")
     }
 
-    /// Стикер — без пузыря: над ним ответ, под ним реакции, время — в капсуле на углу.
-    private func stickerBubble(_ sticker: MessageExtras.Sticker) -> some View {
-        VStack(alignment: item.isOwn ? .trailing : .leading, spacing: Spacing.xs) {
-            if let replyID = message.replyToId {
-                Button {
-                    onAction(.jump(replyID))
-                } label: {
-                    ReplyQuoteView(
-                        author: extras.replySenderName,
-                        text: message.replyQuote ?? extras.replyContent,
-                        isOwn: false
-                    )
-                    .padding(.horizontal, Spacing.md)
-                    .padding(.vertical, Spacing.xs)
-                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .bubbleControl(enabled: !isMenuPreview)
-            }
-            StickerMessageView(sticker: sticker)
-                .overlay(alignment: .bottomTrailing) {
-                    meta(Palette.primaryForeground)
-                        .padding(.horizontal, Spacing.sm)
-                        .padding(.vertical, 2)
-                        .background(Palette.overlay.opacity(0.45), in: Capsule())
-                }
-            if showsReactions {
-                reactions
-                    .padding(Spacing.xs)
-                    .background(item.isOwn ? Palette.primary : Palette.card, in: Capsule())
-                    .bubbleControl(enabled: !isMenuPreview)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-
     /// Своё сообщение с файлами в пути: доля отправленного — из общего реестра загрузок.
     private var upload: AttachmentUploadState? {
         guard item.isOwn, message.remoteId == nil, message.sendState == .pending, !item.attachments.isEmpty else {
@@ -544,9 +502,9 @@ struct MessageBubbleView: View {
         !isDeleted && message.content.isEmpty && item.attachments.isEmpty && !extras.hasKnownContent
     }
 
-    /// Геопозиция, контакт, список или стикер — сообщение без текста, но не пустое.
+    /// Геопозиция, контакт или список — сообщение без текста, но не пустое.
     private var hasSpecialContent: Bool {
-        extras.location != nil || extras.contact != nil || extras.checklist != nil || extras.sticker != nil
+        extras.location != nil || extras.contact != nil || extras.checklist != nil
     }
 
     /// Время встаёт в последнюю строку текста, если текст — последний в пузыре. Текст,

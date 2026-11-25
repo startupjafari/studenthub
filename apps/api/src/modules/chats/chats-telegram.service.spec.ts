@@ -2,14 +2,13 @@ import { Role } from '@studenthub/shared-types'
 import { MessageReactionSchema, isSingleEmoji } from '@studenthub/shared-schemas'
 import { ChatsService } from './chats.service'
 import { ChatChecklistsService } from './chat-checklists.service'
-import { ChatStickersService, USABLE_STICKER_WHERE } from './chat-stickers.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 // Функции Telegram-уровня (эпик iOS-чатов): реакции любым эмодзи, пересылка пачкой с
 // идемпотентностью, повтор отправки по nonce, «удалить у себя» и пачкой у всех, закрытие
-// опроса, чек-листы, стикеры, вкладки общих материалов.
+// опроса, чек-листы, вкладки общих материалов.
 
 function setup() {
   const prisma = {
@@ -217,7 +216,6 @@ describe('Пересылка пачкой', () => {
         content: 'второе',
         linkPreview: null,
         sharedPostId: null,
-        stickerId: null,
         poll: null,
         location: null,
         contact: null,
@@ -232,7 +230,6 @@ describe('Пересылка пачкой', () => {
         content: 'первое',
         linkPreview: null,
         sharedPostId: null,
-        stickerId: null,
         poll: null,
         location: { lat: 43.2, lng: 76.9, title: 'КазНУ', address: null },
         contact: null,
@@ -496,7 +493,7 @@ describe('Закрытие опроса', () => {
 })
 
 describe('Вкладки общих материалов', () => {
-  async function whereFor(type: 'music' | 'voice_note' | 'gif' | 'voice') {
+  async function whereFor(type: 'music' | 'voice_note' | 'voice') {
     const { service, prisma } = setup()
     await service.listChatMedia(viewer('u1'), 'c1', { type, limit: 20 })
     return prisma.file.findMany.mock.calls[0][0].where
@@ -517,136 +514,10 @@ describe('Вкладки общих материалов', () => {
     )
   })
 
-  it('gif — image/gif и анимации (GIF, переведённые в MP4)', async () => {
-    expect(await whereFor('gif')).toEqual(
-      expect.objectContaining({ OR: [{ mime: 'image/gif' }, { animation: true }] }),
-    )
-  })
-
   it('voice — по-прежнему всё аудио (веб)', async () => {
     const where = await whereFor('voice')
     expect(where).toEqual(expect.objectContaining({ mime: { startsWith: 'audio/' } }))
     expect(where.name).toBeUndefined()
-  })
-})
-
-describe('GIF: повторная отправка', () => {
-  it('файл не GIF — NOT_FOUND', async () => {
-    const { service, prisma } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      id: 'f1',
-      mime: 'image/png',
-      message: { chatId: 'c0', deletedAt: null },
-    })
-    await expect(service.sendGif('u1', 'c1', { fileId: 'f1' })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    })
-  })
-
-  it('GIF из чата, где я не участник, — WRONG_SCOPE, копия не делается', async () => {
-    const { service, prisma, files } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      id: 'f1',
-      mime: 'image/gif',
-      message: { chatId: 'c0', deletedAt: null },
-    })
-    prisma.chatMember.findUnique.mockResolvedValueOnce(null)
-    await expect(service.sendGif('u1', 'c1', { fileId: 'f1' })).rejects.toMatchObject({
-      code: 'WRONG_SCOPE',
-    })
-    expect(files.copyToMessage).not.toHaveBeenCalled()
-  })
-
-  it('копия GIF привязывается к новому сообщению с пустым текстом', async () => {
-    const { service, prisma, files } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      id: 'f1',
-      bucket: 'chat-media',
-      key: 'k.gif',
-      mime: 'image/gif',
-      size: 10,
-      name: null,
-      width: 1,
-      height: 1,
-      message: { chatId: 'c0', deletedAt: null },
-    })
-    prisma.message.create.mockResolvedValue({ id: 'm1' })
-    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
-    await service.sendGif('u1', 'c1', { fileId: 'f1' })
-    expect(files.copyToMessage).toHaveBeenCalledWith(expect.objectContaining({ id: 'f1' }), 'u1')
-    expect(prisma.message.create.mock.calls[0][0].data).toEqual(
-      expect.objectContaining({ chatId: 'c1', content: '' }),
-    )
-    expect(prisma.file.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['copy-1'] }, messageId: null },
-      data: { messageId: 'm1' },
-    })
-  })
-
-  const mp4Gif = {
-    id: 'f2',
-    bucket: 'chat-media',
-    key: 'k.mp4',
-    mime: 'video/mp4',
-    size: 10,
-    name: null,
-    width: 1,
-    height: 1,
-    animation: true,
-  }
-
-  it('GIF, переведённый в MP4 (анимация), тоже повторяется — копия наследует флаг', async () => {
-    const { service, prisma, files } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      ...mp4Gif,
-      message: { chatId: 'c0', deletedAt: null },
-      savedGif: null,
-    })
-    prisma.message.create.mockResolvedValue({ id: 'm1' })
-    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
-    await service.sendGif('u1', 'c1', { fileId: 'f2' })
-    expect(files.copyToMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'f2', animation: true }),
-      'u1',
-    )
-  })
-
-  it('обычное видео (без флага анимации) — не GIF, NOT_FOUND', async () => {
-    const { service, prisma } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      ...mp4Gif,
-      animation: false,
-      message: { chatId: 'c0', deletedAt: null },
-    })
-    await expect(service.sendGif('u1', 'c1', { fileId: 'f2' })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    })
-  })
-
-  it('свой GIF из «Моих GIF» — без сообщения-источника и без членства в его чате', async () => {
-    const { service, prisma, files } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      ...mp4Gif,
-      message: null,
-      savedGif: { userId: 'u1' },
-    })
-    prisma.message.create.mockResolvedValue({ id: 'm1' })
-    prisma.message.findUniqueOrThrow.mockResolvedValue(row('m1'))
-    await service.sendGif('u1', 'c1', { fileId: 'f2' })
-    expect(files.copyToMessage).toHaveBeenCalled()
-  })
-
-  it('чужой сохранённый GIF — NOT_FOUND', async () => {
-    const { service, prisma, files } = setup()
-    prisma.file.findUnique.mockResolvedValue({
-      ...mp4Gif,
-      message: null,
-      savedGif: { userId: 'someone-else' },
-    })
-    await expect(service.sendGif('u1', 'c1', { fileId: 'f2' })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    })
-    expect(files.copyToMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -765,47 +636,6 @@ describe('Чек-листы', () => {
       message: { chatId: 'c1', senderId: 'author', deletedAt: new Date() },
     })
     await expect(service.get('member', 'cl1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
-  })
-})
-
-describe('Стикеры', () => {
-  function stickerSetup() {
-    const prisma = { sticker: { findFirst: jest.fn() } }
-    const chats = { sendRichMessage: jest.fn().mockResolvedValue({ id: 'm1' }) }
-    const service = new ChatStickersService(
-      prisma as unknown as PrismaService,
-      {} as never,
-      chats as unknown as ChatsService,
-      {} as never,
-      {} as never,
-      {} as never,
-    )
-    return { service, prisma, chats }
-  }
-
-  it('стикер опубликованного набора уходит особым сообщением со stickerId', async () => {
-    const { service, prisma, chats } = stickerSetup()
-    prisma.sticker.findFirst.mockResolvedValue({ id: 'st1' })
-    await service.send('u1', 'c1', { stickerId: 'st1', nonce: 'n1' })
-    expect(prisma.sticker.findFirst).toHaveBeenCalledWith({
-      // Опубликованный каталог или живой личный набор (свои стикеры), готовый стикер.
-      where: { id: 'st1', ...USABLE_STICKER_WHERE },
-      select: { id: true },
-    })
-    expect(chats.sendRichMessage).toHaveBeenCalledWith('u1', 'c1', {
-      replyToId: undefined,
-      nonce: 'n1',
-      data: { stickerId: 'st1' },
-    })
-  })
-
-  it('неопубликованный или чужой стикер — NOT_FOUND', async () => {
-    const { service, prisma, chats } = stickerSetup()
-    prisma.sticker.findFirst.mockResolvedValue(null)
-    await expect(service.send('u1', 'c1', { stickerId: 'st1' })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    })
-    expect(chats.sendRichMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -955,7 +785,6 @@ describe('Трансляция геопозиции', () => {
         content: '',
         linkPreview: null,
         sharedPostId: null,
-        stickerId: null,
         poll: null,
         location: { lat: 43.2, lng: 76.9, title: null, address: null },
         contact: null,

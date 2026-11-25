@@ -67,7 +67,6 @@ export {
   removeChecklistItemRequest,
   stopLiveLocationRequest,
   fetchChatPolls,
-  fetchStickerUrl,
   fetchChatUpdates,
   fetchChatFolders,
   createChatFolderRequest,
@@ -126,7 +125,6 @@ export {
   type MessageContact,
   type MessageChecklist,
   type MessageChecklistItem,
-  type MessageSticker,
   type BlockedUser,
   type ChatFolder,
 } from './model/types'
@@ -134,7 +132,6 @@ export { MessageContent } from './ui/message-content'
 export { ChatPollView } from './ui/chat-poll'
 export { MessageLocationCard, MessageContactCard } from './ui/message-place-cards'
 export { MessageChecklistView } from './ui/message-checklist'
-export { MessageStickerView } from './ui/message-sticker'
 export { MessageAttachments } from './ui/message-attachments'
 export {
   AttachmentLinkProvider,
@@ -153,6 +150,8 @@ export {
 } from './ui/chat-media-rail-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
 export { ReactionBar } from './ui/reaction-bar'
+export { EmojiPanel } from './ui/emoji-panel'
+export { EmojiPanelPopover } from './ui/emoji-panel-popover'
 export { ForwardDialog, type ForwardTab } from './ui/forward-dialog'
 export {
   AttachmentDialog,
@@ -176,8 +175,6 @@ export { useMessageViews, formatViews } from './lib/use-message-views'
 export { fileKind, type FileKind } from './lib/file-kind'
 export {
   attachmentKind,
-  isAnimation,
-  isGif,
   isViewable,
   isVideoNote,
   isMusic,
@@ -223,45 +220,12 @@ export {
   type AudioSettings,
 } from './lib/audio-settings'
 export {
-  gifKeys,
-  fetchSavedGifs,
-  saveGifRequest,
-  removeSavedGifRequest,
-  type SavedGif,
-} from './api/gifs-api'
-export {
-  useSavedGifs,
-  useSavedGifActions,
-  useSavedGifMenu,
-  findSavedGif,
-  type SavedGifMenuItem,
-} from './lib/use-saved-gifs'
-export { GifVideo } from './ui/gif-video'
-export {
   composerKeys,
-  fetchStickerSetsSummary,
-  fetchCatalogStickerSet,
-  fetchFavoriteStickers,
-  addFavoriteStickerRequest,
-  removeFavoriteStickerRequest,
-  sendStickerRequest,
-  fetchTrendingGifs,
-  searchGifs,
-  fetchRecentGifs,
-  sendCatalogGifRequest,
-  sendRecentGifRequest,
   sendChecklistRequest,
   fetchScheduledMessages,
   scheduleMessageRequest,
   cancelScheduledRequest,
   sendScheduledNowRequest,
-  type CatalogSticker,
-  type StickerSet,
-  type StickerSetSummary,
-  type CatalogGif,
-  type CatalogGifPage,
-  type RecentGif,
-  type RichSendFields,
   type ScheduledMessage,
 } from './api/composer-api'
 export {

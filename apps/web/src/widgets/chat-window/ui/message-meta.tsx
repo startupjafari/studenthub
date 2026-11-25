@@ -14,7 +14,7 @@ import type { MessageReadState } from './message-item'
  *   в последней строке (см. `metaSpacerStyle`);
  * - `flow`  — обычным элементом строки (рядом с реакциями, под карточкой);
  * - `media` — тёмной плашкой поверх снимка без подписи;
- * - `float` — капсулой под стикером или крупными эмодзи, у которых нет пузыря.
+ * - `float` — капсулой под крупными эмодзи, у которых нет пузыря.
  */
 export type MessageMetaVariant = 'text' | 'flow' | 'media' | 'float'
 

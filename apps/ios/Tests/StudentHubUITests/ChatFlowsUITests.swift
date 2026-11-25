@@ -84,12 +84,9 @@ final class ChatFlowsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Выбрать в «Файлах»"].waitForExistence(timeout: 3))
     }
 
-    func testExpressionPanelTabs() throws {
+    func testExpressionPanelOpensAndReturnsKeyboard() throws {
         app.buttons["chat.expressions"].tap()
-        for title in ["Эмодзи", "Стикеры", "GIF"] {
-            XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 3), "нет вкладки «\(title)»")
-        }
-        app.buttons["Стикеры"].tap()
+        XCTAssertTrue(app.buttons["Стереть"].waitForExistence(timeout: 3), "панель emoji не открылась")
         app.buttons["chat.expressions"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3), "клавиатура не вернулась")
     }

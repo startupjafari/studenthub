@@ -72,7 +72,6 @@ object ValidationMessages {
         "validation.chats.scheduleTooFar" to R.string.validation_chats_scheduleTooFar,
         "validation.chats.reactionEmoji" to R.string.validation_chats_reactionEmoji,
         "validation.chats.contactEmpty" to R.string.validation_chats_contactEmpty,
-        "validation.chats.stickerSlug" to R.string.validation_chats_stickerSlug,
         "validation.chats.livePeriod" to R.string.validation_chats_livePeriod,
         "validation.chats.folderEmoji" to R.string.validation_chats_folderEmoji,
         "validation.chats.folderChatExcluded" to R.string.validation_chats_folderChatExcluded,

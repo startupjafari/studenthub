@@ -13,17 +13,11 @@ import {
   Smile,
   X,
 } from 'lucide-react'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  EmojiPicker,
-  EmptyState,
-  Modal,
-} from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, EmptyState, Modal } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { identityColor, identityInitials } from '../../../shared/lib'
 import type { ChatListItem } from '../model/types'
+import { EmojiPanelPopover } from './emoji-panel-popover'
 
 // ── Визуал строки (Telegram-стиль) ───────────────────────────────────────────
 // Аватар — цветной кружок с инициалами (картинок у чатов нет; как в сайдбаре).
@@ -367,10 +361,7 @@ export function ForwardDialog({
                     collisionPadding={8}
                     className="z-[110] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
                   >
-                    <EmojiPicker
-                      searchPlaceholder={t('search')}
-                      onPick={(emoji) => setCaption((prev) => prev + emoji)}
-                    />
+                    <EmojiPanelPopover onPick={(emoji) => setCaption((prev) => prev + emoji)} />
                   </PopoverPrimitive.Content>
                 </PopoverPrimitive.Portal>
               </PopoverPrimitive.Root>

@@ -152,8 +152,7 @@ struct ChatPinnedListView: View {
                     placeholder: media.placeholder,
                     durationMs: media.durationMs,
                     spoiler: media.spoiler ?? false,
-                    asDocument: media.asDocument ?? false,
-                    animation: media.animation ?? false
+                    asDocument: media.asDocument ?? false
                 )
             }
         }

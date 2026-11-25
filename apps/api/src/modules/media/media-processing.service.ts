@@ -3,29 +3,17 @@ import { ConfigService } from '@nestjs/config'
 import { MediaStatus, MediaVariantKind, Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import type { EnvVars } from '../../config/env.schema'
-import {
-  cutSegment,
-  extractFrame,
-  isAvailable,
-  probe,
-  transcodeAnimation,
-  transcodeHls,
-} from './ffmpeg'
-import {
-  animationFrames,
-  buildImageVariants,
-  buildPosterVariants,
-  type EncodedVariant,
-} from './image-pipeline'
-import { ANIMATION_CRF, ANIMATION_MAX_SECONDS, VARIANT_CACHE_CONTROL } from './media.constants'
+import { cutSegment, extractFrame, isAvailable, probe, transcodeHls } from './ffmpeg'
+import { buildImageVariants, buildPosterVariants, type EncodedVariant } from './image-pipeline'
+import { VARIANT_CACHE_CONTROL } from './media.constants'
 import { hlsRenditionDir, imageVariantKey, posterVariantKey, variantPrefix } from './media-keys'
-import { planAnimation, planHlsLadder, posterTimestamp } from './media-plan'
+import { planHlsLadder, posterTimestamp } from './media-plan'
 import type { VariantRow, VideoTrim } from './media.types'
 
 // Потолок чтения изображения в память. Лимит категории IMAGE — 10 МБ; запас на случай,
@@ -40,10 +28,6 @@ const TRANSCODE_SPEED_FACTOR = 4
 // Ссылка, по которой ffmpeg читает исходник из внутреннего MinIO. Срок — с запасом на самое
 // долгое перекодирование: ссылка никуда не уходит из воркера.
 const SOURCE_URL_TTL_SECONDS = 6 * 60 * 60
-
-// Перевод GIF в MP4: потолок 10 МБ на входе и минута на выходе — это секунды работы, а
-// десять минут отсекают только зависший процесс.
-const ANIMATION_TRANSCODE_MS = 10 * 60 * 1000
 
 // Через сколько перепроверять отсутствующий ffmpeg (см. hasFfmpeg).
 const FFMPEG_RECHECK_MS = 60 * 1000
@@ -63,7 +47,6 @@ interface SourceFile {
   key: string
   mime: string
   asDocument: boolean
-  animation: boolean
   mediaStatus: MediaStatus
 }
 
@@ -73,7 +56,6 @@ const SOURCE_SELECT = {
   key: true,
   mime: true,
   asDocument: true,
-  animation: true,
   mediaStatus: true,
 } as const
 
@@ -91,7 +73,6 @@ export class MediaProcessingService implements OnModuleInit {
   private readonly ffmpeg: string
   private readonly ffprobe: string
   private readonly tmpRoot: string
-  private readonly chatBucket: string
   private ffmpegReady: Promise<boolean> | null = null
   private ffmpegKnown = false
   private ffmpegRecheckAt = 0
@@ -104,12 +85,6 @@ export class MediaProcessingService implements OnModuleInit {
     this.ffmpeg = this.config.get('FFMPEG_PATH', { infer: true })
     this.ffprobe = this.config.get('FFPROBE_PATH', { infer: true })
     this.tmpRoot = join(this.config.get('MEDIA_TMP_DIR', { infer: true }) ?? tmpdir(), TMP_DIR_NAME)
-    this.chatBucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
-  }
-
-  /** GIF вложения чата — переводится в MP4 (см. MediaService.isAnimationSource). */
-  private isAnimationSource(file: { bucket: string; mime: string }): boolean {
-    return file.bucket === this.chatBucket && file.mime === 'image/gif'
   }
 
   async onModuleInit(): Promise<void> {
@@ -177,20 +152,16 @@ export class MediaProcessingService implements OnModuleInit {
       await this.setStatus(file.id, MediaStatus.NONE)
       return
     }
-    // Тот же объект уже обработан под другой записью (общий пул медиа сида, «Мои GIF») —
-    // копируем. Кроме GIF чата: готовый сосед мог остаться картинкой (обработан до перевода
-    // GIF в MP4), а этой записи положен MP4 — копия вернула бы её сюда же, и круг замкнулся бы.
-    const sibling = this.isAnimationSource(file)
-      ? null
-      : await this.prisma.file.findFirst({
-          where: {
-            bucket: file.bucket,
-            key: file.key,
-            mediaStatus: MediaStatus.READY,
-            id: { not: file.id },
-          },
-          select: { id: true },
-        })
+    // Тот же объект уже обработан под другой записью (общий пул медиа сида) — копируем.
+    const sibling = await this.prisma.file.findFirst({
+      where: {
+        bucket: file.bucket,
+        key: file.key,
+        mediaStatus: MediaStatus.READY,
+        id: { not: file.id },
+      },
+      select: { id: true },
+    })
     if (sibling) {
       await this.copy(sibling.id, file.id)
       return
@@ -200,9 +171,7 @@ export class MediaProcessingService implements OnModuleInit {
 
   private async processSource(file: SourceFile, trim?: VideoTrim): Promise<void> {
     const isVideo = file.mime.startsWith('video/')
-    const isGif = this.isAnimationSource(file)
-    const ffmpeg = isVideo || isGif ? await this.hasFfmpeg() : false
-    if (isVideo && !ffmpeg) {
+    if (isVideo && !(await this.hasFfmpeg())) {
       // Не FAILED: это не беда файла, а неготовность окружения. Видео ждёт в PENDING (пока
       // играет оригинал), и cron resumeMediaProcessing вернёт его в очередь, когда ffmpeg
       // появится. FAILED cron не повторяет — такие видео остались бы без HLS навсегда.
@@ -210,10 +179,7 @@ export class MediaProcessingService implements OnModuleInit {
       return
     }
     await this.setStatus(file.id, MediaStatus.PROCESSING)
-    if (isVideo && file.animation) await this.processAnimationVideo(file)
-    else if (isVideo) await this.processVideo(file, trim)
-    // GIF без ffmpeg — картинкой, как до перевода в MP4: показывается, только тяжелее.
-    else if (isGif && ffmpeg) await this.processGif(file)
+    if (isVideo) await this.processVideo(file, trim)
     else await this.processImage(file)
   }
 
@@ -237,13 +203,6 @@ export class MediaProcessingService implements OnModuleInit {
     if (!target) return
     if (!source || source.mediaStatus !== MediaStatus.READY) {
       await this.process(fileId)
-      return
-    }
-    // Копия GIF чата (пересылка старого GIF, «Мои GIF» из него) переводится в MP4 сама: у
-    // источника, обработанного картинкой, копировать нечего. Копия уже переведённого — MP4 и
-    // сюда не попадает.
-    if (this.isAnimationSource(target)) {
-      if (target.mediaStatus !== MediaStatus.READY) await this.processSource(target)
       return
     }
     const from = variantPrefix(sourceId)
@@ -301,8 +260,8 @@ export class MediaProcessingService implements OnModuleInit {
 
   // ── Изображения ──
 
-  private async processImage(file: SourceFile, bytes?: Buffer): Promise<void> {
-    const input = bytes ?? (await this.readObject(file.bucket, file.key, MAX_IMAGE_BYTES))
+  private async processImage(file: SourceFile): Promise<void> {
+    const input = await this.readObject(file.bucket, file.key, MAX_IMAGE_BYTES)
     const result = await buildImageVariants(input, file.mime)
     const rows = await this.uploadImages(file, result.variants, MediaVariantKind.IMAGE)
     await this.persist(
@@ -339,118 +298,6 @@ export class MediaProcessingService implements OnModuleInit {
       })
     }
     return rows
-  }
-
-  // ── Анимации (GIF как в Telegram) ──
-
-  /**
-   * GIF вложения чата → беззвучный MP4 + постер и LQIP. Запись File переключается на MP4
-   * (ключ, mime, размер, `animation`) условно, по старому ключу: файл удалили или уже
-   * переключили — новый объект убирается.
-   *
-   * Оригинал GIF не храним: MP4 легче в разы и показывает то же самое, а держать оба —
-   * платить за GIF ради копии, которую никто не откроет. Объект GIF здесь не удаляется:
-   * ссылки на него уже разосланы (сообщение ушло до перевода, подпись живёт до 15 минут), и
-   * клиент, открывший чат минутой позже, ещё увидит GIF. Ничей объект снимет ночная
-   * cleanOrphanFiles; если на него ссылается другая запись (сохранённый GIF, сид) — останется.
-   *
-   * GIF из одного кадра — картинка, а не анимация: обрабатывается как снимок.
-   */
-  private async processGif(file: SourceFile): Promise<void> {
-    const input = await this.readObject(file.bucket, file.key, MAX_IMAGE_BYTES)
-    const frames = await animationFrames(input)
-    const plan = planAnimation(frames.width, frames.height, frames.frames, frames.delaysMs)
-    if (!plan) {
-      await this.processImage(file, input)
-      return
-    }
-    await this.sweepStaleTmp(file.id)
-    const dir = await mkdtemp(join(this.tmpRoot, `${file.id}-`))
-    try {
-      const gifPath = join(dir, 'source.gif')
-      const outPath = join(dir, 'animation.mp4')
-      await writeFile(gifPath, input)
-      await transcodeAnimation({
-        ffmpeg: this.ffmpeg,
-        inputPath: gifPath,
-        outPath,
-        width: plan.width,
-        height: plan.height,
-        fps: plan.fps,
-        maxSeconds: ANIMATION_MAX_SECONDS,
-        crf: ANIMATION_CRF,
-        timeoutMs: ANIMATION_TRANSCODE_MS,
-      })
-      const meta = await probe(this.ffprobe, outPath)
-      const framePath = join(dir, 'poster.jpg')
-      await extractFrame(this.ffmpeg, outPath, 0, framePath)
-      const poster = await buildPosterVariants(await readFile(framePath))
-
-      const key = `${randomUUID()}.mp4`
-      const size = (await stat(outPath)).size
-      await this.minio.fPutObject(file.bucket, key, outPath, { 'Content-Type': 'video/mp4' })
-      const switched = await this.prisma.file.updateMany({
-        where: { id: file.id, key: file.key },
-        data: { key, mime: 'video/mp4', size, animation: true },
-      })
-      if (switched.count === 0) {
-        await this.minio.removeObject(file.bucket, key).catch(() => undefined)
-        return
-      }
-      const rows = await this.uploadImages(file, poster.variants, MediaVariantKind.POSTER)
-      await this.persist(
-        file.id,
-        file.bucket,
-        {
-          width: meta.width || plan.width,
-          height: meta.height || plan.height,
-          durationMs: meta.durationMs,
-          placeholder: poster.placeholder,
-        },
-        rows,
-      )
-      this.logger.log(
-        `GIF ${file.id} переведён в MP4: ${input.byteLength} → ${size} байт, ${plan.width}×${plan.height}`,
-      )
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  }
-
-  /**
-   * Готовая MP4-анимация (GIPHY отдаёт её сам, или GIF уже переведён прошлой попыткой job'а):
-   * только постер, LQIP и размеры. HLS анимации не нужен — ролик короткий, играет целиком по
-   * кругу, а сегменты лишь добавили бы запросов.
-   */
-  private async processAnimationVideo(file: SourceFile): Promise<void> {
-    const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
-    const meta = await probe(this.ffprobe, input)
-    if (meta.width === 0) {
-      this.logger.warn(`Анимация ${file.id}: нет видеодорожки`)
-      await this.setStatus(file.id, MediaStatus.FAILED)
-      return
-    }
-    await this.sweepStaleTmp(file.id)
-    const dir = await mkdtemp(join(this.tmpRoot, `${file.id}-`))
-    try {
-      const framePath = join(dir, 'poster.jpg')
-      await extractFrame(this.ffmpeg, input, 0, framePath)
-      const poster = await buildPosterVariants(await readFile(framePath))
-      const rows = await this.uploadImages(file, poster.variants, MediaVariantKind.POSTER)
-      await this.persist(
-        file.id,
-        file.bucket,
-        {
-          width: meta.width,
-          height: meta.height,
-          durationMs: meta.durationMs,
-          placeholder: poster.placeholder,
-        },
-        rows,
-      )
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
   }
 
   // ── Видео ──

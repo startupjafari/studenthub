@@ -91,14 +91,11 @@ final class MessageMenuTests: XCTestCase {
         XCTAssertTrue(EmojiKeywords.search("   ").isEmpty)
     }
 
-    /// Опрос, чек-лист, стикер, геопозицию и контакт правка испортила бы — «Редактировать»
+    /// Опрос, чек-лист, геопозицию и контакт правка испортила бы — «Редактировать»
     /// для них нет; обычный текст и пересланный пост — правятся (IOS_RULES 7.7.13).
     func testSpecialKindsAreNotEditable() {
         XCTAssertTrue(ChatThreadModel.isEditableKind(nil))
         XCTAssertTrue(ChatThreadModel.isEditableKind(MessageExtras()))
-        var sticker = MessageExtras()
-        sticker.sticker = .init(id: "s-1")
-        XCTAssertFalse(ChatThreadModel.isEditableKind(sticker))
         var location = MessageExtras()
         location.location = .init(lat: 43.2, lng: 76.9)
         XCTAssertFalse(ChatThreadModel.isEditableKind(location))

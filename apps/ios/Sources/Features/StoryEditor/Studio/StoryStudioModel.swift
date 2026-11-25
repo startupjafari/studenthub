@@ -619,11 +619,6 @@ final class StoryStudioModel {
         }
     }
 
-    func openStickers() {
-        Haptics.tap()
-        withAnimation(Motion.snappy) { _ = session.openStickers() }
-    }
-
     func openDrawing() {
         Haptics.tap()
         withAnimation(Motion.snappy) { _ = session.openDrawing() }
@@ -643,7 +638,6 @@ final class StoryStudioModel {
             if case let .textEditing(id, _, _) = state, case let .text(payload)? = document.entity(id)?.kind {
                 pickerColor = payload.color
             }
-        case .shape: pickerColor = document.drawingTool.color
         }
         Haptics.tap()
         withAnimation(Motion.snappy) { _ = session.openColorPicker(target) }
@@ -655,7 +649,7 @@ final class StoryStudioModel {
         guard case let .colorPicker(target) = state else { return }
         session.edit(recordingStep: false) { document in
             switch target {
-            case .drawing, .shape:
+            case .drawing:
                 document.drawingTool.color = color
             case .text:
                 break
@@ -727,42 +721,21 @@ final class StoryStudioModel {
         session.edit(recordingStep: false) { $0.drawing.add(stroke) }
     }
 
-    /// Новый объект по центру. Из панели стикеров — как выбор в инструменте (панель
-    /// закрывается), с холста — отдельный шаг «Назад».
-    func addSticker(_ kind: StoryEntity.Kind, size: StorySize) {
-        let add: (inout StoryDocument) -> Void = { document in
-            document.add(kind, center: StoryPoint(x: 0.5, y: 0.45), size: size)
-        }
-        if state == .stickerSelection {
-            session.edit(recordingStep: false, add)
-            confirmTool()
-        } else {
-            Haptics.tap()
-            withAnimation(Motion.snappy) { session.edit(add) }
-        }
-    }
-
-    func addEmoji(_ emoji: String) {
-        RecentEmoji.shared.use(emoji)
-        addSticker(.emoji(emoji), size: StorySize(width: 0.28, height: 0.28))
-    }
-
-    func addShape(_ shape: StoryShapePayload.Shape, filled: Bool) {
-        guard let color = document?.drawingTool.color else { return }
-        let payload = StoryShapePayload(shape: shape, color: color, filled: filled)
-        addSticker(.shape(payload), size: payload.defaultSize)
-    }
-
-    /// Фото поверх фона — «плавающая» картинка.
+    /// Фото поверх фона — «плавающая» картинка по центру, отдельный шаг «Назад».
     func addEntity(photo image: UIImage) {
         let prepared = StoryMediaImport.normalized(image, maxSide: 1200)
         guard let data = prepared.jpegData(compressionQuality: 0.88), let file = try? workspace.store(data, extension: "jpg") else { return }
         let aspect = max(Double(prepared.size.width / max(prepared.size.height, 1)), 0.1)
         let width = 0.5
-        addSticker(
-            .image(StoryImagePayload(file: file, pixelSize: StorySize(width: Double(prepared.size.width), height: Double(prepared.size.height)))),
-            size: StorySize(width: width, height: width / aspect)
+        let kind = StoryEntity.Kind.image(
+            StoryImagePayload(file: file, pixelSize: StorySize(width: Double(prepared.size.width), height: Double(prepared.size.height)))
         )
+        Haptics.tap()
+        withAnimation(Motion.snappy) {
+            session.edit { document in
+                document.add(kind, center: StoryPoint(x: 0.5, y: 0.45), size: StorySize(width: width, height: width / aspect))
+            }
+        }
     }
 
     // Обработка.

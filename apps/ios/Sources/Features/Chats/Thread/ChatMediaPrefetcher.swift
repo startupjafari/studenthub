@@ -20,8 +20,6 @@ final class ChatMediaPrefetcher {
 
     func prefetch(_ attachments: [AttachmentRecord], scale: CGFloat) {
         for attachment in attachments where tasks[attachment.id] == nil {
-            // Гифка — анимация целиком, со своим кешем; спойлер плитка всё равно размывает.
-            guard attachment.mime != "image/gif" else { continue }
             let points = ChatMediaTile.pixelPoints(attachment, size: ChatMediaTile.singleSize(for: attachment))
             let key = ChatMediaTile.cacheKey(attachment, points: points)
             guard ImageMemoryCache.shared.image(for: key) == nil else { continue }

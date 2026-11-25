@@ -20,6 +20,7 @@ import {
   FolderCog,
   FolderPlus,
   MessageCircleDashed,
+  MessageSquarePlus,
   MessagesSquare,
   Pin,
   PinOff,
@@ -30,6 +31,7 @@ import {
   ShieldBan,
   Trash2,
   UserRoundSearch,
+  Users,
   X,
 } from 'lucide-react'
 import type { ChatFolder, ChatListItem } from '../../../entities/chat'
@@ -63,7 +65,6 @@ import { usePinnedDrag } from '../lib/use-pinned-drag'
 import { mergePinnedOrder } from '../lib/pinned-order'
 import { ChatListRow, isChatUnread } from './chat-list-row'
 import { ChatListArchiveRow } from './chat-list-archive-row'
-import { ChatListFab } from './chat-list-fab'
 import {
   ChatListSearch,
   SEARCH_TAB_KEY,
@@ -336,9 +337,6 @@ export function ConversationList({
   const menuFolder = tabMenu ? folders.find((f) => f.id === tabMenu.id) : undefined
 
   const listActions = useChatListActions()
-  // Курсор над колонкой / фокус внутри — для плавающей кнопки на ПК.
-  const [peek, setPeek] = useState(false)
-  const [focusIn, setFocusIn] = useState(false)
   // Архив — не вкладка среди папок, а строка над «Все» и свой экран (Telegram-стиль).
   const [archiveOpen, setArchiveOpen] = useState(false)
   // Вид строки «Архив»: развёрнута, свёрнута в полоску или скрыта в меню списка.
@@ -588,22 +586,11 @@ export function ConversationList({
 
   return (
     <aside
-      // Курсор над колонкой или фокус в ней — выезжает плавающая кнопка «Новое сообщение».
-      onPointerEnter={(e) => {
-        if (e.pointerType === 'mouse') setPeek(true)
-      }}
-      onPointerLeave={(e) => {
-        if (e.pointerType === 'mouse') setPeek(false)
-      }}
       onPointerDownCapture={() => {
         pressInsideRef.current = true
         window.setTimeout(() => {
           pressInsideRef.current = false
         }, 300)
-      }}
-      onFocus={() => setFocusIn(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIn(false)
       }}
       className={cn(
         'relative',
@@ -722,6 +709,32 @@ export function ConversationList({
             <>
               <div className="fixed inset-0 z-40" onClick={onCloseNewChat} />
               <div className="absolute right-0 top-full z-50 mt-1 w-52 origin-top-right overflow-hidden rounded-xl border border-border bg-popover p-1 shadow-lg duration-150 animate-in fade-in zoom-in-95 slide-in-from-top-1">
+                {/* Начать переписку — первыми пунктами меню, а не плавающей кнопкой в углу:
+                    кнопка перекрывала нижние строки списка. «Новое сообщение» — поиск
+                    человека тем же полем, где ищут чаты: отдельного окна выбора нет. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
+                    openSearch()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <MessageSquarePlus className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('tgList.newMessage')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCloseNewChat()
+                    onNewGroup()
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted"
+                >
+                  <Users className="size-4 shrink-0 opacity-80" aria-hidden />
+                  {t('newGroup')}
+                </button>
+                <div className="-mx-1 my-1 h-px bg-border" role="separator" />
                 <button
                   type="button"
                   onClick={onOpenSaved}
@@ -1064,13 +1077,6 @@ export function ConversationList({
           items={rowMenuItems(menuChat)}
         />
       )}
-      <ChatListFab
-        hidden={searchExpanded || showArchive}
-        peek={peek || focusIn}
-        embedded={embedded}
-        onNewMessage={openSearch}
-        onNewGroup={onNewGroup}
-      />
     </aside>
   )
 }
