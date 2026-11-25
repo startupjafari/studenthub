@@ -1507,6 +1507,40 @@ describe('PostsService.create — медиа', () => {
       data: { postId: 'p-new' },
     })
   })
+
+  it('порядок вложений — порядок mediaIds: позиция пишется в order каждого файла', async () => {
+    const { service, prisma } = setup()
+    prisma.post.create.mockResolvedValue({ id: 'p-new' })
+    prisma.file.updateMany.mockResolvedValueOnce({ count: 3 }).mockResolvedValue({ count: 1 })
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p-new' }))
+    await service
+      .create(
+        viewer(Role.PLATFORM_ADMIN),
+        { audience: 'ALL', content: 'текст', mediaIds: ['f3', 'f1', 'f2'] } as never,
+        { ip: '127.0.0.1', userAgent: 'jest' },
+      )
+      .catch(() => undefined)
+    const orders = prisma.file.updateMany.mock.calls
+      .slice(1)
+      .map(([arg]: [{ where: { id: string }; data: { order: number } }]) => [
+        arg.where.id,
+        arg.data.order,
+      ])
+    expect(orders).toEqual([
+      ['f3', 0],
+      ['f1', 1],
+      ['f2', 2],
+    ])
+  })
+
+  it('выдача поста берёт медиа в порядке автора, старые посты — по времени загрузки', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+    expect(prisma.post.findMany.mock.calls[0][0].select.media.orderBy).toEqual([
+      { order: { sort: 'asc', nulls: 'last' } },
+      { createdAt: 'asc' },
+    ])
+  })
 })
 
 // ── Реакции и медиа выдачи (E-F04, E-F05) ───────────────────────────────────
@@ -1627,7 +1661,7 @@ describe('PostsService — ссылки на медиа прямо в выдач
   it('выборка медиа берёт поля описания с вариантами (MEDIA_FILE_SELECT)', async () => {
     const { service, prisma } = setup()
     await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
-    expect(prisma.post.findMany.mock.calls[0][0].select.media).toEqual({
+    expect(prisma.post.findMany.mock.calls[0][0].select.media).toMatchObject({
       select: MEDIA_FILE_SELECT,
     })
   })
