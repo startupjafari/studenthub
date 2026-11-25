@@ -20,7 +20,6 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { PostsService } from './posts.service'
 import { CreatePostDto } from './dto/create-post.dto'
-import { RepostDto } from './dto/repost.dto'
 import { CreateCommentDto } from './dto/create-comment.dto'
 import { ReactionDto } from './dto/reaction.dto'
 import { PinPostDto } from './dto/pin-post.dto'
@@ -155,36 +154,6 @@ export class PostsController {
     @Req() req: FastifyRequest,
   ) {
     return this.posts.setPinned(user, id, dto.pinned, this.ctx(req))
-  }
-
-  @Post(':id/repost')
-  @Roles(...AUTHOR_ROLES)
-  @ApiOperation({ summary: 'Репост (ссылка на оригинал)' })
-  @ApiResponse({ status: 201, description: 'Репост создан' })
-  @ApiResponse({ status: 400, description: 'Оригинал не опубликован (черновик или отложенный)' })
-  @ApiResponse({ status: 403, description: 'Личный пост репостить нельзя' })
-  repost(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: RepostDto,
-    @Req() req: FastifyRequest,
-  ) {
-    return this.posts.repost(user, id, dto, this.ctx(req))
-  }
-
-  @Post('articles/:articleId/repost')
-  @Roles(...AUTHOR_ROLES)
-  @ApiOperation({ summary: 'Репост статьи в ленту (пост со ссылкой на статью)' })
-  @ApiResponse({ status: 201, description: 'Репост создан' })
-  @ApiResponse({ status: 400, description: 'Статья не опубликована' })
-  @ApiResponse({ status: 404, description: 'Статья не найдена или недоступна' })
-  repostArticle(
-    @CurrentUser() user: CurrentUserData,
-    @Param('articleId') articleId: string,
-    @Body() dto: RepostDto,
-    @Req() req: FastifyRequest,
-  ) {
-    return this.posts.repostArticle(user, articleId, dto, this.ctx(req))
   }
 
   @Post(':id/bookmark')

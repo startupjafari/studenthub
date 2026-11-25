@@ -912,7 +912,7 @@ describe('ProfileContentService — статьи: плитки без текст
   })
 })
 
-describe('ProfileContentService — лайки статей и видимость пачкой', () => {
+describe('ProfileContentService — лайки статей', () => {
   const visibleArticle = {
     userId: 'owner',
     status: 'PUBLISHED',
@@ -982,50 +982,6 @@ describe('ProfileContentService — лайки статей и видимост�
     prisma.articleLike.findMany.mockResolvedValue([{ articleId: 'a1' }])
     const a = await service.getArticle(reader, 'a1')
     expect(a).toMatchObject({ likesCount: 7, liked: true })
-  })
-
-  it('видимость пачкой: закрытый профиль и черновик отсеиваются одним запросом', async () => {
-    const { service, prisma, users } = setup()
-    prisma.profileArticle.findMany.mockResolvedValueOnce([
-      {
-        id: 'ok',
-        userId: 'open',
-        companyId: null,
-        universityPageId: null,
-        status: 'PUBLISHED',
-        visibility: 'ALL',
-        user: owner('open'),
-      },
-      {
-        id: 'closed',
-        userId: 'closed',
-        companyId: null,
-        universityPageId: null,
-        status: 'PUBLISHED',
-        visibility: 'ALL',
-        user: owner('closed'),
-      },
-      {
-        id: 'draft',
-        userId: 'open',
-        companyId: null,
-        universityPageId: null,
-        status: 'DRAFT',
-        visibility: 'ALL',
-        user: owner('open'),
-      },
-    ])
-    users.viewableProfileContentOwners.mockResolvedValue(new Set(['open']))
-    const ids = await service.visibleArticleIds(reader, ['ok', 'closed', 'draft', 'ok'])
-    expect([...ids]).toEqual(['ok'])
-    expect(prisma.profileArticle.findMany).toHaveBeenCalledTimes(1)
-    expect(prisma.profileArticle.findMany.mock.calls[0][0].take).toBe(3)
-  })
-
-  it('видимость пачкой: пустой список — без запроса', async () => {
-    const { service, prisma } = setup()
-    await expect(service.visibleArticleIds(reader, [])).resolves.toEqual(new Set())
-    expect(prisma.profileArticle.findMany).not.toHaveBeenCalled()
   })
 })
 

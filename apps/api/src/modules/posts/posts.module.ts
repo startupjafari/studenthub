@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common'
 import { FilesModule } from '../files/files.module'
 import { CareerModule } from '../career/career.module'
-import { ProfileContentModule } from '../profile-content/profile-content.module'
 import { PostsService } from './posts.service'
 import { PostsController } from './posts.controller'
 import { PostLiveEvents } from './post-live-events'
@@ -12,7 +11,7 @@ import { PostLiveEvents } from './post-live-events'
 // CareerModule — посты страницы компании: её видимость и право публиковать от её имени.
 // PostLiveEvents — сигналы живой ленты (§9.2d); RealtimeGateway — из глобального RealtimeModule.
 @Module({
-  imports: [FilesModule, CareerModule, ProfileContentModule],
+  imports: [FilesModule, CareerModule],
   controllers: [PostsController],
   providers: [PostsService, PostLiveEvents],
   exports: [PostsService],
