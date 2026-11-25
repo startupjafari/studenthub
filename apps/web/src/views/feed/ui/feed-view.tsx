@@ -6,11 +6,11 @@ import { Plus } from 'lucide-react'
 import type { FeedFilterValue } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import { CreatePostForm } from '../../../features/create-post'
+import { PostComposerModal } from '../../../features/create-post'
 import { FeedList } from '../../../widgets/feed-list'
 import { StoriesRail } from '../../../widgets/stories-rail'
 import { FriendsPanel, useFriendsSummary } from '../../../widgets/friends-panel'
-import { Button, Modal, PageHeader, SegmentedTabs } from '../../../shared/ui'
+import { Button, PageHeader, SegmentedTabs } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 // Разделы ленты: фильтр уходит на сервер и всегда пересекается с видимостью зрителя.
@@ -150,18 +150,7 @@ export function FeedView() {
         )}
       </div>
 
-      {createOpen && (
-        <Modal
-          onClose={() => setCreateOpen(false)}
-          title={tFeed('newPost')}
-          size="2xl"
-          // На телефоне окно во весь экран: форма длинная, а плавающая карточка
-          // с полями по краям отдавала под содержимое меньше половины высоты.
-          className="max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:rounded-none"
-        >
-          <CreatePostForm bare onCreated={() => setCreateOpen(false)} />
-        </Modal>
-      )}
+      {createOpen && <PostComposerModal onClose={() => setCreateOpen(false)} />}
     </div>
   )
 }

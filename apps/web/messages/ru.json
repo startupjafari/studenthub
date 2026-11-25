@@ -1181,7 +1181,8 @@
       "zoomOut": "Уменьшить",
       "more": "Ещё"
     },
-    "phoneIncomplete": "Наберите номер полностью: +7 (777) 777-77-77"
+    "phoneIncomplete": "Наберите номер полностью: +7 (777) 777-77-77",
+    "done": "Готово"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -2242,7 +2243,31 @@
     "audienceSELECTED": "Выбранные",
     "audiencePARTNER_UNIVERSITIES": "Студентам вузов-партнёров",
     "commentsError": "Не удалось загрузить комментарии",
-    "commentsEmpty": "Комментариев пока нет — напишите первым"
+    "commentsEmpty": "Комментариев пока нет — напишите первым",
+    "titleOptional": "Заголовок (необязательно)",
+    "mediaTypeRejected": "Можно прикрепить только фото и видео",
+    "mediaFailedHint": "Часть файлов не загрузилась — повторите загрузку или уберите их",
+    "dropFiles": "Отпустите, чтобы прикрепить",
+    "draftSaving": "Сохранение…",
+    "draftSaveFailed": "Черновик не сохранён",
+    "draftSavedLocal": "Черновик сохранён",
+    "draftRestored": "Восстановлен черновик",
+    "draftDiscard": "Очистить",
+    "discardConfirmTitle": "Закрыть редактор?",
+    "discardConfirmText": "Текст останется в черновике, но прикреплённые файлы придётся добавить заново.",
+    "discardConfirmAction": "Закрыть",
+    "keepEditing": "Продолжить",
+    "attachments": "Вложения",
+    "mediaPosition": "Вложение {current} из {total}",
+    "mediaReorderHint": "Перетащите или нажмите Alt и стрелку, чтобы переставить; Delete — убрать",
+    "uploadingMedia": "Загрузка файла",
+    "retryUpload": "Повторить",
+    "cancelUpload": "Отменить загрузку",
+    "publishSettings": "Настройки публикации",
+    "cancelSchedule": "Отменить планирование",
+    "scheduleTimezone": "Часовой пояс: {zone}",
+    "scheduledFor": "Выйдет {when}",
+    "mediaLimitCount": "Не больше {max} вложений в одной публикации"
   },
   "Stories": {
     "toolEvent": "Событие",

@@ -1181,7 +1181,8 @@
       "zoomOut": "Кішірейту",
       "more": "Тағы"
     },
-    "phoneIncomplete": "Нөмірді толық теріңіз: +7 (777) 777-77-77"
+    "phoneIncomplete": "Нөмірді толық теріңіз: +7 (777) 777-77-77",
+    "done": "Дайын"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -2242,7 +2243,31 @@
     "audienceSELECTED": "Таңдалғандар",
     "audiencePARTNER_UNIVERSITIES": "Серіктес ЖОО студенттеріне",
     "commentsError": "Пікірлерді жүктеу мүмкін болмады",
-    "commentsEmpty": "Әзірге пікір жоқ — бірінші болып жазыңыз"
+    "commentsEmpty": "Әзірге пікір жоқ — бірінші болып жазыңыз",
+    "titleOptional": "Тақырып (міндетті емес)",
+    "mediaTypeRejected": "Тек фото мен бейне тіркеуге болады",
+    "mediaFailedHint": "Кейбір файлдар жүктелмеді — қайта жүктеңіз немесе алып тастаңыз",
+    "dropFiles": "Тіркеу үшін жіберіңіз",
+    "draftSaving": "Сақталуда…",
+    "draftSaveFailed": "Жоба сақталмады",
+    "draftSavedLocal": "Жоба сақталды",
+    "draftRestored": "Жоба қалпына келтірілді",
+    "draftDiscard": "Тазалау",
+    "discardConfirmTitle": "Редакторды жабу керек пе?",
+    "discardConfirmText": "Мәтін жобада қалады, бірақ тіркелген файлдарды қайта қосу керек болады.",
+    "discardConfirmAction": "Жабу",
+    "keepEditing": "Жалғастыру",
+    "attachments": "Тіркемелер",
+    "mediaPosition": "{total} тіркеменің {current}-сі",
+    "mediaReorderHint": "Орнын ауыстыру үшін сүйреңіз немесе Alt пен көрсеткіні басыңыз; Delete — алып тастау",
+    "uploadingMedia": "Файл жүктелуде",
+    "retryUpload": "Қайталау",
+    "cancelUpload": "Жүктеуді болдырмау",
+    "publishSettings": "Жариялау баптаулары",
+    "cancelSchedule": "Жоспарлауды болдырмау",
+    "scheduleTimezone": "Уақыт белдеуі: {zone}",
+    "scheduledFor": "{when} жарияланады",
+    "mediaLimitCount": "Бір жарияланымда {max} тіркемеден аспауы керек"
   },
   "Stories": {
     "toolEvent": "Іс-шара",

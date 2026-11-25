@@ -1181,7 +1181,8 @@
       "zoomOut": "Zoom out",
       "more": "More"
     },
-    "phoneIncomplete": "Enter the full number: +7 (777) 777-77-77"
+    "phoneIncomplete": "Enter the full number: +7 (777) 777-77-77",
+    "done": "Done"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -2242,7 +2243,31 @@
     "audienceSELECTED": "Selected people",
     "audiencePARTNER_UNIVERSITIES": "Students of partner universities",
     "commentsError": "Couldn’t load comments",
-    "commentsEmpty": "No comments yet — be the first to write one"
+    "commentsEmpty": "No comments yet — be the first to write one",
+    "titleOptional": "Title (optional)",
+    "mediaTypeRejected": "Only photos and videos can be attached",
+    "mediaFailedHint": "Some files failed to upload — retry or remove them",
+    "dropFiles": "Drop to attach",
+    "draftSaving": "Saving…",
+    "draftSaveFailed": "Draft not saved",
+    "draftSavedLocal": "Draft saved",
+    "draftRestored": "Draft restored",
+    "draftDiscard": "Clear",
+    "discardConfirmTitle": "Close the editor?",
+    "discardConfirmText": "Your text stays in the draft, but attached files will need to be added again.",
+    "discardConfirmAction": "Close",
+    "keepEditing": "Keep editing",
+    "attachments": "Attachments",
+    "mediaPosition": "Attachment {current} of {total}",
+    "mediaReorderHint": "Drag or press Alt and an arrow key to reorder; Delete to remove",
+    "uploadingMedia": "Uploading file",
+    "retryUpload": "Retry",
+    "cancelUpload": "Cancel upload",
+    "publishSettings": "Publishing settings",
+    "cancelSchedule": "Cancel scheduling",
+    "scheduleTimezone": "Time zone: {zone}",
+    "scheduledFor": "Goes live {when}",
+    "mediaLimitCount": "No more than {max} attachments per post"
   },
   "Stories": {
     "toolEvent": "Event",
