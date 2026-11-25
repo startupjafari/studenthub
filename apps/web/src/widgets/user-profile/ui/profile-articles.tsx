@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { ArticleCategory } from '@studenthub/shared-schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -10,7 +11,6 @@ import { Bookmark, Clock, Eye, FileText, MessageCircle, Pencil, Trash2 } from 'l
 import {
   ArticleCover,
   deleteProfileArticle,
-  fetchProfileArticle,
   profileContentKeys,
   type ProfileArticleCard,
 } from '../../../entities/profile-content'
@@ -22,14 +22,12 @@ import {
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
-import { ArticleEditorModal } from './article-editor-modal'
-import { ContentModal } from './content-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
-import { useOwnerKey } from '../lib/content-owner'
+import { newArticleHref, useOwnerKey } from '../lib/content-owner'
 import { ownerArticlesQuery } from '../lib/owner-queries'
 
 function errCode(e: unknown): string {
@@ -49,16 +47,16 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const [editing, setEditing] = useState<ProfileArticleCard | 'new' | null>(null)
-
-  useEffect(() => {
-    if (openCreate === undefined) return
-    setEditing('new')
-    onConsumed?.()
-  }, [openCreate])
-
+  const router = useRouter()
   // Страница компании — её статьи; иначе — статьи пользователя userId.
   const { owner, key: ownerKey } = useOwnerKey(userId)
+
+  // Статью пишут на отдельной странице редактора, а не в окне поверх профиля.
+  useEffect(() => {
+    if (openCreate === undefined) return
+    router.push(newArticleHref(owner))
+    onConsumed?.()
+  }, [openCreate])
   const q = useQuery(ownerArticlesQuery(owner))
   // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
   const loadState = useRetryOnError(q, t('loadRetry'))
@@ -99,21 +97,9 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
     `${statusFilter}|${category}|${sort}`,
   )
 
-  const modals = (
-    <>
-      {editing === 'new' && (
-        <ArticleEditorModal userId={userId} initial={null} onClose={() => setEditing(null)} />
-      )}
-      {editing !== null && editing !== 'new' && (
-        <ArticleEditLoader userId={userId} card={editing} onClose={() => setEditing(null)} />
-      )}
-    </>
-  )
-
   if (!q.data && loadState.failed) {
     return (
       <>
-        {modals}
         <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
       </>
     )
@@ -121,7 +107,6 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
   if (!q.data) {
     return (
       <>
-        {modals}
         <ContentLayout sidebar={<FilterSkeleton groups={3} />}>
           <MosaicGrid aria-hidden>
             {Array.from({ length: 12 }).map((_, i) => (
@@ -137,7 +122,6 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
   if (articles.length === 0) {
     return (
       <>
-        {modals}
         <EmptyState
           icon={<FileText className="size-6" aria-hidden />}
           title={t('articlesEmpty')}
@@ -198,7 +182,6 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
 
   return (
     <>
-      {modals}
       <ContentLayout sidebar={sidebar}>
         <div className="flex flex-1 flex-col gap-4">
           {visible.length === 0 ? (
@@ -213,7 +196,7 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
                   article={a}
                   isOwner={isOwner}
                   canModerate={!isOwner && !!moderation?.content}
-                  onEdit={() => setEditing(a)}
+                  onEdit={() => router.push(`/articles/${a.id}/edit`)}
                   onDelete={() => {
                     void confirm({ title: t('articleDeleteConfirm'), destructive: true }).then(
                       (ok) => {
@@ -364,44 +347,5 @@ function ArticleCard({
         </div>
       )}
     </MosaicTile>
-  )
-}
-
-/** Статья целиком (с текстом) — по id; список профиля несёт только плитки без текста. */
-function useFullArticle(id: string) {
-  return useQuery({
-    queryKey: profileContentKeys.article(id),
-    queryFn: () => fetchProfileArticle(id),
-  })
-}
-
-// Редактор существующей статьи открывается с полным текстом: в плитке списка его нет.
-// Пока текст грузится — то же окно со скелетоном, чтобы нажатие отозвалось сразу.
-function ArticleEditLoader({
-  userId,
-  card,
-  onClose,
-}: {
-  userId: string
-  card: ProfileArticleCard
-  onClose: () => void
-}) {
-  const t = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
-  const full = useFullArticle(card.id)
-  useEffect(() => {
-    if (!full.isError) return
-    toast.error(tErr(errCode(full.error)))
-    onClose()
-  }, [full.isError, full.error, onClose, tErr])
-  if (full.data) return <ArticleEditorModal userId={userId} initial={full.data} onClose={onClose} />
-  return (
-    <ContentModal title={t('editArticle')} onClose={onClose} size="xl">
-      <div className="flex flex-col gap-3" aria-busy="true">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-2/3" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    </ContentModal>
   )
 }

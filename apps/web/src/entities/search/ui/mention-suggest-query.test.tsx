@@ -1,13 +1,13 @@
-import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { createRef, type ReactNode } from 'react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next-intl', () => ({ useTranslations: () => (k: string) => k }))
 
 // Сеть глушим, проверяем, КАКИЕ запросы уходят и с какими параметрами.
-vi.mock('../../../entities/search/api/search-api', async (orig) => {
-  const actual = await orig<typeof import('../../../entities/search/api/search-api')>()
+vi.mock('../api/search-api', async (orig) => {
+  const actual = await orig<typeof import('../api/search-api')>()
   return {
     ...actual,
     fetchSearch: vi.fn().mockResolvedValue({
@@ -30,8 +30,8 @@ vi.mock('../../../entities/search/api/search-api', async (orig) => {
   }
 })
 
-import { fetchSearch } from '../../../entities/search'
-import { MentionSuggest } from './mention-suggest'
+import { fetchSearch } from '../api/search-api'
+import { MentionSuggest, type MentionSuggestHandle } from './mention-suggest'
 
 function setup(query: string | null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -80,5 +80,40 @@ describe('MentionSuggest — запросы', () => {
     expect(await screen.findByText('@ivanov')).toBeInTheDocument()
     rerender(null)
     expect(screen.queryByText('@ivanov')).not.toBeInTheDocument()
+  })
+})
+
+describe('MentionSuggest — клавиатура', () => {
+  it('Enter при открытом списке выбирает человека, а не уходит полю ввода', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const handle = createRef<MentionSuggestHandle>()
+    const onPick = vi.fn()
+    render(
+      <QueryClientProvider client={qc}>
+        <MentionSuggest query="iva" onPick={onPick} handle={handle} />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('@ivanov')).toBeInTheDocument()
+    expect(handle.current?.handleKey('ArrowDown')).toBe(true)
+    expect(handle.current?.handleKey('Enter')).toBe(true)
+    expect(onPick).toHaveBeenCalledWith('ivanov')
+    // Буквы — не дело подсказки: их печатает поле.
+    expect(handle.current?.handleKey('a')).toBe(false)
+  })
+
+  it('Esc прячет список, и клавиши снова достаются полю', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const handle = createRef<MentionSuggestHandle>()
+    render(
+      <QueryClientProvider client={qc}>
+        <MentionSuggest query="iva" onPick={vi.fn()} handle={handle} />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('@ivanov')).toBeInTheDocument()
+    act(() => {
+      handle.current?.handleKey('Escape')
+    })
+    expect(screen.queryByText('@ivanov')).not.toBeInTheDocument()
+    expect(handle.current?.handleKey('Enter')).toBe(false)
   })
 })

@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from 'react'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -39,7 +40,7 @@ import {
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
-import { ContentOwnerProvider } from '../lib/content-owner'
+import { ContentOwnerProvider, newArticleHref } from '../lib/content-owner'
 import { useMediaQuota } from '../lib/media-quota'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
 import {
@@ -62,10 +63,6 @@ const PhotoCreateModal = dynamic(
 )
 const VideoCreateModal = dynamic(
   () => import('./profile-create-modals').then((m) => m.VideoCreateModal),
-  { ssr: false },
-)
-const ArticleEditorModal = dynamic(
-  () => import('./article-editor-modal').then((m) => m.ArticleEditorModal),
   { ssr: false },
 )
 const PollCreateModal = dynamic(
@@ -151,6 +148,7 @@ export function OrgProfile({
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [editing, setEditing] = useState(false)
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
+  const router = useRouter()
   const [pickedFile, setPickedFile] = useState<File | null>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
@@ -188,6 +186,8 @@ export function OrgProfile({
   const quickCreate = (kind: CreateKind): void => {
     if (kind === 'photo') photoInputRef.current?.click()
     else if (kind === 'video') videoInputRef.current?.click()
+    // Статью пишут на отдельной странице редактора, а не в окне.
+    else if (kind === 'article') router.push(newArticleHref(owner))
     else setCreateModal(kind)
   }
   const closeCreate = (): void => {
@@ -256,9 +256,6 @@ export function OrgProfile({
             )}
             {createModal === 'video' && pickedFile && (
               <VideoCreateModal userId={owner.id} initialFile={pickedFile} onClose={closeCreate} />
-            )}
-            {createModal === 'article' && (
-              <ArticleEditorModal userId={owner.id} onClose={closeCreate} />
             )}
             {createModal === 'poll' && <PollCreateModal userId={owner.id} onClose={closeCreate} />}
           </>

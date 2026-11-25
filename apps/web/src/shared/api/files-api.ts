@@ -25,11 +25,13 @@ export async function uploadFileRequest(
   bucket: FileBucketKind,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<UploadedFile> {
   const form = new FormData()
   form.append('file', file)
 
   const res = await api.post<UploadedFile>(`/files/upload?bucket=${bucket}`, form, {
+    signal,
     onUploadProgress: (event: AxiosProgressEvent) => {
       if (onProgress && event.total) {
         onProgress(Math.round((event.loaded / event.total) * 100))
@@ -98,8 +100,10 @@ export async function uploadToBucket(
   bucket: FileBucketKind,
   file: File,
   onProgress?: (percent: number) => void,
+  /** Отмена: обрывает текущий шаг; у многочастной загрузки — ещё и сам multipart. */
+  signal?: AbortSignal,
 ): Promise<UploadedFile> {
-  if (!needsDirectUpload(file.size)) return uploadFileRequest(bucket, file, onProgress)
+  if (!needsDirectUpload(file.size)) return uploadFileRequest(bucket, file, onProgress, signal)
   if (needsMultipartUpload(file.size)) {
     return uploadResumable<UploadedFile>({
       file,
@@ -109,11 +113,13 @@ export async function uploadToBucket(
       complete: (input) => multipartCompleteRequest(bucket, input),
       abort: (input) => multipartAbortRequest(bucket, input),
       onProgress: onProgress ? (fraction) => onProgress(Math.round(fraction * 100)) : undefined,
+      signal,
     })
   }
   return uploadDirect<UploadedFile>({
     file,
     onProgress,
+    signal,
     presign: async (mime) => {
       const { data } = await api.post<PresignedTarget>('/files/presign', { bucket, mime })
       return data

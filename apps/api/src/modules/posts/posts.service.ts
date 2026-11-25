@@ -139,6 +139,12 @@ const SHARED_ARTICLE_SELECT = {
   universityPage: { select: { id: true, name: true, logoUrl: true } },
 } satisfies Prisma.ProfileArticleSelect
 
+/** Порядок вложений поста: как их расставил автор, у старых постов — по времени загрузки. */
+const POST_MEDIA_ORDER = [
+  { order: { sort: 'asc', nulls: 'last' } },
+  { createdAt: 'asc' },
+] satisfies Prisma.FileOrderByWithRelationInput[]
+
 const POST_SELECT_CORE = {
   id: true,
   audience: true,
@@ -164,7 +170,9 @@ const POST_SELECT_CORE = {
   universityPage: COMPANY_SELECT,
   // Поля описания медиа с вариантами: ссылки и srcset подписываются пачкой на всю выдачу
   // (decorate). Наружу из этих строк уходит только публичная часть (toPostMedia).
-  media: { select: MEDIA_FILE_SELECT },
+  // Порядок — тот, что выбрал автор (`order` ставит linkMedia по порядку mediaIds). У постов,
+  // созданных до появления порядка, `order` пуст — они идут по времени загрузки, как раньше.
+  media: { select: MEDIA_FILE_SELECT, orderBy: POST_MEDIA_ORDER },
   original: {
     select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
   },
@@ -1831,6 +1839,15 @@ export class PostsService {
     })
     if (count !== ids.length) {
       throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
+    }
+    // Порядок вложений — порядок mediaIds: автор расставил снимки в редакторе, и лента,
+    // окно поста и просмотрщик обязаны показать их ровно так. Без позиции выдача шла в том
+    // порядке, в каком строки отдавала база, — снимки перемешивались. Одно вложение
+    // упорядочивать не с чем. Файлы уже привязаны к посту выше, поэтому условие — postId.
+    if (ids.length > 1) {
+      for (const [order, id] of ids.entries()) {
+        await tx.file.updateMany({ where: { id, postId }, data: { order } })
+      }
     }
   }
 }

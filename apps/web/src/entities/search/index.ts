@@ -9,3 +9,9 @@ export type {
   SearchAssignment,
   SearchMaterial,
 } from './model/types'
+export {
+  MentionSuggest,
+  applyMention,
+  mentionQuery,
+  type MentionSuggestHandle,
+} from './ui/mention-suggest'
