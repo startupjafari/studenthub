@@ -41,4 +41,21 @@ export {
   type ContentComment,
 } from './api/profile-content-api'
 export { ArticleCover, ARTICLE_GRADIENTS } from './ui/article-cover'
-export { extractToc, nodeText, slugify, type TocItem } from './lib/article-toc'
+export {
+  extractToc,
+  headingSlugsByLine,
+  nodeText,
+  slugify,
+  stripInlineMarkdown,
+  type TocItem,
+} from './lib/article-toc'
+export {
+  ARTICLE_CONTENT_MAX,
+  WORDS_PER_MINUTE,
+  articleStats,
+  type ArticleStats,
+} from './lib/article-stats'
+export { ArticleContent, copySectionLink } from './ui/article-content'
+export { ArticleHeadline } from './ui/article-headline'
+export { ArticleTableOfContents, scrollToSection, useActiveHeading } from './ui/article-toc-nav'
+export { ReadingProgress } from './ui/reading-progress'

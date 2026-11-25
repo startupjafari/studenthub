@@ -6365,7 +6365,12 @@
     "read": "Мақаланы оқу",
     "unavailableShort": "Мақала қолжетімсіз",
     "authorTag": "Автор",
-    "commentHint": "Enter — жіберу, Shift+Enter — жаңа жол"
+    "commentHint": "Enter — жіберу, Shift+Enter — жаңа жол",
+    "tableOfContents": "Мазмұны",
+    "copySectionLink": "Бөлімге сілтемені көшіру",
+    "sectionLinkCopied": "Бөлімге сілтеме көшірілді",
+    "copyFailed": "Сілтемені көшіру мүмкін болмады",
+    "writtenBy": "Мақала авторы"
   },
   "Campus": {
     "autoLayoutNew": "Бөлмелерді бірден орналастыру",

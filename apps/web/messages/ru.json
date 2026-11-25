@@ -6365,7 +6365,12 @@
     "read": "Читать статью",
     "unavailableShort": "Статья недоступна",
     "authorTag": "Автор",
-    "commentHint": "Enter — отправить, Shift+Enter — новая строка"
+    "commentHint": "Enter — отправить, Shift+Enter — новая строка",
+    "tableOfContents": "Содержание",
+    "copySectionLink": "Скопировать ссылку на раздел",
+    "sectionLinkCopied": "Ссылка на раздел скопирована",
+    "copyFailed": "Не удалось скопировать ссылку",
+    "writtenBy": "Автор статьи"
   },
   "Campus": {
     "autoLayoutNew": "Сразу разложить помещения",

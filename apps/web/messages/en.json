@@ -6365,7 +6365,12 @@
     "read": "Read article",
     "unavailableShort": "Article unavailable",
     "authorTag": "Author",
-    "commentHint": "Enter to send, Shift+Enter for a new line"
+    "commentHint": "Enter to send, Shift+Enter for a new line",
+    "tableOfContents": "Contents",
+    "copySectionLink": "Copy link to section",
+    "sectionLinkCopied": "Section link copied",
+    "copyFailed": "Couldn't copy the link",
+    "writtenBy": "Written by"
   },
   "Campus": {
     "autoLayoutNew": "Lay out rooms right away",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractToc, slugify } from './article-toc'
+import { extractToc, headingSlugsByLine, slugify, stripInlineMarkdown } from './article-toc'
 
 describe('оглавление статьи', () => {
   it('берёт заголовки до третьего уровня и пропускает блоки кода', () => {
@@ -22,5 +22,26 @@ describe('оглавление статьи', () => {
 
   it('slug — буквы любого алфавита и цифры, остальное схлопывается в дефис', () => {
     expect(slugify('  «Учёба» — 2026!  ')).toBe('учёба-2026')
+  })
+})
+
+describe('якоря заголовков', () => {
+  it('одинаковые заголовки получают разные якоря: оглавление ведёт к каждому', () => {
+    const md = ['## Итоги', 'текст', '## Итоги', '## Итоги'].join('\n')
+    expect(extractToc(md).map((h) => h.slug)).toEqual(['итоги', 'итоги-2', 'итоги-3'])
+  })
+
+  it('строчная разметка в заголовке не попадает ни в текст оглавления, ни в якорь', () => {
+    const [h] = extractToc('## **Важно**: [план](https://x.kz) на `2026`')
+    expect(h).toEqual({ level: 2, text: 'Важно: план на 2026', slug: 'важно-план-на-2026' })
+    expect(stripInlineMarkdown('~~старое~~ *новое*')).toBe('старое новое')
+  })
+
+  it('рендер находит якорь по номеру строки — те же значения, что в оглавлении', () => {
+    const md = ['# A', '', '```', '# не заголовок', '```', '## A'].join('\n')
+    expect([...headingSlugsByLine(md)]).toEqual([
+      [1, 'a'],
+      [6, 'a-2'],
+    ])
   })
 })
