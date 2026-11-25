@@ -862,7 +862,9 @@ function PostView({
       sizes={twoColumn ? WIDE_SIZES : LIGHTBOX_SIZES}
       // Подложка приглушённая: в полном просмотре кадр — единственный центр внимания.
       backdropClassName="brightness-[0.45] saturate-[0.7]"
-      imageClassName="max-h-full"
+      // Снимок вписывается в кадр целиком (object-contain) и растягивается до его размеров:
+      // в натуральную величину копии он оставлял пустые поля в большой левой панели.
+      imageClassName="size-full"
     >
       {isImage && (
         <button

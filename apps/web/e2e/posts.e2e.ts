@@ -16,10 +16,10 @@ test('пост публикуется и появляется в ленте', as
   await clickUntil(page.getByRole('main').getByRole('button', { name: 'Опубликовать' }), dialog)
 
   // Аудиторию выбираем явно: у декана их несколько, и полагаться на значение по умолчанию тест
-  // не должен — иначе он проверяет ещё и то, какой пункт окажется первым. Контрол — Radix Select,
-  // то есть кнопка со списком, а не нативный <select> (тот же скрыт под ним для форм).
-  await dialog.getByRole('combobox').first().click()
-  await page.getByRole('option', { name: 'Факультет' }).click()
+  // не должен — иначе он проверяет ещё и то, какой пункт окажется первым. Контрол — «таблетка»
+  // под именем автора (меню Radix с радиопунктами), подпись кнопки — «Аудитория: …».
+  await dialog.getByRole('button', { name: /^Аудитория/ }).click()
+  await page.getByRole('menuitemradio', { name: 'Факультет' }).click()
 
   // Тот же RichTextField, что и в чатах: placeholder рисуется через ::before и
   // `getByPlaceholder` его не находит. У поля есть собственный id — целимся в него.
