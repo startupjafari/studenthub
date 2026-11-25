@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { CheckCircle2, Newspaper, WifiOff } from 'lucide-react'
+import { CheckCircle2, Loader2, Newspaper, WifiOff } from 'lucide-react'
 import type { FeedFilterValue } from '@studenthub/shared-schemas'
 import {
   fetchFeed,
@@ -175,29 +175,33 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
         />
       ))}
 
-      {/* Следующая страница не пришла — сказать об этом и дать повторить; маячок подгрузки
-          при этом молчит, иначе он дёргал бы сервер на каждом кадре прокрутки. */}
-      {query.isFetchNextPageError ? (
-        <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-          <p>{t('loadMoreFailed')}</p>
-          <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
-            {tc('retry')}
-          </Button>
-        </div>
-      ) : query.hasNextPage ? (
-        // Маячок подгрузки. Пока следующая страница есть — держим на его месте заготовку
-        // карточки: она и сообщает, что лента не кончилась, и не даёт полосе прокрутки
-        // дёрнуться в момент, когда посты придут.
-        <div ref={loadMoreRef} aria-hidden>
-          <PostSkeleton media />
-        </div>
-      ) : (
-        // Конец ленты — явно: без отметки непонятно, кончились посты или ещё грузятся.
-        <p className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4" aria-hidden />
-          {t('endOfFeed')}
-        </p>
-      )}
+      {/* Подвал ленты — одной высоты во всех состояниях: подгрузка, конец, ошибка. Раньше
+          на месте маячка стояла заготовка поста (~260px), и когда страницы кончались, она
+          пропадала: прокрутка упиралась в низ, и браузер сдвигал всю видимую ленту вверх
+          (CLS 0,14 на замере). Подгрузка начинается за 600px до маячка — его высота на неё
+          не влияет. */}
+      <div className="flex min-h-28 flex-col items-center justify-center gap-2 py-4 text-center text-sm text-muted-foreground">
+        {query.isFetchNextPageError ? (
+          // Следующая страница не пришла — сказать и дать повторить; маячок при этом молчит,
+          // иначе он дёргал бы сервер на каждом кадре прокрутки.
+          <>
+            <p>{t('loadMoreFailed')}</p>
+            <Button variant="outline" size="sm" onClick={() => void query.fetchNextPage()}>
+              {tc('retry')}
+            </Button>
+          </>
+        ) : query.hasNextPage ? (
+          <div ref={loadMoreRef} role="status" aria-label={tc('loading')}>
+            <Loader2 className="size-6 animate-spin" aria-hidden />
+          </div>
+        ) : (
+          // Конец ленты — явно: без отметки непонятно, кончились посты или ещё грузятся.
+          <p className="flex items-center gap-2">
+            <CheckCircle2 className="size-4" aria-hidden />
+            {t('endOfFeed')}
+          </p>
+        )}
+      </div>
 
       {/* Открытый пост удалили — окно закрывается вместе с ним, а не перескакивает. */}
       {open !== null && openIndex >= 0 && (
