@@ -39,7 +39,7 @@ import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filt
 import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
-import type { ContentModeration } from '../lib/content-moderation'
+import type { ContentModeration } from '../../../entities/user'
 import { mediaQuotaNear, mediaUsage, useMediaQuota } from '../lib/media-quota'
 import { useOwnerKey } from '../lib/content-owner'
 import { ownerAlbumsQuery, ownerMediaQuery } from '../lib/owner-queries'

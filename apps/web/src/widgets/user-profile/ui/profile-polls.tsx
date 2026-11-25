@@ -16,7 +16,7 @@ import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filt
 import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
-import type { ContentModeration } from '../lib/content-moderation'
+import type { ContentModeration } from '../../../entities/user'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'

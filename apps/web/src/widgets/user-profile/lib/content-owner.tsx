@@ -30,8 +30,3 @@ export function useOwnerKey(userId: string): { owner: ContentOwner; key: string 
   const owner = useContentOwner(userId)
   return { owner, key: contentOwnerKey(owner) }
 }
-
-/** Адрес редактора новой статьи — от имени страницы организации с `?as=`. */
-export function newArticleHref(owner: ContentOwner): string {
-  return owner.kind === 'user' ? '/articles/new' : `/articles/new?as=${owner.kind}`
-}

@@ -1,1 +1,1 @@
-export { ArticlePageView } from './ui/article-page-view'
+export { ArticleLinkView } from './ui/article-link-view'
