@@ -105,7 +105,7 @@ describe('PostLightbox', () => {
     const win = dialog.querySelector('[tabindex="-1"]') as HTMLElement
     expect(win.className).toContain('sm:h-auto')
     expect(win.className).toContain('sm:max-h-full')
-    expect(screen.queryByRole('button', { name: ru.Feed.zoomIn })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: ru.Feed.openFullscreen })).not.toBeInTheDocument()
   })
 
   it('стрелки листают сначала кадры поста, на последнем кадре — следующий пост', async () => {
@@ -123,16 +123,18 @@ describe('PostLightbox', () => {
     expect(await screen.findByText('Текст p2')).toBeInTheDocument()
   })
 
-  it('кнопка зума приближает снимок и возвращает обратно', async () => {
-    const { user } = setup([post('p1', { media: [image('a')] })])
-    await user.click(await screen.findByRole('button', { name: ru.Feed.zoomIn }))
-    expect(screen.getByRole('button', { name: ru.Feed.zoomOut })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    // Esc при увеличенном кадре возвращает масштаб, а не закрывает окно.
+  it('нажатие на снимок открывает полноэкранный просмотр; Esc закрывает его, а не пост', async () => {
+    const { user, onClose } = setup([post('p1', { media: [image('a'), image('b')] })])
+    await user.keyboard('{ArrowRight}')
+    expect(await screen.findByText('2 из 2')).toBeInTheDocument()
+    const [open] = screen.getAllByRole('button', { name: ru.Feed.openFullscreen })
+    await user.click(open as HTMLElement)
+    // Просмотрщик — отдельный слой поверх окна поста, на том же кадре.
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(2))
     await user.keyboard('{Escape}')
-    expect(screen.getByRole('button', { name: ru.Feed.zoomIn })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByText('2 из 2')).toBeInTheDocument()
   })
 
   it('Esc закрывает окно, фокус возвращается к открывшей кнопке', async () => {

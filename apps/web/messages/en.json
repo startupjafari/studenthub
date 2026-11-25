@@ -2267,7 +2267,8 @@
     "cancelSchedule": "Cancel scheduling",
     "scheduleTimezone": "Time zone: {zone}",
     "scheduledFor": "Goes live {when}",
-    "mediaLimitCount": "No more than {max} attachments per post"
+    "mediaLimitCount": "No more than {max} attachments per post",
+    "openFullscreen": "Open full screen"
   },
   "Stories": {
     "toolEvent": "Event",

@@ -2267,7 +2267,8 @@
     "cancelSchedule": "Отменить планирование",
     "scheduleTimezone": "Часовой пояс: {zone}",
     "scheduledFor": "Выйдет {when}",
-    "mediaLimitCount": "Не больше {max} вложений в одной публикации"
+    "mediaLimitCount": "Не больше {max} вложений в одной публикации",
+    "openFullscreen": "Открыть во весь экран"
   },
   "Stories": {
     "toolEvent": "Событие",

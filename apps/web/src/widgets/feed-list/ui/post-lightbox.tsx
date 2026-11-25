@@ -20,13 +20,12 @@ import {
   Eye,
   Heart,
   Loader2,
+  Maximize2,
   MessageCircle,
   Repeat2,
   SendHorizontal,
   Smile,
   X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { canFileComplaint } from '@studenthub/shared-schemas'
@@ -79,6 +78,7 @@ import {
   useBackClose,
   useBodyScrollLock,
   useFreshIds,
+  useMediaQuery,
 } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
@@ -88,7 +88,6 @@ import { MediaFrame } from './media-frame'
 import { SharedArticleCard } from './shared-article-card'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
-import { useMediaZoom } from '../lib/use-media-zoom'
 import {
   MentionSuggest,
   applyMention,
@@ -96,6 +95,7 @@ import {
   type MentionSuggestHandle,
 } from '../../../entities/search'
 import { CommentText } from './comment-text'
+import { PostMediaViewer } from './post-media-viewer'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
 const EMOJI_SET = [
@@ -125,8 +125,12 @@ const EMOJI_SET = [
   '😉',
 ]
 
-// Кадр в полном просмотре — во всю ширину окна (до 40rem минус поля).
+// Кадр в окне: в одной колонке — во всю ширину окна (до 40rem минус поля), в двух — левая
+// часть окна шириной до 80rem без правой панели.
 const LIGHTBOX_SIZES = '(max-width: 640px) 100vw, 640px'
+const WIDE_SIZES = '(max-width: 1280px) 66vw, 860px'
+/** С какой ширины пост с медиа раскладывается на две колонки: кадр слева, обсуждение справа. */
+const TWO_COLUMN_QUERY = '(min-width: 1024px)'
 
 /**
  * Черновики комментариев по постам — в памяти вкладки. Случайно закрытое окно не съедает
@@ -193,6 +197,9 @@ export function PostLightbox({
   const windowRef = useRef<HTMLDivElement>(null)
   // Номер вложения относится к посту, который открыли; соседние посты — с первого кадра.
   const openedIndex = useRef(index)
+  const wide = useMediaQuery(TWO_COLUMN_QUERY)
+  // Поверх окна открыт полноэкранный просмотр: клавиши (Tab, стрелки, Esc) — его, а не окна.
+  const layered = useRef(false)
 
   // Фокус — внутрь окна при открытии и обратно на то, что его открыло, при закрытии:
   // иначе после закрытия клавиатура оказывалась в начале страницы.
@@ -205,6 +212,7 @@ export function PostLightbox({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (layered.current) return
       // Tab не уходит под оверлей: с последнего элемента окна — на первый и обратно.
       // Окна поверх поста (меню, жалоба) живут в своих порталах и держат фокус сами.
       if (e.key === 'Tab') {
@@ -261,6 +269,8 @@ export function PostLightbox({
   // цитатой, когда исходник зрителю не виден). Пока грузится — скелетон панели.
   const shown = source.kind === 'ready' ? source.source : post
   const repost = source.kind === 'ready' ? post : undefined
+  // Две колонки — только посту с медиа и только когда ширины на них действительно хватает.
+  const twoColumn = wide && source.kind !== 'loading' && shown.media.length > 0
 
   return createPortal(
     <div
@@ -332,7 +342,10 @@ export function PostLightbox({
         onClick={(e) => e.stopPropagation()}
         className={cn(
           'flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl outline-none',
-          'sm:h-auto sm:max-h-full sm:max-w-[40rem] sm:rounded-[1.25rem] sm:ring-1 sm:ring-foreground/10',
+          'sm:rounded-[1.25rem] sm:ring-1 sm:ring-foreground/10',
+          // Пост с медиа на широком экране — окно почти во весь экран (до 80rem, ~90% высоты):
+          // кадру нужна площадь. Текстовый — колонка по высоте содержимого.
+          twoColumn ? 'max-w-[80rem]' : 'sm:h-auto sm:max-h-full sm:max-w-[40rem]',
           'animate-in fade-in-0 zoom-in-[0.98] duration-200 motion-reduce:animate-none',
         )}
       >
@@ -364,6 +377,10 @@ export function PostLightbox({
             onNext={index < posts.length - 1 ? () => onIndex(index + 1) : undefined}
             focusComment={focusComment}
             initialMedia={index === openedIndex.current ? initialMedia : 0}
+            twoColumn={twoColumn}
+            onLayerChange={(open) => {
+              layered.current = open
+            }}
           />
         )}
       </div>
@@ -383,8 +400,14 @@ function PostView({
   onNext,
   focusComment = false,
   initialMedia = 0,
+  twoColumn = false,
+  onLayerChange,
 }: {
   post: FeedPost
+  /** Раскладка «кадр слева, обсуждение справа» (широкий экран, у поста есть медиа). */
+  twoColumn?: boolean
+  /** Открыт или закрыт полноэкранный просмотр поверх окна. */
+  onLayerChange?: (open: boolean) => void
   /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
   via?: FeedPost
   /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
@@ -411,7 +434,11 @@ function PostView({
   const [mi, setMi] = useState(() =>
     Math.min(Math.max(0, initialMedia), Math.max(0, post.media.length - 1)),
   )
-  const zoom = useMediaZoom(mi)
+  // Полноэкранный просмотр открыт — номер кадра у него общий с каруселью окна.
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const swipeStart = useRef<{ x: number; y: number } | null>(null)
+  useEffect(() => onLayerChange?.(viewerOpen), [viewerOpen, onLayerChange])
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
   // Сводка — из кэша постов: лайк в карточке ленты приходит сюда правкой кэша.
@@ -543,19 +570,16 @@ function PostView({
 
   // Стрелки клавиатуры листают сначала кадры поста, а на краю карусели — посты (их
   // обрабатывает окно: событие отмечено preventDefault только когда кадр сменился здесь).
-  // Esc при увеличенном кадре сначала возвращает масштаб, а не закрывает окно.
+  // При открытом полноэкранном просмотре клавиши — его.
   const mediaCount = post.media.length
-  const { zoomed, reset: resetZoom } = zoom
   useEffect(() => {
+    if (viewerOpen) return
     function onKey(e: KeyboardEvent): void {
       if (e.defaultPrevented) return
       const target = e.target as HTMLElement | null
       if (target && (target.isContentEditable || /^(TEXTAREA|INPUT|SELECT)$/.test(target.tagName)))
         return
-      if (e.key === 'Escape' && zoomed) {
-        e.preventDefault()
-        resetZoom()
-      } else if (e.key === 'ArrowRight' && mi < mediaCount - 1) {
+      if (e.key === 'ArrowRight' && mi < mediaCount - 1) {
         e.preventDefault()
         setMi(mi + 1)
       } else if (e.key === 'ArrowLeft' && mi > 0) {
@@ -568,7 +592,7 @@ function PostView({
     // фазе встал бы в очередь после него.
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [mi, mediaCount, zoomed, resetZoom])
+  }, [mi, mediaCount, viewerOpen])
 
   // Соседние снимки карусели греем заранее с тем же srcset и sizes, что у кадра: браузер
   // выберет ту же копию, и переход покажет её из кэша, без мигания пустого кадра.
@@ -583,12 +607,12 @@ function PostView({
           ? undefined
           : srcSetOf(link.sources, { url: link.url, width: m.width })
       if (srcset) {
-        img.sizes = LIGHTBOX_SIZES
+        img.sizes = twoColumn ? WIDE_SIZES : LIGHTBOX_SIZES
         img.srcset = srcset
       }
       img.src = link.url
     }
-  }, [mi, post.media])
+  }, [mi, post.media, twoColumn])
 
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню — про публикацию, которую открыли: у репоста это сам репост (удалить его), а не
@@ -769,483 +793,553 @@ function PostView({
   )
 
   const hasCaption = Boolean(post.title || post.content || originalUnavailable)
+  const hasLead = Boolean(via || hasCaption || post.sharedArticleId)
 
-  // Одна колонка на всех ширинах, как карточка ленты, развёрнутая в окно: шапка, текст,
-  // кадр, ряд действий, обсуждение — общая прокрутка между закреплёнными шапкой и полем
-  // ввода. Прежняя раскладка Instagram (кадр слева, панель справа) делила окно надвое, и
-  // текст поста оказывался узкой колонкой рядом с картинкой.
+  function openViewer(): void {
+    if (cur && isImage) setViewerOpen(true)
+  }
+
+  // Шапка — тот же блок автора, что в карточке ленты (PostByline), справа меню и крестик.
+  const headerEl = (
+    <header className="flex shrink-0 items-center gap-3 border-b border-border py-3 pr-3 pl-4 sm:pl-5">
+      <PostByline post={post} />
+      {/* Листание постов на телефоне — здесь: по краям экрана стрелки ложились на снимок
+          рядом со стрелками карусели. На десктопе посты листают полосы по краям. */}
+      {(onPrev || onNext) && (
+        <div className="flex shrink-0 items-center sm:hidden">
+          <HeaderIconButton label={t('prevPost')} onClick={onPrev} disabled={!onPrev}>
+            <ChevronLeft className="size-5" aria-hidden />
+          </HeaderIconButton>
+          <HeaderIconButton label={t('nextPost')} onClick={onNext} disabled={!onNext}>
+            <ChevronRight className="size-5" aria-hidden />
+          </HeaderIconButton>
+        </div>
+      )}
+      {/* Одно меню на пост: то же, что на карточке и плитке. */}
+      <PostTileMenu
+        post={menuPost}
+        canModerate={canModerate}
+        canDelete={canDelete}
+        isMine={menuPost.authorId === myId}
+        onDeleted={onClose}
+        triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      />
+      <CloseButton label={t('close')} onClick={onClose} />
+    </header>
+  )
+
+  // Подпись — без второго аватара и имени: автор и время уже в шапке.
+  const leadEl = hasLead ? (
+    <div className="flex flex-col gap-3">
+      {via && <RepostBanner repost={via} />}
+      {hasCaption && (
+        <div className="flex flex-col gap-2">
+          {post.title && (
+            <h2 className="text-lg leading-snug font-semibold break-words">{post.title}</h2>
+          )}
+          {post.content && (
+            <div className="[overflow-wrap:anywhere]">
+              <Markdown source={post.content} autolink className="text-[0.9375rem]" />
+            </div>
+          )}
+          {/* Репост, чей исходник зрителю недоступен: без пометки в полном
+              просмотре не видно, что это репост. */}
+          {originalUnavailable && <RepostUnavailable className="mt-1" />}
+        </div>
+      )}
+      <SharedArticleCard post={post} />
+    </div>
+  ) : null
+
+  // Кадр с каруселью. Нажатие на снимок открывает полноэкранный просмотр (щипок, колесо,
+  // перетаскивание — там); свайп поперёк кадра на телефоне листает карусель здесь же.
+  const stageEl = cur ? (
+    <MediaFrame
+      postId={post.id}
+      media={cur}
+      className="size-full"
+      controls={!isImage}
+      sizes={twoColumn ? WIDE_SIZES : LIGHTBOX_SIZES}
+      // Подложка приглушённая: в полном просмотре кадр — единственный центр внимания.
+      backdropClassName="brightness-[0.45] saturate-[0.7]"
+      imageClassName="max-h-full"
+    >
+      {isImage && (
+        <button
+          type="button"
+          aria-label={t('openFullscreen')}
+          onClick={openViewer}
+          onPointerDown={(e) => {
+            swipeStart.current = { x: e.clientX, y: e.clientY }
+          }}
+          onPointerUp={(e) => {
+            const start = swipeStart.current
+            swipeStart.current = null
+            if (!start || e.pointerType === 'mouse') return
+            const dx = e.clientX - start.x
+            if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(e.clientY - start.y)) return
+            // Свайп — не нажатие: браузер всё равно пришлёт click, гасим его.
+            e.currentTarget.dataset.swiped = '1'
+            if (dx < 0 && mi < media.length - 1) setMi(mi + 1)
+            else if (dx > 0 && mi > 0) setMi(mi - 1)
+          }}
+          onClickCapture={(e) => {
+            if (e.currentTarget.dataset.swiped) {
+              delete e.currentTarget.dataset.swiped
+              e.preventDefault()
+              e.stopPropagation()
+            }
+          }}
+          className="absolute inset-0 z-[1] cursor-zoom-in touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-inset"
+        />
+      )}
+      {isImage && (
+        <button
+          type="button"
+          aria-label={t('openFullscreen')}
+          title={t('openFullscreen')}
+          onClick={openViewer}
+          className={cn(MEDIA_OVERLAY_BUTTON, 'absolute bottom-3 left-3 z-10')}
+        >
+          <Maximize2 className="size-4" aria-hidden />
+        </button>
+      )}
+      {media.length > 1 && (
+        <>
+          {/* Зона нажатия — вся высота кадра и полоса шире самого кружка: в
+              галерее целятся не в иконку, а «в правый край». */}
+          {mi > 0 && (
+            <button
+              type="button"
+              aria-label={t('prev')}
+              onClick={() => setMi(mi - 1)}
+              className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-start pl-2.5 outline-none sm:w-16"
+            >
+              <span className={MEDIA_OVERLAY_BUTTON}>
+                <ChevronLeft className="size-5" aria-hidden />
+              </span>
+            </button>
+          )}
+          {mi < media.length - 1 && (
+            <button
+              type="button"
+              aria-label={t('next')}
+              onClick={() => setMi(mi + 1)}
+              className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-end pr-2.5 outline-none sm:w-16"
+            >
+              <span className={MEDIA_OVERLAY_BUTTON}>
+                <ChevronRight className="size-5" aria-hidden />
+              </span>
+            </button>
+          )}
+          {/* Номер материала: «2 из 8» — по позиции в массиве вложений, то есть в порядке
+              автора (сервер хранит его, PROJECT.md «Медиа»). */}
+          <div
+            aria-live="polite"
+            className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums"
+          >
+            {t('counter', { current: mi + 1, total: media.length })}
+          </div>
+          <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1">
+            {media.map((m, i) => (
+              <span
+                key={m.id}
+                className={cn(
+                  'size-1.5 rounded-full transition-colors duration-200',
+                  i === mi ? 'bg-white' : 'bg-white/40',
+                )}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </MediaFrame>
+  ) : null
+
+  // Действия — «таблетками» со счётчиками, просмотры справа. Нажатое (лайк, избранное) —
+  // в акцентном тоне.
+  const actionsEl = (
+    <div className="flex flex-wrap items-center gap-2">
+      <PillButton
+        label={t('like')}
+        pressed={liked}
+        onClick={toggleLike}
+        count={reactionTotal(reactions)}
+      >
+        <Heart
+          key={liked ? 'on' : 'off'}
+          className={cn(
+            'size-[18px]',
+            liked && 'fill-current animate-in zoom-in-75 duration-200 motion-reduce:animate-none',
+          )}
+          aria-hidden
+        />
+      </PillButton>
+      <PillButton
+        label={t('comment')}
+        onClick={() => inputRef.current?.focus()}
+        count={commentCount}
+      >
+        <MessageCircle className="size-[18px] -scale-x-100" aria-hidden />
+      </PillButton>
+      {showRepost && (
+        <PillButton
+          label={t('repost')}
+          disabled={repostPending}
+          onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
+        >
+          <Repeat2 className="size-[18px]" aria-hidden />
+        </PillButton>
+      )}
+      <SharePostMenu postId={post.id} className={cn(PILL, '[&_svg]:size-[18px]')} />
+      <PillButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
+        <Bookmark className={cn('size-[18px]', bookmarked && 'fill-current')} aria-hidden />
+      </PillButton>
+      <span
+        className="ml-auto flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground tabular-nums"
+        title={t('viewsCount', { count: views })}
+      >
+        <Eye className="size-4" aria-hidden />
+        {views.toLocaleString(locale)}
+      </span>
+    </div>
+  )
+
+  // Обсуждение — заголовок с порядком, список веток, состояния загрузки, ошибки и пустоты.
+  const commentsEl = (
+    <section
+      aria-label={t('commentsCount', { count: commentCount })}
+      className="flex flex-col gap-4"
+    >
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{t('commentsHeading', { count: commentCount })}</h3>
+        {/* Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
+            «сначала новые / сначала старые», а не «сначала интересные». */}
+        {commentCount > 1 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="-mr-1.5 flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+              >
+                {newestFirst ? t('sortNewest') : t('sortOldest')}
+                <ChevronDown className="size-3.5" aria-hidden />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={newestFirst ? 'newest' : 'oldest'}
+                onValueChange={(v) => setNewestFirst(v === 'newest')}
+              >
+                <DropdownMenuRadioItem value="oldest">{t('sortOldest')}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="newest">{t('sortNewest')}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {comments.isLoading ? (
+        <ul className="flex flex-col gap-4" aria-label={t('loadingComments')} aria-busy>
+          {Array.from({ length: COMMENT_SKELETON_ROWS }, (_, i) => (
+            <li key={i} className="flex gap-3">
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-1.5 pt-0.5">
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3.5 w-4/5" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : comments.isError ? (
+        // Сбой загрузки — понятной фразой и повтором, без кода ошибки.
+        <div className="flex flex-col items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm">
+          <p className="text-muted-foreground">{t('commentsError')}</p>
+          <Button type="button" size="sm" variant="outline" onClick={() => void comments.refetch()}>
+            {tCommon('retry')}
+          </Button>
+        </div>
+      ) : roots.length === 0 ? (
+        // Пусто — компактно: тихая иконка и одна фраза, без рамки.
+        <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-muted-foreground">
+          <span className="flex size-10 items-center justify-center rounded-full bg-muted">
+            <MessageCircle className="size-5 -scale-x-100" aria-hidden />
+          </span>
+          <p className="max-w-60">{t('commentsEmpty')}</p>
+        </div>
+      ) : (
+        <>
+          {!newestFirst && earlierButton}
+          <ul className="flex flex-col gap-5">
+            {roots.map((c) => {
+              const replies = repliesOf(c.id)
+              const open = openThreads.has(c.id)
+              return (
+                <li key={c.id} className="flex flex-col gap-3">
+                  <CommentRow
+                    id={c.id}
+                    author={c.author}
+                    content={c.content}
+                    createdAt={c.createdAt}
+                    locale={locale}
+                    isPostAuthor={c.author.id === post.author.id}
+                    canDelete={canDeleteComment(c)}
+                    canReport={c.author.id !== myId && canReportComments}
+                    fresh={c.id === freshId}
+                    live={c.id !== freshId && liveIds.has(c.id)}
+                    onReply={() => startReply(c.id, c.author)}
+                    onDelete={() => removeComment(c)}
+                  />
+                  {/* Ветка ответов — со сдвигом под текст корня, свёрнута под
+                      «—— Посмотреть ответы (N)». */}
+                  {replies.length > 0 && (
+                    <div className="ml-12 flex flex-col gap-3">
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        onClick={() => toggleThread(c.id)}
+                        className="flex cursor-pointer items-center gap-3 self-start text-xs font-medium text-muted-foreground hover:text-foreground"
+                      >
+                        <span aria-hidden className="h-px w-6 bg-muted-foreground/50" />
+                        {open ? t('hideReplies') : t('viewReplies', { count: replies.length })}
+                      </button>
+                      {open && (
+                        // Ветка раскрывается коротким проявлением, а не скачком.
+                        <div className="flex flex-col gap-4 animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none">
+                          {replies.map((r) => (
+                            <CommentRow
+                              key={r.id}
+                              id={r.id}
+                              author={r.author}
+                              content={r.content}
+                              createdAt={r.createdAt}
+                              locale={locale}
+                              // Ответ всегда адресован автору корня ветки: вложенность на
+                              // сервере одноуровневая.
+                              replyTo={c.author}
+                              isPostAuthor={r.author.id === post.author.id}
+                              canDelete={canDeleteComment(r)}
+                              canReport={r.author.id !== myId && canReportComments}
+                              fresh={r.id === freshId}
+                              live={r.id !== freshId && liveIds.has(r.id)}
+                              onReply={() => startReply(c.id, r.author)}
+                              onDelete={() => removeComment(r)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {newestFirst && earlierButton}
+        </>
+      )}
+    </section>
+  )
+
+  // Поле ввода — закреплено внизу окна, под общей прокруткой. Снизу на телефоне — поле под
+  // «домашнюю» полосу iOS (safe-area).
+  const composerEl = (
+    <div className="shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)]">
+      {/* Кому отвечаем — отдельной строкой над полем, с отменой. */}
+      {replyTarget && (
+        <div className="flex items-center gap-2 px-4 pt-2.5 text-xs text-muted-foreground sm:px-5">
+          <CornerDownRight className="size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">
+            {t('replyingTo', { name: `${replyTarget.lastName} ${replyTarget.firstName}` })}
+          </span>
+          <button
+            type="button"
+            onClick={cancelReply}
+            className="cursor-pointer font-medium hover:text-foreground"
+          >
+            {t('cancelReply')}
+          </button>
+        </div>
+      )}
+
+      {/* Эмодзи · многострочное поле · отправка. Всё по нижней кромке (`items-end`):
+        поле растёт вверх, и при центрировании кнопки повисали бы посреди поля. */}
+      <div className="relative flex items-end gap-2 px-4 py-3 sm:px-5">
+        <div ref={emojiRef} className="relative shrink-0">
+          <button
+            type="button"
+            aria-label={t('emoji')}
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen((o) => !o)}
+            className={cn(
+              'flex size-10 cursor-pointer items-center justify-center rounded-full border border-border text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+              emojiOpen && 'bg-muted text-foreground',
+            )}
+          >
+            <Smile className="size-5" aria-hidden />
+          </button>
+          {emojiOpen && (
+            <div className="absolute bottom-full left-0 z-30 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-border bg-popover p-2 shadow-lg">
+              {EMOJI_SET.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => insertEmoji(e)}
+                  className="flex size-7 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted"
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <MentionSuggest
+          query={mention}
+          handle={mentionRef}
+          onPick={(login) => {
+            const el = inputRef.current
+            const caret = el?.selectionStart ?? text.length
+            const next = applyMention(text, caret, login)
+            setText(next.text)
+            setMention(null)
+            requestAnimationFrame(() => {
+              el?.focus()
+              el?.setSelectionRange(next.caret, next.caret)
+            })
+          }}
+        />
+
+        {/* Поле — на мягкой подложке с кольцом фокуса: голая строка без границ в тёмной
+          теме не читалась как место, куда можно писать. */}
+        <div className="flex min-w-0 flex-1 rounded-xl bg-muted/60 px-3.5 ring-1 ring-transparent transition-shadow duration-150 focus-within:ring-ring/40">
+          <textarea
+            ref={inputRef}
+            value={text}
+            rows={1}
+            onChange={(e) => {
+              const v = e.target.value
+              setText(v)
+              setMention(mentionQuery(v, e.target.selectionStart ?? v.length))
+              // Очистка поля режим ответа не сбрасывает: у него есть своя кнопка отмены.
+            }}
+            onKeyUp={(e) =>
+              setMention(mentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0))
+            }
+            onBlur={() => setMention(null)}
+            onKeyDown={(e) => {
+              // Открытая подсказка упоминаний забирает стрелки, Enter, Tab и Esc себе.
+              if (mentionRef.current?.handleKey(e.key)) {
+                e.preventDefault()
+                e.stopPropagation()
+                return
+              }
+              // Enter — отправить; Shift+Enter — перенос строки.
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+            placeholder={replyTo ? t('replyPlaceholder') : t('writeComment')}
+            aria-label={replyTo ? t('replyPlaceholder') : t('writeComment')}
+            className="max-h-28 min-h-10 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-sm leading-snug outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={send}
+          disabled={text.trim().length === 0 || addMut.isPending}
+          aria-busy={addMut.isPending}
+          aria-label={t('send')}
+          title={t('send')}
+          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary text-primary-foreground transition-[background-color,opacity] duration-150 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:outline-none disabled:cursor-default disabled:opacity-50"
+        >
+          {addMut.isPending ? (
+            <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+          ) : (
+            <SendHorizontal className="size-[18px]" aria-hidden />
+          )}
+        </button>
+      </div>
+    </div>
+  )
+
+  const overlays = (
+    <>
+      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
+      {viewerOpen && (
+        <PostMediaViewer
+          post={post}
+          index={mi}
+          onIndexChange={setMi}
+          onClose={() => setViewerOpen(false)}
+          getOrigin={() => frameRef.current}
+        />
+      )}
+    </>
+  )
+
+  // Две колонки, как в Instagram: кадр слева во всю высоту окна и не прокручивается, справа
+  // — автор, текст, обсуждение (своя прокрутка), действия и поле ввода, закреплённые внизу.
+  // Одна прокрутка на окно: левая часть не листается вовсе.
+  if (twoColumn) {
+    return (
+      <div className="flex min-h-0 flex-1">
+        <div ref={frameRef} className="relative min-w-0 flex-1 bg-black">
+          {stageEl}
+        </div>
+        <div className="flex w-[clamp(20rem,34%,26rem)] shrink-0 flex-col border-l border-border">
+          {headerEl}
+          <div
+            ref={threadRef}
+            className="sh-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-4 pt-4 pb-5"
+          >
+            {leadEl}
+            {leadEl && <div className="border-t border-border" aria-hidden />}
+            {commentsEl}
+          </div>
+          <div className="shrink-0 border-t border-border px-4 py-2.5">{actionsEl}</div>
+          {composerEl}
+        </div>
+        {overlays}
+      </div>
+    )
+  }
+
+  // Одна колонка — текстовый пост и узкий экран: шапка, текст, кадр, действия, обсуждение —
+  // общая прокрутка между закреплёнными шапкой и полем ввода.
   return (
     <>
-      {/* Шапка — тот же блок автора, что в карточке ленты (PostByline), справа меню
-          поста и крестик. */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-border py-3 pr-3 pl-4 sm:pl-5">
-        <PostByline post={post} />
-        {/* Листание постов на телефоне — здесь: по краям экрана стрелки ложились на снимок
-            рядом со стрелками карусели. На десктопе посты листают полосы по краям. */}
-        {(onPrev || onNext) && (
-          <div className="flex shrink-0 items-center sm:hidden">
-            <HeaderIconButton label={t('prevPost')} onClick={onPrev} disabled={!onPrev}>
-              <ChevronLeft className="size-5" aria-hidden />
-            </HeaderIconButton>
-            <HeaderIconButton label={t('nextPost')} onClick={onNext} disabled={!onNext}>
-              <ChevronRight className="size-5" aria-hidden />
-            </HeaderIconButton>
-          </div>
-        )}
-        {/* Одно меню на пост: то же, что на карточке и плитке. */}
-        <PostTileMenu
-          post={menuPost}
-          canModerate={canModerate}
-          canDelete={canDelete}
-          isMine={menuPost.authorId === myId}
-          onDeleted={onClose}
-          triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-        />
-        <CloseButton label={t('close')} onClick={onClose} />
-      </header>
-
+      {headerEl}
       {/* flex-auto, а не flex-1: окно по высоте содержимого, и нулевая основа схлопнула бы
           ленту; упёршись в высоту экрана, она сжимается и прокручивается. */}
       <div
         ref={threadRef}
         className="sh-scroll flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain"
       >
-        {(via || hasCaption || cur || post.sharedArticleId) && (
+        {(leadEl || stageEl) && (
           <div className="flex flex-col gap-3 px-4 pt-4 sm:px-5">
-            {via && <RepostBanner repost={via} />}
-            {/* Подпись — без второго аватара и имени: автор и время уже в шапке. */}
-            {hasCaption && (
-              <div className="flex flex-col gap-2">
-                {post.title && (
-                  <h2 className="text-lg leading-snug font-semibold break-words">{post.title}</h2>
-                )}
-                {post.content && (
-                  <div className="[overflow-wrap:anywhere]">
-                    <Markdown source={post.content} autolink className="text-[0.9375rem]" />
-                  </div>
-                )}
-                {/* Репост, чей исходник зрителю недоступен: без пометки в полном
-                    просмотре не видно, что это репост. */}
-                {originalUnavailable && <RepostUnavailable className="mt-1" />}
-              </div>
-            )}
-            <SharedArticleCard post={post} />
-
-            {cur && (
+            {leadEl}
+            {stageEl && (
               // Пропорции кадра — одни на весь пост (mediaAspectFor): при листании карусели
               // снимки бывают то горизонтальными, то вертикальными, и при высоте «по
               // картинке» всё под кадром прыгало бы. Поля закрывает размытая подложка.
               <div
+                ref={frameRef}
                 className="relative max-h-[min(60dvh,36rem)] w-full overflow-hidden rounded-xl bg-black"
                 style={{ aspectRatio: mediaAspectFor(media) }}
               >
-                <MediaFrame
-                  postId={post.id}
-                  media={cur}
-                  className="size-full"
-                  controls={!isImage}
-                  sizes={LIGHTBOX_SIZES}
-                  // Подложка приглушённая: в полном просмотре кадр — единственный центр внимания.
-                  backdropClassName="brightness-[0.45] saturate-[0.7]"
-                  imageClassName="max-h-full"
-                  {...(isImage ? { stageRef: zoom.stageRef, stageStyle: zoom.stageStyle } : {})}
-                >
-                  {/* Слой жестов над снимком: двойной клик — приближение в точку,
-                      перетаскивание — сдвиг увеличенного кадра. Одиночный клик ничего не
-                      делает: им промахиваются мимо стрелок. */}
-                  {isImage && (
-                    <div
-                      aria-hidden
-                      {...zoom.handlers}
-                      className={cn(
-                        'absolute inset-0 z-[1] touch-none select-none',
-                        zoom.zoomed
-                          ? zoom.dragging
-                            ? 'cursor-grabbing'
-                            : 'cursor-grab'
-                          : 'cursor-zoom-in',
-                      )}
-                    />
-                  )}
-                  {isImage && (
-                    <button
-                      type="button"
-                      aria-label={zoom.zoomed ? t('zoomOut') : t('zoomIn')}
-                      aria-pressed={zoom.zoomed}
-                      title={zoom.zoomed ? t('zoomOut') : t('zoomIn')}
-                      onClick={() => zoom.toggle()}
-                      className={cn(MEDIA_OVERLAY_BUTTON, 'absolute bottom-3 left-3 z-10')}
-                    >
-                      {zoom.zoomed ? (
-                        <ZoomOut className="size-4" aria-hidden />
-                      ) : (
-                        <ZoomIn className="size-4" aria-hidden />
-                      )}
-                    </button>
-                  )}
-                  {media.length > 1 && (
-                    <>
-                      {/* Зона нажатия — вся высота кадра и полоса шире самого кружка: в
-                          галерее целятся не в иконку, а «в правый край». */}
-                      {mi > 0 && (
-                        <button
-                          type="button"
-                          aria-label={t('prev')}
-                          onClick={() => setMi(mi - 1)}
-                          className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-start pl-2.5 outline-none sm:w-16"
-                        >
-                          <span className={MEDIA_OVERLAY_BUTTON}>
-                            <ChevronLeft className="size-5" aria-hidden />
-                          </span>
-                        </button>
-                      )}
-                      {mi < media.length - 1 && (
-                        <button
-                          type="button"
-                          aria-label={t('next')}
-                          onClick={() => setMi(mi + 1)}
-                          className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-end pr-2.5 outline-none sm:w-16"
-                        >
-                          <span className={MEDIA_OVERLAY_BUTTON}>
-                            <ChevronRight className="size-5" aria-hidden />
-                          </span>
-                        </button>
-                      )}
-                      {/* Номер материала: «2 из 8» */}
-                      <div className="pointer-events-none absolute top-3 right-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white tabular-nums">
-                        {t('counter', { current: mi + 1, total: media.length })}
-                      </div>
-                      <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1">
-                        {media.map((m, i) => (
-                          <span
-                            key={m.id}
-                            className={cn(
-                              'size-1.5 rounded-full transition-colors',
-                              i === mi ? 'bg-white' : 'bg-white/40',
-                            )}
-                          />
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </MediaFrame>
+                {stageEl}
               </div>
             )}
           </div>
         )}
-
-        {/* Действия — «таблетками» со счётчиками, просмотры справа. Нажатое (лайк,
-            избранное) — в акцентном тоне. */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
-          <PillButton
-            label={t('like')}
-            pressed={liked}
-            onClick={toggleLike}
-            count={reactionTotal(reactions)}
-          >
-            <Heart
-              key={liked ? 'on' : 'off'}
-              className={cn(
-                'size-[18px]',
-                liked &&
-                  'fill-current animate-in zoom-in-75 duration-200 motion-reduce:animate-none',
-              )}
-              aria-hidden
-            />
-          </PillButton>
-          <PillButton
-            label={t('comment')}
-            onClick={() => inputRef.current?.focus()}
-            count={commentCount}
-          >
-            <MessageCircle className="size-[18px] -scale-x-100" aria-hidden />
-          </PillButton>
-          {showRepost && (
-            <PillButton
-              label={t('repost')}
-              disabled={repostPending}
-              onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
-            >
-              <Repeat2 className="size-[18px]" aria-hidden />
-            </PillButton>
-          )}
-          <SharePostMenu postId={post.id} className={cn(PILL, '[&_svg]:size-[18px]')} />
-          <PillButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
-            <Bookmark className={cn('size-[18px]', bookmarked && 'fill-current')} aria-hidden />
-          </PillButton>
-          <span
-            className="ml-auto flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground tabular-nums"
-            title={t('viewsCount', { count: views })}
-          >
-            <Eye className="size-4" aria-hidden />
-            {views.toLocaleString(locale)}
-          </span>
-        </div>
-
+        <div className="px-4 py-3 sm:px-5">{actionsEl}</div>
         {/* Обсуждение — под линией: иначе первая реплика читалась как продолжение поста. */}
-        <section
-          aria-label={t('commentsCount', { count: commentCount })}
-          className="mx-4 flex flex-col gap-4 border-t border-border pt-3 pb-5 sm:mx-5"
-        >
-          <div className="flex min-h-8 items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">
-              {t('commentsHeading', { count: commentCount })}
-            </h3>
-            {/* Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
-                «сначала новые / сначала старые», а не «сначала интересные». */}
-            {commentCount > 1 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="-mr-1.5 flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-                  >
-                    {newestFirst ? t('sortNewest') : t('sortOldest')}
-                    <ChevronDown className="size-3.5" aria-hidden />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuRadioGroup
-                    value={newestFirst ? 'newest' : 'oldest'}
-                    onValueChange={(v) => setNewestFirst(v === 'newest')}
-                  >
-                    <DropdownMenuRadioItem value="oldest">{t('sortOldest')}</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="newest">{t('sortNewest')}</DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-
-          {comments.isLoading ? (
-            <ul className="flex flex-col gap-4" aria-label={t('loadingComments')} aria-busy>
-              {Array.from({ length: COMMENT_SKELETON_ROWS }, (_, i) => (
-                <li key={i} className="flex gap-3">
-                  <Skeleton className="size-9 shrink-0 rounded-full" />
-                  <div className="flex flex-1 flex-col gap-1.5 pt-0.5">
-                    <Skeleton className="h-3.5 w-2/5" />
-                    <Skeleton className="h-3.5 w-4/5" />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : comments.isError ? (
-            // Сбой загрузки — понятной фразой и повтором, без кода ошибки.
-            <div className="flex flex-col items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm">
-              <p className="text-muted-foreground">{t('commentsError')}</p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void comments.refetch()}
-              >
-                {tCommon('retry')}
-              </Button>
-            </div>
-          ) : roots.length === 0 ? (
-            // Пусто — компактно: тихая иконка и одна фраза, без рамки.
-            <div className="flex flex-col items-center gap-2 py-4 text-center text-sm text-muted-foreground">
-              <span className="flex size-10 items-center justify-center rounded-full bg-muted">
-                <MessageCircle className="size-5 -scale-x-100" aria-hidden />
-              </span>
-              <p className="max-w-60">{t('commentsEmpty')}</p>
-            </div>
-          ) : (
-            <>
-              {!newestFirst && earlierButton}
-              <ul className="flex flex-col gap-5">
-                {roots.map((c) => {
-                  const replies = repliesOf(c.id)
-                  const open = openThreads.has(c.id)
-                  return (
-                    <li key={c.id} className="flex flex-col gap-3">
-                      <CommentRow
-                        id={c.id}
-                        author={c.author}
-                        content={c.content}
-                        createdAt={c.createdAt}
-                        locale={locale}
-                        isPostAuthor={c.author.id === post.author.id}
-                        canDelete={canDeleteComment(c)}
-                        canReport={c.author.id !== myId && canReportComments}
-                        fresh={c.id === freshId}
-                        live={c.id !== freshId && liveIds.has(c.id)}
-                        onReply={() => startReply(c.id, c.author)}
-                        onDelete={() => removeComment(c)}
-                      />
-                      {/* Ветка ответов — со сдвигом под текст корня, свёрнута под
-                          «—— Посмотреть ответы (N)». */}
-                      {replies.length > 0 && (
-                        <div className="ml-12 flex flex-col gap-3">
-                          <button
-                            type="button"
-                            aria-expanded={open}
-                            onClick={() => toggleThread(c.id)}
-                            className="flex cursor-pointer items-center gap-3 self-start text-xs font-medium text-muted-foreground hover:text-foreground"
-                          >
-                            <span aria-hidden className="h-px w-6 bg-muted-foreground/50" />
-                            {open ? t('hideReplies') : t('viewReplies', { count: replies.length })}
-                          </button>
-                          {open && (
-                            // Ветка раскрывается коротким проявлением, а не скачком.
-                            <div className="flex flex-col gap-4 animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none">
-                              {replies.map((r) => (
-                                <CommentRow
-                                  key={r.id}
-                                  id={r.id}
-                                  author={r.author}
-                                  content={r.content}
-                                  createdAt={r.createdAt}
-                                  locale={locale}
-                                  // Ответ всегда адресован автору корня ветки: вложенность на
-                                  // сервере одноуровневая.
-                                  replyTo={c.author}
-                                  isPostAuthor={r.author.id === post.author.id}
-                                  canDelete={canDeleteComment(r)}
-                                  canReport={r.author.id !== myId && canReportComments}
-                                  fresh={r.id === freshId}
-                                  live={r.id !== freshId && liveIds.has(r.id)}
-                                  onReply={() => startReply(c.id, r.author)}
-                                  onDelete={() => removeComment(r)}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-              {newestFirst && earlierButton}
-            </>
-          )}
-        </section>
+        <div className="mx-4 border-t border-border pt-3 pb-5 sm:mx-5">{commentsEl}</div>
       </div>
-
-      {/* Поле ввода — закреплено внизу окна, под общей прокруткой. Снизу на телефоне —
-          поле под «домашнюю» полосу iOS (safe-area). */}
-      <div className="shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)]">
-        {/* Кому отвечаем — отдельной строкой над полем, с отменой. */}
-        {replyTarget && (
-          <div className="flex items-center gap-2 px-4 pt-2.5 text-xs text-muted-foreground sm:px-5">
-            <CornerDownRight className="size-3.5 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1 truncate">
-              {t('replyingTo', { name: `${replyTarget.lastName} ${replyTarget.firstName}` })}
-            </span>
-            <button
-              type="button"
-              onClick={cancelReply}
-              className="cursor-pointer font-medium hover:text-foreground"
-            >
-              {t('cancelReply')}
-            </button>
-          </div>
-        )}
-
-        {/* Эмодзи · многострочное поле · отправка. Всё по нижней кромке (`items-end`):
-            поле растёт вверх, и при центрировании кнопки повисали бы посреди поля. */}
-        <div className="relative flex items-end gap-2 px-4 py-3 sm:px-5">
-          <div ref={emojiRef} className="relative shrink-0">
-            <button
-              type="button"
-              aria-label={t('emoji')}
-              aria-expanded={emojiOpen}
-              onClick={() => setEmojiOpen((o) => !o)}
-              className={cn(
-                'flex size-10 cursor-pointer items-center justify-center rounded-full border border-border text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-                emojiOpen && 'bg-muted text-foreground',
-              )}
-            >
-              <Smile className="size-5" aria-hidden />
-            </button>
-            {emojiOpen && (
-              <div className="absolute bottom-full left-0 z-30 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-border bg-popover p-2 shadow-lg">
-                {EMOJI_SET.map((e) => (
-                  <button
-                    key={e}
-                    type="button"
-                    onClick={() => insertEmoji(e)}
-                    className="flex size-7 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted"
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <MentionSuggest
-            query={mention}
-            handle={mentionRef}
-            onPick={(login) => {
-              const el = inputRef.current
-              const caret = el?.selectionStart ?? text.length
-              const next = applyMention(text, caret, login)
-              setText(next.text)
-              setMention(null)
-              requestAnimationFrame(() => {
-                el?.focus()
-                el?.setSelectionRange(next.caret, next.caret)
-              })
-            }}
-          />
-
-          {/* Поле — на мягкой подложке с кольцом фокуса: голая строка без границ в тёмной
-              теме не читалась как место, куда можно писать. */}
-          <div className="flex min-w-0 flex-1 rounded-xl bg-muted/60 px-3.5 ring-1 ring-transparent transition-shadow duration-150 focus-within:ring-ring/40">
-            <textarea
-              ref={inputRef}
-              value={text}
-              rows={1}
-              onChange={(e) => {
-                const v = e.target.value
-                setText(v)
-                setMention(mentionQuery(v, e.target.selectionStart ?? v.length))
-                // Очистка поля режим ответа не сбрасывает: у него есть своя кнопка отмены.
-              }}
-              onKeyUp={(e) =>
-                setMention(mentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0))
-              }
-              onBlur={() => setMention(null)}
-              onKeyDown={(e) => {
-                // Открытая подсказка упоминаний забирает стрелки, Enter, Tab и Esc себе.
-                if (mentionRef.current?.handleKey(e.key)) {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  return
-                }
-                // Enter — отправить; Shift+Enter — перенос строки.
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  send()
-                }
-              }}
-              placeholder={replyTo ? t('replyPlaceholder') : t('writeComment')}
-              aria-label={replyTo ? t('replyPlaceholder') : t('writeComment')}
-              className="max-h-28 min-h-10 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-sm leading-snug outline-none placeholder:text-muted-foreground"
-            />
-          </div>
-
-          <button
-            type="button"
-            onClick={send}
-            disabled={text.trim().length === 0 || addMut.isPending}
-            aria-busy={addMut.isPending}
-            aria-label={t('send')}
-            title={t('send')}
-            className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary text-primary-foreground transition-[background-color,opacity] duration-150 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-card focus-visible:outline-none disabled:cursor-default disabled:opacity-50"
-          >
-            {addMut.isPending ? (
-              <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-            ) : (
-              <SendHorizontal className="size-[18px]" aria-hidden />
-            )}
-          </button>
-        </div>
-      </div>
-
-      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
+      {composerEl}
+      {overlays}
     </>
   )
 }

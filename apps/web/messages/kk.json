@@ -2267,7 +2267,8 @@
     "cancelSchedule": "Жоспарлауды болдырмау",
     "scheduleTimezone": "Уақыт белдеуі: {zone}",
     "scheduledFor": "{when} жарияланады",
-    "mediaLimitCount": "Бір жарияланымда {max} тіркемеден аспауы керек"
+    "mediaLimitCount": "Бір жарияланымда {max} тіркемеден аспауы керек",
+    "openFullscreen": "Толық экранда ашу"
   },
   "Stories": {
     "toolEvent": "Іс-шара",
