@@ -68,31 +68,6 @@ export function isPostCached(qc: QueryClient, postId: string): boolean {
 }
 
 /**
- * Репосты поста, лежащие в закэшированных выдачах, — карточки, которые цитируют его. Когда
- * исходник правят или удаляют, сигнал приходит по его id, а репост в кэше держит старую
- * цитату: найти их можно только по `originalPostId`. Без повторов — один репост бывает
- * сразу в ленте, профиле и на своей странице.
- */
-export function cachedRepostIds(qc: QueryClient, originalId: string): string[] {
-  const ids = new Set<string>()
-  const collect = (p: FeedPost): void => {
-    if (p.originalPostId === originalId && p.id !== originalId) ids.add(p.id)
-  }
-  for (const [, data] of qc.getQueriesData<unknown>({
-    queryKey: postKeys.all,
-    predicate: isPostList,
-  })) {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) continue
-    if ('pages' in data) {
-      for (const pg of (data as InfiniteData<FeedPage>).pages) pg.items.forEach(collect)
-    } else if ('id' in data && 'originalPostId' in data) {
-      collect(data as FeedPost)
-    }
-  }
-  return [...ids]
-}
-
-/**
  * Перечитать ленту с начала — по нажатию «N новых публикаций». Сначала она укорачивается до
  * первой страницы: читающий всё равно поднимается наверх, а перечитывать ради этого все
  * догруженные страницы подряд — лишние запросы и задержка перед появлением новых постов.

@@ -1,10 +1,7 @@
 // Аудитории публикации по роли — зеркало ALLOWED_AUDIENCES из posts.service.ts
 // (docs/PROJECT.md §2.2: модераторы посты не создают, поэтому их в карте нет).
-// Живёт в entities, а не в features/create-post: карта нужна двум фичам — созданию поста
-// и репосту, а импорт между слайсами одного слоя запрещён (FRONTEND_RULES §2.1).
 import { Role } from '@studenthub/shared-types'
 import type { PostAudienceValue } from '@studenthub/shared-schemas'
-import type { FeedPost } from './types'
 
 // PERSONAL отложен до списка пользователей Ф12.2.
 export const AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>> = {
@@ -18,59 +15,8 @@ export const AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>> = {
   [Role.EMPLOYER]: ['COMPANY'],
 }
 
-// Репост: у RepostSchema нет поля subject, поэтому аудитория SUBJECT недоступна —
-// сервер ответил бы «Не указан предмет».
-export const REPOST_AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>> =
-  Object.fromEntries(
-    Object.entries(AUDIENCES_BY_ROLE).map(([role, list]) => [
-      role,
-      (list ?? []).filter((a) => a !== 'SUBJECT'),
-    ]),
-  )
-
 // Кто выбирает конкретную группу/факультет. У студента и старосты группа своя, у декана —
 // свой факультет, но не группа: группу факультета он выбирает (сервер подставил бы
 // actor.groupId, а его у декана нет — «Не указана группа»).
 export const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 export const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
-
-// Куда уходит репост «к себе»: своя группа → свой факультет → свой университет → «все».
-// От узкого к широкому — репост попадает в ту же ленту, где человек и так пишет.
-//
-// В аудиториях, которым нужна явная цель, сервер подставляет её из профиля автора
-// (posts.service.ts, resolveTarget: GROUP → actor.groupId, FACULTY → actor.facultyId,
-// UNIVERSITY → actor.universityId). Поэтому годится только та аудитория, чья цель в
-// профиле есть: у ролей-пикеров «своей» группы/факультета нет — они каждый раз выбирают
-// чужие, и подставлять серверу нечего. PERSONAL не годится никогда: получателя из профиля
-// не возьмёшь.
-//
-// null означает «мгновенный репост невозможен» — у преподавателя, например, разрешены
-// только GROUP (группу он выбирает, своей нет) и PERSONAL.
-export interface SelfRepostScope {
-  groupId?: string | null
-  facultyId?: string | null
-  universityId?: string | null
-}
-
-export function selfRepostAudience(
-  role: Role | null,
-  scope: SelfRepostScope,
-): PostAudienceValue | null {
-  if (role === null) return null
-  const allowed = REPOST_AUDIENCES_BY_ROLE[role] ?? []
-  const order: [PostAudienceValue, boolean][] = [
-    ['GROUP', !!scope.groupId && !GROUP_PICKER_ROLES.includes(role)],
-    ['FACULTY', !!scope.facultyId && !FACULTY_PICKER_ROLES.includes(role)],
-    ['UNIVERSITY', !!scope.universityId],
-    ['ALL', true],
-  ]
-  return order.find(([a, ready]) => ready && allowed.includes(a))?.[0] ?? null
-}
-
-// Можно ли репостить этот пост: роль должна уметь публиковать, сам пост — быть опубликованным
-// (черновик и отложенный ещё не видны никому) и не личным (личный адресован одному человеку).
-export function canRepost(role: Role | null, post: Pick<FeedPost, 'audience' | 'status'>): boolean {
-  if (role === null) return false
-  if (post.audience === 'PERSONAL' || post.status !== 'PUBLISHED') return false
-  return (REPOST_AUDIENCES_BY_ROLE[role] ?? []).length > 0
-}

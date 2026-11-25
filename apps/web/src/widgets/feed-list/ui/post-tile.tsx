@@ -1,17 +1,16 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
+import { Eye, Heart, Images, MessageCircle, Pin, Play } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { reactionSummaryOf, reactionTotal, type FeedPost } from '../../../entities/post'
 import { cn } from '../../../shared/lib/utils'
 import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
-import { MosaicTile, Skeleton } from '../../../shared/ui'
+import { MosaicTile } from '../../../shared/ui'
 import { PostMediaView } from './post-media'
 import { PostTileMenu } from './post-tile-menu'
-import { useRepostSource } from '../lib/use-repost-source'
 
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
@@ -29,59 +28,20 @@ interface PostTileProps {
 }
 
 // Плитка публикации в сетке профиля (как в Instagram): обложка во всю плитку, подпись и
-// счётчики — на затемнении снизу, чтобы читаться поверх любого снимка. Лайк, комментарий,
-// репост и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
-//
-// Репост показывается исходным постом: его обложка и счётчики, а в углу — «↻ Имя». Пока
-// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста, и без
-// своей заметки на ней «Публикация недоступна».
-export function PostTile(props: PostTileProps) {
-  const source = useRepostSource(props.post)
-  if (source.kind === 'loading') {
-    return (
-      <MosaicTile aria-hidden>
-        <Skeleton className="size-full rounded-none" />
-      </MosaicTile>
-    )
-  }
-  if (source.kind === 'ready') {
-    return <PostTileView {...props} key={source.source.id} post={source.source} via={props.post} />
-  }
-  return <PostTileView {...props} originalUnavailable={source.kind === 'unavailable'} />
-}
-
-function PostTileView({
-  post,
-  via,
-  originalUnavailable = false,
-  onOpen,
-  className,
-}: PostTileProps & {
-  /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
-  via?: FeedPost
-  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
-  originalUnavailable?: boolean
-}) {
+// счётчики — на затемнении снизу, чтобы читаться поверх любого снимка. Лайк, комментарий
+// и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
+export function PostTile({ post, onOpen, className }: PostTileProps) {
   const t = useTranslations('Feed')
-  const tArticle = useTranslations('Article')
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
   const first = post.media[0]
   // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
-  const text =
-    post.title ||
-    plainPreview(post.content, { chatMarkup: false }) ||
-    // Репост статьи без подписи — заголовком статьи (или «недоступна»).
-    (post.sharedArticleId ? (post.sharedArticle?.title ?? tArticle('unavailableShort')) : '') ||
-    (originalUnavailable ? t('postUnavailableTitle') : '')
+  const text = post.title || plainPreview(post.content, { chatMarkup: false })
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
-  // (удалить его), а не чужой исходник, который трогать нельзя.
-  const menuPost = via ?? post
   // Права считает сервер (ранг и scope); роль — только для ответа старого API.
-  const canModerate = menuPost.canPin ?? byRole
-  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
+  const canModerate = post.canPin ?? byRole
+  const canDelete = post.canDelete ?? (post.authorId === myId || byRole)
 
   return (
     // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит
@@ -147,12 +107,6 @@ function PostTileView({
         </span>
 
         <span className="absolute left-2 top-2 flex flex-wrap items-center gap-1">
-          {via && (
-            <span className="flex max-w-40 items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
-              <Repeat2 className="size-3 shrink-0" aria-hidden />
-              <span className="truncate">{via.author.firstName}</span>
-            </span>
-          )}
           {post.status === 'DRAFT' && (
             <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
               {t('statusDraft')}
@@ -178,13 +132,13 @@ function PostTileView({
         ) : first?.mime.startsWith('video/') ? (
           <Play className="size-5 fill-current text-white drop-shadow-md" aria-hidden />
         ) : null}
-        {(canDelete || menuPost.authorId !== myId) && (
+        {(canDelete || post.authorId !== myId) && (
           <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile:opacity-100 has-[[aria-expanded=true]]:opacity-100 max-lg:opacity-100">
             <PostTileMenu
-              post={menuPost}
+              post={post}
               canModerate={canModerate}
               canDelete={canDelete}
-              isMine={menuPost.authorId === myId}
+              isMine={post.authorId === myId}
               triggerClassName="bg-black/45 text-white hover:bg-black/65 hover:text-white"
             />
           </span>

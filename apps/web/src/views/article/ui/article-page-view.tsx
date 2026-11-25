@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ArrowLeft, Bookmark, FileText, Heart, MessageCircle, Pencil, Repeat2 } from 'lucide-react'
+import { ArrowLeft, Bookmark, FileText, Heart, MessageCircle, Pencil } from 'lucide-react'
 import {
   ArticleContent,
   ArticleCover,
@@ -22,9 +22,7 @@ import {
   toggleArticleBookmark,
   type ProfileArticle,
 } from '../../../entities/profile-content'
-import { REPOST_AUDIENCES_BY_ROLE } from '../../../entities/post'
 import { fetchUserById, userKeys } from '../../../entities/user'
-import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { contentModeration } from '../../../widgets/user-profile'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -101,7 +99,6 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
   const [like, setLike] = useState({ liked: a.liked ?? false, count: a.likesCount ?? 0 })
   const [bookmarked, setBookmarked] = useState(a.bookmarked)
   const [commentCount, setCommentCount] = useState(a.commentCount)
-  const [repostDialog, setRepostDialog] = useState(false)
   const articleRef = useRef<HTMLElement>(null)
   const commentsRef = useRef<HTMLElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
@@ -128,11 +125,6 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
       author.data,
     ).comments
 
-  const { audience: repostAudience, repostArticle, isPending: repostPending } = useRepost()
-  const canRepost =
-    a.status === 'PUBLISHED' &&
-    auth.role !== null &&
-    (REPOST_AUDIENCES_BY_ROLE[auth.role] ?? []).length > 0
   const canEdit = personal && a.userId === myId
 
   // Просмотр засчитывается один раз при открытии (сервер считает одного зрителя в сутки).
@@ -244,7 +236,7 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
   )
 
   // Действия — тихим рядом под строкой автора, как в Medium: лайк и комментарии слева,
-  // репост, «поделиться», закладка и правка — справа.
+  // «поделиться», закладка и правка — справа.
   const actions = (
     <div className="flex items-center gap-1 border-y border-border py-1.5">
       <button
@@ -278,18 +270,6 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
         {commentCount > 0 && <span className="tabular-nums">{commentCount}</span>}
       </button>
       <div className="ml-auto flex items-center gap-1">
-        {canRepost && (
-          <button
-            type="button"
-            aria-label={tFeed('repost')}
-            title={tFeed('repost')}
-            disabled={repostPending}
-            onClick={() => (repostAudience ? repostArticle(a.id) : setRepostDialog(true))}
-            className={QUIET}
-          >
-            <Repeat2 className="size-5" aria-hidden />
-          </button>
-        )}
         <ArticleShareMenu
           articleId={a.id}
           title={a.title}
@@ -453,13 +433,6 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
           {relatedEl}
         </aside>
       </div>
-
-      {repostDialog && (
-        <RepostDialog
-          article={{ id: a.id, title: a.title }}
-          onClose={() => setRepostDialog(false)}
-        />
-      )}
     </div>
   )
 }

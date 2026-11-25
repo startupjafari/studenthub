@@ -1,9 +1,4 @@
-import type {
-  CreatePostInput,
-  UpdatePostInput,
-  FeedQueryInput,
-  RepostInput,
-} from '@studenthub/shared-schemas'
+import type { CreatePostInput, UpdatePostInput, FeedQueryInput } from '@studenthub/shared-schemas'
 import { api, toMediaLink, type MediaLink } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 import type { FeedPost, PostComment, PostCommentsPage } from '../model/types'
@@ -84,20 +79,6 @@ export async function updatePostRequest(id: string, input: UpdatePostInput): Pro
 
 export async function createPostRequest(input: CreatePostInput): Promise<FeedPost> {
   const { data } = await api.post<FeedPost>('/posts', input)
-  return data
-}
-
-export async function repostRequest(id: string, input: RepostInput): Promise<FeedPost> {
-  const { data } = await api.post<FeedPost>(`/posts/${id}/repost`, input)
-  return data
-}
-
-/** Репост статьи в ленту: пост со ссылкой на статью, тело — как у репоста поста. */
-export async function repostArticleRequest(
-  articleId: string,
-  input: RepostInput,
-): Promise<FeedPost> {
-  const { data } = await api.post<FeedPost>(`/posts/articles/${articleId}/repost`, input)
   return data
 }
 

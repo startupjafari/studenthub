@@ -7,8 +7,6 @@ export {
   fetchUniversityPagePosts,
   createPostRequest,
   updatePostRequest,
-  repostRequest,
-  repostArticleRequest,
   deletePostRequest,
   pinPostRequest,
   publishPostRequest,
@@ -22,15 +20,7 @@ export {
   incrementPostView,
   type FeedPage,
 } from './api/post-api'
-export {
-  AUDIENCES_BY_ROLE,
-  REPOST_AUDIENCES_BY_ROLE,
-  GROUP_PICKER_ROLES,
-  FACULTY_PICKER_ROLES,
-  canRepost,
-  selfRepostAudience,
-  type SelfRepostScope,
-} from './model/audiences'
+export { AUDIENCES_BY_ROLE, GROUP_PICKER_ROLES, FACULTY_PICKER_ROLES } from './model/audiences'
 export {
   POST_AUDIENCES,
   type PostAudienceValue,
@@ -39,7 +29,6 @@ export {
   type PostReaction,
   type PostReactionSummary,
   type FeedPost,
-  type SharedArticle,
   type PostComment,
   type PostCommentsPage,
 } from './model/types'
