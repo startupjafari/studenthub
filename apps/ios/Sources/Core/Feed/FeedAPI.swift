@@ -43,14 +43,6 @@ struct PostDTO: Decodable, Equatable, Identifiable {
         var logoUrl: String? = nil
     }
 
-    /// Исходная публикация репоста — в том объёме, в каком её отдаёт лента.
-    struct Original: Decodable, Equatable {
-        let id: String
-        var title: String? = nil
-        var content: String? = nil
-        var author: Author? = nil
-    }
-
     /// Одна строка сводки реакций (`PostReactionSummary`): сколько и стоит ли своя.
     struct ReactionSummary: Decodable, Equatable {
         let emoji: String
@@ -81,9 +73,6 @@ struct PostDTO: Decodable, Equatable, Identifiable {
     var publishedAt: Date? = nil
     var pinnedAt: Date? = nil
     var views: Int? = nil
-    /// Репост: `originalPostId` есть, а `original` пуст — исходник удалён или скрыт.
-    var originalPostId: String? = nil
-    var original: Original? = nil
     var bookmarked: Bool? = nil
     var canDelete: Bool? = nil
     var universityPage: Organization? = nil
@@ -97,7 +86,7 @@ struct PostDTO: Decodable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, content, createdAt, author, media, reactionSummary
         case counts = "_count"
-        case authorId, title, audience, publishedAt, pinnedAt, views, originalPostId, original
+        case authorId, title, audience, publishedAt, pinnedAt, views
         case bookmarked, canDelete, universityPage, company, status, scheduledAt, canPin
     }
 
@@ -106,7 +95,6 @@ struct PostDTO: Decodable, Equatable, Identifiable {
 
     /// Чей голос в шапке: страница вуза и компания говорят от себя, а не от сотрудника.
     var speaker: Organization? { universityPage ?? company }
-    var isRepost: Bool { originalPostId != nil }
 
     var commentsCount: Int { counts?.comments ?? 0 }
 
@@ -339,7 +327,6 @@ protocol FeedFetching: Sendable {
     func deleteComment(postID: String, commentID: String) async throws
     func react(postID: String, emoji: String, on: Bool) async throws
     func toggleBookmark(postID: String) async throws -> Bool
-    func repost(postID: String, note: String?) async throws -> PostDTO
     func editPost(id: String, content: String) async throws -> PostDTO
     func deletePost(id: String) async throws
     func markViewed(postID: String) async throws
@@ -449,19 +436,6 @@ struct FeedAPI: FeedFetching {
     func toggleBookmark(postID: String) async throws -> Bool {
         struct Result: Decodable { let bookmarked: Bool }
         return try await client.send(.post("posts/\(postID)/bookmark"), as: Result.self).bookmarked
-    }
-
-    /// Репост студента — в свою группу: это единственная общая аудитория, которую
-    /// ему разрешает сервер (`PERSONAL` требует адресата).
-    func repost(postID: String, note: String?) async throws -> PostDTO {
-        struct Body: Encodable {
-            let audience: String
-            let content: String?
-        }
-        return try await client.send(
-            try .post("posts/\(postID)/repost", json: Body(audience: "GROUP", content: note)),
-            as: PostDTO.self
-        )
     }
 
     /// Правится только текст: аудиторию и медиа сервер менять не даёт.

@@ -5951,23 +5951,6 @@
         }
       }
     },
-    "feed.openOriginal": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть публикацию"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жарияланымды ашу"
-          }
-        }
-      }
-    },
     "feed.originalUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -6219,108 +6202,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жарияланымда не дұрыс емес?"
-          }
-        }
-      }
-    },
-    "feed.repost": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Репост"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Репост"
-          }
-        }
-      }
-    },
-    "feed.repost.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Публикация появится в ленте вашей группы."
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жарияланым тобыңыздың лентасында пайда болады."
-          }
-        }
-      }
-    },
-    "feed.repost.note": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Комментарий (необязательно)"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Түсініктеме (міндетті емес)"
-          }
-        }
-      }
-    },
-    "feed.repost.send": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Опубликовать"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Жариялау"
-          }
-        }
-      }
-    },
-    "feed.repost.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Репост в группу"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топқа репост"
-          }
-        }
-      }
-    },
-    "feed.reposted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "репост"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "репост"
           }
         }
       }
@@ -43616,23 +43497,6 @@
         }
       }
     },
-    "community.article.reposted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Статья опубликована в ленте группы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мақала топ таспасында жарияланды"
-          }
-        }
-      }
-    },
     "community.article.author": {
       "extractionState": "manual",
       "localizations": {
@@ -43697,23 +43561,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ұнайды"
-          }
-        }
-      }
-    },
-    "community.article.repost": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поделиться в ленте"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Таспада бөлісу"
           }
         }
       }
