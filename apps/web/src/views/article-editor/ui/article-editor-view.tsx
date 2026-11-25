@@ -580,8 +580,21 @@ function AutoGrowTextarea({
   useLayoutEffect(() => {
     const el = own.current
     if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
+    const fit = (): void => {
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    }
+    fit()
+    // Ширина поменялась (поворот экрана, панель настроек) — строки переносятся иначе.
+    if (typeof ResizeObserver === 'undefined') return
+    let width = el.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      fit()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
   }, [value])
   return (
     <textarea
