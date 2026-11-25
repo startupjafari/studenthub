@@ -901,7 +901,9 @@ function PostView({
           aria-label={t('openFullscreen')}
           title={t('openFullscreen')}
           onClick={openViewer}
-          className={cn(MEDIA_OVERLAY_BUTTON, 'absolute bottom-3 left-3 z-10')}
+          // Над полосами стрелок карусели (z-10 во всю высоту кадра): иначе со второго кадра
+          // полоса «назад» накрывала кнопку, и нажать её было нельзя.
+          className={cn(MEDIA_OVERLAY_BUTTON, 'absolute bottom-3 left-3 z-20')}
         >
           <Maximize2 className="size-4" aria-hidden />
         </button>
