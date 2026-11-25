@@ -58,7 +58,6 @@
     "AnalyticsReport",
     "Applications",
     "Appointments",
-    "Article",
     "CareerEvents",
     "Chats",
     "Company",
@@ -128,7 +127,6 @@
   ],
   "teacher": [
     "AnalyticsReport",
-    "Article",
     "Assignments",
     "Attendance",
     "CampusMap",
@@ -158,7 +156,6 @@
     "Analytics",
     "AnalyticsReport",
     "Applications",
-    "Article",
     "CameraWatch",
     "Cameras",
     "Campus",
@@ -234,7 +231,6 @@
   "employer/(public)": ["Employer"],
   "moderator/platform": [
     "AnalyticsReport",
-    "Article",
     "Chats",
     "Company",
     "Editor",
@@ -256,7 +252,6 @@
   ],
   "moderator/university": [
     "Applications",
-    "Article",
     "Campus",
     "Chats",
     "Company",
