@@ -16,10 +16,7 @@ function articleUrl(id: string): string {
   return typeof window === 'undefined' ? '' : `${window.location.origin}/articles/${id}`
 }
 
-/**
- * «Поделиться» статьёй: скопировать ссылку и системное меню устройства, где оно есть.
- * Репост — отдельной кнопкой: это публикация от своего имени, а не отправка ссылки.
- */
+/** «Поделиться» статьёй: скопировать ссылку и системное меню устройства, где оно есть. */
 export function ArticleShareMenu({
   articleId,
   title,

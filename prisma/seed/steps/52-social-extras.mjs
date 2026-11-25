@@ -27,7 +27,6 @@
 // пересчитываем по детерминированным id вслепую, а читаем из базы с take: при диапазонах
 // «0-0» постов или статей нет, и ссылка на них нарушила бы внешний ключ.
 
-import { postPriority } from '../data/content.mjs'
 import { formatFileRow } from '../lib/formats.mjs'
 import { child, id } from '../lib/ids.mjs'
 import {
@@ -127,7 +126,6 @@ const POLL_COMMENTS = [
   'Хороший вопрос, давно хотел(а) спросить.',
   'Давайте обсудим на паре.',
 ]
-const REPOST_CAPTIONS = ['', '', 'Советую прочитать.', 'Полезно для всей группы.', 'Сохраните себе.'] // prettier-ignore
 
 const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60_000)
 // Момент позже опорного, но не в будущем: лайк или закладка не бывают раньше публикации.
@@ -595,7 +593,7 @@ export async function seedSocialExtras(prisma, writer, ctx) {
   // ── Страницы компаний и платформы: посты, сторис, статьи, альбомы ───────────
   Object.assign(stats, await seedOrgPages(prisma, writer, ctx, { writeStoryEngagement }))
 
-  // ── Лайки статей, избранное ленты, комментарии к опросам, репосты ──────────
+  // ── Лайки статей, избранное ленты, комментарии к опросам ───────────────────
   // Всё — внутри группы: статьи, опросы и посты однокурсника группе видны при любой их
   // видимости (ALL/UNIVERSITY/FACULTY/GROUP). Личные (PERSONAL) видит только адресат —
   // их в кандидатах нет. Что из кандидатов реально есть и опубликовано, отвечает база.
@@ -608,8 +606,6 @@ export async function seedSocialExtras(prisma, writer, ctx) {
       audience: 'UNIVERSITY',
       status: 'PUBLISHED',
       deletedAt: null,
-      originalPostId: null,
-      sharedArticleId: null,
     },
     select: { id: true, publishedAt: true },
     orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }],
@@ -693,31 +689,6 @@ export async function seedSocialExtras(prisma, writer, ctx) {
               pollId: poll.id,
               content: random.pick(POLL_COMMENTS),
               createdAt: after(random, poll.createdAt, 60),
-            })
-          }
-        }
-
-        // Репост в группу: поста вуза или статьи однокурсника. Редко — лента не должна
-        // состоять из репостов. Аудитория GROUP — та, что разрешена студенту.
-        if (random.chance(0.05)) {
-          const article = random.chance(0.5) ? random.pick(likable) : null
-          const original = article ? null : random.pick(uniPosts)
-          const source = article ?? original
-          if (source) {
-            const publishedAt = after(random, source.publishedAt, 30)
-            await writer.add('post', {
-              id: child(studentId, 'repost'),
-              authorId: studentId,
-              audience: 'GROUP',
-              content: random.pick(REPOST_CAPTIONS),
-              universityId: uniId,
-              facultyId: faculty.id,
-              groupId: group.id,
-              status: 'PUBLISHED',
-              publishedAt,
-              createdAt: publishedAt,
-              priority: postPriority('GROUP', false),
-              ...(article ? { sharedArticleId: article.id } : { originalPostId: original.id }),
             })
           }
         }

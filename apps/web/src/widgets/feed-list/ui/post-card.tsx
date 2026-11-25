@@ -4,13 +4,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Bookmark, Eye, Heart, MessageSquare, Play, Repeat2 } from 'lucide-react'
+import { Bookmark, Eye, Heart, MessageSquare, Play } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
   LIKE_EMOJI,
   addReactionRequest,
-  canRepost,
   hasMyReaction,
   patchCachedPost,
   reactionSummaryOf,
@@ -21,8 +20,7 @@ import {
   type PostMedia,
   type PostReactionSummary,
 } from '../../../entities/post'
-import { RepostDialog, useRepost } from '../../../features/repost-post'
-import { Markdown, Skeleton } from '../../../shared/ui'
+import { Markdown } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
@@ -31,9 +29,6 @@ import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
-import { SharedArticleCard } from './shared-article-card'
-import { RepostBanner, RepostUnavailable } from './repost-banner'
-import { useRepostSource } from '../lib/use-repost-source'
 
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
@@ -69,50 +64,7 @@ interface PostCardProps {
   className?: string
 }
 
-/**
- * Репост — как в Instagram: в ленте стоит сам исходный пост (медиа, лайки, комментарии
- * его автора), а над ним пометка «↻ Репост от …» с заметкой. Пока исходник грузится —
- * скелетон карточки; недоступен зрителю — карточка репоста с пометкой «Публикация
- * недоступна» вместо цитаты.
- */
-export function PostCard(props: PostCardProps) {
-  const source = useRepostSource(props.post)
-  if (source.kind === 'loading') {
-    return (
-      <article
-        className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
-        aria-hidden
-      >
-        <div className="flex items-center gap-3">
-          <Skeleton className="size-10 shrink-0 rounded-full" />
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3.5 w-1/3" />
-            <Skeleton className="h-3 w-1/4" />
-          </div>
-        </div>
-        <Skeleton className="h-48 w-full" />
-      </article>
-    )
-  }
-  if (source.kind === 'ready') {
-    return <PostCardView {...props} key={source.source.id} post={source.source} via={props.post} />
-  }
-  return <PostCardView {...props} originalUnavailable={source.kind === 'unavailable'} />
-}
-
-function PostCardView({
-  post,
-  via,
-  originalUnavailable = false,
-  onOpenMedia,
-  onOpenComments,
-  className,
-}: PostCardProps & {
-  /** Репост, через который показан `post` (исходник): его меню и его пометка сверху. */
-  via?: FeedPost
-  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
-  originalUnavailable?: boolean
-}) {
+export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostCardProps) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -120,21 +72,13 @@ function PostCardView({
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
-  // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
-  // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
-  const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
-  const [repostDialog, setRepostDialog] = useState(false)
 
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  // Меню — про публикацию в ленте: у репоста это сам репост, а не чужой исходник.
-  const menuPost = via ?? post
   // Права считает сервер (ранг относительно автора и scope): по одной роли модератор вуза
   // видел «Удалить» на посте админа, декан — на чужом факультете, и нажатие давало 403.
   // Роль — только для ответа старого API без признаков.
-  const canModerate = menuPost.canPin ?? byRole
-  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
-  // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
-  const showRepost = !originalUnavailable && canRepost(myRole, post)
+  const canModerate = post.canPin ?? byRole
+  const canDelete = post.canDelete ?? (post.authorId === myId || byRole)
   const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
@@ -173,10 +117,9 @@ function PostCardView({
         className,
       )}
     >
-      {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}
       {/* Шапка: имя забирает всю свободную ширину и сокращается многоточием, роль, кому
           адресован пост и его возраст — второй строкой и приглушённо. */}
-      <header className={cn('flex items-center gap-3 px-4 sm:px-5', via ? 'pt-3' : 'pt-4')}>
+      <header className="flex items-center gap-3 px-4 pt-4 sm:px-5">
         <PostByline post={post} />
         {post.status === 'DRAFT' && (
           <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
@@ -189,10 +132,10 @@ function PostCardView({
           </span>
         )}
         <PostTileMenu
-          post={menuPost}
+          post={post}
           canModerate={canModerate}
           canDelete={canDelete}
-          isMine={menuPost.authorId === myId}
+          isMine={post.authorId === myId}
           triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
         />
       </header>
@@ -211,12 +154,7 @@ function PostCardView({
 
       {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
-      {originalUnavailable && <RepostUnavailable className="mx-4 mt-3 sm:mx-5" />}
-
-      {/* Репост статьи — карточкой под подписью репостнувшего. */}
-      <SharedArticleCard post={post} className="mx-4 mt-3 sm:mx-5" />
-
-      {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
+      {/* Панель действий — как во «ВКонтакте»: лайк, комментарии и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
           только теми, кто уже знает, что они делают.
           Поля ряда плюс внутренний отступ кнопки дают ровно отступ текста (16/20px): первая
@@ -244,15 +182,6 @@ function PostCardView({
         <ActionButton label={t('comment')} onClick={onOpenComments} count={post._count.comments}>
           <MessageSquare className="size-5" aria-hidden />
         </ActionButton>
-        {showRepost && (
-          <ActionButton
-            label={t('repost')}
-            disabled={repostPending}
-            onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
-          >
-            <Repeat2 className="size-5" aria-hidden />
-          </ActionButton>
-        )}
         {/* «Поделиться» — меню: ссылка, чат, системное меню. Прямое открытие
             пересылки в чат оставляло единственный способ поделиться, и то внутри
             платформы. */}
@@ -278,8 +207,6 @@ function PostCardView({
           <span className="tabular-nums">{post.views}</span>
         </span>
       </div>
-
-      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
     </article>
   )
 }

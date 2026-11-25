@@ -1268,30 +1268,6 @@ export class ProfileContentService {
     return { liked, likesCount }
   }
 
-  /**
-   * Какие из статей зритель вправе читать сейчас — пачкой: профиль автора (закрытый,
-   * удалённый), статус и visibility статьи, допуск к странице организации. Нужна ленте:
-   * репост статьи показывает её карточку только тем, кто открыл бы саму статью.
-   */
-  async visibleArticleIds(viewer: JwtPayload, ids: readonly string[]): Promise<Set<string>> {
-    const unique = [...new Set(ids)]
-    if (unique.length === 0) return new Set()
-    const rows = await this.prisma.profileArticle.findMany({
-      where: { id: { in: unique } },
-      select: {
-        id: true,
-        userId: true,
-        companyId: true,
-        universityPageId: true,
-        status: true,
-        visibility: true,
-        user: { select: PROFILE_CONTENT_OWNER_SELECT },
-      },
-      take: unique.length,
-    })
-    return new Set((await this.visibleOf(viewer, rows)).map((a) => a.id))
-  }
-
   /** Отбор видимых зрителю статей; профили авторов и страницы проверяются пачкой. */
   private async visibleOf<
     T extends {

@@ -5,7 +5,6 @@ import UIKit
 /// карточке: в ленте их сотня, и сотня скрытых листов — лишняя работа на прокрутке.
 struct PostCardActions {
     var comments: (PostDTO) -> Void = { _ in }
-    var repost: (PostDTO) -> Void = { _ in }
     var edit: (PostDTO) -> Void = { _ in }
     var delete: (PostDTO) -> Void = { _ in }
     var report: (PostDTO) -> Void = { _ in }
@@ -17,7 +16,7 @@ struct PostCardActions {
     var publish: (PostDTO) -> Void = { _ in }
 }
 
-/// Карточка публикации: шапка, текст, медиа, репост и действия.
+/// Карточка публикации: шапка, текст, медиа и действия.
 ///
 /// Структура одна для поста с картинками и без: отступы задаёт содержимое, поэтому
 /// короткий текст не превращается в пустую плитку.
@@ -40,10 +39,6 @@ struct PostCardView: View {
 
             if let content = post.content, !content.isEmpty {
                 PostTextView(content: content)
-            }
-
-            if post.isRepost {
-                RepostContentView(original: post.original)
             }
 
             if let media = post.media, !media.isEmpty {
@@ -129,7 +124,6 @@ struct PostHeaderView: View {
     }
 
     private var subtitle: String? {
-        if post.isRepost { return String(localized: "feed.reposted", defaultValue: "репост") }
         guard post.speaker == nil, let raw = post.author?.role else { return nil }
         return Role(rawValue: raw)?.feedTitle
     }
@@ -278,61 +272,9 @@ struct PostTextView: View {
     }
 }
 
-/// Исходник репоста: тонкая линия слева и автор — без второй рамки внутри карточки.
-struct RepostContentView: View {
-    let original: PostDTO.Original?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: Spacing.lg) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Palette.primary.opacity(0.5))
-                .frame(width: 2)
-
-            if let original {
-                NavigationLink(value: AppRoute.post(id: original.id)) {
-                    VStack(alignment: .leading, spacing: Spacing.sm) {
-                        HStack(spacing: Spacing.md) {
-                            AvatarView(url: original.author?.avatarUrl, name: original.author?.name ?? "", size: 24)
-                            Text(original.author?.name ?? String(localized: "home.someone", defaultValue: "Кто-то"))
-                                .font(Typography.meta.weight(.semibold))
-                                .foregroundStyle(Palette.foreground)
-                                .lineLimit(1)
-                        }
-                        if let title = original.title, !title.isEmpty {
-                            Text(title)
-                                .font(Typography.cardTitle)
-                                .foregroundStyle(Palette.foreground)
-                        }
-                        if let content = original.content, !content.isEmpty {
-                            Text(RichText.attributed(content))
-                                .font(Typography.body)
-                                .foregroundStyle(Palette.foreground)
-                                .lineLimit(6)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Text(String(localized: "feed.openOriginal", defaultValue: "Открыть публикацию"))
-                            .font(Typography.meta)
-                            .foregroundStyle(Palette.primary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.pressable)
-            } else {
-                Label(
-                    String(localized: "feed.originalUnavailable", defaultValue: "Публикация недоступна"),
-                    systemImage: "eye.slash"
-                )
-                .font(Typography.meta)
-                .foregroundStyle(Palette.mutedForeground)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
 // MARK: - Действия
 
-/// Нижняя строка: реакции, комментарии, репост, закладка.
+/// Нижняя строка: реакции, комментарии, закладка.
 ///
 /// Короткое нажатие на реакцию ставит «❤️», долгое раскрывает весь набор сервера —
 /// системное меню с основным действием делает ровно это без своих жестов.
@@ -356,15 +298,6 @@ struct PostActionsView: View {
                 actions.comments(post)
             }
             .accessibilityIdentifier("feed.post.comments")
-            if canRepost {
-                counterButton(
-                    symbol: "arrow.2.squarepath",
-                    count: 0,
-                    label: String(localized: "feed.repost", defaultValue: "Репост")
-                ) {
-                    actions.repost(post)
-                }
-            }
             Spacer(minLength: 0)
             if let views = post.views, views > 0 {
                 Label {
@@ -396,9 +329,6 @@ struct PostActionsView: View {
         }
         .font(Typography.meta)
     }
-
-    /// Репост невозможен у личного поста — так решает и веб.
-    private var canRepost: Bool { post.audience != "PERSONAL" }
 
     private var mine: [String] {
         PostReactions.all.filter { model.isMine($0, in: post.id) }

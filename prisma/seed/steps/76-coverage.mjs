@@ -419,7 +419,6 @@ function auditCatalog(r) {
     ['post_created', 'Post', 'admin', r.post, null],
     ['post_published', 'Post', 'admin', r.post, null],
     ['post_updated', 'Post', 'admin', r.post, null],
-    ['post_reposted', 'Post', 'student', r.post, null],
     ['post_deleted', 'Post', 'moderator', r.post, null],
     ['comment_deleted', 'Comment', 'moderator', null, null],
     ['event_created', 'Event', 'admin', r.event, null],

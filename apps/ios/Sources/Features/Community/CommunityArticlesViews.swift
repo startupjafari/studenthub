@@ -167,7 +167,6 @@ struct CommunityArticleView: View {
     @State private var confirmingDelete = false
     @State private var deletingComment: CommunityArticleCommentDTO?
     @State private var actionFailure: String?
-    @State private var reposted = false
     @State private var viewingCover = false
     /// Заголовок статьи уехал под панель — тогда он появляется в самой панели.
     @State private var titleScrolledAway = false
@@ -248,14 +247,10 @@ struct CommunityArticleView: View {
                 actionFailure = error.userMessage
             }
         }
-        .alert(String(localized: "community.article.reposted", defaultValue: "Статья опубликована в ленте группы"), isPresented: $reposted) {
-            Button(String(localized: "common.ok", defaultValue: "Понятно"), role: .cancel) {}
-        }
         .actionFailureAlert($actionFailure)
         .sensoryFeedback(.impact(weight: .light), trigger: likeTick)
         .sensoryFeedback(.selection, trigger: bookmarkTick)
         .sensoryFeedback(.success, trigger: sentTick)
-        .sensoryFeedback(.success, trigger: reposted) { _, new in new }
     }
 
     private func content(_ article: CommunityArticleDTO) -> some View {
@@ -442,14 +437,6 @@ struct CommunityArticleView: View {
 
             Spacer(minLength: Spacing.md)
 
-            if !article.isDraft {
-                Button {
-                    Task { await repost(article) }
-                } label: {
-                    iconLabel("arrow.2.squarepath", tint: Palette.foreground)
-                }
-                .accessibilityLabel(Text(String(localized: "community.article.repost", defaultValue: "Поделиться в ленте")))
-            }
             if let base = AppConfiguration.webBaseURL {
                 ShareLink(item: base.appendingPathComponent("articles").appendingPathComponent(article.id)) {
                     iconLabel("square.and.arrow.up", tint: Palette.foreground)
@@ -721,16 +708,6 @@ struct CommunityArticleView: View {
     private func toggleBookmark(_ current: CommunityArticleDTO) async {
         do {
             remote.value?.bookmarked = try await api.toggleArticleBookmark(id: current.id)
-        } catch {
-            actionFailure = error.userMessage
-        }
-    }
-
-    @MainActor
-    private func repost(_ current: CommunityArticleDTO) async {
-        do {
-            try await api.repostArticle(id: current.id)
-            reposted = true
         } catch {
             actionFailure = error.userMessage
         }
