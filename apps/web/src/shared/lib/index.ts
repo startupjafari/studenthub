@@ -10,6 +10,16 @@ export { translateValidationMessage, useValidationMessage } from './validation-m
 export { useInfiniteScroll } from './use-infinite-scroll'
 export { OPTIONAL_TEXT, OPTIONAL_NUMBER } from './optional-field'
 export { localId } from './local-id'
+export {
+  clearContentDrafts,
+  contentDraftKey,
+  readContentDraft,
+  removeContentDraft,
+  useLocalDraft,
+  writeContentDraft,
+  type LocalDraftStatus,
+  type StoredDraft,
+} from './content-draft'
 export { useBodyScrollLock } from './use-body-scroll-lock'
 export {
   clampPlace,

@@ -44,6 +44,8 @@ interface ArticleCoverProps {
   className?: string
   // letter — компактная обложка-плейсхолдер (только первая буква заголовка, для мелких превью).
   letter?: boolean
+  // bare — только фон без текста: на странице статьи заголовок уже стоит над обложкой.
+  bare?: boolean
 }
 
 // Обложка статьи: загруженное изображение, пресет-градиент или авто-обложка с заголовком.
@@ -53,11 +55,13 @@ export function ArticleCover({
   title,
   className,
   letter,
+  bare,
 }: ArticleCoverProps) {
   if (coverUrl) {
     return <img src={coverUrl} alt="" className={cn('w-full object-cover', className)} />
   }
   const grad = coverGradient ? gradientClass(coverGradient) : autoGradient(title)
+  if (bare) return <div aria-hidden className={cn(grad, className)} />
   return (
     <div className={cn('flex items-center justify-center p-2', grad, className)}>
       {letter ? (

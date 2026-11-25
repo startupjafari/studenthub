@@ -195,3 +195,4 @@ export {
   type ScreenStackOptions,
   type ScreenStackProps,
 } from './screen-stack'
+export { Popover, PopoverAnchor, PopoverClose, PopoverContent, PopoverTrigger } from './popover'

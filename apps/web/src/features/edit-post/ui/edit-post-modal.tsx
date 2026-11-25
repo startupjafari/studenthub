@@ -15,9 +15,9 @@ import { useErrorToast } from '../../../shared/lib'
  * перекроила бы круг тех, кто пост уже видел и обсудил, а подмена вложений — это
  * уже другой пост, а не правка опечатки.
  *
- * Раскладка повторяет окно создания (`CreatePostForm`): заголовок и текст — один
- * блок без внутренних рамок, панель форматирования всплывает над выделением.
- * Разные формы для одного и того же текста читались бы как разные инструменты.
+ * Раскладка повторяет окно создания (`CreatePostForm`): заголовок и текст без рамок
+ * «формы», внизу одно главное действие. Разные формы для одного и того же текста читались
+ * бы как разные инструменты.
  */
 export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () => void }) {
   const t = useTranslations('Feed')
@@ -47,26 +47,27 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
     <Modal
       onClose={onClose}
       title={t('editPost')}
-      size="2xl"
-      className="max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:rounded-none"
+      size="xl"
+      className="max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:rounded-none max-sm:border-0 sm:max-h-[min(90vh,48rem)]"
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
     >
       <form
         onSubmit={(e) => {
           e.preventDefault()
           if (!empty) save.mutate()
         }}
-        className="flex flex-col gap-3 sm:px-2"
+        className="flex min-h-0 flex-1 flex-col"
       >
-        {/* Заголовок и текст — один блок с общей рамкой, как в окне создания. */}
-        <div className="flex flex-col rounded-xl border border-input bg-background transition-[color,box-shadow,border-color] focus-within:border-ring focus-within:ring-4 focus-within:ring-ring/15 dark:bg-input/30">
+        {/* Заголовок и текст — без рамок «формы», как в окне создания. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 pt-4 pb-3 sm:px-5">
           <Input
             id="edit-title"
             aria-label={t('titleLabel')}
-            placeholder={t('titlePlaceholder')}
+            placeholder={t('titleOptional')}
             value={title}
+            maxLength={200}
             onChange={(e) => setTitle(e.target.value)}
-            // Рамку и фокус держит блок целиком — у заголовка своих границ нет.
-            className="h-auto rounded-none border-transparent bg-transparent px-3 pt-3 pb-1 text-lg font-semibold hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
+            className="h-auto rounded-none border-transparent bg-transparent px-0 py-1 text-lg font-semibold shadow-none hover:border-transparent focus-visible:border-transparent focus-visible:ring-0 md:text-lg dark:bg-transparent"
           />
           <RichTextField
             id="edit-content"
@@ -75,25 +76,27 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
             onChange={setContent}
             placeholder={t('placeholder')}
             bare
-            className="max-h-[45vh] min-h-28 overflow-y-auto"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                if (!empty) save.mutate()
+                return true
+              }
+              return false
+            }}
+            className="max-h-[55dvh] min-h-28 overflow-y-auto px-0 text-[0.9375rem]"
           />
+          <FieldError>{empty && t('contentRequired')}</FieldError>
         </div>
-        <FieldError>{empty && t('contentRequired')}</FieldError>
 
-        <div className="sticky bottom-0 -mx-1 flex gap-2 border-t border-border bg-card px-1 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:justify-between sm:pb-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            className="h-11 flex-1 sm:h-10 sm:flex-none"
-          >
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <Button type="button" variant="ghost" onClick={onClose} className="h-10 rounded-full">
             {tCommon('cancel')}
           </Button>
           <Button
             type="submit"
             loading={save.isPending}
             disabled={empty}
-            className="h-11 flex-1 sm:h-10 sm:flex-none"
+            className="h-10 rounded-full px-5"
           >
             {t('save')}
           </Button>
