@@ -13,6 +13,15 @@ vi.mock('next/link', () => ({
     <a href={href}>{children}</a>
   ),
 }))
+const push = vi.fn()
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
+vi.mock('../../../shared/store', () => ({
+  useAppSelector: (pick: (s: { auth: { role: Role } }) => unknown) =>
+    pick({ auth: { role: Role.STUDENT } }),
+}))
+vi.mock('../../../entities/chat', () => ({
+  createChatRequest: vi.fn().mockResolvedValue({ id: 'chat-1' }),
+}))
 vi.mock('next/image', () => ({
   default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} />,
 }))
@@ -36,6 +45,7 @@ import {
   fetchFriends,
   removeFriendship,
 } from '../../../entities/friendship'
+import { createChatRequest } from '../../../entities/chat'
 import { FriendsPanel } from './friends-panel'
 
 function user(id: string, lastName: string, firstName: string) {
@@ -116,7 +126,7 @@ describe('FriendsPanel', () => {
     expect(acceptFriendRequest).not.toHaveBeenCalled()
   })
 
-  it('показывает превью друзей и «показать всех» только когда их больше сетки', async () => {
+  it('показывает превью друзей строками и кнопку «показать всех»', async () => {
     vi.mocked(fetchFriendCount).mockResolvedValue({ friends: 9, incomingRequests: 0 })
     vi.mocked(fetchFriends).mockResolvedValue(
       Array.from({ length: 6 }, (_, i) => ({
@@ -127,14 +137,14 @@ describe('FriendsPanel', () => {
     )
     setup()
 
-    await screen.findByText('Имя0')
-    // Ровно шесть ячеек — сетка 3×2, а не весь список.
+    await screen.findByText('Серикова Имя0')
+    // Ровно шесть строк — превью, а не весь список.
     expect(screen.getAllByRole('listitem')).toHaveLength(6)
     expect(fetchFriends).toHaveBeenCalledWith(6)
     expect(screen.getByRole('button', { name: 'showAll' })).toBeInTheDocument()
   })
 
-  it('не предлагает «показать всех», когда друзья умещаются в сетку', async () => {
+  it('«показать всех» есть и при коротком списке; «написать» открывает личный чат', async () => {
     vi.mocked(fetchFriendCount).mockResolvedValue({ friends: 2, incomingRequests: 0 })
     vi.mocked(fetchFriends).mockResolvedValue([
       { friendshipId: 'f1', since: null, user: user('u1', 'Серикова', 'Аружан') },
@@ -142,7 +152,12 @@ describe('FriendsPanel', () => {
     ])
     setup()
 
-    await screen.findByText('Аружан')
-    expect(screen.queryByRole('button', { name: 'showAll' })).not.toBeInTheDocument()
+    await screen.findByText('Серикова Аружан')
+    expect(screen.getByRole('button', { name: 'showAll' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'write · Серикова Аружан' }))
+    await waitFor(() =>
+      expect(createChatRequest).toHaveBeenCalledWith({ type: 'PRIVATE', memberIds: ['u1'] }),
+    )
+    await waitFor(() => expect(push).toHaveBeenCalledWith(expect.stringContaining('?chat=chat-1')))
   })
 })
