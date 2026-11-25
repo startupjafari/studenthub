@@ -1,4 +1,5 @@
 import { api } from '../api'
+import { clearContentDrafts } from '../lib/content-draft'
 
 // Офлайн-кэши API в Service Worker (next.config.mjs → runtimeCaching): все кончаются на `-api`.
 const API_CACHE_SUFFIX = '-api'
@@ -20,6 +21,8 @@ const STEP_TIMEOUT_MS = 2000
  */
 export async function forgetDeviceData(): Promise<void> {
   await Promise.allSettled([withTimeout(dropPushSubscription()), withTimeout(clearApiCaches())])
+  // Черновики постов и статей — набранный текст прошлого пользователя.
+  clearContentDrafts()
   writeOwner(null)
 }
 
@@ -34,6 +37,7 @@ export async function claimDeviceCache(userId: string): Promise<void> {
   const owner = readOwner()
   if (owner !== userId) {
     await withTimeout(clearApiCaches()).catch(() => undefined)
+    clearContentDrafts()
   }
   writeOwner(userId)
 }
