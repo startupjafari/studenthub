@@ -1259,13 +1259,6 @@ struct CommunityAPI: Sendable {
 }
 
 extension CommunityAPI {
-    /// Репост статьи в ленту — пост со ссылкой на статью, в свою группу.
-    func repostArticle(id: String, audience: String = "GROUP") async throws {
-        try await AppServices.api.send(try .post("posts/articles/\(id)/repost", json: ["audience": audience]))
-    }
-}
-
-extension CommunityAPI {
     /// Участники — только тем, кто управляет событием.
     func eventParticipants(id: String) async throws -> [CommunityEventParticipantDTO] {
         try await AppServices.api.send(.get("events/\(id)/participants"), as: [CommunityEventParticipantDTO].self)

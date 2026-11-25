@@ -32,8 +32,6 @@ model ProfileArticle {
   comments       ContentComment[]
   bookmarks      Bookmark[]
   likes          ArticleLike[]
-  // Репосты статьи в ленту — посты со ссылкой на неё (Post.sharedArticleId).
-  reposts        Post[]           @relation("PostSharedArticle")
 
   @@index([userId, createdAt])
   @@index([companyId, createdAt])

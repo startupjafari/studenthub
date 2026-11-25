@@ -14,8 +14,6 @@ struct PostActionsHost<Content: View>: View {
     @State private var editing: PostDTO?
     @State private var reporting: PostDTO?
     @State private var deleting: PostDTO?
-    @State private var reposting: PostDTO?
-    @State private var repostNote = ""
     @State private var reported = false
     @State private var sharing: PostDTO?
 
@@ -67,29 +65,6 @@ struct PostActionsHost<Content: View>: View {
                 Text(String(localized: "feed.delete.message", defaultValue: "Публикацию нельзя будет вернуть."))
             }
             .alert(
-                String(localized: "feed.repost.title", defaultValue: "Репост в группу"),
-                isPresented: Binding(get: { reposting != nil }, set: { if !$0 { reposting = nil } }),
-                presenting: reposting
-            ) { post in
-                TextField(
-                    String(localized: "feed.repost.note", defaultValue: "Комментарий (необязательно)"),
-                    text: $repostNote
-                )
-                Button(String(localized: "feed.repost.send", defaultValue: "Опубликовать")) {
-                    let note = repostNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                    repostNote = ""
-                    Task { _ = await model.repost(post.id, note: note.isEmpty ? nil : note) }
-                }
-                Button(String(localized: "common.cancel", defaultValue: "Отмена"), role: .cancel) {
-                    repostNote = ""
-                }
-            } message: { _ in
-                Text(String(
-                    localized: "feed.repost.message",
-                    defaultValue: "Публикация появится в ленте вашей группы."
-                ))
-            }
-            .alert(
                 String(localized: "feed.report.sent", defaultValue: "Жалоба отправлена"),
                 isPresented: $reported
             ) {
@@ -116,7 +91,6 @@ struct PostActionsHost<Content: View>: View {
     private var actions: PostCardActions {
         PostCardActions(
             comments: { commentsFor = $0 },
-            repost: { reposting = $0 },
             edit: { editing = $0 },
             delete: { deleting = $0 },
             report: { reporting = $0 },
@@ -187,9 +161,9 @@ private struct PostEditorSheet: View {
         }
     }
 
-    /// Пустой текст сервер принимает только у репоста.
+    /// Пустой текст сервер не принимает.
     private var canSave: Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (post.isRepost || !trimmed.isEmpty) && trimmed.count <= 5000 && text != (post.content ?? "")
+        return !trimmed.isEmpty && trimmed.count <= 5000 && text != (post.content ?? "")
     }
 }

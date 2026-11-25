@@ -22,7 +22,6 @@ import {
   Loader2,
   Maximize2,
   MessageCircle,
-  Repeat2,
   SendHorizontal,
   Smile,
   X,
@@ -34,7 +33,6 @@ import {
   LIKE_EMOJI,
   addCommentRequest,
   addReactionRequest,
-  canRepost,
   deleteCommentRequest,
   fetchCommentsPage,
   hasMyReaction,
@@ -53,7 +51,6 @@ import {
   type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
-import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
 import {
@@ -85,9 +82,6 @@ import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { PostByline, initials } from './post-byline'
 import { MediaFrame } from './media-frame'
-import { SharedArticleCard } from './shared-article-card'
-import { RepostBanner, RepostUnavailable } from './repost-banner'
-import { useRepostSource } from '../lib/use-repost-source'
 import {
   MentionSuggest,
   applyMention,
@@ -191,9 +185,6 @@ export function PostLightbox({
   // и без него браузер выделяет текст, лежащий ПОД ним (см. хук).
   useBodyScrollLock(true, true)
   useBackClose(onClose)
-  // Репост открывается исходным постом, как в Instagram (useRepostSource). Хук — до ранних
-  // выходов: порядок хуков один на каждую отрисовку.
-  const source = useRepostSource(posts[index])
   const windowRef = useRef<HTMLDivElement>(null)
   // Номер вложения относится к посту, который открыли; соседние посты — с первого кадра.
   const openedIndex = useRef(index)
@@ -265,12 +256,8 @@ export function PostLightbox({
   if (typeof document === 'undefined') return null
   const post = posts[index]
   if (!post) return null
-  // Что показано: исходник репоста, если он загрузился, иначе сам пост (или репост с
-  // цитатой, когда исходник зрителю не виден). Пока грузится — скелетон панели.
-  const shown = source.kind === 'ready' ? source.source : post
-  const repost = source.kind === 'ready' ? post : undefined
   // Две колонки — только посту с медиа и только когда ширины на них действительно хватает.
-  const twoColumn = wide && source.kind !== 'loading' && shown.media.length > 0
+  const twoColumn = wide && post.media.length > 0
 
   return createPortal(
     <div
@@ -349,40 +336,19 @@ export function PostLightbox({
           'animate-in fade-in-0 zoom-in-[0.98] duration-200 motion-reduce:animate-none',
         )}
       >
-        {source.kind === 'loading' ? (
-          // Пока грузится исходник репоста — заготовка той же раскладки: шапка с крестиком
-          // (закрыть окно можно и в этот момент), под ней место кадра или текста.
-          <div className="flex flex-1 flex-col sm:min-h-96" aria-hidden>
-            <div className="flex items-center gap-3 border-b border-border py-3 pr-3 pl-4 sm:pl-5">
-              <Skeleton className="size-10 shrink-0 rounded-full" />
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Skeleton className="h-3.5 w-1/3" />
-                <Skeleton className="h-3 w-1/4" />
-              </div>
-              <CloseButton label={t('close')} onClick={onClose} />
-            </div>
-            <div className="flex flex-1 flex-col gap-3 p-4 sm:px-5">
-              <Skeleton className="h-4 w-2/3" />
-              <Skeleton className="min-h-40 w-full flex-1" />
-            </div>
-          </div>
-        ) : (
-          <PostView
-            key={`${post.id}:${shown.id}`}
-            post={shown}
-            via={repost}
-            originalUnavailable={source.kind === 'unavailable'}
-            onClose={onClose}
-            onPrev={index > 0 ? () => onIndex(index - 1) : undefined}
-            onNext={index < posts.length - 1 ? () => onIndex(index + 1) : undefined}
-            focusComment={focusComment}
-            initialMedia={index === openedIndex.current ? initialMedia : 0}
-            twoColumn={twoColumn}
-            onLayerChange={(open) => {
-              layered.current = open
-            }}
-          />
-        )}
+        <PostView
+          key={post.id}
+          post={post}
+          onClose={onClose}
+          onPrev={index > 0 ? () => onIndex(index - 1) : undefined}
+          onNext={index < posts.length - 1 ? () => onIndex(index + 1) : undefined}
+          focusComment={focusComment}
+          initialMedia={index === openedIndex.current ? initialMedia : 0}
+          twoColumn={twoColumn}
+          onLayerChange={(open) => {
+            layered.current = open
+          }}
+        />
       </div>
     </div>,
     document.body,
@@ -393,8 +359,6 @@ export function PostLightbox({
 // (карусель, реакции, ввод) сбрасывается при переходе к другому посту.
 function PostView({
   post,
-  via,
-  originalUnavailable = false,
   onClose,
   onPrev,
   onNext,
@@ -408,10 +372,6 @@ function PostView({
   twoColumn?: boolean
   /** Открыт или закрыт полноэкранный просмотр поверх окна. */
   onLayerChange?: (open: boolean) => void
-  /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
-  via?: FeedPost
-  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
-  originalUnavailable?: boolean
   onClose: () => void
   /** Соседние посты набора — для стрелок в шапке на телефоне (на десктопе они по краям экрана). */
   onPrev?: () => void
@@ -450,10 +410,6 @@ function PostView({
       .then(setViews)
       .catch(() => {})
   }, [post.id])
-  // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
-  // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
-  const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
-  const [repostDialog, setRepostDialog] = useState(false)
   // Черновик переживает закрытие окна (см. `drafts`).
   const [text, setTextState] = useState(() => drafts.get(post.id) ?? '')
   const setText = (next: string | ((prev: string) => string)): void => {
@@ -615,14 +571,9 @@ function PostView({
   }, [mi, post.media, twoColumn])
 
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
-  // Меню — про публикацию, которую открыли: у репоста это сам репост (удалить его), а не
-  // чужой исходник. Лайки, комментарии и просмотры при этом — исходника, как в Instagram.
-  const menuPost = via ?? post
   // Права считает сервер (ранг относительно автора и scope); роль — только для старого API.
-  const canModerate = menuPost.canPin ?? byRole
-  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
-  // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
-  const showRepost = !originalUnavailable && canRepost(myRole, post)
+  const canModerate = post.canPin ?? byRole
+  const canDelete = post.canDelete ?? (post.authorId === myId || byRole)
   const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
@@ -792,8 +743,7 @@ function PostView({
     </button>
   )
 
-  const hasCaption = Boolean(post.title || post.content || originalUnavailable)
-  const hasLead = Boolean(via || hasCaption || post.sharedArticleId)
+  const hasLead = Boolean(post.title || post.content)
 
   function openViewer(): void {
     if (cur && isImage) setViewerOpen(true)
@@ -817,10 +767,10 @@ function PostView({
       )}
       {/* Одно меню на пост: то же, что на карточке и плитке. */}
       <PostTileMenu
-        post={menuPost}
+        post={post}
         canModerate={canModerate}
         canDelete={canDelete}
-        isMine={menuPost.authorId === myId}
+        isMine={post.authorId === myId}
         onDeleted={onClose}
         triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       />
@@ -830,24 +780,15 @@ function PostView({
 
   // Подпись — без второго аватара и имени: автор и время уже в шапке.
   const leadEl = hasLead ? (
-    <div className="flex flex-col gap-3">
-      {via && <RepostBanner repost={via} />}
-      {hasCaption && (
-        <div className="flex flex-col gap-2">
-          {post.title && (
-            <h2 className="text-lg leading-snug font-semibold break-words">{post.title}</h2>
-          )}
-          {post.content && (
-            <div className="[overflow-wrap:anywhere]">
-              <Markdown source={post.content} autolink className="text-[0.9375rem]" />
-            </div>
-          )}
-          {/* Репост, чей исходник зрителю недоступен: без пометки в полном
-              просмотре не видно, что это репост. */}
-          {originalUnavailable && <RepostUnavailable className="mt-1" />}
+    <div className="flex flex-col gap-2">
+      {post.title && (
+        <h2 className="text-lg leading-snug font-semibold break-words">{post.title}</h2>
+      )}
+      {post.content && (
+        <div className="[overflow-wrap:anywhere]">
+          <Markdown source={post.content} autolink className="text-[0.9375rem]" />
         </div>
       )}
-      <SharedArticleCard post={post} />
     </div>
   ) : null
 
@@ -986,15 +927,6 @@ function PostView({
       >
         <MessageCircle className="size-[18px] -scale-x-100" aria-hidden />
       </PillButton>
-      {showRepost && (
-        <PillButton
-          label={t('repost')}
-          disabled={repostPending}
-          onClick={() => (repostAudience ? repost(post.id) : setRepostDialog(true))}
-        >
-          <Repeat2 className="size-[18px]" aria-hidden />
-        </PillButton>
-      )}
       <SharePostMenu postId={post.id} className={cn(PILL, '[&_svg]:size-[18px]')} />
       <PillButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
         <Bookmark className={cn('size-[18px]', bookmarked && 'fill-current')} aria-hidden />
@@ -1270,7 +1202,6 @@ function PostView({
 
   const overlays = (
     <>
-      {repostDialog && <RepostDialog post={post} onClose={() => setRepostDialog(false)} />}
       {viewerOpen && (
         <PostMediaViewer
           post={post}
@@ -1404,7 +1335,7 @@ const COMMENT_ACTION =
 const COMMENT_ACTION_QUIET =
   'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100'
 
-/** Крестик окна: в шапке поста и в заготовке, пока грузится исходник репоста. */
+/** Крестик окна в шапке поста. */
 function CloseButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <HeaderIconButton label={label} onClick={onClick}>

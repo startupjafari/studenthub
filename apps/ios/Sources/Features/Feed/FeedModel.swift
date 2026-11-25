@@ -200,19 +200,6 @@ final class FeedModel {
         )
     }
 
-    /// Репост в свою группу. Новый пост встаёт наверх ленты — человек видит результат.
-    @MainActor
-    func repost(_ postID: String, note: String?) async -> Bool {
-        do {
-            let created = try await api.repost(postID: postID, note: note)
-            insert(created)
-            return true
-        } catch {
-            actionFailure = message(for: error)
-            return false
-        }
-    }
-
     @MainActor
     func edit(_ postID: String, content: String) async -> Bool {
         do {

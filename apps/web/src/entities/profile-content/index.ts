@@ -59,3 +59,12 @@ export { ArticleContent, copySectionLink } from './ui/article-content'
 export { ArticleHeadline } from './ui/article-headline'
 export { ArticleTableOfContents, scrollToSection, useActiveHeading } from './ui/article-toc-nav'
 export { ReadingProgress } from './ui/reading-progress'
+export {
+  articleOwnerHref,
+  articleWindowHref,
+  closeArticleWindow,
+  openArticleWindow,
+  replaceArticleWindow,
+  useArticleWindowState,
+  type ArticleWindowState,
+} from './lib/article-window'

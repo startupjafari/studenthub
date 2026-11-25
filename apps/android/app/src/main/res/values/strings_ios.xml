@@ -1845,8 +1845,6 @@
     <string name="community_article_related">Похожие статьи</string>
     <string name="community_article_removeCover">Убрать обложку</string>
     <string name="community_article_replaceCover">Заменить обложку</string>
-    <string name="community_article_repost">Поделиться в ленте</string>
-    <string name="community_article_reposted">Статья опубликована в ленте группы</string>
     <string name="community_article_saveDraft">Сохранить черновик</string>
     <string name="community_article_settings">Публикация</string>
     <string name="community_article_summary">Короткое описание</string>
@@ -2624,7 +2622,6 @@
     <string name="feed_noComments_hint">Напишите первым</string>
     <string name="feed_olderComments">Показать предыдущие</string>
     <string name="feed_open">Открыть публикацию</string>
-    <string name="feed_openOriginal">Открыть публикацию</string>
     <string name="feed_originalUnavailable">Публикация недоступна</string>
     <string name="feed_photo">Фотография</string>
     <string name="feed_photo_open">Открыть на весь экран</string>
@@ -2640,12 +2637,6 @@
     <string name="feed_report_sent">Жалоба отправлена</string>
     <string name="feed_report_sent_message">Модераторы вуза рассмотрят её.</string>
     <string name="feed_report_title">Что не так с публикацией?</string>
-    <string name="feed_repost">Репост</string>
-    <string name="feed_repost_message">Публикация появится в ленте вашей группы.</string>
-    <string name="feed_repost_note">Комментарий (необязательно)</string>
-    <string name="feed_repost_send">Опубликовать</string>
-    <string name="feed_repost_title">Репост в группу</string>
-    <string name="feed_reposted">репост</string>
     <string name="feed_share">Поделиться</string>
     <string name="feed_unbookmark">Убрать из сохранённого</string>
     <string name="feed_video_play">Воспроизвести видео</string>

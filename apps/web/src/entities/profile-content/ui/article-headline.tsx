@@ -31,7 +31,7 @@ export function ArticleHeadline({
   badge?: ReactNode
   /** Автор, дата, время чтения, просмотры. */
   byline?: ReactNode
-  /** Ряд действий: лайк, комментарии, репост, поделиться, закладка. */
+  /** Ряд действий: лайк, комментарии, поделиться, закладка. */
   actions?: ReactNode
   className?: string
 }) {

@@ -32,3 +32,9 @@ export {
 } from './api/user-api'
 export { UserPicker, type PickedUser } from './ui/user-picker'
 export { ProfileLink } from './ui/profile-link'
+export {
+  NO_MODERATION,
+  contentModeration,
+  type ContentModeration,
+  type ContentModerator,
+} from './lib/content-moderation'

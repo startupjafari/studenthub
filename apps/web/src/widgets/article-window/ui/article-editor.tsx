@@ -1,12 +1,10 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ArrowLeft, Eye, FileText, PenLine, RotateCw, SlidersHorizontal } from 'lucide-react'
+import { Eye, FileText, PenLine, RotateCw, SlidersHorizontal } from 'lucide-react'
 import type {
   ArticleCategory,
   ContentVisibility,
@@ -17,11 +15,14 @@ import {
   ArticleContent,
   ArticleHeadline,
   articleStats,
+  closeArticleWindow,
   contentOwnerKey,
   createProfileArticle,
   fetchProfileArticle,
   profileContentKeys,
+  replaceArticleWindow,
   updateProfileArticle,
+  type ArticleWindowState,
   type ContentOwner,
   type ProfileArticle,
 } from '../../../entities/profile-content'
@@ -46,6 +47,7 @@ import {
 } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { AutosaveQueue, type AutosaveState } from '../model/autosave-queue'
+import { ArticleWindowClose, ArticleWindowFrame } from './article-window-frame'
 import { CoverEditor, type CoverValue } from './cover-editor'
 import { EditorSettings, type ArticleSettingsValue } from './editor-settings'
 
@@ -114,24 +116,24 @@ function ownerKeyOf(a: ProfileArticle): string {
   return contentOwnerKey({ kind: 'user', id: a.userId })
 }
 
-function ownerHref(a: ProfileArticle | null, kind: OwnerKind): string {
-  if (a?.companyId) return `/companies/${a.companyId}`
-  if (a?.universityPageId) return `/universities/${a.universityPageId}`
-  return kind === 'user' ? '/profile' : '/'
-}
-
 /**
- * Редактор статьи — отдельная страница (`/articles/new`, `/articles/<id>/edit`), а не окно:
- * длинный текст пишут долго, с перерывами, и ему нужны весь экран, адрес и «назад».
+ * Редактор статьи — окно поверх страницы (`?article=new`, `?article=<id>&edit=1`), во весь
+ * экран на телефоне и большое на компьютере: длинный текст пишут долго, с перерывами.
+ *
+ * Состояние окна берётся один раз, при открытии. После первого сохранения новой статьи
+ * адрес становится адресом её правки (`replaceArticleWindow`), но редактор при этом не
+ * перемонтируется — набранное и фокус остаются на месте.
  */
-export function ArticleEditorView({
-  articleId,
-  as = 'user',
+export function ArticleEditorWindow({
+  state,
 }: {
-  articleId?: string
-  as?: OwnerKind
+  state: Extract<ArticleWindowState, { mode: 'edit' | 'new' }>
 }) {
   const t = useTranslations('Article')
+  const tProfile = useTranslations('Profile')
+  const tCommon = useTranslations('Common')
+  const [opened] = useState(state)
+  const articleId = opened.mode === 'edit' ? opened.id : undefined
   const q = useQuery({
     queryKey: profileContentKeys.article(articleId ?? ''),
     queryFn: () => fetchProfileArticle(articleId as string),
@@ -140,31 +142,54 @@ export function ArticleEditorView({
     // Пока статью правят, фоновый перезапрос не нужен: редактор берёт её один раз.
     refetchOnWindowFocus: false,
   })
-  if (articleId && q.isPending) return <EditorSkeleton />
-  if (articleId && (q.isError || !q.data)) {
-    return (
-      <div className="flex w-full flex-1 flex-col items-center justify-center">
-        <EmptyState
-          icon={<FileText className="size-6" aria-hidden />}
-          title={t('unavailableTitle')}
-          description={t('unavailableText')}
-          action={
-            <Button asChild variant="outline">
-              <Link href="/">{t('toFeed')}</Link>
-            </Button>
-          }
-        />
-      </div>
-    )
-  }
-  return <ArticleEditor key={articleId ?? 'new'} initial={q.data ?? null} as={as} />
+  const title = articleId ? tProfile('editArticle') : t('title')
+
+  return (
+    <ArticleWindowFrame title={title} onClose={closeArticleWindow} guarded>
+      {articleId && q.isPending ? (
+        <>
+          <EditorBar>
+            <ArticleWindowClose onClick={closeArticleWindow} />
+          </EditorBar>
+          <EditorSkeleton />
+        </>
+      ) : articleId && (q.isError || !q.data) ? (
+        <>
+          <EditorBar>
+            <ArticleWindowClose onClick={closeArticleWindow} />
+          </EditorBar>
+          <div className="flex flex-1 flex-col items-center justify-center p-4">
+            <EmptyState
+              icon={<FileText className="size-6" aria-hidden />}
+              title={t('unavailableTitle')}
+              description={t('unavailableText')}
+              action={
+                <Button variant="outline" onClick={closeArticleWindow}>
+                  {tCommon('close')}
+                </Button>
+              }
+            />
+          </div>
+        </>
+      ) : (
+        <ArticleEditor initial={q.data ?? null} as={opened.mode === 'new' ? opened.as : 'user'} />
+      )}
+    </ArticleWindowFrame>
+  )
+}
+
+/** Верхняя панель редактора: закрыть, состояние сохранения, предпросмотр, главное действие. */
+function EditorBar({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-2 sm:px-4">
+      {children}
+    </div>
+  )
 }
 
 function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: OwnerKind }) {
   const t = useTranslations('Article')
   const tProfile = useTranslations('Profile')
-  const tCommon = useTranslations('Common')
-  const router = useRouter()
   const qc = useQueryClient()
   const me = useAppSelector((s) => s.auth.user)
   const { show: showApiError } = useErrorToast('article')
@@ -174,6 +199,14 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
   const ownerKind = ownerOf(initial, as)
   const [articleId, setArticleId] = useState<string | null>(initial?.id ?? null)
   const articleIdRef = useRef(articleId)
+  // Окно ещё открыто: автосохранение, долетевшее после закрытия, адрес не трогает.
+  const openRef = useRef(true)
+  useEffect(
+    () => () => {
+      openRef.current = false
+    },
+    [],
+  )
   const published = initial?.status === 'PUBLISHED'
 
   // Черновик на устройстве: новая статья — своим ключом до первого сохранения на сервере.
@@ -231,7 +264,7 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
       articleIdRef.current = saved.id
       setArticleId(saved.id)
       // Адрес — уже правки этой статьи, без перехода: редактор не перемонтируется.
-      window.history.replaceState(window.history.state, '', `/articles/${saved.id}/edit`)
+      if (openRef.current) replaceArticleWindow({ mode: 'edit', id: saved.id })
       if (newKey) removeContentDraft(newKey)
       void qc.invalidateQueries({ queryKey: profileContentKeys.articles(ownerKeyOf(saved)) })
     }
@@ -291,7 +324,8 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
       void qc.invalidateQueries({ queryKey: profileContentKeys.articles(ownerKeyOf(saved)) })
       setPublishedVersion(serialized)
       toast.success(published ? t('updated') : t('publishedOk'))
-      router.replace(`/articles/${saved.id}`)
+      // Окно показывает уже вышедшую статью — как её увидят читатели.
+      replaceArticleWindow({ mode: 'read', id: saved.id })
     },
     onError: (e) => {
       queue.resume()
@@ -299,9 +333,11 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
     },
   })
 
-  function goBack(): void {
-    if (window.history.length > 1) router.back()
-    else router.push(ownerHref(initial, ownerKind))
+  function close(): void {
+    // Недописанный черновик не ждёт паузы в наборе: уходит на сервер сразу (копия на
+    // устройстве есть в любом случае).
+    if (!published && valid) void queue.flush()
+    closeArticleWindow()
   }
 
   function discardRestored(): void {
@@ -328,18 +364,9 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
   )
 
   return (
-    <div className="flex w-full flex-1 flex-col">
-      {/* Верхняя панель: назад, состояние сохранения, предпросмотр, главное действие. */}
-      <div className="sticky top-0 z-20 -mx-4 -mt-4 flex items-center gap-2 border-b border-border bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:-mx-6 md:-mt-6 md:px-6">
-        <button
-          type="button"
-          onClick={goBack}
-          aria-label={tCommon('goBack')}
-          title={tCommon('goBack')}
-          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-        >
-          <ArrowLeft className="size-5" aria-hidden />
-        </button>
+    <>
+      <EditorBar>
+        <ArticleWindowClose onClick={close} />
         <SaveStatus
           state={saveState}
           local={localStatus}
@@ -389,113 +416,115 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
             {published ? t('update') : tProfile('publish')}
           </Button>
         </div>
-      </div>
+      </EditorBar>
 
-      {restoredBanner && (
-        <div className="mx-auto mt-4 flex w-full max-w-[45rem] items-center gap-3 rounded-xl bg-info/10 px-4 py-2.5 text-sm text-info">
-          <span className="flex-1">{t('draftRestored')}</span>
-          <button
-            type="button"
-            onClick={discardRestored}
-            className="shrink-0 cursor-pointer font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          >
-            {initial ? t('restoreSaved') : t('startOver')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setRestoredBanner(false)}
-            className="shrink-0 cursor-pointer font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          >
-            {t('keepRestored')}
-          </button>
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 sh-scroll sm:px-8">
+        {restoredBanner && (
+          <div className="mx-auto mt-4 flex w-full max-w-[45rem] items-center gap-3 rounded-xl bg-info/10 px-4 py-2.5 text-sm text-info">
+            <span className="flex-1">{t('draftRestored')}</span>
+            <button
+              type="button"
+              onClick={discardRestored}
+              className="shrink-0 cursor-pointer font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            >
+              {initial ? t('restoreSaved') : t('startOver')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRestoredBanner(false)}
+              className="shrink-0 cursor-pointer font-medium underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+            >
+              {t('keepRestored')}
+            </button>
+          </div>
+        )}
 
-      <div className="mx-auto grid w-full max-w-[72rem] items-start gap-10 py-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="mx-auto flex w-full max-w-[45rem] min-w-0 flex-col gap-6">
-          {preview ? (
-            // Предпросмотр — те же компоненты, что у страницы статьи.
-            <article className="flex flex-col gap-8">
-              <ArticleHeadline
-                category={draft.category || null}
-                title={draft.title || t('untitled')}
-                description={draft.description || null}
-                coverUrl={draft.coverUrl || null}
-                coverGradient={draft.coverGradient || null}
-                byline={
-                  <p className="text-sm text-muted-foreground">
-                    {me ? `${me.lastName} ${me.firstName}` : ''}
-                    {stats.minutes > 0 && ` · ${tProfile('readingTime', { min: stats.minutes })}`}
-                  </p>
-                }
-              />
-              <ArticleContent content={draft.content} />
-              {draft.tags.length > 0 && (
-                <ul className="flex flex-wrap gap-2">
-                  {draft.tags.map((tag) => (
-                    <li key={tag} className="rounded-full bg-muted px-3 py-1 text-sm">
-                      #{tag}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ) : (
-            <>
-              <CoverEditor
-                value={{ coverUrl: draft.coverUrl, coverGradient: draft.coverGradient }}
-                title={draft.title}
-                onChange={(cover: CoverValue) => patch(cover)}
-              />
-              <AutoGrowTextarea
-                value={draft.title}
-                onChange={(title) => patch({ title })}
-                onEnter={() => descriptionRef.current?.focus()}
-                maxLength={200}
-                aria-label={tProfile('articleTitle')}
-                placeholder={t('titlePlaceholder')}
-                className="text-[2rem] leading-[1.15] font-bold tracking-tight sm:text-[2.5rem]"
-                autoFocus={!initial}
-              />
-              <AutoGrowTextarea
-                ref={descriptionRef}
-                value={draft.description}
-                onChange={(description) => patch({ description })}
-                onEnter={() => editorRef.current?.focus()}
-                maxLength={300}
-                aria-label={tProfile('articleDescription')}
-                placeholder={t('descriptionPlaceholder')}
-                className="-mt-3 text-lg leading-relaxed text-muted-foreground sm:text-xl"
-              />
-              {markdownMode ? (
+        <div className="mx-auto grid w-full max-w-[72rem] items-start gap-10 py-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
+          <div className="mx-auto flex w-full max-w-[45rem] min-w-0 flex-col gap-6">
+            {preview ? (
+              // Предпросмотр — те же компоненты, что у читалки статьи.
+              <article className="flex flex-col gap-8">
+                <ArticleHeadline
+                  category={draft.category || null}
+                  title={draft.title || t('untitled')}
+                  description={draft.description || null}
+                  coverUrl={draft.coverUrl || null}
+                  coverGradient={draft.coverGradient || null}
+                  byline={
+                    <p className="text-sm text-muted-foreground">
+                      {me ? `${me.lastName} ${me.firstName}` : ''}
+                      {stats.minutes > 0 && ` · ${tProfile('readingTime', { min: stats.minutes })}`}
+                    </p>
+                  }
+                />
+                <ArticleContent content={draft.content} />
+                {draft.tags.length > 0 && (
+                  <ul className="flex flex-wrap gap-2">
+                    {draft.tags.map((tag) => (
+                      <li key={tag} className="rounded-full bg-muted px-3 py-1 text-sm">
+                        #{tag}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </article>
+            ) : (
+              <>
+                <CoverEditor
+                  value={{ coverUrl: draft.coverUrl, coverGradient: draft.coverGradient }}
+                  title={draft.title}
+                  onChange={(cover: CoverValue) => patch(cover)}
+                />
                 <AutoGrowTextarea
-                  value={draft.content}
-                  onChange={(content) => patch({ content })}
-                  aria-label={tProfile('articleContent')}
-                  placeholder={t('contentPlaceholder')}
-                  className="min-h-[50dvh] font-mono text-sm leading-relaxed"
+                  value={draft.title}
+                  onChange={(title) => patch({ title })}
+                  onEnter={() => descriptionRef.current?.focus()}
+                  maxLength={200}
+                  aria-label={tProfile('articleTitle')}
+                  placeholder={t('titlePlaceholder')}
+                  className="text-[2rem] leading-[1.15] font-bold tracking-tight sm:text-[2.5rem]"
+                  autoFocus={!initial}
                 />
-              ) : (
-                <RichTextField
-                  id="article-content"
-                  aria-label={tProfile('articleContent')}
-                  value={draft.content}
-                  onChange={(content) => patch({ content })}
-                  actions={ARTICLE_ACTIONS}
-                  placeholder={t('contentPlaceholder')}
-                  bare
-                  handle={editorRef}
-                  className="article-editor min-h-[50dvh] px-0 text-[1.0625rem] leading-[1.75]"
+                <AutoGrowTextarea
+                  ref={descriptionRef}
+                  value={draft.description}
+                  onChange={(description) => patch({ description })}
+                  onEnter={() => editorRef.current?.focus()}
+                  maxLength={300}
+                  aria-label={tProfile('articleDescription')}
+                  placeholder={t('descriptionPlaceholder')}
+                  className="-mt-3 text-lg leading-relaxed text-muted-foreground sm:text-xl"
                 />
-              )}
-              <p className="text-xs text-muted-foreground lg:hidden">
-                {t('statsLine', { words: stats.words, chars: stats.chars, min: stats.minutes })}
-              </p>
-            </>
-          )}
-        </div>
+                {markdownMode ? (
+                  <AutoGrowTextarea
+                    value={draft.content}
+                    onChange={(content) => patch({ content })}
+                    aria-label={tProfile('articleContent')}
+                    placeholder={t('contentPlaceholder')}
+                    className="min-h-[50dvh] font-mono text-sm leading-relaxed"
+                  />
+                ) : (
+                  <RichTextField
+                    id="article-content"
+                    aria-label={tProfile('articleContent')}
+                    value={draft.content}
+                    onChange={(content) => patch({ content })}
+                    actions={ARTICLE_ACTIONS}
+                    placeholder={t('contentPlaceholder')}
+                    bare
+                    handle={editorRef}
+                    className="article-editor min-h-[50dvh] px-0 text-[1.0625rem] leading-[1.75]"
+                  />
+                )}
+                <p className="text-xs text-muted-foreground lg:hidden">
+                  {t('statsLine', { words: stats.words, chars: stats.chars, min: stats.minutes })}
+                </p>
+              </>
+            )}
+          </div>
 
-        <aside className="sticky top-20 hidden lg:block">{settingsPanel}</aside>
+          <aside className="sticky top-8 hidden lg:block">{settingsPanel}</aside>
+        </div>
       </div>
 
       <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
@@ -506,7 +535,7 @@ function ArticleEditor({ initial, as }: { initial: ProfileArticle | null; as: Ow
           <div className="px-5 pb-2">{settingsPanel}</div>
         </SheetContent>
       </Sheet>
-    </div>
+    </>
   )
 }
 
@@ -623,7 +652,7 @@ function AutoGrowTextarea({
 
 function EditorSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-[45rem] flex-1 flex-col gap-6 py-16" aria-busy>
+    <div className="mx-auto flex w-full max-w-[45rem] flex-1 flex-col gap-6 px-4 py-16" aria-busy>
       <Skeleton className="h-12 w-4/5" />
       <Skeleton className="h-6 w-3/5" />
       <div className="flex flex-col gap-3">

@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Check, UserPlus, Users, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { Check, MessageCircle, UserPlus, Users, X } from 'lucide-react'
 import { REALTIME_EVENTS } from '@studenthub/shared-schemas'
 import {
   fetchFriendRequests,
@@ -12,6 +14,9 @@ import {
   friendKeys,
   type FriendUser,
 } from '../../../entities/friendship'
+import { createChatRequest } from '../../../entities/chat'
+import { CHATS_HREF_BY_ROLE } from '../../../shared/config'
+import { useAppSelector } from '../../../shared/store'
 import {
   Avatar,
   AvatarFallback,
@@ -24,7 +29,7 @@ import {
   CardTitle,
   Skeleton,
 } from '../../../shared/ui'
-import { cn, useFreshIds } from '../../../shared/lib'
+import { cn, toApiError, useFreshIds } from '../../../shared/lib'
 import { useLiveRefresh } from '../../../shared/realtime'
 import { useFriendsSummary } from '../model/use-friends-summary'
 import { useFriendshipMutations } from '../model/use-friendship-mutations'
@@ -32,7 +37,7 @@ import { FriendsModal, type FriendsTab } from './friends-modal'
 
 // Сколько показываем в колонке до кнопки «показать всех».
 // Заявок — 3: их разбирают сразу, длинный список в боковой колонке никто не листает.
-// Друзей — 6: ровно две строки сетки 3×2, как в ВК.
+// Друзей — 6 строк: колонка остаётся короче экрана вместе с событиями и важным.
 const REQUESTS_PREVIEW = 3
 const FRIENDS_PREVIEW = 6
 // Стабильный пустой список для useFreshIds: новый массив на каждом рендере сбивал бы его эффект.
@@ -88,6 +93,19 @@ function FriendAvatar({
  */
 export function FriendsPanel() {
   const t = useTranslations('Friends')
+  const tRoles = useTranslations('Roles')
+  const tErr = useTranslations('Errors')
+  const router = useRouter()
+  const role = useAppSelector((s) => s.auth.role)
+  const chatsHref = role ? CHATS_HREF_BY_ROLE[role] : undefined
+  // «Написать» — личный чат с другом: заводится (или находится) сервером и открывается.
+  const openChat = useMutation({
+    mutationFn: (userId: string) => createChatRequest({ type: 'PRIVATE', memberIds: [userId] }),
+    onSuccess: (chat) => {
+      if (chatsHref) router.push(`${chatsHref}?chat=${chat.id}`)
+    },
+    onError: (e) => toast.error(tErr(toApiError(e).code)),
+  })
   const [modal, setModal] = useState<FriendsTab | null>(null)
   // Заявку принимают/отклоняют прямо здесь: ради двух кнопок открывать окно — лишний шаг.
   const { accept, remove } = useFriendshipMutations()
@@ -250,54 +268,66 @@ export function FriendsPanel() {
                 {friendsCount}
               </span>
             </CardTitle>
-            {friendsCount > FRIENDS_PREVIEW && (
-              <CardAction>
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto px-0"
-                  onClick={() => setModal('friends')}
-                >
-                  {t('showAll')}
-                </Button>
-              </CardAction>
-            )}
+            <CardAction>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                onClick={() => setModal('friends')}
+              >
+                {t('showAll')}
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent>
-            {/* Сетка 3×2 квадратами — как блок друзей во ВК: за один взгляд видно лица,
-                а не строчки текста. Имя — только личное: фамилия в ячейку не влезает. */}
-            <ul className="grid grid-cols-3 gap-2">
+            {/* Строками: круглый аватар, имя и подпись, справа — «Написать». Сетка крупных
+                квадратов занимала полэкрана ради шести лиц. */}
+            <ul className="-mx-2 flex flex-col">
               {friendsQ.isPending &&
                 Array.from({ length: Math.min(friendsCount, FRIENDS_PREVIEW) }).map((_, i) => (
-                  <li key={i}>
-                    <Skeleton className="aspect-square w-full rounded-xl" />
+                  <li key={i} className="flex items-center gap-3 px-2 py-1.5">
+                    <Skeleton className="size-10 shrink-0 rounded-full" />
+                    <Skeleton className="h-3.5 flex-1" />
                   </li>
                 ))}
               {friends.slice(0, FRIENDS_PREVIEW).map((f) => (
                 <li
                   key={f.friendshipId}
                   className={cn(
-                    'min-w-0 rounded-xl',
+                    'flex items-center gap-1 rounded-lg pr-1',
                     freshFriends.has(f.friendshipId) && 'sh-live-in',
                   )}
                 >
                   <Link
                     href={`/profile/${f.user.id}`}
-                    title={fullName(f.user)}
-                    className="group flex flex-col gap-1 rounded-xl focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                   >
                     <FriendAvatar
                       user={f.user}
-                      // `size-auto` первым: у Avatar в базе `size-9`, и он задаёт
-                      // ВЫСОТУ — одним `w-full` его не перебить, ячейка осталась бы
-                      // полосой 36px. Дальше высоту даёт aspect-square.
-                      className="size-auto aspect-square w-full rounded-xl object-cover ring-1 ring-foreground/5 transition-opacity duration-150 group-hover:opacity-90"
-                      textClassName="text-base"
+                      className="size-10 shrink-0 rounded-full"
+                      textClassName="text-xs"
                     />
-                    <span className="truncate text-center text-xs group-hover:underline">
-                      {f.user.firstName}
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium">{fullName(f.user)}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {f.user.headline || tRoles(f.user.role)}
+                      </span>
                     </span>
                   </Link>
+                  {chatsHref && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon
+                      aria-label={`${t('write')} · ${fullName(f.user)}`}
+                      title={t('write')}
+                      disabled={openChat.isPending}
+                      onClick={() => openChat.mutate(f.user.id)}
+                      className="size-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                    >
+                      <MessageCircle className="size-[1.125rem] -scale-x-100" aria-hidden />
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>

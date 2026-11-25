@@ -31,7 +31,13 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { BRAND_GRADIENT, CHATS_HREF_BY_ROLE } from '../../../shared/config'
-import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
+import {
+  contentModeration,
+  fetchMe,
+  fetchUserById,
+  fetchUserPresence,
+  userKeys,
+} from '../../../entities/user'
 import { createChatRequest } from '../../../entities/chat'
 import {
   fetchFriendshipStatus,
@@ -45,7 +51,6 @@ import { useAppSelector } from '../../../shared/store'
 import { useAuthorStories } from '../../../entities/story'
 import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
 import { ReportModal } from '../../../features/report-content'
-import { contentModeration } from '../lib/content-moderation'
 
 import {
   ENTER,

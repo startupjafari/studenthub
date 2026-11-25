@@ -360,13 +360,13 @@ final class FeedActionsTests: XCTestCase {
         XCTAssertEqual(elements.last?.rotation, 10)
     }
 
-    /// Пост ленты разбирает медиа с копиями и HLS, репост и права.
-    func testPostDecodesMediaAndRepost() throws {
+    /// Пост ленты разбирает медиа с копиями и HLS и права.
+    func testPostDecodesMediaAndRights() throws {
         let json = Data(
             """
             {"id":"p-2","content":"","createdAt":"2026-11-07T10:00:00.000Z","authorId":"u-1",
             "author":{"id":"u-1","firstName":"Аян","lastName":"Серик","role":"TEACHER","avatarUrl":null},
-            "audience":"GROUP","originalPostId":"p-1","original":null,"bookmarked":true,"canDelete":false,
+            "audience":"GROUP","bookmarked":true,"canDelete":false,
             "media":[{"id":"m-1","mime":"video/mp4","width":1920,"height":1080,"placeholder":null,
             "sources":[],"poster":[{"width":640,"height":360,"url":"https://cdn/p.webp"}],
             "hls":"/api/v1/media/m-1/hls/master.m3u8?t=x","status":"READY","durationMs":12000}],
@@ -376,8 +376,6 @@ final class FeedActionsTests: XCTestCase {
 
         let post = try JSONCoding.decoder.decode(PostDTO.self, from: json)
 
-        XCTAssertTrue(post.isRepost)
-        XCTAssertNil(post.original)
         XCTAssertEqual(post.author?.role, "TEACHER")
         XCTAssertEqual(post.media?.first?.isVideo, true)
         XCTAssertEqual(post.media?.first?.aspectRatio, 1920.0 / 1080.0)
@@ -447,13 +445,6 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     func toggleBookmark(postID: String) async throws -> Bool {
         if let failure = lock.withLock({ failure }) { throw failure }
         return lock.withLock { bookmarkResult }
-    }
-    func repost(postID: String, note: String?) async throws -> PostDTO {
-        if let failure = lock.withLock({ failure }) { throw failure }
-        return PostDTO(
-            id: "r-1", content: note, createdAt: Date(), author: nil, media: nil, reactionSummary: nil,
-            counts: nil, originalPostId: postID
-        )
     }
     func editPost(id: String, content: String) async throws -> PostDTO {
         if let failure = lock.withLock({ failure }) { throw failure }

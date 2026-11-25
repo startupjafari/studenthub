@@ -85,6 +85,11 @@ export interface CreatePostFormProps {
   onStateChange?: (state: ComposerState) => void
   /** Автор в шапке, если пишут не от своего имени (страница вуза). */
   author?: { name: string; avatarUrl: string | null }
+  /**
+   * Вложения, выбранные до открытия редактора (кнопки «Фото» и «Видео» панели над лентой):
+   * они сразу встают в очередь загрузки, как выбранные внутри.
+   */
+  initialFiles?: readonly File[]
 }
 
 /**
@@ -101,6 +106,7 @@ export function CreatePostForm({
   asUniversity = false,
   onStateChange,
   author,
+  initialFiles,
 }: CreatePostFormProps) {
   const t = useTranslations('Feed')
   const tPeople = useTranslations('People')
@@ -242,10 +248,19 @@ export function CreatePostForm({
       })
     })
 
-  function addFiles(list: FileList | File[] | null | undefined): void {
+  function addFiles(list: FileList | readonly File[] | null | undefined): void {
     if (!list || list.length === 0) return
     media.add(Array.from(list))
   }
+
+  // Файлы, выбранные до открытия, — один раз, при открытии.
+  const initialRef = useRef(initialFiles)
+  useEffect(() => {
+    const files = initialRef.current
+    initialRef.current = undefined
+    addFiles(files)
+    // Только на открытие: `media.add` стабилен в рамках одного редактора.
+  }, [])
 
   function onDragOver(e: DragEvent<HTMLFormElement>): void {
     // Перестановку превью обрабатывает сама лента: подсветка — только для файлов снаружи.

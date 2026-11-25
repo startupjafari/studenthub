@@ -34,11 +34,14 @@ const CreateStoryForm = dynamic(
  * лентой занимала бы первый экран ради сообщения «тут пусто».
  */
 // Поверхность и ряд полосы — общие у колец и у их заготовки.
-// Ячейка шире кольца (5.5rem против 4.5rem), чтобы подпись «Новая сторис» не обрезалась.
-// Поле ряда (px-2/sm:px-3) + поле ячейки вокруг кольца (8px) = отступ текста в посте
-// (16/20px): кольца и аватары постов стоят на одной вертикали.
-const RAIL_SURFACE = 'rounded-xl bg-card ring-1 ring-foreground/10'
-const RAIL_ROW = 'flex gap-1 px-2 py-3 sm:gap-2 sm:px-3'
+// Без своей карточки: полоса колец — часть ленты, как в Instagram. Карточка вокруг одной
+// кнопки «Новая сторис» (сторис ещё ни у кого нет) читалась большим пустым блоком.
+// Ячейка шире кольца (5.25rem против 4rem), чтобы подпись «Новая сторис» не обрезалась.
+const RAIL_SURFACE = 'max-sm:-mx-3'
+const RAIL_ROW = 'flex gap-1 px-1 py-1'
+// Кольцо — 64px (4rem), ячейка — с запасом под подпись.
+const RING = 'size-16'
+const CELL = 'w-[5.25rem]'
 
 export function StoriesRail() {
   const t = useTranslations('Stories')
@@ -129,8 +132,8 @@ export function StoriesRail() {
       <div className={RAIL_SURFACE} aria-hidden>
         <div className={cn(RAIL_ROW, 'overflow-hidden')}>
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex w-[5.5rem] shrink-0 flex-col items-center gap-2">
-              <Skeleton className="size-[4.5rem] rounded-full" />
+            <div key={i} className={cn(CELL, 'flex shrink-0 flex-col items-center gap-1.5')}>
+              <Skeleton className={cn(RING, 'rounded-full')} />
               <Skeleton className="h-3 w-14" />
             </div>
           ))}
@@ -161,12 +164,15 @@ export function StoriesRail() {
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className={cn(
+                CELL,
+                'group flex shrink-0 flex-col items-center gap-1.5 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              )}
             >
               {/* Создание — своим лицом с акцентным плюсом в углу, как в мессенджерах: сразу
                   понятно, что сторис будет от тебя. Без фото — плюс на мягкой подложке, а не
                   серый пунктир, который сливался с пустым местом. */}
-              <span className="relative flex size-[4.5rem] items-center justify-center rounded-full transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none">
+              <span className="relative flex size-16 items-center justify-center rounded-full transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none">
                 {me?.avatarUrl ? (
                   <>
                     <Avatar className="size-full ring-1 ring-foreground/10">
@@ -176,8 +182,8 @@ export function StoriesRail() {
                         {me.lastName.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="absolute right-0 bottom-0 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-card">
-                      <Plus className="size-4" strokeWidth={2.5} aria-hidden />
+                    <span className="absolute right-0 bottom-0 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background">
+                      <Plus className="size-3.5" strokeWidth={2.5} aria-hidden />
                     </span>
                   </>
                 ) : (
@@ -210,8 +216,8 @@ export function StoriesRail() {
               aria-label={side === 'left' ? tCommon('previous') : tCommon('next')}
               onClick={() => scrollBy(side === 'left' ? -1 : 1)}
               className={cn(
-                // По центру кольца: поле полосы (0.75rem) + половина кольца (2.25rem).
-                'absolute top-12 z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
+                // По центру кольца: поле полосы (0.25rem) + половина кольца (2rem).
+                'absolute top-9 z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
                 'opacity-0 group-hover/rail:opacity-100 focus-visible:opacity-100',
                 side === 'left' ? 'left-2' : 'right-2',
               )}
@@ -260,7 +266,8 @@ function RingButton({
       onClick={onOpen}
       aria-label={t('openStoryOf', { name: `${ring.author.firstName} ${ring.author.lastName}` })}
       className={cn(
-        'group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+        CELL,
+        'group flex shrink-0 flex-col items-center gap-1.5 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
         fresh && 'sh-live-in',
       )}
     >
@@ -269,13 +276,14 @@ function RingButton({
       <span
         data-story-origin={ring.author.id}
         className={cn(
-          'flex size-[4.5rem] items-center justify-center rounded-full p-[3px] transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none',
+          RING,
+          'flex items-center justify-center rounded-full p-[3px] transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none',
           ring.hasUnseen
             ? 'bg-gradient-to-br from-primary via-indigo-500 to-violet-500'
             : 'bg-border',
         )}
       >
-        <Avatar className="size-full border-2 border-card">
+        <Avatar className="size-full border-2 border-background">
           {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
           <AvatarFallback>
             {ring.author.firstName.charAt(0)}

@@ -15,7 +15,6 @@ import {
   type FeedQueryInput,
   type PostReactionSummary,
   type ReactionInput,
-  type RepostInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -30,7 +29,6 @@ import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { isFirstViewToday } from './unique-view'
 import { POST_ROOMS_SELECT, PostLiveEvents } from './post-live-events'
 import { FileService } from '../files/file.service'
-import { ProfileContentService } from '../profile-content/profile-content.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
@@ -122,23 +120,6 @@ const REACTION_EMOJI_WHERE = { emoji: { in: [...POST_REACTION_EMOJIS] } }
 // Поэтому в ленте счётчики берутся отдельным groupBy по двум десяткам id страницы —
 // ровно так же, как закладки и реакции (см. decorate). Одиночному посту это не нужно:
 // там агрегат считается по одному id и стоит ничего, а select проще держать общим.
-/**
- * Карточка статьи в репосте: заголовок, описание, обложка и метки — без текста. Читать её
- * открывают отдельной страницей статьи, со своей проверкой прав.
- */
-const SHARED_ARTICLE_SELECT = {
-  id: true,
-  title: true,
-  description: true,
-  coverUrl: true,
-  coverGradient: true,
-  category: true,
-  readingMinutes: true,
-  publishedAt: true,
-  company: { select: { id: true, name: true, logoUrl: true } },
-  universityPage: { select: { id: true, name: true, logoUrl: true } },
-} satisfies Prisma.ProfileArticleSelect
-
 /** Порядок вложений поста: как их расставил автор, у старых постов — по времени загрузки. */
 const POST_MEDIA_ORDER = [
   { order: { sort: 'asc', nulls: 'last' } },
@@ -158,7 +139,6 @@ const POST_SELECT_CORE = {
   subject: true,
   priority: true,
   pinnedAt: true,
-  originalPostId: true,
   views: true,
   status: true,
   scheduledAt: true,
@@ -173,11 +153,6 @@ const POST_SELECT_CORE = {
   // Порядок — тот, что выбрал автор (`order` ставит linkMedia по порядку mediaIds). У постов,
   // созданных до появления порядка, `order` пуст — они идут по времени загрузки, как раньше.
   media: { select: MEDIA_FILE_SELECT, orderBy: POST_MEDIA_ORDER },
-  original: {
-    select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
-  },
-  sharedArticleId: true,
-  sharedArticle: { select: SHARED_ARTICLE_SELECT },
 } satisfies Prisma.PostSelect
 
 /**
@@ -347,7 +322,6 @@ export class PostsService {
     private readonly queue: QueueService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly careerAccess: CareerAccessService,
-    private readonly profileContent: ProfileContentService,
     private readonly live: PostLiveEvents,
   ) {}
 
@@ -494,7 +468,7 @@ export class PostsService {
   ): Promise<ViewerPost[]> {
     if (rows.length === 0) return []
     const ids = rows.map((row) => row.id)
-    const [saved, counts, originals, reactions, mediaView, articles] = await Promise.all([
+    const [saved, counts, reactions, mediaView] = await Promise.all([
       this.prisma.postBookmark.findMany({
         where: { userId: viewer.sub, postId: { in: ids } },
         select: { postId: true },
@@ -507,15 +481,8 @@ export class PostsService {
             where: { postId: { in: ids }, deletedAt: null },
             _count: { _all: true },
           }),
-      this.availableOriginals(viewer, rows),
       this.reactionSummaries(viewer.sub, ids),
       this.signMedia(rows.flatMap((row) => row.media)),
-      // Карточка статьи в репосте — только тем, кто открыл бы саму статью; остальным
-      // `sharedArticle: null` при живом `sharedArticleId` — «Статья недоступна».
-      this.profileContent.visibleArticleIds(
-        viewer,
-        rows.flatMap((row) => (row.sharedArticle ? [row.sharedArticle.id] : [])),
-      ),
     ])
     const savedIds = new Set(saved.map((row) => row.postId))
     const countByPost = new Map(counts.map((row) => [row.postId, row._count._all]))
@@ -523,9 +490,6 @@ export class PostsService {
       ...row,
       media: row.media.map(mediaView),
       reactionSummary: reactions.get(row.id) ?? [],
-      original: row.original && originals.has(row.original.id) ? row.original : null,
-      sharedArticle:
-        row.sharedArticle && articles.has(row.sharedArticle.id) ? row.sharedArticle : null,
       _count: counted && row._count ? row._count : { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
       canDelete:
@@ -592,36 +556,6 @@ export class PostsService {
     ])
     const expiresAt = signingWindow(now).expiresAt.toISOString()
     return (file) => toPostMedia(file, urls.get(file.id), described.get(file.id), expiresAt)
-  }
-
-  /**
-   * Какие оригиналы репостов зритель вправе прочитать в цитате: не удалённые, опубликованные
-   * и открываемые им по id (то же право, что у getById, — клиент догружает исходник им же).
-   * Один индексный запрос на страницу, и только если на ней есть репосты.
-   *
-   * Цитата неподходящего оригинала обнуляется (`original: null`), а `originalPostId`
-   * остаётся — клиент рисует «Публикация недоступна». Раньше цитата уходила любому зрителю
-   * репоста: снятый модератором пост жил дальше во всех репостах, а пост для преподавателей
-   * доходил до студентов через репост в группу.
-   */
-  private async availableOriginals(
-    viewer: JwtPayload,
-    rows: Array<{ original: { id: string } | null }>,
-  ): Promise<Set<string>> {
-    const ids = [...new Set(rows.flatMap((row) => (row.original ? [row.original.id] : [])))]
-    if (ids.length === 0) return new Set()
-    const visible = await this.prisma.post.findMany({
-      where: {
-        AND: [
-          { id: { in: ids } },
-          { status: 'PUBLISHED' },
-          this.visibilityWhere(viewer, { moderation: true }),
-        ],
-      },
-      select: { id: true },
-      take: ids.length,
-    })
-    return new Set(visible.map((row) => row.id))
   }
 
   async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<ViewerPost>> {
@@ -1040,117 +974,6 @@ export class PostsService {
     return published.length
   }
 
-  // ── Репост (задача 8.6) ─────────────────────────────────────────────────────
-
-  async repost(
-    actor: JwtPayload,
-    id: string,
-    input: RepostInput,
-    ctx: RequestContext,
-  ): Promise<ViewerPost> {
-    // Репостить можно только видимый пост — по видимости самого зрителя, без scope
-    // модерации: право снимать пост не даёт права выносить его к новой аудитории.
-    const original = await this.findVisibleOrThrow(actor, id, {
-      id: true,
-      originalPostId: true,
-      audience: true,
-      status: true,
-    })
-    // Личный пост адресован одному человеку: репост переопубликовал бы чужую переписку
-    // на группу или факультет (docs/BACKEND_RULES.md §14.7). Видимости для этого мало.
-    if (original.audience === PostAudience.PERSONAL) {
-      throw new AppException('FORBIDDEN', 'Личный пост нельзя репостить')
-    }
-    // Черновик и отложенный видит только автор (visibilityWhere), но их текст уехал бы наружу
-    // в цитате оригинала у опубликованного репоста.
-    if (original.status !== 'PUBLISHED') {
-      throw new AppException('BAD_REQUEST', 'Нельзя репостить неопубликованный пост')
-    }
-    // Репост репоста ссылается на первоисточник — и тот обязан быть доступен самому
-    // репостящему: иначе через чужой репост можно сослаться на снятый модератором пост
-    // или на пост аудитории, которой он сам не видит.
-    if (original.originalPostId) {
-      const source = await this.prisma.post.findFirst({
-        where: { id: original.originalPostId, status: 'PUBLISHED', ...this.visibilityWhere(actor) },
-        select: { id: true },
-      })
-      if (!source) throw new AppException('NOT_FOUND', 'Исходная публикация недоступна')
-    }
-    const originalPostId = original.originalPostId ?? original.id
-    const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
-    const post = await this.prisma.post.create({
-      data: {
-        authorId: actor.sub,
-        audience: input.audience as PostAudience,
-        content: input.content ?? '',
-        priority: this.priorityFor(actor, input.audience as PostAudience),
-        originalPostId,
-        // Репост публикуется сразу — момент публикации нужен ленте для порядка.
-        publishedAt: new Date(),
-        ...target,
-      },
-      select: POST_ROOMS_SELECT,
-    })
-    await this.audit.record({
-      userId: actor.sub,
-      action: 'post_reposted',
-      entity: 'Post',
-      entityId: post.id,
-      metadata: { originalPostId },
-      ...ctx,
-    })
-    this.live.published(post)
-    return this.getById(actor, post.id)
-  }
-
-  /**
-   * Репост статьи в ленту: пост со ссылкой на статью и необязательной подписью. Репостить
-   * можно только опубликованную статью, которую репостящий сам вправе читать; аудиторию и
-   * её scope решает тот же resolveTarget, что у обычного поста. Кто увидит карточку статьи в
-   * ленте, решается для каждого зрителя заново (decorate): репост не расширяет круг читателей
-   * статьи — остальным он показывает «Статья недоступна».
-   */
-  async repostArticle(
-    actor: JwtPayload,
-    articleId: string,
-    input: RepostInput,
-    ctx: RequestContext,
-  ): Promise<ViewerPost> {
-    const visible = await this.profileContent.visibleArticleIds(actor, [articleId])
-    if (!visible.has(articleId)) throw new AppException('NOT_FOUND', 'Статья не найдена')
-    const article = await this.prisma.profileArticle.findUnique({
-      where: { id: articleId },
-      select: { status: true },
-    })
-    // Черновик видит автор (и редакторы страницы), но репост вынес бы его карточку в ленту.
-    if (article?.status !== 'PUBLISHED') {
-      throw new AppException('BAD_REQUEST', 'Нельзя репостить неопубликованную статью')
-    }
-    const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
-    const post = await this.prisma.post.create({
-      data: {
-        authorId: actor.sub,
-        audience: input.audience as PostAudience,
-        content: input.content ?? '',
-        priority: this.priorityFor(actor, input.audience as PostAudience),
-        sharedArticleId: articleId,
-        publishedAt: new Date(),
-        ...target,
-      },
-      select: POST_ROOMS_SELECT,
-    })
-    await this.audit.record({
-      userId: actor.sub,
-      action: 'article_reposted',
-      entity: 'Post',
-      entityId: post.id,
-      metadata: { articleId },
-      ...ctx,
-    })
-    this.live.published(post)
-    return this.getById(actor, post.id)
-  }
-
   // ── Удаление (задача 8.5) — автор или модератор scope ──────────────────────
 
   /**
@@ -1172,8 +995,6 @@ export class PostsService {
         authorId: true,
         companyId: true,
         universityPageId: true,
-        originalPostId: true,
-        sharedArticleId: true,
       },
     })
     if (!post) {
@@ -1182,9 +1003,7 @@ export class PostsService {
     if (!this.ownsPost(actor, post)) {
       throw new AppException('FORBIDDEN', 'Редактировать можно только свою публикацию')
     }
-    // Пустой текст допустим только у репоста — его заметка необязательна, как при создании.
-    const isRepost = Boolean(post.originalPostId || post.sharedArticleId)
-    if (input.content !== undefined && !input.content.trim() && !isRepost) {
+    if (input.content !== undefined && !input.content.trim()) {
       throw new AppException('BAD_REQUEST', 'Текст публикации не может быть пустым')
     }
     const data: Prisma.PostUpdateInput = {}

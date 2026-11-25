@@ -1845,8 +1845,6 @@
     <string name="community_article_related">Ұқсас мақалалар</string>
     <string name="community_article_removeCover">Мұқабаны алып тастау</string>
     <string name="community_article_replaceCover">Мұқабаны ауыстыру</string>
-    <string name="community_article_repost">Таспада бөлісу</string>
-    <string name="community_article_reposted">Мақала топ таспасында жарияланды</string>
     <string name="community_article_saveDraft">Жобаны сақтау</string>
     <string name="community_article_settings">Жариялау</string>
     <string name="community_article_summary">Қысқаша сипаттама</string>
@@ -2624,7 +2622,6 @@
     <string name="feed_noComments_hint">Бірінші болып жазыңыз</string>
     <string name="feed_olderComments">Алдыңғыларын көрсету</string>
     <string name="feed_open">Жарияланымды ашу</string>
-    <string name="feed_openOriginal">Жарияланымды ашу</string>
     <string name="feed_originalUnavailable">Жарияланым қолжетімсіз</string>
     <string name="feed_photo">Фотосурет</string>
     <string name="feed_photo_open">Толық экранда ашу</string>
@@ -2640,12 +2637,6 @@
     <string name="feed_report_sent">Шағым жіберілді</string>
     <string name="feed_report_sent_message">ЖОО модераторлары оны қарайды.</string>
     <string name="feed_report_title">Жарияланымда не дұрыс емес?</string>
-    <string name="feed_repost">Репост</string>
-    <string name="feed_repost_message">Жарияланым тобыңыздың лентасында пайда болады.</string>
-    <string name="feed_repost_note">Түсініктеме (міндетті емес)</string>
-    <string name="feed_repost_send">Жариялау</string>
-    <string name="feed_repost_title">Топқа репост</string>
-    <string name="feed_reposted">репост</string>
     <string name="feed_share">Бөлісу</string>
     <string name="feed_unbookmark">Сақталғандардан алып тастау</string>
     <string name="feed_video_play">Бейнені ойнату</string>

@@ -162,7 +162,6 @@ private struct StubProfileFeed: FeedFetching {
     func deleteComment(postID: String, commentID: String) async throws {}
     func react(postID: String, emoji: String, on: Bool) async throws {}
     func toggleBookmark(postID: String) async throws -> Bool { false }
-    func repost(postID: String, note: String?) async throws -> PostDTO { throw APIError.malformedResponse(statusCode: 500) }
     func editPost(id: String, content: String) async throws -> PostDTO { throw APIError.malformedResponse(statusCode: 500) }
     func deletePost(id: String) async throws {}
     func markViewed(postID: String) async throws {}

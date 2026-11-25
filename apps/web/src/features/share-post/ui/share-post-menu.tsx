@@ -28,9 +28,6 @@ export function postUrl(postId: string): string {
  * Раньше кнопка сразу открывала пересылку в чат — то есть «поделиться» умело ровно
  * одно, и то внутри платформы. Ссылку дать было нельзя вовсе: постоянного адреса
  * у поста не существовало.
- *
- * Репост в меню НЕ входит: это публикация от своего имени со своей аудиторией,
- * а не отправка ссылки. У него отдельная кнопка.
  */
 export function SharePostMenu({ postId, className }: { postId: string; className?: string }) {
   const t = useTranslations('Feed')
