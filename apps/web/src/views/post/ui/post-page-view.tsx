@@ -26,7 +26,7 @@ const PostLightbox = dynamic(
  */
 export function PostPageView({ postId }: { postId: string }) {
   const t = useTranslations('Feed')
-  const [lightbox, setLightbox] = useState<{ focusComment: boolean; media?: number } | null>(null)
+  const [lightbox, setLightbox] = useState<{ focusComment: boolean } | null>(null)
 
   const post = useQuery({
     queryKey: postKeys.detail(postId),
@@ -58,7 +58,7 @@ export function PostPageView({ postId }: { postId: string }) {
         ) : (
           <PostCard
             post={post.data}
-            onOpenMedia={(media) => setLightbox({ focusComment: false, media })}
+            className="max-sm:-mx-4"
             onOpenComments={() => setLightbox({ focusComment: true })}
           />
         )}
@@ -69,7 +69,6 @@ export function PostPageView({ postId }: { postId: string }) {
           posts={[post.data]}
           index={0}
           focusComment={lightbox.focusComment}
-          initialMedia={lightbox.media}
           onIndex={() => undefined}
           onClose={() => setLightbox(null)}
         />

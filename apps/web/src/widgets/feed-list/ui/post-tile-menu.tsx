@@ -4,7 +4,18 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Flag, MoreHorizontal, Pencil, Pin, PinOff, Send, Trash2 } from 'lucide-react'
+import {
+  Bookmark,
+  BookmarkMinus,
+  Flag,
+  Link2,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Send,
+  Trash2,
+} from 'lucide-react'
 import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   deletePostRequest,
@@ -14,18 +25,21 @@ import {
   type FeedPost,
 } from '../../../entities/post'
 import { EditPostModal } from '../../../features/edit-post'
+import { postUrl } from '../../../features/share-post'
 import { ReportModal } from '../../../features/report-content'
 import { MenuSeparator, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 
-// Меню действий на своей карточке публикации: закрепить/открепить + удалить — через «•••»
-// вместо отдельных иконок (по рекомендации). Лёгкий поповер: закрывается по клику вне/Esc.
+// Меню «•••» публикации: ссылка и закладка — всем, правка и публикация черновика — автору,
+// жалоба — читателю, закрепление и удаление — по правам (их считает сервер). Пункты, которых
+// у зрителя нет, не показываются вовсе. Лёгкий поповер: закрывается по клику вне/Esc.
 export function PostTileMenu({
   post,
   canModerate,
   canDelete,
   isMine,
+  bookmark,
   onDeleted,
   triggerClassName,
 }: {
@@ -34,6 +48,8 @@ export function PostTileMenu({
   canDelete: boolean
   /** Свой пост: на себя не жалуются. */
   isMine: boolean
+  /** Закладка поста: пункт «В избранное» / «Убрать из избранного». */
+  bookmark?: { saved: boolean; toggle: () => void }
   /** Вызывается после удаления — лайтбоксу нужно закрыться, он показывает удалённый пост. */
   onDeleted?: () => void
   /** Оформление кнопки «•••» — например, светлая на затемнении поверх фото в сетке. */
@@ -103,11 +119,16 @@ export function PostTileMenu({
   // преподаватель: COMPLAINT_REPORTER_ROLES). Деканату, админам и работодателю пункт
   // раньше показывался и упирался в 403 — модерация у них своя.
   const canReport = !isMine && canFileComplaint(myRole)
-  // Править можно только свою публикацию — модератору правка чужого текста
-  // не положена, в отличие от удаления.
-  if (!canModerate && !canDelete && !canReport && !isMine) return null
-  // Есть ли над «Удалить» хоть один обычный пункт — иначе линия-разделитель повисла бы.
-  const hasSafe = canModerate || isMine || canReport
+
+  async function copyLink(): Promise<void> {
+    setOpen(false)
+    try {
+      await navigator.clipboard.writeText(postUrl(post.id))
+      toast.success(t('linkCopied'))
+    } catch {
+      toast.error(t('copyFailed'))
+    }
+  }
   const item =
     'flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted'
 
@@ -119,18 +140,41 @@ export function PostTileMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
+        title={t('actions')}
         className={cn(
           'flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
           triggerClassName,
         )}
       >
-        <MoreHorizontal className="size-4" aria-hidden />
+        <MoreHorizontal className="size-[1.125rem]" aria-hidden />
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md"
+          className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 duration-(--motion-menu) motion-reduce:animate-none"
         >
+          <button type="button" role="menuitem" className={item} onClick={() => void copyLink()}>
+            <Link2 className="size-4 text-muted-foreground" aria-hidden />
+            {t('copyLink')}
+          </button>
+          {bookmark && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false)
+                bookmark.toggle()
+              }}
+            >
+              {bookmark.saved ? (
+                <BookmarkMinus className="size-4 text-muted-foreground" aria-hidden />
+              ) : (
+                <Bookmark className="size-4 text-muted-foreground" aria-hidden />
+              )}
+              {bookmark.saved ? t('unbookmark') : t('bookmark')}
+            </button>
+          )}
           {canModerate && (
             <button type="button" role="menuitem" className={item} onClick={() => pinMut.mutate()}>
               {post.pinnedAt ? (
@@ -184,7 +228,7 @@ export function PostTileMenu({
             </button>
           )}
           {/* Удаление — опасное, поэтому последним и за линией (правило для всех меню). */}
-          {canDelete && hasSafe && <MenuSeparator />}
+          {canDelete && <MenuSeparator />}
           {canDelete && (
             <button
               type="button"

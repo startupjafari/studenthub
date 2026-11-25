@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Bookmark, Eye, Heart, MessageSquare, Play } from 'lucide-react'
+import { Bookmark, Eye, Heart, MessageCircle } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -17,18 +18,23 @@ import {
   removeReactionRequest,
   withMyReaction,
   type FeedPost,
-  type PostMedia,
   type PostReactionSummary,
 } from '../../../entities/post'
-import { Markdown } from '../../../shared/ui'
+import { Markdown, Tooltip, TooltipContent, TooltipTrigger } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
-import { PostMediaView } from './post-media'
 import { PostByline } from './post-byline'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
-import { MediaFrame } from './media-frame'
+import { PostGallery } from './post-gallery'
 import { PostTileMenu } from './post-tile-menu'
+
+// Полноэкранный просмотр (щипок, колесо, свайпы, видео) — отдельным чанком: ленте он нужен
+// только после нажатия на кадр.
+const PostMediaViewer = dynamic(
+  () => import('./post-media-viewer').then((m) => m.PostMediaViewer),
+  { ssr: false },
+)
 
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
@@ -37,34 +43,27 @@ const MODERATOR_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
 ]
-/** Сколько превью показываем в коллаже; остальное сворачивается в «+N». */
-const MEDIA_TILES = 4
 
 /**
- * Пост в ленте — развёрнутая карточка в одну колонку (как во «ВКонтакте»).
+ * Пост в ленте — одна карточка для всех видов публикаций: автор и кому адресовано, текст,
+ * медиа, панель действий. Текст стоит перед медиа, как в Threads и LinkedIn: подпись
+ * объясняет снимок, а не теряется под ним.
  *
- * Комментарии здесь не разворачиваются: читать и писать их — в полном просмотре.
- * Развёрнутая ветка прямо в ленте растягивала карточку на экран и отодвигала
- * следующие посты, а обсуждение всё равно требует места под медиа и вложенные ответы.
- *
- * Раньше лента была сеткой квадратных плиток: чтобы прочитать текст поста, его
- * приходилось открывать, а объявление деканата на три строки превращалось в
- * картинку-заглушку с градиентом. Здесь пост читается целиком не выходя из ленты:
- * автор, текст, медиа, действия и комментарии на месте.
+ * Комментарии здесь не разворачиваются: читать и писать их — в полном просмотре поста
+ * (`onOpenComments`). Нажатие на кадр открывает полноэкранный просмотр сразу, без
+ * промежуточного окна.
  *
  * Сетка плиток осталась там, где она уместна, — в профиле, как галерея.
  */
 interface PostCardProps {
   post: FeedPost
-  /** Открыть полный просмотр на вложении с этим номером (клик по плитке коллажа). */
-  onOpenMedia?: (mediaIndex: number) => void
   /** Комментарии живут только в полном просмотре — здесь лишь вход в него. */
   onOpenComments?: () => void
   /** Класс карточки — например, `sh-live-in` у поста, только что пришедшего в ленту. */
   className?: string
 }
 
-export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostCardProps) {
+export function PostCard({ post, onOpenComments, className }: PostCardProps) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -72,6 +71,15 @@ export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostC
   const myRole = useAppSelector((s) => s.auth.role)
 
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
+  const [viewerAt, setViewerAt] = useState<number | null>(null)
+  // Плитки кадров — точки, откуда растёт полноэкранный просмотр и куда он садится.
+  const tiles = useRef(new Map<number, HTMLElement>())
+  const tileRef = useCallback((index: number, el: HTMLElement | null) => {
+    if (el) tiles.current.set(index, el)
+    else tiles.current.delete(index)
+  }, [])
+  // Лайк в полёте: повторное нажатие до ответа сервера не шлёт второй запрос вдогонку.
+  const likeBusy = useRef(false)
 
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Права считает сервер (ранг относительно автора и scope): по одной роли модератор вуза
@@ -89,7 +97,8 @@ export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostC
   // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5) — и в кэше постов, чтобы
   // полный просмотр того же поста видел тот же лайк.
   function toggleLike(): void {
-    if (!myId) return
+    if (!myId || likeBusy.current) return
+    likeBusy.current = true
     const prev = reactions
     const apply = (summary: PostReactionSummary[]): void => {
       setReactions(summary)
@@ -97,10 +106,14 @@ export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostC
     }
     apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
-    request(post.id, LIKE_EMOJI).catch((e: unknown) => {
-      apply(prev)
-      toast.error(tErr(toApiError(e).code))
-    })
+    request(post.id, LIKE_EMOJI)
+      .catch((e: unknown) => {
+        apply(prev)
+        toast.error(tErr(toApiError(e).code))
+      })
+      .finally(() => {
+        likeBusy.current = false
+      })
   }
 
   return (
@@ -108,26 +121,26 @@ export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostC
       className={cn(
         // Без `overflow-hidden`: он обрезал поповер «•••» у невысокой карточки — меню
         // раскрывается вниз из шапки и у короткого текстового поста не помещается.
-        // Медиа лежит в середине карточки и скруглённых углов не касается.
-        // Радиус и обводка — как у системной `Card` (rounded-xl, ring-foreground/10): пост
-        // в ленте стоит рядом с карточками колонки, и разные углы читались как два стиля.
+        // Радиус и обводка — как у системной `Card` (rounded-xl, ring-foreground/10).
+        // На телефоне — во всю ширину экрана, без скруглений и боковых полей: каждый
+        // пиксель ширины уходит снимку и тексту, а посты разделяют линии сверху и снизу.
         // Закреплённый отличается только мягкой акцентной обводкой — без заливки и тени.
-        'flex flex-col rounded-xl bg-card ring-1 ring-foreground/10',
-        post.pinnedAt && 'ring-primary/20',
+        'flex flex-col bg-card max-sm:border-y max-sm:border-border sm:rounded-xl sm:ring-1 sm:ring-foreground/10',
+        post.pinnedAt && 'sm:ring-primary/25',
         className,
       )}
     >
       {/* Шапка: имя забирает всю свободную ширину и сокращается многоточием, роль, кому
           адресован пост и его возраст — второй строкой и приглушённо. */}
-      <header className="flex items-center gap-3 px-4 pt-4 sm:px-5">
+      <header className="flex items-center gap-3 py-3 pr-2 pl-4">
         <PostByline post={post} />
         {post.status === 'DRAFT' && (
-          <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+          <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
             {t('statusDraft')}
           </span>
         )}
         {post.status === 'SCHEDULED' && (
-          <span className="rounded-full bg-info/15 px-2 py-0.5 text-[11px] font-medium text-info">
+          <span className="shrink-0 rounded-full bg-info/15 px-2 py-0.5 text-[11px] font-medium text-info">
             {t('statusScheduled')}
           </span>
         )}
@@ -136,104 +149,108 @@ export function PostCard({ post, onOpenMedia, onOpenComments, className }: PostC
           canModerate={canModerate}
           canDelete={canDelete}
           isMine={post.authorId === myId}
-          triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          bookmark={{ saved: bookmarked, toggle: toggleBookmark }}
+          triggerClassName="size-11 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:size-10"
         />
       </header>
 
-      {/* Порядок как во «ВКонтакте»: сначала вложение, под ним текст. Картинка —
-          то, за что цепляется глаз при пролистывании, а текст читают уже решив
-          остановиться. */}
-      {post.media.length > 0 && (
-        <MediaCollage
-          postId={post.id}
-          media={post.media}
-          onOpen={(i) => onOpenMedia?.(i)}
-          openLabel={t('openPost')}
-        />
-      )}
-
       {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
-      {/* Панель действий — как во «ВКонтакте»: лайк, комментарии и «поделиться»
-          слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
-          только теми, кто уже знает, что они делают.
-          Поля ряда плюс внутренний отступ кнопки дают ровно отступ текста (16/20px): первая
-          иконка стоит на одной вертикали с аватаром и текстом. Уже 360px (телефоны 320px)
-          кнопки плотнее — иначе просмотры вылезали за край карточки; `flex-wrap` — страховка
-          на случай трёхзначных счётчиков: просмотры уйдут строкой ниже, а не за край. */}
-      <div className="mt-2 flex flex-wrap items-center gap-y-1 px-2.5 pb-1.5 text-sm text-muted-foreground min-[360px]:gap-x-0.5 min-[360px]:px-1.5 sm:px-2.5 sm:pb-2">
+      {post.media.length > 0 && (
+        <div className={cn((post.title || post.content) && 'mt-3')}>
+          <PostGallery postId={post.id} media={post.media} onOpen={setViewerAt} tileRef={tileRef} />
+        </div>
+      )}
+
+      {/* Панель действий: лайк, комментарии и «поделиться» слева, закладка и просмотры
+          справа. Кнопки 44px под палец и 40px под курсор; иконки 20px. Поля ряда плюс
+          внутренний отступ кнопки дают отступ текста: первая иконка — на одной вертикали
+          с аватаром. */}
+      <div className="flex items-center gap-0.5 px-1.5 py-1 text-sm text-muted-foreground">
         <ActionButton
           label={t('like')}
           pressed={liked}
           onClick={toggleLike}
           count={reactionTotal(reactions)}
+          className={cn(liked && 'text-destructive hover:text-destructive')}
         >
           {/* Короткий отклик на лайк: сердце чуть «вспухает» при постановке, без прыжков. */}
           <Heart
             key={liked ? 'on' : 'off'}
             className={cn(
               'size-5',
-              liked &&
-                'fill-destructive text-destructive animate-in zoom-in-75 duration-200 motion-reduce:animate-none',
+              liked && 'fill-current animate-in zoom-in-75 duration-200 motion-reduce:animate-none',
             )}
             aria-hidden
           />
         </ActionButton>
         <ActionButton label={t('comment')} onClick={onOpenComments} count={post._count.comments}>
-          <MessageSquare className="size-5" aria-hidden />
+          <MessageCircle className="size-5 -scale-x-100" aria-hidden />
         </ActionButton>
-        {/* «Поделиться» — меню: ссылка, чат, системное меню. Прямое открытие
-            пересылки в чат оставляло единственный способ поделиться, и то внутри
-            платформы. */}
-        <SharePostMenu
-          postId={post.id}
-          className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none min-[360px]:px-2.5 sm:min-h-9"
-        />
-        {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
-            вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
-        <ActionButton label={t('bookmark')} pressed={bookmarked} onClick={toggleBookmark}>
-          <Bookmark
-            className={cn('size-5', bookmarked && 'fill-primary text-primary')}
-            aria-hidden
-          />
+        {/* «Поделиться» — меню: ссылка, чат, системное меню. */}
+        <SharePostMenu postId={post.id} className={cn(ACTION, '[&_svg]:size-5')} />
+        <span className="ml-auto" />
+        <ActionButton
+          label={bookmarked ? t('unbookmark') : t('bookmark')}
+          pressed={bookmarked}
+          onClick={toggleBookmark}
+          className={cn(bookmarked && 'text-primary hover:text-primary')}
+        >
+          <Bookmark className={cn('size-5', bookmarked && 'fill-current')} aria-hidden />
         </ActionButton>
-        {/* Справа — просмотры. Возраст поста переехал в шапку, ко второй строке автора:
-            там его ищут глазами, а в ряду действий он спорил со счётчиками. */}
+        {/* Просмотры — справа и тише кнопок: это число, а не действие. */}
         <span
-          className="ml-auto flex items-center gap-1 px-1.5 text-xs min-[360px]:gap-1.5 min-[360px]:px-2.5"
+          className="flex min-h-11 items-center gap-1 pr-2.5 pl-1 text-xs tabular-nums sm:min-h-10"
           title={t('viewsLabel', { count: post.views })}
         >
           <Eye className="size-4" aria-hidden />
-          <span className="tabular-nums">{post.views}</span>
+          <span className="sr-only">{t('viewsLabel', { count: post.views })}</span>
+          <span aria-hidden>{post.views}</span>
         </span>
       </div>
+
+      {viewerAt !== null && post.media[viewerAt] && (
+        <PostMediaViewer
+          post={post}
+          index={viewerAt}
+          onIndexChange={setViewerAt}
+          onClose={() => setViewerAt(null)}
+          getOrigin={(i) => tiles.current.get(i) ?? null}
+        />
+      )}
     </article>
   )
 }
 
-// Свёрнутый текст — по высоте, около шести строк. Меньше — разворачивать нечего.
-const COLLAPSED_TEXT_REM = 9.5
+// Свёрнутый текст — пять строк по 1.5rem. Меньше — разворачивать нечего.
+const COLLAPSED_TEXT_REM = 7.5
 
 /**
  * Заголовок и текст поста в ленте.
  *
- * Свёрнут по высоте (около шести строк) с мягким затуханием, а не до первой строки:
- * прежняя «одна строка» обрывала объявление на полуслове, и пост приходилось открывать,
- * чтобы понять, о чём он. Разметка (списки, цитаты, ссылки) рисуется всегда — обрезка
- * высотой ничего в ней не ломает, в отличие от line-clamp. Кнопка появляется, только
- * если текст действительно не поместился.
+ * Свёрнут до пяти строк — без затемнения последних: обрыв по строке и «Читать далее»
+ * читаются чище, чем растворяющийся текст. Разметка (списки, цитаты, ссылки) рисуется
+ * всегда — обрезка высотой ничего в ней не ломает, в отличие от line-clamp. Кнопка
+ * появляется, только если текст действительно не поместился; раскрытый текст сворачивается
+ * обратно той же кнопкой. Высота меняется плавно (без движения, если оно отключено).
  */
 function PostBody({ title, text }: { title: string | null; text: string }) {
   const t = useTranslations('Feed')
   const [expanded, setExpanded] = useState(false)
   const [overflows, setOverflows] = useState(false)
+  const [fullHeight, setFullHeight] = useState<number | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
   // Меряем до отрисовки: кнопка «Читать далее» не должна появляться рывком.
   useLayoutEffect(() => {
     const box = boxRef.current
     if (!box) return
-    const measure = (): void => setOverflows(box.scrollHeight > box.clientHeight + 1)
+    const collapsed =
+      COLLAPSED_TEXT_REM * parseFloat(getComputedStyle(document.documentElement).fontSize)
+    const measure = (): void => {
+      setFullHeight(box.scrollHeight)
+      setOverflows(box.scrollHeight > collapsed + 1)
+    }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
@@ -241,30 +258,27 @@ function PostBody({ title, text }: { title: string | null; text: string }) {
     return () => observer.disconnect()
   }, [text])
 
-  const clamped = !expanded && overflows
-
   return (
-    <div className="flex flex-col gap-1.5 px-4 pt-3 sm:px-5">
+    <div className="flex flex-col gap-1 px-4">
       {title && <h2 className="text-base leading-snug font-semibold break-words">{title}</h2>}
       {text && (
         <div
           ref={boxRef}
-          style={expanded ? undefined : { maxHeight: `${COLLAPSED_TEXT_REM}rem` }}
-          className={cn(
-            'relative overflow-hidden [overflow-wrap:anywhere]',
-            clamped &&
-              '[mask-image:linear-gradient(to_bottom,black_70%,transparent)] [-webkit-mask-image:linear-gradient(to_bottom,black_70%,transparent)]',
-          )}
+          style={{
+            maxHeight:
+              expanded && fullHeight !== null ? `${fullHeight}px` : `${COLLAPSED_TEXT_REM}rem`,
+          }}
+          className="overflow-hidden transition-[max-height] duration-(--motion-large) ease-(--motion-ease) [overflow-wrap:anywhere] motion-reduce:transition-none"
         >
-          <Markdown source={text} autolink className="text-[0.9375rem]" />
+          <Markdown source={text} autolink className="text-[0.9375rem] leading-6" />
         </div>
       )}
-      {(overflows || expanded) && (
+      {overflows && (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className="cursor-pointer self-start rounded text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="-my-1 cursor-pointer self-start rounded py-1 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
         >
           {expanded ? t('showLess') : t('showMore')}
         </button>
@@ -273,12 +287,14 @@ function PostBody({ title, text }: { title: string | null; text: string }) {
   )
 }
 
+// Кнопка панели действий: 44px под палец, 40px под курсор.
+const ACTION =
+  'flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-sm transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 sm:min-h-10 sm:min-w-10'
+
 /**
- * Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние.
- *
- * Без текстовой подписи: четыре слова подряд не помещались в колонку ленты и
- * выдавливали счётчик просмотров с датой на вторую строку. Название действия
- * остаётся в `aria-label` и в подсказке при наведении.
+ * Кнопка панели действий: иконка, необязательный счётчик, «нажатое» состояние. Название —
+ * в `aria-label` и подсказке при наведении. Цифры моноширинные: 9 → 10 меняет ширину на
+ * одну цифру, а не пляшет на каждом значении.
  */
 function ActionButton({
   label,
@@ -286,6 +302,7 @@ function ActionButton({
   pressed,
   disabled,
   onClick,
+  className,
   children,
 }: {
   label: string
@@ -293,106 +310,29 @@ function ActionButton({
   pressed?: boolean
   disabled?: boolean
   onClick?: () => void
+  className?: string
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      title={label}
-      className={cn(
-        // 40px под палец, 36px под курсор — та же ступень, что у остальных строк действий.
-        'flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 min-[360px]:px-2.5 sm:min-h-9',
-        'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-        'disabled:pointer-events-none disabled:opacity-50',
-        pressed && 'text-foreground',
-      )}
-    >
-      {children}
-      {count !== undefined && count > 0 && <span className="tabular-nums">{count}</span>}
-    </button>
-  )
-}
-
-/**
- * Коллаж вложений в порядке загрузки. Одно — во всю ширину в своих пропорциях (высота
- * ограничена, поля закрывает размытая копия); два — в ряд квадратами; три — крупное слева
- * и два справа; четыре и больше — сетка 2×2 с «+N» на последней плитке. У сеток высота
- * задана пропорцией контейнера: коллаж не вырастает выше разумного на широкой колонке.
- * Клик открывает полный просмотр именно на этой плитке.
- */
-function MediaCollage({
-  postId,
-  media,
-  onOpen,
-  openLabel,
-}: {
-  postId: string
-  media: PostMedia[]
-  onOpen?: (index: number) => void
-  openLabel: string
-}) {
-  const tiles = media.slice(0, MEDIA_TILES)
-  const rest = media.length - tiles.length
-  const count = media.length
-  const layout =
-    count === 1
-      ? 'grid-cols-1'
-      : count === 2
-        ? 'grid-cols-2'
-        : count === 3
-          ? 'aspect-[3/2] grid-cols-[2fr_1fr] grid-rows-2'
-          : 'aspect-[4/3] grid-cols-2 grid-rows-2'
-
-  return (
-    <div className={cn('mt-3 grid gap-0.5', layout)}>
-      {tiles.map((m, i) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
         <button
-          key={m.id}
           type="button"
-          onClick={() => onOpen?.(i)}
-          aria-label={`${openLabel} · ${i + 1}/${count}`}
-          className={cn(
-            'group/tile relative block min-h-0 overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset',
-            // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
-            // или скан, и обрезка съедала бы половину смысла.
-            count !== 1 && 'bg-muted',
-            count === 2 && 'aspect-square',
-            count === 3 && i === 0 && 'row-span-2',
-          )}
+          aria-label={count ? `${label} · ${count}` : label}
+          aria-pressed={pressed}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn(ACTION, pressed && 'text-foreground', className)}
         >
-          {count === 1 ? (
-            <MediaFrame postId={postId} media={m} imageClassName="max-h-[min(36rem,70vh)]" />
-          ) : (
-            <PostMediaView
-              postId={postId}
-              media={m}
-              fit="cover"
-              sizes={
-                count === 3 && i === 0
-                  ? '(max-width: 768px) 66vw, 470px'
-                  : '(max-width: 768px) 50vw, 352px'
-              }
-              className="size-full transition-transform duration-200 group-hover/tile:scale-[1.02] motion-reduce:transition-none"
-            />
-          )}
-          {m.mime.startsWith('video/') && (
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm">
-                <Play className="ml-0.5 size-6 fill-current" aria-hidden />
-              </span>
-            </span>
-          )}
-          {rest > 0 && i === tiles.length - 1 && (
-            <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
-              +{rest}
+          {children}
+          {count !== undefined && count > 0 && (
+            <span aria-hidden className="tabular-nums">
+              {count}
             </span>
           )}
         </button>
-      ))}
-    </div>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   )
 }

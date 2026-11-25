@@ -2261,7 +2261,16 @@
     "scheduleTimezone": "Time zone: {zone}",
     "scheduledFor": "Goes live {when}",
     "mediaLimitCount": "No more than {max} attachments per post",
-    "openFullscreen": "Open full screen"
+    "openFullscreen": "Open full screen",
+    "openMedia": "Open full screen",
+    "unbookmark": "Remove from saved",
+    "loadMoreFailed": "Couldn’t load more posts",
+    "endOfFeed": "You’re all caught up",
+    "offlineTitle": "No internet connection",
+    "offlineText": "Check your connection and try again",
+    "composerPlaceholder": "Share something…",
+    "addPhoto": "Photo",
+    "addVideo": "Video"
   },
   "Stories": {
     "toolEvent": "Event",

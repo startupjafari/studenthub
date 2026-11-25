@@ -2261,7 +2261,16 @@
     "scheduleTimezone": "Часовой пояс: {zone}",
     "scheduledFor": "Выйдет {when}",
     "mediaLimitCount": "Не больше {max} вложений в одной публикации",
-    "openFullscreen": "Открыть во весь экран"
+    "openFullscreen": "Открыть во весь экран",
+    "openMedia": "Открыть на весь экран",
+    "unbookmark": "Убрать из избранного",
+    "loadMoreFailed": "Не удалось загрузить следующие публикации",
+    "endOfFeed": "Вы посмотрели все публикации",
+    "offlineTitle": "Нет подключения к интернету",
+    "offlineText": "Проверьте сеть и попробуйте снова",
+    "composerPlaceholder": "Поделитесь чем-нибудь…",
+    "addPhoto": "Фото",
+    "addVideo": "Видео"
   },
   "Stories": {
     "toolEvent": "Событие",
