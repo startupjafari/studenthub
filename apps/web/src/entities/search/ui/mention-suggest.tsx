@@ -1,15 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useImperativeHandle, useState, type RefObject } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import type { SearchSource } from '@studenthub/shared-schemas'
-import {
-  SEARCH_DEBOUNCE_MS,
-  SEARCH_MIN_QUERY,
-  fetchSearch,
-  searchKeys,
-} from '../../../entities/search'
+import { fetchSearch, searchKeys } from '../api/search-api'
+import { SEARCH_DEBOUNCE_MS, SEARCH_MIN_QUERY } from '../model/use-search-items'
 import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -36,6 +32,15 @@ export function applyMention(
 const MENTION_SOURCES: readonly SearchSource[] = ['people']
 
 /**
+ * Клавиатура подсказки: поле ввода отдаёт ей клавишу первой. `true` — клавиша обработана
+ * (стрелки двигают выбор, Enter и Tab подставляют, Esc прячет список) и полю её делать
+ * не нужно: иначе Enter при открытом списке отправлял комментарий вместо выбора человека.
+ */
+export interface MentionSuggestHandle {
+  handleKey: (key: string) => boolean
+}
+
+/**
  * Подсказка упоминаний под полем ввода.
  *
  * Ищет через общий `/search`, который уже ограничен вузом зрителя, — отдельного
@@ -49,12 +54,19 @@ const MENTION_SOURCES: readonly SearchSource[] = ['people']
 export function MentionSuggest({
   query,
   onPick,
+  handle,
+  className,
 }: {
   query: string | null
   onPick: (login: string) => void
+  handle?: RefObject<MentionSuggestHandle | null>
+  /** Положение списка — по умолчанию над полем, у левого края. */
+  className?: string
 }) {
   const t = useTranslations('Feed')
   const [active, setActive] = useState(0)
+  // Esc прячет список до следующей правки упоминания, а не навсегда.
+  const [dismissed, setDismissed] = useState<string | null>(null)
   const typed = query ?? ''
   const [debounced, setDebounced] = useState('')
 
@@ -86,13 +98,36 @@ export function MentionSuggest({
 
   useEffect(() => setActive(0), [query])
 
-  if (!enabled || people.length === 0) return null
+  const open = enabled && people.length > 0 && dismissed !== query
+
+  useImperativeHandle(
+    handle,
+    () => ({
+      handleKey(key) {
+        if (!open) return false
+        if (key === 'ArrowDown') setActive((i) => (i + 1) % people.length)
+        else if (key === 'ArrowUp') setActive((i) => (i - 1 + people.length) % people.length)
+        else if (key === 'Enter' || key === 'Tab') {
+          const person = people[Math.min(active, people.length - 1)]
+          if (person?.username) onPick(person.username)
+        } else if (key === 'Escape') setDismissed(query)
+        else return false
+        return true
+      },
+    }),
+    [open, people, active, onPick, query],
+  )
+
+  if (!open) return null
 
   return (
     <ul
       role="listbox"
       aria-label={t('mentionHint')}
-      className="absolute bottom-full left-0 z-30 mb-2 w-72 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg"
+      className={cn(
+        'absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg',
+        className,
+      )}
     >
       {people.map((p, i) => (
         <li key={p.id}>

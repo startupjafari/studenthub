@@ -89,7 +89,12 @@ import { SharedArticleCard } from './shared-article-card'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { useMediaZoom } from '../lib/use-media-zoom'
-import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
+import {
+  MentionSuggest,
+  applyMention,
+  mentionQuery,
+  type MentionSuggestHandle,
+} from '../../../entities/search'
 import { CommentText } from './comment-text'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
@@ -443,6 +448,7 @@ function PostView({
   // Что набрано после «@» перед курсором. null — упоминание сейчас не пишут.
   const [mention, setMention] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const mentionRef = useRef<MentionSuggestHandle>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   // Только что отправленный комментарий: к нему прокручиваем ленту, когда он придёт
@@ -1171,6 +1177,7 @@ function PostView({
 
           <MentionSuggest
             query={mention}
+            handle={mentionRef}
             onPick={(login) => {
               const el = inputRef.current
               const caret = el?.selectionStart ?? text.length
@@ -1202,6 +1209,12 @@ function PostView({
               }
               onBlur={() => setMention(null)}
               onKeyDown={(e) => {
+                // Открытая подсказка упоминаний забирает стрелки, Enter, Tab и Esc себе.
+                if (mentionRef.current?.handleKey(e.key)) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  return
+                }
                 // Enter — отправить; Shift+Enter — перенос строки.
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
