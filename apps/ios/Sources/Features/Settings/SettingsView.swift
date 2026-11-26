@@ -583,8 +583,7 @@ struct PrivacySettingsView: View {
         isExporting = true
         defer { isExporting = false }
         do {
-            let locale = Locale.current.language.languageCode?.identifier ?? "ru"
-            let data = try await api.exportData(locale: locale)
+            let data = try await api.exportData(locale: AppLanguage.current)
             let url = FileManager.default.temporaryDirectory.appending(path: "studenthub-data.json")
             try data.write(to: url, options: [.atomic, .completeFileProtection])
             exported = ExportedFile(url: url)

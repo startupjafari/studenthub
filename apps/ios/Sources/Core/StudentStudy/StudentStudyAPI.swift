@@ -153,13 +153,13 @@ struct StudentEventDTO: Decodable, Equatable, Identifiable {
 struct StudentApplicationDTO: Decodable, Equatable, Identifiable {
     struct Service: Decodable, Equatable {
         let nameRu: String?
-        let nameKk: String?
+        let nameKz: String?
         let nameEn: String?
 
         /// Название на языке приложения; русское — запасное, как в вебе (`pickLocale`).
         var title: String {
-            let code = Locale.current.language.languageCode?.identifier
-            let localized = code == "kk" ? nameKk : (code == "en" ? nameEn : nameRu)
+            let code = AppLanguage.current
+            let localized = code == "kz" ? nameKz : (code == "en" ? nameEn : nameRu)
             return localized ?? nameRu ?? ""
         }
     }
