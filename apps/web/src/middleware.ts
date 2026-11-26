@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { SUPPORTED_LOCALES, type Locale } from '@studenthub/shared-config'
+import { fromPlatformLanguage } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import { LEGAL_BASE, ROLE_HOME, isRestrictedRolePath } from './shared/config/routes'
 import { safeNextPath } from './shared/lib/safe-next'
@@ -89,13 +89,16 @@ export function middleware(request: NextRequest): NextResponse {
   // домена не поставить. Переносим в cookie и убираем из адреса — повторным заходом, иначе
   // этот же запрос отрисовался бы ещё на старом языке. Вошедшему язык задаёт профиль
   // (shared/i18n/locale-cookie.ts), и параметр с сайта его не перебивает.
+  // Через fromPlatformLanguage: старые ссылки сайта и закладки несут `lang=kk`, а cookie
+  // хранит код приложения — `kz`.
   const lang = request.nextUrl.searchParams.get(LOCALE_PARAM)
   if (lang !== null) {
     const url = request.nextUrl.clone()
     url.searchParams.delete(LOCALE_PARAM)
     const response = NextResponse.redirect(url)
-    if (!session && SUPPORTED_LOCALES.includes(lang as Locale)) {
-      response.cookies.set(LOCALE_COOKIE, lang, {
+    const locale = fromPlatformLanguage(lang)
+    if (!session && locale) {
+      response.cookies.set(LOCALE_COOKIE, locale, {
         path: '/',
         maxAge: LOCALE_COOKIE_MAX_AGE,
         sameSite: 'lax',

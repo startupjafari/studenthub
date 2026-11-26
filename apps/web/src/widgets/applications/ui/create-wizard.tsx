@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Clock, FileText, Check } from 'lucide-react'
@@ -58,7 +59,7 @@ export function CreateWizard({
   asModal?: boolean
 }) {
   const t = useTranslations('Applications')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
 
   const [step, setStep] = useState<Step>('catalog')

@@ -15,7 +15,7 @@ export interface ManageCategory {
   id: string
   code: ApplicationCategoryCode
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
 }
 
@@ -24,7 +24,7 @@ export interface ManagedServiceRow {
   code: string
   universityId: string | null
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
   slaHours: number
   deliveryModes: DeliveryMode[]
@@ -45,13 +45,13 @@ export interface ManagedServiceDetail {
   universityId: string | null
   code: string
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
   descriptionRu: string | null
-  descriptionKk: string | null
+  descriptionKz: string | null
   descriptionEn: string | null
   instructionsRu: string | null
-  instructionsKk: string | null
+  instructionsKz: string | null
   instructionsEn: string | null
   slaHours: number
   deliveryModes: DeliveryMode[]
@@ -63,7 +63,7 @@ export interface ManagedServiceDetail {
     code: string
     documentType: string | null
     titleRu: string
-    titleKk: string
+    titleKz: string
     titleEn: string
     description: string | null
     required: boolean
@@ -75,10 +75,10 @@ export interface ManagedServiceDetail {
     code: string
     type: FormFieldType
     labelRu: string
-    labelKk: string
+    labelKz: string
     labelEn: string
     placeholderRu: string | null
-    placeholderKk: string | null
+    placeholderKz: string | null
     placeholderEn: string | null
     required: boolean
     options: ServiceFormFieldOption[] | null

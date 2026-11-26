@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import {
   Ban,
@@ -301,7 +302,7 @@ export function ChatComposer({
   const canMedia = restrictions?.sendMedia !== false
   const canPolls = restrictions?.sendPolls !== false
   const t = useTranslations('Chats')
-  const locale = useLocale()
+  const locale = useAppLocale()
   // Меню полосы ответа: точка вызова, а не флаг — меню строится вокруг курсора.
   const [replyMenu, setReplyMenu] = useState<{ x: number; y: number } | null>(null)
   const tErr = useTranslations('Errors')

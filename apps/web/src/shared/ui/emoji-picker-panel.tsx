@@ -2,16 +2,18 @@
 
 import { EmojiPicker as Frimousse } from 'frimousse'
 import { Loader2, Search } from 'lucide-react'
-import { useLocale } from 'next-intl'
+import type { Locale } from '@studenthub/shared-config'
+import { useAppLocale } from '../i18n/app-locale'
 import { cn } from '../lib/utils'
 import { EMOJI_PICKER_SIZES as SIZES, type EmojiPickerProps } from './emoji-picker'
 
 /**
  * Язык названий категорий и поиска по emoji. Список берётся у emojibase, и казахского в
- * нём нет — для `kk` показываем русские названия: «Smileys & emotion» посреди русского
- * интерфейса читается хуже, чем русская подпись в казахском.
+ * нём нет — для `kz` показываем русские названия: «Smileys & emotion» посреди русского
+ * интерфейса читается хуже, чем русская подпись в казахском. Ключ — код приложения,
+ * значение — имя набора emojibase.
  */
-const PICKER_LOCALE: Record<string, 'ru' | 'en'> = { ru: 'ru', kk: 'ru', en: 'en' }
+const PICKER_LOCALE: Record<Locale, 'ru' | 'en'> = { ru: 'ru', kz: 'ru', en: 'en' }
 
 // Полноценный emoji-picker (§12) на frimousse (headless): категории, поиск, недавние.
 // Данные emoji подгружаются библиотекой (emojibase) при первом открытии.
@@ -22,11 +24,11 @@ export function EmojiPickerPanel({
   size = 'md',
 }: EmojiPickerProps) {
   const scale = SIZES[size]
-  const locale = useLocale()
+  const locale = useAppLocale()
   return (
     <Frimousse.Root
       onEmojiSelect={({ emoji }) => onPick(emoji)}
-      locale={PICKER_LOCALE[locale] ?? 'ru'}
+      locale={PICKER_LOCALE[locale]}
       columns={scale.columns}
       className={cn(
         'isolate flex flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg',

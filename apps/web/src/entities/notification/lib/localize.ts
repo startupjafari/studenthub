@@ -13,7 +13,8 @@ import type { NotificationItem } from '../model/types'
 // превью сообщения, комментарий сотрудника — пользовательский ввод, переводить нечем).
 //
 // Не хук: вызывается внутри map по списку, а хук в цикле — нарушение правил хуков.
-// Язык компонент получает один раз через useLocale() и передаёт сюда.
+// Язык компонент получает один раз через useAppLocale() и передаёт сюда — код приложения,
+// а не тег next-intl: словарь ключуется `ru | kz | en`.
 export function localizeNotification(
   n: Pick<NotificationItem, 'title' | 'body' | 'titleKey' | 'bodyKey' | 'params'>,
   locale: string,

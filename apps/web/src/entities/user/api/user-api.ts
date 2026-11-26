@@ -12,6 +12,7 @@ import type {
   UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
+import type { Locale } from '@studenthub/shared-config'
 import { api, getPaged } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type { MeResponse, Paged } from '../../../shared/api'
@@ -252,7 +253,7 @@ export async function fetchUsers(
  */
 export async function exportUsers(
   query: Partial<UserListQueryInput>,
-  locale: string,
+  locale: Locale,
   format: 'xlsx' | 'csv' = 'xlsx',
 ): Promise<DownloadedFile> {
   return requestFile('/users/export', { ...query, format, locale })
@@ -262,7 +263,7 @@ export async function exportUsers(
  * Машинная выгрузка СВОИХ персональных данных (Ф14.6). Формат один — JSON: файл читают
  * и человек, и программа, а таблицей разнородные разделы архива не ложатся.
  */
-export async function exportMyData(locale: string): Promise<DownloadedFile> {
+export async function exportMyData(locale: Locale): Promise<DownloadedFile> {
   return requestFile('/me/export', { locale })
 }
 

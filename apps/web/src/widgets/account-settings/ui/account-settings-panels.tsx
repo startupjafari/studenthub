@@ -10,8 +10,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
 import { Role, isTwoFactorRequired } from '@studenthub/shared-types'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
-import { useFormatter, useLocale, useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
 import Link from 'next/link'
 import {
@@ -160,7 +161,7 @@ const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
 // Языки интерфейса (эндонимы не переводятся — как в топбаре).
 const LOCALES: { value: FlagCode; label: string }[] = [
   { value: 'ru', label: 'Русский' },
-  { value: 'kk', label: 'Қазақша' },
+  { value: 'kz', label: 'Қазақша' },
   { value: 'en', label: 'English' },
 ]
 
@@ -963,7 +964,7 @@ function NotificationsSection() {
 // ── Внешний вид (язык интерфейса) ────────────────────────────────────────────
 function AppearanceSection() {
   const tS = useTranslations('Settings')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const router = useRouter()
   const qc = useQueryClient()
 
@@ -982,9 +983,10 @@ function AppearanceSection() {
   })
 
   function changeLocale(value: string) {
-    writeLocaleCookie(value)
+    const next = value as Locale
+    writeLocaleCookie(next)
     router.refresh()
-    mut.mutate(value as Locale)
+    mut.mutate(next)
   }
 
   return (
@@ -1217,7 +1219,7 @@ function AppSection() {
 // ── Конфиденциальность (showEmail / showPhone) ──────────────────────────────
 function PrivacySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 

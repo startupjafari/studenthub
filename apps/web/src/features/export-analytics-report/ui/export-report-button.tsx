@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { Download } from 'lucide-react'
 import type { AnalyticsReportFormat, AnalyticsReportPeriod } from '@studenthub/shared-schemas'
 import { exportAnalyticsReport } from '../../../entities/analytics'
@@ -58,7 +59,7 @@ export function ExportReportButton({ facultyId, disabled }: ExportReportButtonPr
 function ExportReportModal({ facultyId, onClose }: { facultyId?: string; onClose: () => void }) {
   const t = useTranslations('AnalyticsReport')
   const tCommon = useTranslations('Common')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const { show } = useErrorToast('analytics-report')
   const [period, setPeriod] = useState<AnalyticsReportPeriod>('quarter')
   const [format, setFormat] = useState<AnalyticsReportFormat>('xlsx')

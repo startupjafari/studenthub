@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { useFormatter, useLocale, useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { ArrowLeft, BadgeCheck, Download, ShieldCheck, TriangleAlert } from 'lucide-react'
 import type { ClearanceCertificateItem } from '@studenthub/shared-schemas'
 import {
@@ -36,7 +37,7 @@ export function ClearanceView() {
   const t = useTranslations('LibraryReader')
   const tErr = useTranslations('Errors')
   const format = useFormatter()
-  const locale = useLocale()
+  const locale = useAppLocale()
   const router = useRouter()
   const qc = useQueryClient()
   const clearance = useQuery({

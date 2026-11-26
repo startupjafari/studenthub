@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { DeliveryType } from '@studenthub/shared-schemas'
@@ -29,7 +30,7 @@ export function CorrectionFormModal({
   onClose: () => void
 }) {
   const t = useTranslations('Applications')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
   const err = useActionError()
   // Выключенные поля не правятся: ответы на них остаются как есть.

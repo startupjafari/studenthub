@@ -11,7 +11,7 @@ export type ServiceFormValues = z.input<typeof UpsertApplicationServiceSchema>
 export type RequirementFormValues = z.input<typeof ServiceRequirementInputSchema>
 export type FormFieldFormValues = z.input<typeof ServiceFormFieldInputSchema>
 
-export const LANGS = ['Ru', 'Kk', 'En'] as const
+export const LANGS = ['Ru', 'Kz', 'En'] as const
 export type Lang = (typeof LANGS)[number]
 
 // Код строки требования/поля — служебный ключ синхронизации (по нему сервер узнаёт строку
@@ -25,7 +25,7 @@ export function emptyRequirement(): RequirementFormValues {
     code: newItemCode('doc'),
     documentType: null,
     titleRu: '',
-    titleKk: '',
+    titleKz: '',
     titleEn: '',
     description: null,
     required: true,
@@ -40,10 +40,10 @@ export function emptyFormField(): FormFieldFormValues {
     code: newItemCode('field'),
     type: 'TEXT',
     labelRu: '',
-    labelKk: '',
+    labelKz: '',
     labelEn: '',
     placeholderRu: null,
-    placeholderKk: null,
+    placeholderKz: null,
     placeholderEn: null,
     required: false,
     options: null,
@@ -55,13 +55,13 @@ export function emptyService(categoryId = ''): ServiceFormValues {
     categoryId,
     code: '',
     nameRu: '',
-    nameKk: '',
+    nameKz: '',
     nameEn: '',
     descriptionRu: null,
-    descriptionKk: null,
+    descriptionKz: null,
     descriptionEn: null,
     instructionsRu: null,
-    instructionsKk: null,
+    instructionsKz: null,
     instructionsEn: null,
     slaHours: 24,
     deliveryModes: ['ELECTRONIC'],
@@ -79,13 +79,13 @@ export function toFormValues(detail: ManagedServiceDetail): ServiceFormValues {
     categoryId: detail.categoryId,
     code: detail.code,
     nameRu: detail.nameRu,
-    nameKk: detail.nameKk,
+    nameKz: detail.nameKz,
     nameEn: detail.nameEn,
     descriptionRu: detail.descriptionRu,
-    descriptionKk: detail.descriptionKk,
+    descriptionKz: detail.descriptionKz,
     descriptionEn: detail.descriptionEn,
     instructionsRu: detail.instructionsRu,
-    instructionsKk: detail.instructionsKk,
+    instructionsKz: detail.instructionsKz,
     instructionsEn: detail.instructionsEn,
     slaHours: detail.slaHours,
     deliveryModes: detail.deliveryModes,
@@ -101,7 +101,7 @@ export function toFormValues(detail: ManagedServiceDetail): ServiceFormValues {
         f.options?.map((o) => ({
           value: o.value,
           labelRu: o.labelRu ?? o.value,
-          labelKk: o.labelKk ?? o.value,
+          labelKz: o.labelKz ?? o.value,
           labelEn: o.labelEn ?? o.value,
         })) ?? null,
     })),

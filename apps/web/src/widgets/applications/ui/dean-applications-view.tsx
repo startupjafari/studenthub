@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useQuery } from '@tanstack/react-query'
 import { Inbox } from 'lucide-react'
 import type { ApplicationServiceStatus, ApplicationSort } from '@studenthub/shared-schemas'
@@ -84,6 +85,7 @@ function isOverdue(app: ApplicationListItem): boolean {
 export function DeanApplicationsView() {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const [openId, setOpenId] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
 
@@ -202,7 +204,7 @@ export function DeanApplicationsView() {
                         value={pickLocale(
                           app.service as unknown as Record<string, unknown>,
                           'name',
-                          locale,
+                          appLocale,
                         )}
                       />
                     </TableCell>

@@ -1,4 +1,5 @@
 import type { AnalyticsReportFormat, AnalyticsReportPeriod } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import { api } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type {
@@ -174,7 +175,7 @@ export const fetchTopActions = (r: PlatformRange): Promise<TopActions> =>
 export interface AnalyticsReportParams {
   period: AnalyticsReportPeriod
   format: AnalyticsReportFormat
-  locale: string
+  locale: Locale
   /**
    * Факультет — только там, где роль видит больше одного (админ вуза, платформа). Декану
    * и преподавателю область задаёт токен, параметр им не нужен.

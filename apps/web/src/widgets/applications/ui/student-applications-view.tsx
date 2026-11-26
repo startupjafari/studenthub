@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Inbox } from 'lucide-react'
 import { REALTIME_EVENTS, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
@@ -83,6 +84,7 @@ interface StudentApplicationsViewProps {
 export function StudentApplicationsView({ initialId }: StudentApplicationsViewProps) {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const router = useRouter()
   const pathname = usePathname()
   const [screen, setScreen] = useState<Screen>(() =>
@@ -138,7 +140,7 @@ export function StudentApplicationsView({ initialId }: StudentApplicationsViewPr
     (app: ApplicationListItem, key: string) => {
       switch (key) {
         case 'service':
-          return pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
+          return pickLocale(app.service as unknown as Record<string, unknown>, 'name', appLocale)
         case 'status':
           return t(`status2_${app.status}`)
         case 'submittedAt':
@@ -149,7 +151,7 @@ export function StudentApplicationsView({ initialId }: StudentApplicationsViewPr
           return app.number
       }
     },
-    [locale, t],
+    [appLocale, t],
   )
   // Без начальной сортировки: порядок приходит с сервера (createdAt desc) — свежие сверху.
   const { rows, sort, toggle } = useTableSort(current, sortValue)
@@ -297,7 +299,7 @@ export function StudentApplicationsView({ initialId }: StudentApplicationsViewPr
                         value={pickLocale(
                           app.service as unknown as Record<string, unknown>,
                           'name',
-                          locale,
+                          appLocale,
                         )}
                       />
                     </TableCell>

@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import {
   Ban,
   Download,
@@ -131,7 +132,7 @@ type BlockTerm = (typeof BLOCK_TERMS)[number]['days']
 export function UsersTable({ title, subtitle, role, showRoleFilter = false }: UsersTableProps) {
   const t = useTranslations('Users')
   // Язык подписей в файле выгрузки (заголовки колонок и лист «Инфо» переводит API).
-  const locale = useLocale()
+  const locale = useAppLocale()
   const tRoles = useTranslations('Roles')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()

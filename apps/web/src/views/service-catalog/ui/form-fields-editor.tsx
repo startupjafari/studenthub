@@ -150,7 +150,7 @@ function FieldOptions({ index, lang, readOnly }: { index: number; lang: Lang; re
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => append({ value: '', labelRu: '', labelKk: '', labelEn: '' })}
+            onClick={() => append({ value: '', labelRu: '', labelKz: '', labelEn: '' })}
           >
             <Plus className="size-4" aria-hidden /> {t('addOption')}
           </Button>

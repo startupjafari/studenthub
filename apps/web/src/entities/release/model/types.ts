@@ -1,5 +1,5 @@
 /** Язык ноты. Совпадает с локалями приложения (FRONTEND_RULES §10). */
-export type ReleaseLocale = 'ru' | 'kk' | 'en'
+export type ReleaseLocale = 'ru' | 'kz' | 'en'
 
 export interface ReleaseNoteItem {
   /** Эмодзи-маркер строки, как в макете. Без него строка идёт с обычным буллетом. */

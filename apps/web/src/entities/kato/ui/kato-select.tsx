@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useLocale } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import type { KatoScopeValue } from '@studenthub/shared-schemas'
 import { AsyncSelect, type ControlSize } from '../../../shared/ui'
 import { katoKeys, searchKato } from '../api/kato-api'
@@ -33,7 +33,7 @@ export function KatoSelect({
   size,
   id,
 }: KatoSelectProps) {
-  const locale = useLocale()
+  const locale = useAppLocale()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
 

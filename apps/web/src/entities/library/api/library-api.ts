@@ -36,6 +36,7 @@ import type {
   UpdateBookInput,
   UpdateLibrarySettingsInput,
 } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import { api, getPaged, type Paged } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 
@@ -313,7 +314,7 @@ export async function fetchClearance(): Promise<LibraryClearance> {
  * Справка «задолженностей нет» PDF-файлом с кодом проверки и QR (Фаза 21.C4). POST: каждая
  * справка — новая запись в журнале документов. `locale` — язык бланка.
  */
-export function issueClearanceCertificate(locale: string): Promise<DownloadedFile> {
+export function issueClearanceCertificate(locale: Locale): Promise<DownloadedFile> {
   return requestFile('/library/me/clearance/certificate', { locale }, {})
 }
 

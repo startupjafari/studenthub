@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -89,6 +90,7 @@ type Filter = 'all' | 'action' | 'study' | 'deanery' | 'social' | 'system'
 export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   const t = useTranslations('Notifications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const router = useRouter()
   const qc = useQueryClient()
   const [filter, setFilter] = useState<Filter>('all')
@@ -325,7 +327,7 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
                 {group.label}
               </p>
               {group.items.map((n) => {
-                const text = localizeNotification(n, locale)
+                const text = localizeNotification(n, appLocale)
                 const meta = TYPE_META[n.type]
                 const Icon = meta.icon
                 return (
