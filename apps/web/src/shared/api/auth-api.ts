@@ -1,5 +1,14 @@
 import type { Role } from '@studenthub/shared-types'
-import type { RegisterByInviteInput, ProfileVisibilityValue } from '@studenthub/shared-schemas'
+import type {
+  EdsChallenge,
+  EdsCredentialInfo,
+  EdsLinkInput,
+  EdsLinkResult,
+  EdsPublicConfig,
+  EdsSignedChallengeInput,
+  RegisterByInviteInput,
+  ProfileVisibilityValue,
+} from '@studenthub/shared-schemas'
 import { api } from './instance'
 
 // Тонкие обёртки над auth-эндпоинтами. Интерцептор instance разворачивает конверт {success,data}.
@@ -19,6 +28,9 @@ export interface MeResponse {
   profileVisibility?: ProfileVisibilityValue
   // Включена ли 2FA (только владельцу; в /users/me и /auth/me).
   twoFactorEnabled?: boolean
+  // Привязанная ЭЦП (только владельцу): null — не привязана. Поля нет в ответах, собранных
+  // до появления входа по ЭЦП, поэтому оно необязательное.
+  eds?: EdsCredentialInfo | null
   // Имя входа (Telegram-стиль). Только у владельца: в чужой карточке бэкенд его вырезает.
   // null — у зарегистрированных до появления фичи; такие входят только по email.
   username?: string | null
@@ -140,6 +152,50 @@ export async function regenerateBackupCodesRequest(
 ): Promise<{ backupCodes: string[] }> {
   const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/backup-codes', { code })
   return data
+}
+
+// ── Вход по ЭЦП (НУЦ РК через NCALayer, docs/PROJECT.md §8.3) ─────────────────
+
+/** Публичный: показывать ли кнопку ЭЦП. Выключено на сервере — `{ enabled: false }`. */
+export async function edsConfigRequest(): Promise<EdsPublicConfig> {
+  const { data } = await api.get<EdsPublicConfig>('/auth/eds/config')
+  return data
+}
+
+/** Публичный: одноразовый challenge для входа — его nonce подписывают в NCALayer. */
+export async function edsChallengeRequest(): Promise<EdsChallenge> {
+  const { data } = await api.post<EdsChallenge>('/auth/eds/challenge')
+  return data
+}
+
+/**
+ * Вход подписанным challenge → accessToken (+ refresh-cookie) — тот же ответ, что у
+ * `/auth/login/2fa`. Второго шага нет: ключ ЭЦП сам по себе второй фактор.
+ */
+export async function edsLoginRequest(input: EdsSignedChallengeInput): Promise<string> {
+  const { data } = await api.post<{ accessToken: string }>('/auth/eds/login', input)
+  return data.accessToken
+}
+
+/** Challenge для привязки ЭЦП к своей учётке (нужен вход). */
+export async function edsLinkChallengeRequest(): Promise<EdsChallenge> {
+  const { data } = await api.post<EdsChallenge>('/auth/eds/link/challenge')
+  return data
+}
+
+/**
+ * Привязать (или перепривязать) ЭЦП: подписанный challenge + свой код 2FA. В ответе
+ * `nameMismatch` — фамилия в сертификате не совпала с профилем: привязка всё равно
+ * выполнена, но человеку стоит убедиться, что ключ его.
+ */
+export async function edsLinkRequest(input: EdsLinkInput): Promise<EdsLinkResult> {
+  const { data } = await api.post<EdsLinkResult>('/auth/eds/link', input)
+  return data
+}
+
+/** Отвязать свою ЭЦП — подтверждается своим кодом 2FA (TOTP или резервным). */
+export async function edsUnlinkRequest(code: string): Promise<void> {
+  await api.delete('/auth/eds', { data: { code } })
 }
 
 // ── Привязка Telegram для админского мини-аппа ───────────────────────────────

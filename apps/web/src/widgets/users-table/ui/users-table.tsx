@@ -7,13 +7,14 @@ import { useLocale, useTranslations } from 'next-intl'
 import {
   Ban,
   Download,
+  FileKey,
   GraduationCap,
   KeyRound,
   LogOut,
   ShieldCheck,
   Users as UsersIcon,
 } from 'lucide-react'
-import { Role, isHigherRole } from '@studenthub/shared-types'
+import { Role, isHigherRole, isTwoFactorRequired } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { cn, saveFile, useMediaQuery } from '../../../shared/lib'
@@ -24,6 +25,7 @@ import {
   fetchMe,
   fetchUsers,
   ProfileLink,
+  resetUserEdsRequest,
   resetUserTwoFactorRequest,
   revokeUserSessionsRequest,
   unblockUserRequest,
@@ -31,6 +33,7 @@ import {
   type AdminUser,
 } from '../../../entities/user'
 import { useAdminListLive } from '../../../entities/admin-list'
+import { edsKeys, useEdsEnabled } from '../../../entities/eds'
 import { AcademicRecordModal } from '../../../features/edit-academic-record'
 import {
   AlertDialog,
@@ -97,7 +100,8 @@ const PLATFORM_VIEWERS: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 // Ширины колонок: имя · email · роль · статус · действия (последняя — только тем,
 // кто может блокировать; без неё берём первые четыре). Действий в строке до четырёх
-// (учёба, сброс 2FA, сессии, блокировка с подписью) — колонка под них шире прочих служебных.
+// (учёба или сброс ЭЦП, сброс 2FA, сессии, блокировка с подписью) — колонка под них шире
+// прочих служебных. Учёба — у студентов, ЭЦП — у ролей с обязательной 2FA: вместе не бывают.
 const COLS = ['24%', '26%', '16%', '14%', '20%'] as const
 // До `md` почта и роль не показываются: пять колонок на 375px дают по 15–23px каждая, и
 // таблица превращается в столбик многоточий (DESIGN_SYSTEM §15 — на мобильном таблица
@@ -140,6 +144,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
       : UNIVERSITY_FILTER_ROLES
   const [academicFor, setAcademicFor] = useState<string | null>(null)
   const [resetTfaFor, setResetTfaFor] = useState<AdminUser | null>(null)
+  const [resetEdsFor, setResetEdsFor] = useState<AdminUser | null>(null)
+  // Сброс ЭЦП — только когда вход по ЭЦП включён на сервере: иначе привязок нет вовсе.
+  const edsEnabled = useEdsEnabled(canBlock)
   // Блокировка гасит все сессии человека — только через диалог со сроком, не одним кликом.
   const [blockFor, setBlockFor] = useState<AdminUser | null>(null)
   const [sessionsFor, setSessionsFor] = useState<AdminUser | null>(null)
@@ -380,6 +387,25 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                             <KeyRound className="size-4" aria-hidden />
                           </Button>
                         )}
+                      {/* Сброс ЭЦП — потерянный или чужой ключ: только ролям, которым вход по
+                          ЭЦП доступен, и строго младшему (сервер так же). Признака привязки в
+                          списке нет — кнопка у всех таких ролей, «не привязана» скажет сервер. */}
+                      {canBlock &&
+                        edsEnabled &&
+                        viewerRole &&
+                        isHigherRole(viewerRole, u.role) &&
+                        isTwoFactorRequired(u.role) && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setResetEdsFor(u)}
+                            aria-label={t('resetEds')}
+                            title={t('resetEds')}
+                          >
+                            <FileKey className="size-4" aria-hidden />
+                          </Button>
+                        )}
                       {/* Завершить сессии — угнанному аккаунту: чужой вылетает, а доступ
                           хозяина остаётся (блокировка наказала бы пострадавшего). */}
                       {canBlock && viewerRole && isHigherRole(viewerRole, u.role) && (
@@ -447,6 +473,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
       {resetTfaFor && (
         <ResetTwoFactorDialog user={resetTfaFor} onClose={() => setResetTfaFor(null)} />
       )}
+      {resetEdsFor && <ResetEdsDialog user={resetEdsFor} onClose={() => setResetEdsFor(null)} />}
       {blockFor && <BlockUserDialog user={blockFor} onClose={() => setBlockFor(null)} />}
       {sessionsFor && <EndSessionsDialog user={sessionsFor} onClose={() => setSessionsFor(null)} />}
     </div>
@@ -641,6 +668,97 @@ function ResetTwoFactorDialog({ user, onClose }: { user: AdminUser; onClose: () 
               disabled={!code.trim()}
             >
               {t('resetTwoFactorConfirm')}
+            </Button>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Сброс привязки ЭЦП — по образцу сброса 2FA: подтверждается кодом СВОЕГО второго фактора.
+ * Признака привязки в списке пользователей нет, поэтому «ЭЦП не привязана» узнаём от сервера
+ * (`400 BAD_REQUEST`) и говорим об этом прямо, а не общим «некорректный запрос».
+ */
+function ResetEdsDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const t = useTranslations('Users')
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const qc = useQueryClient()
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const [code, setCode] = useState('')
+  const ownTfa = me.data?.twoFactorEnabled === true
+
+  const reset = useMutation({
+    mutationFn: () => resetUserEdsRequest(user.id, code.trim()),
+    onSuccess: () => {
+      toast.success(t('resetEdsDone'))
+      onClose()
+    },
+    onError: (e) => {
+      setCode('')
+      const errorCode = (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+      if (errorCode === 'BAD_REQUEST') {
+        toast.error(t('resetEdsNotLinked'))
+        onClose()
+        return
+      }
+      // Вход по ЭЦП выключили, пока таблица была открыта, — кнопки уходят вместе с ним.
+      if (errorCode === 'FEATURE_DISABLED') {
+        void qc.invalidateQueries({ queryKey: edsKeys.config() })
+      }
+      toast.error(tErr(errorCode))
+    },
+  })
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('resetEds')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('resetEdsDesc', { name: `${user.lastName} ${user.firstName}` })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {me.data && !ownTfa ? (
+          <p className="text-sm text-muted-foreground">{t('resetTwoFactorNeedOwn')}</p>
+        ) : (
+          <form
+            id="reset-eds-form"
+            className="flex flex-col gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (code.trim() && !reset.isPending) reset.mutate()
+            }}
+          >
+            <Label htmlFor="reset-eds-code">{t('resetTwoFactorCode')}</Label>
+            <Input
+              id="reset-eds-code"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoFocus
+            />
+          </form>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>{tCommon('cancel')}</AlertDialogCancel>
+          {ownTfa && (
+            <Button
+              type="submit"
+              form="reset-eds-form"
+              variant="destructive"
+              loading={reset.isPending}
+              disabled={!code.trim()}
+            >
+              {t('resetEdsConfirm')}
             </Button>
           )}
         </AlertDialogFooter>

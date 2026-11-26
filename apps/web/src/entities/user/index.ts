@@ -1,6 +1,7 @@
 export {
   userKeys,
   fetchMe,
+  mergeMeResponse,
   fetchUserPresence,
   fetchUserById,
   type PublicUser,
@@ -24,6 +25,7 @@ export {
   revokeUserSessionsRequest,
   unblockUserRequest,
   resetUserTwoFactorRequest,
+  resetUserEdsRequest,
   updateAcademicRecordRequest,
   type AdminUser,
   directoryKeys,
