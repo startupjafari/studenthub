@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { LOCALES, LOCALE_NAMES, localePath, type Locale } from '../config/site'
+import { LOCALES, LOCALE_NAMES, localePath, toPlatformLanguage, type Locale } from '../config/site'
 import { Flag } from './flag'
 
 /**
@@ -83,7 +83,7 @@ export function LanguageMenu({
                 key={locale}
                 role="menuitem"
                 href={localePath(locale)}
-                hrefLang={locale}
+                hrefLang={toPlatformLanguage(locale)}
                 aria-current={isCurrent ? 'true' : undefined}
                 className={[
                   'flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-none',

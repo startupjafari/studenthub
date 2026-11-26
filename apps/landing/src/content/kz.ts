@@ -7,7 +7,7 @@ import type { Dictionary } from './types'
  * выверены по русской версии, но формулировки маркетингового текста — та часть, где
  * машинный перевод слышно.
  */
-export const kk: Dictionary = {
+export const kz: Dictionary = {
   meta: {
     title: 'StudentHub — университет толығымен бір қосымшада',
     description:

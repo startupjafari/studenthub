@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import '@fontsource-variable/inter/opsz.css'
 // Дисплейная гарнитура заголовков. Ось wght — у Onest она единственная переменная.
 import '@fontsource-variable/onest/wght.css'
-import type { Locale } from '../config/site'
+import { toPlatformLanguage, type Locale } from '../config/site'
 import { Splash } from '../ui/splash'
 import './globals.css'
 
@@ -18,10 +18,12 @@ import './globals.css'
  *
  * Чтобы три layout не разъехались, вся разметка документа живёт здесь, а каждый из них —
  * три строки вызова.
+ *
+ * `lang` — код платформы: у казахской версии это `kk`, а не `kz` из адреса.
  */
 export function RootShell({ lang, children }: { lang: Locale; children: ReactNode }) {
   return (
-    <html lang={lang}>
+    <html lang={toPlatformLanguage(lang)}>
       <head>
         {/*
           Страховка на случай выключенного JavaScript.

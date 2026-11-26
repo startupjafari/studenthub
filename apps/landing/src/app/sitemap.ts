@@ -1,15 +1,17 @@
 import type { MetadataRoute } from 'next'
-import { LOCALES, SITE_URL, localePath } from '../config/site'
+import { LOCALES, SITE_URL, localePath, toPlatformLanguage } from '../config/site'
 
 /**
  * Карта сайта: три языковые версии одной страницы.
  *
  * `alternates.languages` повторяет hreflang из метаданных — поисковику нужно услышать
  * про связь версий обоими способами, иначе он считает их тремя разными страницами и
- * растаскивает вес между ними.
+ * растаскивает вес между ними. Ключи — коды платформы (`kk`), как и в hreflang.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const languages = Object.fromEntries(LOCALES.map((l) => [l, `${SITE_URL}${localePath(l)}`]))
+  const languages = Object.fromEntries(
+    LOCALES.map((l) => [toPlatformLanguage(l), `${SITE_URL}${localePath(l)}`]),
+  )
   const lastModified = new Date()
 
   return LOCALES.map((locale) => ({
