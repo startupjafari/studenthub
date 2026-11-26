@@ -101,7 +101,7 @@ describe('EdsLinkRow — вход по ЭЦП в настройках', () => {
     render(<EdsLinkRow me={dean} />, { wrapper })
     await user.click(await screen.findByRole('button', { name: 'edsLink' }))
     expect(await screen.findByRole('button', { name: 'edsSign' })).toBeInTheDocument()
-    expect(screen.queryByLabelText('edsCodeLabel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'twoFactorCodeLabel' })).not.toBeInTheDocument()
   })
 
   it('привязана: ИИН — только последние цифры, ФИО и БИН из сертификата, перепривязка и отвязка', async () => {
