@@ -86,6 +86,23 @@ export const ErrorCode = {
   // Отдельно от FORBIDDEN: клиент пишет «в этой группе запрещено …» и прячет пункт, а не
   // «недостаточно прав». Старые клиенты показывают message — он тоже человеческий.
   CHAT_PERMISSION_DENIED: 'CHAT_PERMISSION_DENIED',
+  // Вход и привязка по ЭЦП (docs/PROJECT.md §8.3 «Вход по ЭЦП»). Подпись не прошла проверку:
+  // повреждена, сделана не на выданный challenge, challenge истёк или уже использован.
+  EDS_SIGNATURE_INVALID: 'EDS_SIGNATURE_INVALID',
+  // Сертификат ключа просрочен или ещё не действует. Отдельно: человеку нужно перевыпустить
+  // ЭЦП в НУЦ, а не повторять попытку.
+  EDS_CERT_EXPIRED: 'EDS_CERT_EXPIRED',
+  // Сертификат отозван (OCSP/CRL НУЦ РК).
+  EDS_CERT_REVOKED: 'EDS_CERT_REVOKED',
+  // Ключ не для аутентификации (выбран ключ подписи RSA/GOST вместо AUTH_*) или выдан не НУЦ РК.
+  // Самая частая ошибка: подсказываем выбрать другой файл ключа.
+  EDS_CERT_NOT_AUTH: 'EDS_CERT_NOT_AUTH',
+  // Подпись верна, но к ИИН из сертификата не привязана ни одна учётка с правом входа по ЭЦП.
+  EDS_NOT_LINKED: 'EDS_NOT_LINKED',
+  // ИИН из сертификата уже привязан к другой учётке.
+  EDS_ALREADY_LINKED: 'EDS_ALREADY_LINKED',
+  // Сервис проверки подписи (NCANode) не ответил. Вход по паролю при этом работает.
+  EDS_UNAVAILABLE: 'EDS_UNAVAILABLE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -142,6 +159,15 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   FEATURE_DISABLED: 503,
   LIVE_LOCATION_ENDED: 409,
   CHAT_PERMISSION_DENIED: 403,
+  // 401 — вход не состоялся: личность не подтверждена, как у неверного кода 2FA.
+  EDS_SIGNATURE_INVALID: 401,
+  EDS_CERT_EXPIRED: 401,
+  EDS_CERT_REVOKED: 401,
+  EDS_CERT_NOT_AUTH: 401,
+  EDS_NOT_LINKED: 401,
+  EDS_ALREADY_LINKED: 409,
+  // 503 — зависимость недоступна и вернётся; повтор позже имеет смысл.
+  EDS_UNAVAILABLE: 503,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

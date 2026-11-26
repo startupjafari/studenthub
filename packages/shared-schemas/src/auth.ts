@@ -160,6 +160,45 @@ export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
 export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
 
+// ── Вход по ЭЦП (НУЦ РК через NCALayer) ──────────────────────────────────────
+
+// Подписанный challenge: `POST /auth/eds/login` и `POST /auth/eds/link`. `cms` — открепленная
+// (detached) CMS-подпись в base64, сделанная ключом аутентификации над байтами `nonce`
+// из `POST /auth/eds/challenge`. Предел длины — с запасом на цепочку сертификатов и
+// OCSP-ответ внутри подписи; больше реальная подпись не бывает.
+export const EdsSignedChallengeSchema = z
+  .object({
+    challengeId: z.string().uuid(),
+    // Форму base64 не проверяем: подпись не вводят руками, а мусор отвергнет NCANode.
+    cms: z.string().min(16).max(64_000),
+  })
+  .strict()
+export type EdsSignedChallengeInput = z.infer<typeof EdsSignedChallengeSchema>
+
+/** Ответ `POST /auth/eds/challenge`: что подписать и до какого момента. */
+export interface EdsChallenge {
+  challengeId: string
+  /** Случайные байты в base64 — их клиент и подписывает (NCALayer принимает base64). */
+  nonce: string
+  /** ISO-время, после которого challenge не примут. */
+  expiresAt: string
+}
+
+/**
+ * Привязанная ЭЦП в `GET /users/me` (`eds`, только владельцу) и в ответе привязки.
+ * Полного ИИН в ответах нет — его нет и в базе, только хэш и последние четыре цифры.
+ */
+export interface EdsCredentialInfo {
+  iinLast4: string
+  /** CN сертификата — ФИО владельца ключа, как его записал НУЦ. */
+  subjectCn: string
+  /** БИН организации, если ключ сотрудника юрлица; у ключа физлица — null. */
+  orgBin: string | null
+  certNotAfter: string
+  linkedAt: string
+  lastUsedAt: string | null
+}
+
 // ── Выход ─────────────────────────────────────────────────────────────────────
 
 // Выход. Сессию опознаёт refresh-cookie; тело необязательно. Нативный клиент кладёт сюда
