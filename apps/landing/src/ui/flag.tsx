@@ -14,7 +14,7 @@ import type { Locale } from '../config/site'
 export function Flag({ locale, className = '' }: { locale: Locale; className?: string }) {
   const common = `shrink-0 rounded-[2px] ${className}`
 
-  if (locale === 'kk') {
+  if (locale === 'kz') {
     return (
       <svg viewBox="0 0 30 20" className={common} aria-hidden focusable="false">
         <rect width="30" height="20" fill="#00AFCA" />

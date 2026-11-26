@@ -253,7 +253,13 @@ interface AuthState {
 
 ## 10. i18n
 
-- Языки: `ru` (основной), `kk`, `en`. Fallback: текущий → `ru` → ключ.
+- Языки: `ru` (основной), `kz`, `en`. Fallback: текущий → `ru` → ключ. `kz` — код приложения;
+  в `Intl`, `<html lang>` и `Accept-Language` казахский — `kk`, переход только через
+  `toPlatformLanguage`/`fromPlatformLanguage` (`docs/PROJECT.md`, «Язык пользователя»).
+- next-intl держит тег платформы: для казахского `useLocale()` возвращает `kk` — его locale
+  уходит в `Intl`, ICU-плюралы и `useFormatter`. Поэтому `useLocale()` — только для
+  форматирования (`Intl.*`, `toLocale*String`, даты); в API (`locale` запросов и профиля) и
+  для выбора данных по языку (`nameKz`, `{ ru, kz, en }`) — `useAppLocale()` из `shared/i18n`.
 - Хардкод пользовательского текста в JSX запрещён — включая заголовки, кнопки, тосты, `alt`, `aria-label`, сообщения ошибок.
   Исключений ровно два, оба ниже; третьего нет.
   - **Исключение 1 — `app/global-error.tsx`** (Ф13.8): он рендерится вне корневого
@@ -327,7 +333,7 @@ interface AuthState {
 □ Состояния loading / empty / error реализованы
 □ loading.tsx и error.tsx есть у нового route segment
 □ Форма: RHF + Zod из shared-schemas, ошибки на уровне полей, submit блокируется
-□ Все строки через i18n; ключи добавлены в ru, kk, en
+□ Все строки через i18n; ключи добавлены в ru, kz, en
 □ Роль/доступ соответствуют матрице доступа из docs/PROJECT.md
 □ Проверено на 375 / 768 / 1280 px
 □ Клавиатурная навигация и aria-label для иконочных кнопок

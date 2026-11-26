@@ -101,7 +101,7 @@ function setup(opts: { enabled?: boolean } = {}) {
       firstName: 'Асем',
       lastName: 'Абишева',
       email: 'dean@uni.kz',
-      locale: 'kk',
+      locale: 'kz',
     }),
     linkEdsCredential: jest.fn().mockResolvedValue({ info: INFO, replaced: false }),
     hasEdsCredential: jest.fn().mockResolvedValue(true),
@@ -372,7 +372,7 @@ describe('EdsAuthService — привязка', () => {
     expect(queue.enqueue).toHaveBeenCalledWith(
       'email',
       'send-eds-linked',
-      { to: 'dean@uni.kz', locale: 'kk', firstName: 'Асем', subjectCn: 'АБИШЕВА АСЕМ' },
+      { to: 'dean@uni.kz', locale: 'kz', firstName: 'Асем', subjectCn: 'АБИШЕВА АСЕМ' },
       expect.objectContaining({ jobId: expect.stringContaining('eds-linked:u-dean:') }),
     )
   })

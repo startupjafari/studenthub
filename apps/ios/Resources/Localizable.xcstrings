@@ -51181,7 +51181,7 @@
         }
       }
     },
-    "staff.tpl.locale.kk": {
+    "staff.tpl.locale.kz": {
       "extractionState": "manual",
       "localizations": {
         "ru": {
@@ -55913,13 +55913,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Заполните название на всех трёх языках (RU, KK, EN)"
+            "value": "Заполните название на всех трёх языках (RU, KZ, EN)"
           }
         },
         "kk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Атауын үш тілде де толтырыңыз (RU, KK, EN)"
+            "value": "Атауын үш тілде де толтырыңыз (RU, KZ, EN)"
           }
         }
       }

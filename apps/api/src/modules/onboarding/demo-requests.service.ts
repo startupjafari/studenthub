@@ -742,7 +742,7 @@ export class DemoRequestsService {
           kind: 'CITY',
           OR: [
             { nameRu: { equals: text, mode: 'insensitive' } },
-            { nameKk: { equals: text, mode: 'insensitive' } },
+            { nameKz: { equals: text, mode: 'insensitive' } },
           ],
         },
         select: { code: true },

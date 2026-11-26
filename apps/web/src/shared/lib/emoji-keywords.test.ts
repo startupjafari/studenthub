@@ -48,14 +48,14 @@ describe('buildEmojiKeywordIndex', () => {
 })
 
 describe('словари по языку интерфейса', () => {
-  it('kk — русский и английский (казахского в CLDR-наборе нет)', () => {
-    expect(dictLocalesFor('kk')).toEqual(['ru', 'en'])
+  it('kz — русский и английский (казахского в CLDR-наборе нет)', () => {
+    expect(dictLocalesFor('kz')).toEqual(['ru', 'en'])
     expect(dictLocalesFor('ru')).toEqual(['ru', 'en'])
     expect(dictLocalesFor('en')).toEqual(['en'])
   })
 
   it('настоящие словари: русские и английские слова находят смайл', async () => {
-    const index = await loadEmojiKeywords('kk')
+    const index = await loadEmojiKeywords('kz')
     expect(index.exact('кот', 20)).toContain('🐱')
     expect(index.exact('cat', 20)).toContain('🐱')
     expect(index.exact('огонь', 3)[0]).toBe('🔥')

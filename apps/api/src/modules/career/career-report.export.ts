@@ -83,7 +83,7 @@ const RU: Labels = {
   of: 'из',
 }
 
-const KK: Labels = {
+const KZ: Labels = {
   section: 'Бөлім',
   metric: 'Көрсеткіш',
   value: 'Мән',
@@ -173,7 +173,7 @@ const EN: Labels = {
   of: 'of',
 }
 
-const LABELS: Record<ExportLocale, Labels> = { ru: RU, kk: KK, en: EN }
+const LABELS: Record<ExportLocale, Labels> = { ru: RU, kz: KZ, en: EN }
 
 export function reportColumns(locale: ExportLocale): SpreadsheetColumn<ReportRow>[] {
   const l = LABELS[locale] ?? RU

@@ -135,7 +135,7 @@ const OWN_SERVICES = [
     category: 'DORMITORY',
     code: 'dormitory-place',
     nameRu: 'Место в общежитии',
-    nameKk: 'Жатақханадан орын',
+    nameKz: 'Жатақханадан орын',
     nameEn: 'Dormitory place',
     descriptionRu: 'Заявление на предоставление места в студенческом общежитии.',
     sla: 72,
@@ -143,7 +143,7 @@ const OWN_SERVICES = [
     processingMode: 'MANUAL',
     facultyScoped: true,
     fields: [
-      { code: 'family-status', idPart: 'family', type: 'SELECT', labelRu: 'Основание', labelKk: 'Негіздеме', labelEn: 'Grounds', required: true, options: [{ value: 'far', labelRu: 'Иногородний' }, { value: 'social', labelRu: 'Социальная категория' }] }, // prettier-ignore
+      { code: 'family-status', idPart: 'family', type: 'SELECT', labelRu: 'Основание', labelKz: 'Негіздеме', labelEn: 'Grounds', required: true, options: [{ value: 'far', labelRu: 'Иногородний' }, { value: 'social', labelRu: 'Социальная категория' }] }, // prettier-ignore
     ],
     formData: { 'family-status': 'far' },
     result: { type: 'INFORMATION', note: 'Место в общежитии №2, комната 314. Заселение — с понедельника.' }, // prettier-ignore
@@ -153,7 +153,7 @@ const OWN_SERVICES = [
     category: 'MILITARY',
     code: 'military-registration',
     nameRu: 'Справка для военкомата (форма 4)',
-    nameKk: 'Әскери комиссариатқа анықтама (4-нысан)',
+    nameKz: 'Әскери комиссариатқа анықтама (4-нысан)',
     nameEn: 'Military registration certificate',
     descriptionRu: 'Справка об обучении для постановки на воинский учёт и отсрочки.',
     sla: 24,
@@ -162,10 +162,10 @@ const OWN_SERVICES = [
     facultyScoped: false,
     maxFiles: 2,
     fields: [
-      { code: 'birth-year', type: 'NUMBER', labelRu: 'Год рождения', labelKk: 'Туған жылы', labelEn: 'Year of birth', required: true, validation: { min: 1990, max: 2010 } }, // prettier-ignore
-      { code: 'visit-date', type: 'DATE', labelRu: 'Дата явки в военкомат', labelKk: 'Комиссариатқа келу күні', labelEn: 'Visit date', required: false }, // prettier-ignore
-      { code: 'fitness', type: 'RADIO', labelRu: 'Категория годности', labelKk: 'Жарамдылық санаты', labelEn: 'Fitness category', required: true, options: [{ value: 'A', labelRu: 'А — годен' }, { value: 'B', labelRu: 'Б — годен с ограничениями' }] }, // prettier-ignore
-      { code: 'confirm', type: 'CHECKBOX', labelRu: 'Подтверждаю достоверность данных', labelKk: 'Деректердің дұрыстығын растаймын', labelEn: 'I confirm the data is correct', required: true }, // prettier-ignore
+      { code: 'birth-year', type: 'NUMBER', labelRu: 'Год рождения', labelKz: 'Туған жылы', labelEn: 'Year of birth', required: true, validation: { min: 1990, max: 2010 } }, // prettier-ignore
+      { code: 'visit-date', type: 'DATE', labelRu: 'Дата явки в военкомат', labelKz: 'Комиссариатқа келу күні', labelEn: 'Visit date', required: false }, // prettier-ignore
+      { code: 'fitness', type: 'RADIO', labelRu: 'Категория годности', labelKz: 'Жарамдылық санаты', labelEn: 'Fitness category', required: true, options: [{ value: 'A', labelRu: 'А — годен' }, { value: 'B', labelRu: 'Б — годен с ограничениями' }] }, // prettier-ignore
+      { code: 'confirm', type: 'CHECKBOX', labelRu: 'Подтверждаю достоверность данных', labelKz: 'Деректердің дұрыстығын растаймын', labelEn: 'I confirm the data is correct', required: true }, // prettier-ignore
     ],
     formData: { 'birth-year': 2005, 'visit-date': '2026-12-01', fitness: 'A', confirm: true },
     result: { type: 'OTHER', note: 'Справка направлена в военкомат по защищённому каналу.' },
@@ -175,7 +175,7 @@ const OWN_SERVICES = [
     category: 'FINANCIAL',
     code: 'social-scholarship',
     nameRu: 'Социальная стипендия',
-    nameKk: 'Әлеуметтік стипендия',
+    nameKz: 'Әлеуметтік стипендия',
     nameEn: 'Social scholarship',
     descriptionRu: 'Назначение социальной стипендии по документам о льготах.',
     sla: 96,
@@ -183,8 +183,8 @@ const OWN_SERVICES = [
     processingMode: 'MANUAL',
     facultyScoped: true,
     fields: [
-      { code: 'large-family', type: 'BOOLEAN', labelRu: 'Многодетная семья', labelKk: 'Көпбалалы отбасы', labelEn: 'Large family', required: true }, // prettier-ignore
-      { code: 'income', type: 'NUMBER', labelRu: 'Доход на члена семьи, ₸', labelKk: 'Отбасы мүшесіне табыс, ₸', labelEn: 'Income per family member, KZT', required: false, validation: { min: 0 } }, // prettier-ignore
+      { code: 'large-family', type: 'BOOLEAN', labelRu: 'Многодетная семья', labelKz: 'Көпбалалы отбасы', labelEn: 'Large family', required: true }, // prettier-ignore
+      { code: 'income', type: 'NUMBER', labelRu: 'Доход на члена семьи, ₸', labelKz: 'Отбасы мүшесіне табыс, ₸', labelEn: 'Income per family member, KZT', required: false, validation: { min: 0 } }, // prettier-ignore
     ],
     formData: { 'large-family': false, income: 120000 },
     result: { type: 'INFORMATION', note: 'Стипендия назначена с первого числа следующего месяца.' },
@@ -194,7 +194,7 @@ const OWN_SERVICES = [
     category: 'PERSONAL_DATA',
     code: 'personal-data-change',
     nameRu: 'Изменение персональных данных',
-    nameKk: 'Жеке деректерді өзгерту',
+    nameKz: 'Жеке деректерді өзгерту',
     nameEn: 'Personal data change',
     descriptionRu: 'Смена фамилии или документа, удостоверяющего личность, в личном деле.',
     sla: 48,
@@ -202,7 +202,7 @@ const OWN_SERVICES = [
     processingMode: 'MANUAL',
     facultyScoped: false,
     fields: [
-      { code: 'new-last-name', type: 'TEXT', labelRu: 'Новая фамилия', labelKk: 'Жаңа тегі', labelEn: 'New last name', required: true, validation: { minLength: 2, maxLength: 60 } }, // prettier-ignore
+      { code: 'new-last-name', type: 'TEXT', labelRu: 'Новая фамилия', labelKz: 'Жаңа тегі', labelEn: 'New last name', required: true, validation: { minLength: 2, maxLength: 60 } }, // prettier-ignore
     ],
     formData: { 'new-last-name': 'Сейткали' },
     result: { type: 'OTHER', note: 'Изменения внесены в личное дело.' },
@@ -212,7 +212,7 @@ const OWN_SERVICES = [
     category: 'TECHNICAL',
     code: 'it-account-reset',
     nameRu: 'Восстановление доступа к корпоративной почте',
-    nameKk: 'Корпоративтік поштаға қолжетімділікті қалпына келтіру',
+    nameKz: 'Корпоративтік поштаға қолжетімділікті қалпына келтіру',
     nameEn: 'Corporate mail access recovery',
     descriptionRu: 'Сброс пароля корпоративной почты и Wi-Fi кампуса.',
     sla: 4,
@@ -220,7 +220,7 @@ const OWN_SERVICES = [
     processingMode: 'AUTOMATIC',
     facultyScoped: false,
     fields: [
-      { code: 'details', type: 'TEXTAREA', labelRu: 'Что случилось', labelKk: 'Не болды', labelEn: 'What happened', required: false }, // prettier-ignore
+      { code: 'details', type: 'TEXTAREA', labelRu: 'Что случилось', labelKz: 'Не болды', labelEn: 'What happened', required: false }, // prettier-ignore
     ],
     formData: { details: 'Не приходит код подтверждения на телефон.' },
     result: { type: 'INFORMATION', note: 'Временный пароль отправлен на личную почту.' },
@@ -232,7 +232,7 @@ const OWN_SERVICES = [
     category: 'OTHER',
     code: 'misc-request',
     nameRu: 'Обращение в деканат',
-    nameKk: 'Деканатқа өтініш',
+    nameKz: 'Деканатқа өтініш',
     nameEn: 'Request to the dean’s office',
     descriptionRu: 'Свободное обращение — заменено отдельными услугами.',
     sla: 72,
@@ -362,7 +362,7 @@ export async function seedServices(prisma, writer, ctx) {
       universityId: uniId,
       code: svc.code,
       nameRu: svc.nameRu,
-      nameKk: svc.nameKk,
+      nameKz: svc.nameKz,
       nameEn: svc.nameEn,
       descriptionRu: svc.descriptionRu,
       slaHours: svc.sla,
@@ -380,7 +380,7 @@ export async function seedServices(prisma, writer, ctx) {
       code: 'id-card',
       documentType: 'ID_CARD',
       titleRu: 'Удостоверение личности',
-      titleKk: 'Жеке куәлік',
+      titleKz: 'Жеке куәлік',
       titleEn: 'ID card',
       required: true,
       // Лицевая и оборотная сторона отдельными файлами — там, где это нужно военкомату.
@@ -394,7 +394,7 @@ export async function seedServices(prisma, writer, ctx) {
         code: f.code,
         type: f.type,
         labelRu: f.labelRu,
-        labelKk: f.labelKk,
+        labelKz: f.labelKz,
         labelEn: f.labelEn,
         required: f.required,
         ...(f.options ? { options: f.options } : {}),

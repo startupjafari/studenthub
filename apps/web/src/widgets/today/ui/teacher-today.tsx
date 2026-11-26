@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { Inbox } from 'lucide-react'
 import { Button, EmptyState, PageHeader, SeasonGreeting, Skeleton } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
@@ -41,6 +42,7 @@ export function TeacherToday() {
   // должна совпадать с тем, по чему на него пришли. День остаётся в подзаголовке.
   const tNav = useTranslations('Nav')
   const locale = useLocale()
+  const appLocale = useAppLocale()
 
   // Один BFF-запрос вместо четырёх доменных (docs/UNIFIED_UX.md PR-1). Форма — по роли на бэке.
   const qc = useQueryClient()
@@ -81,9 +83,9 @@ export function TeacherToday() {
         events: today.data?.events ?? [],
         assignments: [],
         todayDate: now.date,
-        locale,
+        locale: appLocale,
       }),
-    [today.data?.events, now.date, locale],
+    [today.data?.events, now.date, appLocale],
   )
 
   const greetingDate = useMemo(

@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { Check, Copy, Download, EyeOff, Globe, Lock } from 'lucide-react'
 import {
@@ -35,7 +36,7 @@ export function CareerResumeView() {
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   // Язык брендирования PDF (шапка, колонтитул, свойства файла) — эти строки переводит API.
-  const locale = useLocale()
+  const locale = useAppLocale()
   const queryClient = useQueryClient()
   const [copied, setCopied] = useState(false)
 

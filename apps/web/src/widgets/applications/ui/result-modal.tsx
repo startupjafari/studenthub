@@ -1,7 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { FileBadge, Loader2, Paperclip, X } from 'lucide-react'
@@ -53,7 +54,7 @@ export function ResultModal({
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   // Язык бланка справки: подписи в документе переводит сервер.
-  const locale = useLocale()
+  const locale = useAppLocale()
   const fileRef = useRef<HTMLInputElement>(null)
   // Выдать можно только то, что каталог вуза относит к «Выданным университетом»: справка,
   // транскрипт, договор — но не паспорт студента. Выключенные вузом типы не предлагаем,

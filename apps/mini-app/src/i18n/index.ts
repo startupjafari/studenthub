@@ -20,9 +20,22 @@ export function locale(): Locale {
 }
 
 function detect(): Locale {
-  // `ru-RU` и `ru` — один язык; Telegram присылает и то и другое.
-  const raw = webApp()?.initDataUnsafe?.user?.language_code?.slice(0, 2).toLowerCase()
-  return LOCALES.find((value) => value === raw) ?? 'ru'
+  return fromPlatformLanguage(webApp()?.initDataUnsafe?.user?.language_code) ?? 'ru'
+}
+
+/**
+ * Языковой тег клиента → код приложения. Казахский в приложении — `kz`, а Telegram, как и
+ * всё, что следует ISO 639-1, присылает `kk`. `ru-RU` и `ru` — один язык; Telegram присылает
+ * и то и другое. Неподдерживаемое — null.
+ *
+ * Своя копия `fromPlatformLanguage` из `@studenthub/shared-config`: мини-апп собирается
+ * отдельно и от пакетов платформы не зависит.
+ */
+function fromPlatformLanguage(tag: string | null | undefined): Locale | null {
+  const base = tag?.trim().toLowerCase().split(/[-_]/)[0]
+  if (!base) return null
+  if (base === 'kk' || base === 'kz') return 'kz'
+  return LOCALES.find((value) => value === base) ?? null
 }
 
 /**
@@ -38,7 +51,7 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
 }
 
 // Отказы сервера, которые можно назвать своими словами. Текст `message` бэкенда — русский
-// и для людей не предназначен (§8.2: клиент реагирует на `code`): в kk и en он торчал бы
+// и для людей не предназначен (§8.2: клиент реагирует на `code`): в kz и en он торчал бы
 // чужим языком. Чего нет в списке — то говорит запасная строка самого действия.
 const ERROR_KEYS: Partial<Record<string, MessageKey>> = {
   INVALID_2FA_CODE: 'errInvalidCode',

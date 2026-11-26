@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { LOCALES, OG_LOCALES, SITE_URL, localePath, type Locale } from './site'
+import { LOCALES, OG_LOCALES, SITE_URL, localePath, toPlatformLanguage, type Locale } from './site'
 import { getDictionary } from '../content'
 
 /**
@@ -9,11 +9,14 @@ import { getDictionary } from '../content'
  * маршруты сознательно живут без locale-префикса, а язык берётся из cookie. У лендинга
  * три отдельных адреса, поэтому поисковик наконец может узнать, что это одна страница
  * на трёх языках, а не три разных.
+ *
+ * Ключи hreflang — коды платформы (`kk`), адреса — коды сайта (`/kz`): поисковик не знает
+ * языка `kz`, и казахскую версию с таким ключом он бы не связал с остальными.
  */
 export function buildMetadata(locale: Locale): Metadata {
   const dict = getDictionary(locale)
 
-  const languages = Object.fromEntries(LOCALES.map((l) => [l, localePath(l)]))
+  const languages = Object.fromEntries(LOCALES.map((l) => [toPlatformLanguage(l), localePath(l)]))
 
   return {
     metadataBase: new URL(SITE_URL),

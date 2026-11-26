@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { CircleSlash, Info, TriangleAlert, Wrench } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
@@ -50,6 +51,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
   const universityId = useAppSelector((s) => s.auth.universityId)
   const pathname = usePathname()
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const t = useTranslations('Platform')
 
   const isStaff = role !== null && STAFF_ROLES.includes(role)
@@ -64,7 +66,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
         title={t('maintenanceTitle')}
         description={
           maintenance.message
-            ? pickPlatformText(maintenance.message, locale)
+            ? pickPlatformText(maintenance.message, appLocale)
             : t('maintenanceFallback')
         }
         // Возвращаться некуда: во время техработ любой маршрут покажет тот же экран.
@@ -107,7 +109,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
       )}
       {banner && forAudience(banner, role, universityId) && (
         <Notice level={banner.level} icon={banner.level === 'WARNING' ? TriangleAlert : Info}>
-          {pickPlatformText(banner.text, locale)}
+          {pickPlatformText(banner.text, appLocale)}
         </Notice>
       )}
       {children}

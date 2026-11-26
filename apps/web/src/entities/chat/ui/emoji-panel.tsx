@@ -11,7 +11,9 @@
 // раскладка, потому что у frimousse нет навигации по разделам и раздела «Недавние».
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import type { Locale } from '@studenthub/shared-config'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { defaultEmojiDataResolver } from 'frimousse'
 import {
   Apple,
@@ -54,8 +56,11 @@ const SECTION_ICONS: Record<EmojiSectionId, ReactNode> = {
   flags: <Flag className="size-5" aria-hidden />,
 }
 
-/** Язык данных emojibase: казахского там нет — показываем русские названия (как у пикера реакций). */
-const DATA_LOCALE: Record<string, 'ru' | 'en'> = { ru: 'ru', kk: 'ru', en: 'en' }
+/**
+ * Язык данных emojibase по коду приложения: казахского набора там нет — показываем русские
+ * названия (как у пикера реакций). `ru` и `en` справа — имена наборов emojibase, а не локали.
+ */
+const DATA_LOCALE: Record<Locale, 'ru' | 'en'> = { ru: 'ru', kz: 'ru', en: 'en' }
 
 interface Catalog {
   emojis: CatalogEmoji[]
@@ -132,7 +137,7 @@ export interface EmojiPanelProps {
 
 export function EmojiPanel({ variant, onPick, featured, chosen }: EmojiPanelProps) {
   const t = useTranslations('Chats')
-  const locale = DATA_LOCALE[useLocale()] ?? 'ru'
+  const locale = DATA_LOCALE[useAppLocale()]
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [failed, setFailed] = useState(false)
   const [query, setQuery] = useState('')

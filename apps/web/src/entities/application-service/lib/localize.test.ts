@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { pickLocale } from './localize'
 
-const obj = { nameRu: 'Справка', nameKk: 'Анықтама', nameEn: 'Certificate' }
+const obj = { nameRu: 'Справка', nameKz: 'Анықтама', nameEn: 'Certificate' }
 
 describe('pickLocale', () => {
   it('берёт поле по активной локали', () => {
     expect(pickLocale(obj, 'name', 'ru')).toBe('Справка')
-    expect(pickLocale(obj, 'name', 'kk')).toBe('Анықтама')
+    expect(pickLocale(obj, 'name', 'kz')).toBe('Анықтама')
     expect(pickLocale(obj, 'name', 'en')).toBe('Certificate')
   })
 
@@ -15,7 +15,7 @@ describe('pickLocale', () => {
   })
 
   it('пустое локализованное значение → русский фолбэк', () => {
-    expect(pickLocale({ nameRu: 'Справка', nameKk: null, nameEn: null }, 'name', 'en')).toBe(
+    expect(pickLocale({ nameRu: 'Справка', nameKz: null, nameEn: null }, 'name', 'en')).toBe(
       'Справка',
     )
   })

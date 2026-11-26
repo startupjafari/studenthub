@@ -14,17 +14,17 @@ const ALMATY = {
   code: '750000000',
   kind: 'CITY',
   nameRu: 'Алматы',
-  nameKk: 'Алматы',
+  nameKz: 'Алматы',
   regionCode: '750000000',
 }
 const KOKSHETAU = {
   code: '111010000',
   kind: 'CITY',
   nameRu: 'Кокшетау',
-  nameKk: 'Көкшетау',
+  nameKz: 'Көкшетау',
   regionCode: '110000000',
 }
-const AKMOLA = { code: '110000000', nameRu: 'Акмолинская', nameKk: 'Ақмола' }
+const AKMOLA = { code: '110000000', nameRu: 'Акмолинская', nameKz: 'Ақмола' }
 
 describe('KatoService — поиск', () => {
   it('scope=places ограничивает выборку населёнными пунктами', async () => {
@@ -55,7 +55,7 @@ describe('KatoService — поиск', () => {
     const or = prisma.katoUnit.findMany.mock.calls[0][0].where.OR
     expect(or).toEqual([
       { nameRu: { contains: 'Өскемен', mode: 'insensitive' } },
-      { nameKk: { contains: 'Өскемен', mode: 'insensitive' } },
+      { nameKz: { contains: 'Өскемен', mode: 'insensitive' } },
     ])
   })
 

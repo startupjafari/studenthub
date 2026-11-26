@@ -1,4 +1,5 @@
 import type { UpdateResumeInput } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import { api } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type { PublicResume, ResumeSettings } from '../model/types'
@@ -33,7 +34,7 @@ export async function fetchPublicResume(slug: string): Promise<PublicResume> {
  */
 export async function downloadResumePdf(
   labels: Record<string, string>,
-  locale: string,
+  locale: Locale,
 ): Promise<DownloadedFile> {
   return requestFile('/career/resume/pdf', { ...labels, locale })
 }

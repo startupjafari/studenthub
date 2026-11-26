@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { useLocale } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { katoKeys, resolveKato } from '../api/kato-api'
 import { katoName } from './kato-name'
 
@@ -16,7 +16,7 @@ export const isKatoCode = (value: string | null | undefined): value is string =>
  * (таблица вузов), а не в строке: запрос на строку дал бы N+1.
  */
 export function useKatoNames(codes: (string | null | undefined)[]) {
-  const locale = useLocale()
+  const locale = useAppLocale()
   const wanted = [...new Set(codes.filter(isKatoCode))]
 
   const { data, isPending } = useQuery({

@@ -43,11 +43,11 @@ You are fixing audited issues in the StudentHub monorepo at /home/mehmanjafari/p
 
 TASK(S): <ID задач> — issues <ID проблем>. Read each issue block in `.audit/findings/<G>.md` (grep `#### <ID>` and read until the next `####`): «Где», «Суть», «Решение», «Файлы для правки». Verify the problem in code first; implement the fix (you may improve on the proposed solution if you explain why).
 
-SCOPE: only these files (plus their tests / i18n messages apps/web/messages/{ru,kk,en}.json if UI text is needed): <файлы>. If the fix truly needs another file, keep it minimal and mention it in your summary.
+SCOPE: only these files (plus their tests / i18n messages apps/web/messages/{ru,kz,en}.json if UI text is needed): <файлы>. If the fix truly needs another file, keep it minimal and mention it in your summary.
 
 PROJECT RULES (from AGENTS.md / docs/*_RULES.md):
 
-- Match surrounding code style and comment density; comments and user-facing strings in Russian; every user-facing string via i18n keys (ru, kk, en).
+- Match surrounding code style and comment density; comments and user-facing strings in Russian; every user-facing string via i18n keys (ru, kz, en).
 - API changes must stay backward compatible (web, iOS, Android and the Telegram mini-app share the API): additive optional fields/params only. If you add/change endpoints or schemas, regenerate apps/api/openapi.json (`rm -f apps/api/tsconfig*.tsbuildinfo && pnpm --filter api build && pnpm --filter api run openapi`). DO NOT edit docs/PROJECT.md (other agents work in parallel) — put the exact sentence(s) the docs need into your summary under «Документация:». A breaking change → don't do it, report it.
 - Prefer fixes WITHOUT schema changes (conditional updates, advisory locks via apps/api/src/common/prisma/advisory-lock.ts, existing columns): the orchestrator cannot apply migrations, and an unapplied new column breaks the developer's running app once the Prisma client is regenerated. Only if a schema change is truly unavoidable:
 - Migration needed → edit prisma/schema/*.prisma and write the SQL file prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql by hand (or `pnpm exec prisma migrate diff --from-schema-datamodel … --script` without touching a DB). NEVER apply migrations, never run db push / migrate dev / reset against any database.

@@ -6327,7 +6327,7 @@
             "bearer": []
           }
         ],
-        "summary": "Справка «задолженностей в библиотеке нет» — PDF с кодом проверки и QR (?locale=ru|kk|en)",
+        "summary": "Справка «задолженностей в библиотеке нет» — PDF с кодом проверки и QR (?locale=ru|kz|en)",
         "tags": [
           "Библиотека"
         ]
@@ -7792,7 +7792,7 @@
               "type": "string",
               "enum": [
                 "ru",
-                "kk",
+                "kz",
                 "en"
               ]
             }
@@ -21676,7 +21676,7 @@
               "type": "string",
               "enum": [
                 "ru",
-                "kk",
+                "kz",
                 "en"
               ]
             }
@@ -29793,7 +29793,7 @@
             "type": "string",
             "enum": [
               "ru",
-              "kk",
+              "kz",
               "en"
             ]
           },
@@ -33614,7 +33614,7 @@
             "minLength": 1,
             "maxLength": 200
           },
-          "nameKk": {
+          "nameKz": {
             "type": "string",
             "minLength": 1,
             "maxLength": 200
@@ -33629,7 +33629,7 @@
             "maxLength": 2000,
             "nullable": true
           },
-          "descriptionKk": {
+          "descriptionKz": {
             "type": "string",
             "maxLength": 2000,
             "nullable": true
@@ -33644,7 +33644,7 @@
             "maxLength": 4000,
             "nullable": true
           },
-          "instructionsKk": {
+          "instructionsKz": {
             "type": "string",
             "maxLength": 4000,
             "nullable": true
@@ -33708,7 +33708,7 @@
                   "minLength": 1,
                   "maxLength": 200
                 },
-                "titleKk": {
+                "titleKz": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200
@@ -33745,7 +33745,7 @@
               "required": [
                 "code",
                 "titleRu",
-                "titleKk",
+                "titleKz",
                 "titleEn"
               ],
               "additionalProperties": false
@@ -33780,7 +33780,7 @@
                   "minLength": 1,
                   "maxLength": 200
                 },
-                "labelKk": {
+                "labelKz": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 200
@@ -33795,7 +33795,7 @@
                   "maxLength": 200,
                   "nullable": true
                 },
-                "placeholderKk": {
+                "placeholderKz": {
                   "type": "string",
                   "maxLength": 200,
                   "nullable": true
@@ -33824,7 +33824,7 @@
                         "minLength": 1,
                         "maxLength": 120
                       },
-                      "labelKk": {
+                      "labelKz": {
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 120
@@ -33838,7 +33838,7 @@
                     "required": [
                       "value",
                       "labelRu",
-                      "labelKk",
+                      "labelKz",
                       "labelEn"
                     ],
                     "additionalProperties": false
@@ -33851,7 +33851,7 @@
                 "code",
                 "type",
                 "labelRu",
-                "labelKk",
+                "labelKz",
                 "labelEn"
               ],
               "additionalProperties": false
@@ -33864,7 +33864,7 @@
           "categoryId",
           "code",
           "nameRu",
-          "nameKk",
+          "nameKz",
           "nameEn",
           "slaHours",
           "deliveryModes"
@@ -37284,7 +37284,7 @@
             "type": "string",
             "enum": [
               "ru",
-              "kk",
+              "kz",
               "en"
             ],
             "default": "ru"
@@ -37325,7 +37325,7 @@
             "type": "string",
             "enum": [
               "ru",
-              "kk",
+              "kz",
               "en"
             ]
           }
@@ -37479,7 +37479,7 @@
                 "minLength": 1,
                 "maxLength": 300
               },
-              "kk": {
+              "kz": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 300
@@ -37492,7 +37492,7 @@
             },
             "required": [
               "ru",
-              "kk",
+              "kz",
               "en"
             ],
             "nullable": true
@@ -37550,7 +37550,7 @@
                 "minLength": 1,
                 "maxLength": 300
               },
-              "kk": {
+              "kz": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 300
@@ -37563,7 +37563,7 @@
             },
             "required": [
               "ru",
-              "kk",
+              "kz",
               "en"
             ],
             "nullable": true

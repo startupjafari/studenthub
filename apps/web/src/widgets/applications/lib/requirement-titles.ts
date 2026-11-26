@@ -21,7 +21,7 @@ export function applicationRequirements(app: ApplicationDetail): ApplicationRequ
       id: d.requirement.id,
       documentType: null,
       titleRu: d.requirement.titleRu,
-      titleKk: d.requirement.titleKk,
+      titleKz: d.requirement.titleKz,
       titleEn: d.requirement.titleEn,
       required: d.requirement.required,
     })

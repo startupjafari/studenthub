@@ -144,7 +144,7 @@ describe('подключение к NCALayer', () => {
 describe('подпись ключом аутентификации', () => {
   it('шлёт запрос модуля basics: открепленная CMS над байтами nonce, ключ AUTH', async () => {
     const session = await connected()
-    const signed = session.signAuth('bm9uY2U=', 'kk')
+    const signed = session.signAuth('bm9uY2U=', 'kz')
     current().reply({ status: true, body: { result: ['MIIcms=='] } })
     await expect(signed).resolves.toBe('MIIcms==')
 
@@ -267,8 +267,8 @@ describe('signChallengeWithNcaLayer', () => {
 })
 
 describe('ncaLayerLocale', () => {
-  it('kk и ru — как есть, английского окна у NCALayer нет — русский', () => {
-    expect(ncaLayerLocale('kk')).toBe('kk')
+  it('kz — платформенный kk, ru — как есть, английского окна у NCALayer нет — русский', () => {
+    expect(ncaLayerLocale('kz')).toBe('kk')
     expect(ncaLayerLocale('ru')).toBe('ru')
     expect(ncaLayerLocale('en')).toBe('ru')
   })

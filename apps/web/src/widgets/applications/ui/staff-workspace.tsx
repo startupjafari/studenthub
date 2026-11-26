@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Eye, Check, Download, RefreshCw } from 'lucide-react'
@@ -71,10 +72,11 @@ function deanActiveStep(status: string): number {
 export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const q = useQuery({ queryKey: applicationKeys.detail(id), queryFn: () => fetchApplication(id) })
   const app = q.data
   const serviceName = app
-    ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
+    ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', appLocale)
     : undefined
 
   // Степпер обработки: по умолчанию следует за статусом; клик — просмотр пройденного этапа.
@@ -213,6 +215,7 @@ function formatDateTime(iso: string, locale: string): string {
 function Timeline({ app, className }: { app: ApplicationDetail; className?: string }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const events = [...app.events].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   )
@@ -225,7 +228,7 @@ function Timeline({ app, className }: { app: ApplicationDetail; className?: stri
         {events.map((e, i) => {
           const key = `event_${e.action}`
           const label = t.has(key) ? t(key) : e.toStatus ? t(`status2_${e.toStatus}`) : e.action
-          const comment = eventComment(e, app, locale)
+          const comment = eventComment(e, app, appLocale)
           const last = i === events.length - 1
           return (
             <li key={e.id} className="flex gap-3 text-sm">
@@ -483,7 +486,7 @@ function StaffDocumentReview({
   onChanged: () => void
 }) {
   const t = useTranslations('Applications')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
   const done = () => {
     void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })

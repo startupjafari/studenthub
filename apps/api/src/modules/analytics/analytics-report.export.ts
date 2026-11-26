@@ -73,7 +73,7 @@ const RU: Labels = {
   partialTotal: 'Без скрытых подразделений',
 }
 
-const KK: Labels = {
+const KZ: Labels = {
   unit: { platform: 'ЖОО', university: 'Факультет', faculty: 'Топ', teacher: 'Топ' },
   students: 'Студенттер',
   marks: 'Қатысу белгілері',
@@ -123,7 +123,7 @@ const EN: Labels = {
   partialTotal: 'Excluding hidden units',
 }
 
-const LABELS: Record<ExportLocale, Labels> = { ru: RU, kk: KK, en: EN }
+const LABELS: Record<ExportLocale, Labels> = { ru: RU, kz: KZ, en: EN }
 
 function labelsOf(locale: ExportLocale): Labels {
   return LABELS[locale] ?? RU

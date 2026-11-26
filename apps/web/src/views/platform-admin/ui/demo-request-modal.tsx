@@ -52,10 +52,11 @@ const REASONS = DemoRejectionReasonSchema.options
  */
 function exactCity(units: KatoUnit[], text: string): string | null {
   const wanted = text.trim().toLocaleLowerCase('ru')
+  // Регистр — по тегу платформы (`kk`), а не по коду приложения: его читает Intl.
   const hits = units.filter(
     (u) =>
       u.kind === 'CITY' &&
-      (u.nameRu.toLocaleLowerCase('ru') === wanted || u.nameKk.toLocaleLowerCase('kk') === wanted),
+      (u.nameRu.toLocaleLowerCase('ru') === wanted || u.nameKz.toLocaleLowerCase('kk') === wanted),
   )
   return hits.length === 1 ? hits[0]!.code : null
 }

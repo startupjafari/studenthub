@@ -6,21 +6,22 @@ import type {
   FormFieldType,
   ApplicationCategoryCode,
 } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import { api } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
 
 // ── Типы ответов бэкенда (домен «Услуги университета») ───────────────────────
-// Локализованные поля приходят тройками nameRu/nameKk/nameEn — фронт выбирает по локали (см. lib/localize).
+// Локализованные поля приходят тройками nameRu/nameKz/nameEn — фронт выбирает по локали (см. lib/localize).
 
 export interface ServiceCard {
   id: string
   categoryId: string
   code: string
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
   descriptionRu: string | null
-  descriptionKk: string | null
+  descriptionKz: string | null
   descriptionEn: string | null
   slaHours: number
   deliveryModes: DeliveryMode[]
@@ -32,7 +33,7 @@ export interface CategoryWithServices {
   id: string
   code: ApplicationCategoryCode
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
   description: string | null
   icon: string | null
@@ -44,7 +45,7 @@ export interface ServiceRequirement {
   code: string
   documentType: string | null
   titleRu: string
-  titleKk: string
+  titleKz: string
   titleEn: string
   description: string | null
   required: boolean
@@ -56,7 +57,7 @@ export interface ServiceRequirement {
 export interface ServiceFormFieldOption {
   value: string
   labelRu?: string
-  labelKk?: string
+  labelKz?: string
   labelEn?: string
 }
 
@@ -65,10 +66,10 @@ export interface ServiceFormField {
   code: string
   type: FormFieldType
   labelRu: string
-  labelKk: string
+  labelKz: string
   labelEn: string
   placeholderRu: string | null
-  placeholderKk: string | null
+  placeholderKz: string | null
   placeholderEn: string | null
   required: boolean
   options: ServiceFormFieldOption[] | null
@@ -77,7 +78,7 @@ export interface ServiceFormField {
 
 export interface ServiceDetail extends ServiceCard {
   instructionsRu: string | null
-  instructionsKk: string | null
+  instructionsKz: string | null
   instructionsEn: string | null
   requirements: ServiceRequirement[]
   formFields: ServiceFormField[]
@@ -92,18 +93,18 @@ export interface ApplicationFormField extends ServiceFormField {
 /** Действующее требование услуги в карточке заявки: по ним строится чек-лист исправления. */
 export type ApplicationRequirementRef = Pick<
   ServiceRequirement,
-  'id' | 'documentType' | 'titleRu' | 'titleKk' | 'titleEn' | 'required'
+  'id' | 'documentType' | 'titleRu' | 'titleKz' | 'titleEn' | 'required'
 >
 
 export interface ApplicationServiceRef {
   id: string
   code: string
   nameRu: string
-  nameKk: string
+  nameKz: string
   nameEn: string
   slaHours: number
   descriptionRu?: string | null
-  descriptionKk?: string | null
+  descriptionKz?: string | null
   descriptionEn?: string | null
   // Есть только в деталях заявки (GET /applications/:id).
   deliveryModes?: DeliveryMode[]
@@ -162,7 +163,7 @@ export interface ApplicationDocumentItem {
   requirement: {
     id: string
     titleRu: string
-    titleKk: string
+    titleKz: string
     titleEn: string
     required: boolean
   }
@@ -366,7 +367,7 @@ export async function addResultRequest(id: string, body: AddApplicationResultInp
  */
 export async function issueCertificateRequest(
   id: string,
-  locale: string,
+  locale: Locale,
 ): Promise<{ documentId: string; verificationCode: string }> {
   const { data } = await api.post<{ documentId: string; verificationCode: string }>(
     `/applications/${id}/results/certificate`,

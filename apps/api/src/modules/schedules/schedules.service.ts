@@ -217,7 +217,7 @@ function mapPair(p: PairRow): PairDto {
 }
 
 // Текст уведомления — своя словарная статья на тип изменения (shared-config): раньше в
-// параметр `{change}` уходила готовая русская строка, и kk/en получали её по-русски.
+// параметр `{change}` уходила готовая русская строка, и kz/en получали её по-русски.
 const CHANGE_BODY_KEY: Record<ScheduleChangeType, NotificationMessageKey> = {
   MOVED: 'schedule.moved.body',
   ROOM_CHANGED: 'schedule.roomChanged.body',

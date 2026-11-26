@@ -354,11 +354,11 @@ describe('ResumeService — PDF', () => {
 
   it('в контекст выгрузки уходят студент и таймзона вуза', async () => {
     const { service, branding } = setup()
-    await service.pdf(student, EMPTY_PDF_LABELS, 'kk')
+    await service.pdf(student, EMPTY_PDF_LABELS, 'kz')
 
     expect(branding.pdfBranding).toHaveBeenCalledWith(
       expect.objectContaining({
-        locale: 'kk',
+        locale: 'kz',
         timezone: 'Asia/Almaty',
         actor: expect.objectContaining({ id: 'stu-1', fullName: 'Аружан Оспанова' }),
       }),

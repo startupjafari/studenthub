@@ -274,7 +274,7 @@ export const ServiceRequirementInputSchema = z
     // Тип из каталога «Документов» — по нему студент выбирает документ из своего хранилища.
     documentType: OptionalText(60),
     titleRu: LocalizedTitle,
-    titleKk: LocalizedTitle,
+    titleKz: LocalizedTitle,
     titleEn: LocalizedTitle,
     description: OptionalText(500),
     required: z.boolean().default(true),
@@ -289,7 +289,7 @@ export const ServiceFormFieldOptionSchema = z
   .object({
     value: z.string().trim().min(1).max(60),
     labelRu: z.string().trim().min(1).max(120),
-    labelKk: z.string().trim().min(1).max(120),
+    labelKz: z.string().trim().min(1).max(120),
     labelEn: z.string().trim().min(1).max(120),
   })
   .strict()
@@ -302,10 +302,10 @@ export const ServiceFormFieldInputSchema = z
     code: CatalogCodeSchema,
     type: FormFieldTypeSchema,
     labelRu: LocalizedTitle,
-    labelKk: LocalizedTitle,
+    labelKz: LocalizedTitle,
     labelEn: LocalizedTitle,
     placeholderRu: OptionalText(200),
-    placeholderKk: OptionalText(200),
+    placeholderKz: OptionalText(200),
     placeholderEn: OptionalText(200),
     required: z.boolean().default(false),
     options: z.array(ServiceFormFieldOptionSchema).max(30).nullish(),
@@ -327,13 +327,13 @@ export const UpsertApplicationServiceSchema = z
     categoryId: z.string().min(1),
     code: CatalogCodeSchema,
     nameRu: LocalizedTitle,
-    nameKk: LocalizedTitle,
+    nameKz: LocalizedTitle,
     nameEn: LocalizedTitle,
     descriptionRu: OptionalText(2000),
-    descriptionKk: OptionalText(2000),
+    descriptionKz: OptionalText(2000),
     descriptionEn: OptionalText(2000),
     instructionsRu: OptionalText(4000),
-    instructionsKk: OptionalText(4000),
+    instructionsKz: OptionalText(4000),
     instructionsEn: OptionalText(4000),
     // До 90 дней: SLA дольше — уже не срок обработки, а отсутствие срока.
     slaHours: z

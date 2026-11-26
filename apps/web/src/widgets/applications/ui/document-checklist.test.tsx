@@ -19,7 +19,7 @@ const requirement = {
   id: 'r1',
   documentType: null,
   titleRu: 'Удостоверение',
-  titleKk: 'Куәлік',
+  titleKz: 'Куәлік',
   titleEn: 'ID card',
   required: true,
 }

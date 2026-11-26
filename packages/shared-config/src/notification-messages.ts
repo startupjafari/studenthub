@@ -41,7 +41,7 @@ const RU = {
   'schedule.changed.title': 'Изменение в расписании',
   'schedule.changed.body': '{subject}: {change} на {date}',
   // Своя статья на тип изменения: прежняя `{change}` приходила готовой русской строкой и
-  // в kk/en (старые уведомления по-прежнему собираются по `schedule.changed.body`).
+  // в kz/en (старые уведомления по-прежнему собираются по `schedule.changed.body`).
   'schedule.moved.body': '{subject}: перенос занятия на {date}',
   'schedule.roomChanged.body': '{subject}: смена аудитории на {date}',
   'schedule.cancelled.body': '{subject}: отмена занятия на {date}',
@@ -206,7 +206,7 @@ const RU = {
 /** Ключ словарной статьи. Тип выводится из русского каталога — он и есть эталон состава. */
 export type NotificationMessageKey = keyof typeof RU
 
-const KK: Record<NotificationMessageKey, string> = {
+const KZ: Record<NotificationMessageKey, string> = {
   'friends.request.title': 'Жаңа достық сұрауы',
   'friends.request.body': '{name} сізді достарына қосқысы келеді',
   'friends.accepted.title': 'Достық сұрауы қабылданды',
@@ -509,7 +509,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
 export const NOTIFICATION_MESSAGES: Record<Locale, Record<NotificationMessageKey, string>> = {
   ru: RU,
-  kk: KK,
+  kz: KZ,
   en: EN,
 }
 

@@ -68,7 +68,8 @@ model User {
 
   gender    String?
   // Язык интерфейса и исходящих писем. Строкой, как profileVisibility: SSOT —
-  // SUPPORTED_LOCALES в shared-config (ru | kk | en).
+  // SUPPORTED_LOCALES в shared-config (ru | kz | en). Казахский — `kz`: код приложения, а
+  // не ISO 639-1 `kk`; переход на границе с платформой — toPlatformLanguage/fromPlatformLanguage.
   //
   // Поле обязано быть здесь, а не только в cookie NEXT_LOCALE: письмо и push уходят
   // с сервера в момент, когда у человека нет открытой вкладки, и спросить у браузера

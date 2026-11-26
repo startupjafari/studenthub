@@ -945,14 +945,14 @@ const EXPORT_CAP = 5000
 // Строка шапки выгрузки, когда история длиннее потолка — на языке выгрузки.
 const EXPORT_TRUNCATED_NOTE: Record<ExportContext['locale'], string> = {
   ru: `Выгружены последние ${EXPORT_CAP} сообщений — более ранние в файл не вошли`,
-  kk: `Соңғы ${EXPORT_CAP} хабарлама түсірілді — ертерегілері файлға кірмеді`,
+  kz: `Соңғы ${EXPORT_CAP} хабарлама түсірілді — ертерегілері файлға кірмеді`,
   en: `Only the latest ${EXPORT_CAP} messages are exported — earlier ones are not included`,
 }
 
 // Подпись сообщения без текста (только вложения) в текстовой выгрузке — на языке выгрузки.
 const EXPORT_ATTACHMENT_LABEL: Record<ExportContext['locale'], string> = {
   ru: '[вложение]',
-  kk: '[тіркеме]',
+  kz: '[тіркеме]',
   en: '[attachment]',
 }
 

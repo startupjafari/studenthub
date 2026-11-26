@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { FileKey, Loader2 } from 'lucide-react'
 import { edsChallengeRequest, edsLoginRequest } from '../../../shared/api'
@@ -41,7 +42,7 @@ export function EdsLoginButton({
   onFailure: (error: unknown) => void
 }) {
   const t = useTranslations('Auth')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const queryClient = useQueryClient()
   const supported = useNcaLayerSupported()
   const enabled = useEdsEnabled(supported)

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useFormatter, useLocale, useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { CircleCheck, FileKey, Loader2, TriangleAlert } from 'lucide-react'
 import type { EdsCredentialInfo, EdsLinkResult } from '@studenthub/shared-schemas'
@@ -284,7 +285,7 @@ type SignStage = 'idle' | 'connecting' | 'awaiting'
 function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => void }) {
   const t = useTranslations('Settings')
   const tAuth = useTranslations('Auth')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const queryClient = useQueryClient()
   const errorToast = useErrorToast('eds-link')
   const ncaLayerErrorText = useNcaLayerErrorText()

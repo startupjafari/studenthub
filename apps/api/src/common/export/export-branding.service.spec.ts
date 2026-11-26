@@ -123,7 +123,7 @@ describe('ExportBrandingService', () => {
 
     it('нумерация подставляется на каждом языке', () => {
       const service = makeService()
-      expect(service.footerLine(ctx({ locale: 'kk' }), 1, 3)).toContain('1 / 3 бет')
+      expect(service.footerLine(ctx({ locale: 'kz' }), 1, 3)).toContain('1 / 3 бет')
       expect(service.footerLine(ctx({ locale: 'en' }), 1, 3)).toContain('page 1 of 3')
     })
   })
@@ -140,9 +140,9 @@ describe('ExportBrandingService', () => {
     it('для JSON — машинные ключи и ISO, независимо от языка', () => {
       const service = makeService()
       const ru = service.provenance(ctx())
-      const kk = service.provenance(ctx({ locale: 'kk' }))
+      const kz = service.provenance(ctx({ locale: 'kz' }))
 
-      expect(Object.keys(ru)).toEqual(Object.keys(kk))
+      expect(Object.keys(ru)).toEqual(Object.keys(kz))
       expect(ru.report).toBe('users')
       expect(ru.exportedAt).toBe(AT.toISOString())
       expect(ru.timezone).toBe('Asia/Almaty')
@@ -152,10 +152,16 @@ describe('ExportBrandingService', () => {
   describe('язык документа', () => {
     it('неизвестное значение ?locale= откатывается на русский', () => {
       const service = makeService()
-      expect(service.resolveLocale('kk')).toBe('kk')
-      expect(service.resolveLocale('KK')).toBe('kk')
+      expect(service.resolveLocale('kz')).toBe('kz')
+      expect(service.resolveLocale('KZ')).toBe('kz')
       expect(service.resolveLocale('de')).toBe('ru')
       expect(service.resolveLocale(undefined)).toBe('ru')
+    })
+
+    it('платформенный тег казахского (`kk`, `kk-KZ`) читается как `kz`', () => {
+      const service = makeService()
+      expect(service.resolveLocale('kk')).toBe('kz')
+      expect(service.resolveLocale('kk-KZ')).toBe('kz')
     })
 
     it('словарь заполнен для всех языков и всех видов выгрузки', () => {

@@ -12,7 +12,7 @@ model KatoUnit {
   code       String   @id @db.Char(9)
   kind       KatoKind
   nameRu     String   @map("name_ru")
-  nameKk     String   @map("name_kk")
+  nameKz     String   @map("name_kz")
   // Родитель вычисляется из структуры кода, а не из поля `Parent` выгрузки — оно битое
   // у 40 записей. У 38 объектов родителя нет в справочнике вовсе, там NULL.
   parentCode String?  @map("parent_code") @db.Char(9)

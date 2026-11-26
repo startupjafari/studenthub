@@ -128,20 +128,27 @@ const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
 
   async redirects() {
-    return PLATFORM_SEGMENTS.flatMap((segment) => [
-      {
-        source: `/${segment}`,
-        destination: `${APP_URL}/${segment}`,
-        // 308: постоянный редирект с сохранением метода. Ссылки живут на бумаге и в письмах,
-        // поэтому браузеры и поисковики должны запомнить перенос навсегда.
-        permanent: true,
-      },
-      {
-        source: `/${segment}/:path*`,
-        destination: `${APP_URL}/${segment}/:path*`,
-        permanent: true,
-      },
-    ])
+    return [
+      // Казахская версия переехала с `/kk` на `/kz` (код казахского в приложении — `kz`).
+      // Старый адрес уже в выдаче поисковиков, закладках и чужих ссылках — переносим его
+      // навсегда (308), чтобы вес страницы перешёл на новый адрес, а не потерялся.
+      { source: '/kk', destination: '/kz', permanent: true },
+      { source: '/kk/:path*', destination: '/kz/:path*', permanent: true },
+      ...PLATFORM_SEGMENTS.flatMap((segment) => [
+        {
+          source: `/${segment}`,
+          destination: `${APP_URL}/${segment}`,
+          // 308: постоянный редирект с сохранением метода. Ссылки живут на бумаге и в письмах,
+          // поэтому браузеры и поисковики должны запомнить перенос навсегда.
+          permanent: true,
+        },
+        {
+          source: `/${segment}/:path*`,
+          destination: `${APP_URL}/${segment}/:path*`,
+          permanent: true,
+        },
+      ]),
+    ]
   },
 
   async headers() {

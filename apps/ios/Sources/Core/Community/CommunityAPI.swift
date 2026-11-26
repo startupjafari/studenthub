@@ -27,15 +27,14 @@ struct CommunityPersonDTO: Decodable, Equatable, Identifiable {
     var avatar: String? { avatarUrl ?? avatarThumbUrl }
 }
 
-/// Подпись на языке интерфейса из трёх вариантов сервера (`nameRu/nameKk/nameEn`).
+/// Подпись на языке интерфейса из трёх вариантов сервера (`nameRu/nameKz/nameEn`).
 enum CommunityLocalized {
-    static func pick(ru: String?, kk: String?, en: String?) -> String? {
-        let code = Locale.current.language.languageCode?.identifier ?? "ru"
+    static func pick(ru: String?, kz: String?, en: String?) -> String? {
         let ordered: [String?]
-        switch code {
-        case "kk": ordered = [kk, ru, en]
-        case "en": ordered = [en, ru, kk]
-        default: ordered = [ru, kk, en]
+        switch AppLanguage.current {
+        case "kz": ordered = [kz, ru, en]
+        case "en": ordered = [en, ru, kz]
+        default: ordered = [ru, kz, en]
         }
         return ordered.compactMap { $0 }.first { !$0.isEmpty }
     }
@@ -379,11 +378,11 @@ struct CommunityApplicationDTO: Decodable, Equatable, Identifiable {
             let id: String
             var documentType: String? = nil
             var titleRu: String? = nil
-            var titleKk: String? = nil
+            var titleKz: String? = nil
             var titleEn: String? = nil
             var required: Bool? = nil
 
-            var title: String { CommunityLocalized.pick(ru: titleRu, kk: titleKk, en: titleEn) ?? "—" }
+            var title: String { CommunityLocalized.pick(ru: titleRu, kz: titleKz, en: titleEn) ?? "—" }
         }
 
         struct Field: Decodable, Equatable, Identifiable {
@@ -391,13 +390,13 @@ struct CommunityApplicationDTO: Decodable, Equatable, Identifiable {
             let code: String
             let type: String
             var labelRu: String? = nil
-            var labelKk: String? = nil
+            var labelKz: String? = nil
             var labelEn: String? = nil
             var required: Bool? = nil
             var options: JSONValue? = nil
             var active: Bool? = nil
 
-            var label: String { CommunityLocalized.pick(ru: labelRu, kk: labelKk, en: labelEn) ?? code }
+            var label: String { CommunityLocalized.pick(ru: labelRu, kz: labelKz, en: labelEn) ?? code }
 
             /// Варианты выбора: сервер хранит их JSON-ом — строками или объектами
             /// `{ value, labelRu… }`.
@@ -409,7 +408,8 @@ struct CommunityApplicationDTO: Decodable, Equatable, Identifiable {
                     let value = object["value"]?.string ?? object["code"]?.string ?? ""
                     let title = CommunityLocalized.pick(
                         ru: object["labelRu"]?.string ?? object["label"]?.string,
-                        kk: object["labelKk"]?.string,
+                        // Варианты — JSON сервера: сохранённые до перехода на `kz` держат `labelKk`.
+                        kz: object["labelKz"]?.string ?? object["labelKk"]?.string,
                         en: object["labelEn"]?.string
                     ) ?? value
                     return value.isEmpty ? nil : (value, title)
@@ -420,18 +420,18 @@ struct CommunityApplicationDTO: Decodable, Equatable, Identifiable {
         let id: String
         var code: String? = nil
         var nameRu: String? = nil
-        var nameKk: String? = nil
+        var nameKz: String? = nil
         var nameEn: String? = nil
         var descriptionRu: String? = nil
-        var descriptionKk: String? = nil
+        var descriptionKz: String? = nil
         var descriptionEn: String? = nil
         var slaHours: Int? = nil
         var deliveryModes: [String]? = nil
         var requirements: [Requirement]? = nil
         var formFields: [Field]? = nil
 
-        var name: String { CommunityLocalized.pick(ru: nameRu, kk: nameKk, en: nameEn) ?? "—" }
-        var details: String? { CommunityLocalized.pick(ru: descriptionRu, kk: descriptionKk, en: descriptionEn) }
+        var name: String { CommunityLocalized.pick(ru: nameRu, kz: nameKz, en: nameEn) ?? "—" }
+        var details: String? { CommunityLocalized.pick(ru: descriptionRu, kz: descriptionKz, en: descriptionEn) }
     }
 
     struct Event: Decodable, Equatable, Identifiable {
@@ -994,7 +994,7 @@ struct CommunityAPI: Sendable {
 
     // MARK: Аккаунт
 
-    /// Язык писем и пушей: `ru`, `kk`, `en`.
+    /// Язык писем и пушей: `ru`, `kz`, `en` (`AppLanguage`).
     func setLocale(_ locale: String) async throws -> UserProfileDTO {
         try await client.send(try .patch("users/me", json: ["locale": locale]), as: UserProfileDTO.self)
     }
@@ -1278,11 +1278,11 @@ struct CommunityServiceCategoryDTO: Decodable, Equatable, Identifiable {
     let id: String
     var code: String? = nil
     var nameRu: String? = nil
-    var nameKk: String? = nil
+    var nameKz: String? = nil
     var nameEn: String? = nil
     var services: [CommunityApplicationDTO.Service]
 
-    var name: String { CommunityLocalized.pick(ru: nameRu, kk: nameKk, en: nameEn) ?? "—" }
+    var name: String { CommunityLocalized.pick(ru: nameRu, kz: nameKz, en: nameEn) ?? "—" }
 }
 
 extension CommunityAPI {

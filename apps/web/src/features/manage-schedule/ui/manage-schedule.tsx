@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { CalendarPlus, Check, Layers, MousePointerClick, Plus } from 'lucide-react'
 import type { UpdatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -55,7 +56,7 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
   const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 

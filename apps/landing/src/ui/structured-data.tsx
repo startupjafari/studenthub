@@ -1,4 +1,4 @@
-import { SITE_URL, localePath, type Locale } from '../config/site'
+import { SITE_URL, localePath, toPlatformLanguage, type Locale } from '../config/site'
 import type { Dictionary } from '../content'
 
 /**
@@ -32,7 +32,7 @@ export function StructuredData({ dict, locale }: { dict: Dictionary; locale: Loc
         operatingSystem: 'Web',
         url,
         description: dict.meta.description,
-        inLanguage: locale,
+        inLanguage: toPlatformLanguage(locale),
         publisher: { '@id': `${SITE_URL}#organization` },
         // Цены на странице нет намеренно (продажа вузу — разговор, а не корзина),
         // поэтому и offers здесь не заявляем: пустой оффер хуже отсутствующего.

@@ -80,7 +80,7 @@ export function DocumentChecklist({
   appId: string
   requirements: Pick<
     ServiceRequirement,
-    'id' | 'documentType' | 'titleRu' | 'titleKk' | 'titleEn' | 'required'
+    'id' | 'documentType' | 'titleRu' | 'titleKz' | 'titleEn' | 'required'
   >[]
   documents: ApplicationDocumentItem[]
   editable: boolean

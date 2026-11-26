@@ -2,7 +2,7 @@
 // свой ввод (без флага). Навыки/интересы — в ./skills и ./interests, страны — в ./countries.
 
 export type LanguageFlagCode =
-  'ru' | 'en' | 'kk' | 'es' | 'de' | 'fr' | 'it' | 'uk' | 'zh' | 'tr' | 'ja' | 'pt'
+  'ru' | 'en' | 'kz' | 'es' | 'de' | 'fr' | 'it' | 'uk' | 'zh' | 'tr' | 'ja' | 'pt'
 
 export interface LanguageDictItem {
   value: string
@@ -12,7 +12,7 @@ export interface LanguageDictItem {
 export const LANGUAGES_DICT: LanguageDictItem[] = [
   { value: 'Русский', flag: 'ru' },
   { value: 'Английский', flag: 'en' },
-  { value: 'Казахский', flag: 'kk' },
+  { value: 'Казахский', flag: 'kz' },
   { value: 'Испанский', flag: 'es' },
   { value: 'Немецкий', flag: 'de' },
   { value: 'Французский', flag: 'fr' },

@@ -1,7 +1,9 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { toPlatformLanguage, type Locale } from '@studenthub/shared-config'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { pickLocale, type ServiceFormField } from '../../../entities/application-service'
 import { Card } from '../../../shared/ui'
 
@@ -11,13 +13,14 @@ const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/
 
 /**
  * Ответ анкеты так, как его прочтёт человек: вариант выбора — подписью, флажок — «Да/Нет»,
- * дата — по локали. Клиенты пишут значения по-разному (веб — флажок булевым, iOS —
+ * дата — по локали. `locale` — код приложения: им выбирается подпись варианта (`labelKz`),
+ * а дате нужен тег платформы. Клиенты пишут значения по-разному (веб — флажок булевым, iOS —
  * строкой «true»), поэтому разбираем по смыслу. Пустой ответ — null.
  */
 export function formAnswerText(
   field: Pick<ServiceFormField, 'type' | 'options'>,
   value: unknown,
-  locale: string,
+  locale: Locale,
   t: Translate,
 ): string | null {
   if (value === undefined || value === null) return null
@@ -40,7 +43,9 @@ export function formAnswerText(
       // Дата без часового пояса: собираем по частям, иначе new Date('2026-10-01') в поясе
       // западнее UTC показала бы предыдущий день.
       return m
-        ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString(locale)
+        ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString(
+            toPlatformLanguage(locale),
+          )
         : String(value)
     }
     default:
@@ -66,7 +71,7 @@ export function FormAnswers({
   action?: ReactNode
 }) {
   const t = useTranslations('Applications')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const answers = fields.flatMap((f) => {
     const text = formAnswerText(f, formData?.[f.code], locale, t)
     if (text === null) return []

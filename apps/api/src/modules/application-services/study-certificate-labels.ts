@@ -1,7 +1,7 @@
 import type { ExportLocale } from '../../common/export/export-branding.types'
 import type { StudyCertificateLabels } from './study-certificate-pdf'
 
-// Подписи бланка справки об обучении на трёх языках (ru обязателен, kk — требование вуза).
+// Подписи бланка справки об обучении на трёх языках (ru обязателен, kz — требование вуза).
 //
 // ВНИМАНИЕ: формулировки — рабочий перевод, а не утверждённая форма. Перед выпуском
 // официальных справок их обязана вычитать канцелярия: у справки об обучении есть принятая
@@ -33,7 +33,7 @@ const RU: StudyCertificateLabels = {
   verification: 'Проверка подлинности документа',
 }
 
-const KK: StudyCertificateLabels = {
+const KZ: StudyCertificateLabels = {
   title: 'ОҚУ ТУРАЛЫ АНЫҚТАМА',
   issuedTo: 'Берілді',
   body: 'Осы анықтама көрсетілген тұлғаның университет білім алушысы болып табылатынын растайды.',
@@ -73,6 +73,6 @@ const EN: StudyCertificateLabels = {
 
 export const STUDY_CERTIFICATE_LABELS: Record<ExportLocale, StudyCertificateLabels> = {
   ru: RU,
-  kk: KK,
+  kz: KZ,
   en: EN,
 }

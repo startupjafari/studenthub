@@ -7,7 +7,7 @@ import { visibleServicesWhere } from './service-visibility'
 
 // Каталог услуг: категории + услуги, видимые зрителю (глобальные шаблоны + услуги его вуза;
 // шаблон, который вуз настроил под себя, заменяется его копией).
-// Локализованные поля отдаются как есть (nameRu/Kk/En) — фронт выбирает по локали.
+// Локализованные поля отдаются как есть (nameRu/Kz/En) — фронт выбирает по локали.
 
 // Каталог услуг — справочник вуза (BACKEND_RULES §7.2: потолок обязателен и здесь).
 const CATEGORIES_LIMIT = 100
@@ -21,10 +21,10 @@ const SERVICE_CARD_SELECT = {
   categoryId: true,
   code: true,
   nameRu: true,
-  nameKk: true,
+  nameKz: true,
   nameEn: true,
   descriptionRu: true,
-  descriptionKk: true,
+  descriptionKz: true,
   descriptionEn: true,
   slaHours: true,
   deliveryModes: true,
@@ -48,7 +48,7 @@ export class CatalogService {
         id: true,
         code: true,
         nameRu: true,
-        nameKk: true,
+        nameKz: true,
         nameEn: true,
         description: true,
         icon: true,
@@ -72,7 +72,7 @@ export class CatalogService {
       select: {
         ...SERVICE_CARD_SELECT,
         instructionsRu: true,
-        instructionsKk: true,
+        instructionsKz: true,
         instructionsEn: true,
         requirements: {
           where: { active: true },
@@ -83,7 +83,7 @@ export class CatalogService {
             code: true,
             documentType: true,
             titleRu: true,
-            titleKk: true,
+            titleKz: true,
             titleEn: true,
             description: true,
             required: true,
@@ -101,10 +101,10 @@ export class CatalogService {
             code: true,
             type: true,
             labelRu: true,
-            labelKk: true,
+            labelKz: true,
             labelEn: true,
             placeholderRu: true,
-            placeholderKk: true,
+            placeholderKz: true,
             placeholderEn: true,
             required: true,
             options: true,

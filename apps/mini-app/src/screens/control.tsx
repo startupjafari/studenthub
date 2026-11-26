@@ -422,14 +422,14 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
   // языках с телефона — работа на несколько минут, а заготовка вешается одним касанием.
   // Но случай «у нас своё, ни на что не похожее» существует, и раньше он упирался в ноутбук,
   // которого у дежурного может не быть.
-  const [custom, setCustom] = useState<{ ru: string; kk: string; en: string } | null>(null)
+  const [custom, setCustom] = useState<{ ru: string; kz: string; en: string } | null>(null)
   const [level, setLevel] = useState<'INFO' | 'WARNING'>('INFO')
   // Все три языка обязательны: строка на двух из трёх — дыра в интерфейсе у тех, кому не
   // повезло с локалью. Проверяем здесь же, чтобы кнопка не предлагала заведомый отказ.
   const customReady =
     custom !== null &&
     custom.ru.trim().length > 0 &&
-    custom.kk.trim().length > 0 &&
+    custom.kz.trim().length > 0 &&
     custom.en.trim().length > 0
   const active = state.banner
   const lang = locale()
@@ -497,7 +497,7 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
           onClick={() => {
             haptic.select()
             setPreset(null)
-            setCustom((prev) => (prev ? null : { ru: '', kk: '', en: '' }))
+            setCustom((prev) => (prev ? null : { ru: '', kz: '', en: '' }))
           }}
         >
           {t('bannerCustom')}
@@ -507,7 +507,7 @@ function BannerCard({ state, busy, run }: { state: PlatformState; busy: boolean;
       {custom && (
         <>
           <p className="hint">{t('bannerCustomHint')}</p>
-          {(['ru', 'kk', 'en'] as const).map((code) => (
+          {(['ru', 'kz', 'en'] as const).map((code) => (
             <input
               key={code}
               className="field"
