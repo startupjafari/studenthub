@@ -7,8 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslations } from 'next-intl'
 import { MailCheck } from 'lucide-react'
 import { ForgotPasswordSchema, type ForgotPasswordInput } from '@studenthub/shared-schemas'
-import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, Input, Label, FieldError } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { forgotPasswordRequest } from '../../../shared/api'
 
 // «Забыли пароль»: адрес → письмо со ссылкой. Экран после отправки говорит «если адрес
@@ -16,7 +16,7 @@ import { forgotPasswordRequest } from '../../../shared/api'
 export function ForgotPasswordForm() {
   const t = useTranslations('Auth')
   const [sentTo, setSentTo] = useState<string | null>(null)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('forgot-password')
   const {
     register,
     handleSubmit,
@@ -50,7 +50,6 @@ export function ForgotPasswordForm() {
       <form
         noValidate
         onSubmit={handleSubmit(async (values) => {
-          resetApiError()
           try {
             await forgotPasswordRequest(values.email)
             setSentTo(values.email)
@@ -60,7 +59,6 @@ export function ForgotPasswordForm() {
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">{t('email')}</Label>
           <Input

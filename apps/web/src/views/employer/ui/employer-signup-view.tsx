@@ -8,8 +8,8 @@ import { useTranslations } from 'next-intl'
 import { MailCheck } from 'lucide-react'
 import { EmployerSignupSchema, type EmployerSignupInput } from '@studenthub/shared-schemas'
 import { employerSignup } from '../../../entities/company'
-import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Button, Input, Label, FieldError } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { ResendVerificationButton } from '../../../features/resend-company-verification'
 
 /**
@@ -21,7 +21,7 @@ import { ResendVerificationButton } from '../../../features/resend-company-verif
 export function EmployerSignupView() {
   const t = useTranslations('Employer')
   const [sentTo, setSentTo] = useState<string | null>(null)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('employer-signup')
 
   const {
     register,
@@ -58,7 +58,6 @@ export function EmployerSignupView() {
 
       <form
         onSubmit={handleSubmit(async (values) => {
-          resetApiError()
           try {
             const result = await employerSignup(values)
             setSentTo(result.email)
@@ -68,8 +67,6 @@ export function EmployerSignupView() {
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
-
         <div className="flex flex-col gap-2">
           <Label htmlFor="companyName">{t('fieldCompanyName')}</Label>
           <Input

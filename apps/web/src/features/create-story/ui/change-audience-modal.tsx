@@ -5,9 +5,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { UpdateStoryAudienceSchema } from '@studenthub/shared-schemas'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import { storyKeys, updateStoryAudienceRequest, type StoryCard } from '../../../entities/story'
-import { Button, FormAlert, Modal } from '../../../shared/ui'
+import { Button, Modal } from '../../../shared/ui'
 import { StoryAudienceFields, type StoryAudienceState } from './audience-fields'
 
 /**
@@ -28,7 +28,7 @@ export function ChangeAudienceModal({
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('story-audience')
   const [value, setValue] = useState<StoryAudienceState>({
     audience: story.audience,
     recipients: (story.audienceUsers ?? []).map((u) => ({
@@ -49,7 +49,6 @@ export function ChangeAudienceModal({
           ...(value.audience === 'SELECTED' ? { userIds: value.recipients.map((r) => r.id) } : {}),
         }),
       ),
-    onMutate: () => reset(),
     onSuccess: (updated) => {
       void qc.invalidateQueries({ queryKey: storyKeys.all })
       toast.success(t('audienceSaved'))
@@ -72,7 +71,6 @@ export function ChangeAudienceModal({
           save.mutate()
         }}
       >
-        <FormAlert error={error} />
         <div className="flex flex-wrap items-start gap-2">
           <StoryAudienceFields
             value={value}

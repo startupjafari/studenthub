@@ -7,8 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslations } from 'next-intl'
 import { CircleCheck, CircleX, Eye, EyeOff } from 'lucide-react'
 import { ResetPasswordSchema, type ResetPasswordInput } from '@studenthub/shared-schemas'
-import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
-import { toApiError, useFormAlert } from '../../../shared/lib'
+import { Button, Input, Label, FieldError } from '../../../shared/ui'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import { resetPasswordRequest } from '../../../shared/api'
 
 interface ResetPasswordFormProps {
@@ -26,7 +26,7 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
   const [state, setState] = useState<'form' | 'done' | 'invalid'>(
     ResetPasswordSchema.shape.token.safeParse(token).success ? 'form' : 'invalid',
   )
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('reset-password')
   const {
     register,
     handleSubmit,
@@ -84,7 +84,6 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
       <form
         noValidate
         onSubmit={handleSubmit(async (values) => {
-          resetApiError()
           try {
             await resetPasswordRequest(values.token, values.password)
             setState('done')
@@ -97,7 +96,6 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
         <input type="hidden" {...register('token')} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">{t('newPassword')}</Label>

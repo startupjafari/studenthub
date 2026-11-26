@@ -15,8 +15,8 @@ import {
   updateMyUniversityPage,
   type UniversityPage,
 } from '../../../entities/university'
-import { Card, CardContent, FormAlert, toKzPhone } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { Card, CardContent, toKzPhone } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { ENTER } from './profile-content'
 import { OrgPageFieldsForm } from './org-page-fields'
 
@@ -51,7 +51,7 @@ export function UniversityEditForm({
   const t = useTranslations('University')
   const tOrg = useTranslations('OrgPage')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('university-edit')
 
   const {
     register,
@@ -65,13 +65,12 @@ export function UniversityEditForm({
 
   const save = useMutation({
     mutationFn: updateMyUniversityPage,
-    onMutate: resetApiError,
     onSuccess: (updated) => {
       qc.setQueryData(universityKeys.page(university.id), updated)
       toast.success(tOrg('saved'))
       onSaved()
     },
-    onError: showApiError,
+    onError: (e) => showApiError(e),
   })
 
   return (
@@ -85,7 +84,6 @@ export function UniversityEditForm({
           })}
           className="flex flex-col gap-6"
         >
-          <FormAlert error={apiError} />
           <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-6">
             {/* Название и город — реквизиты вуза: их меняет платформа, не админ вуза. */}
             <p className="text-sm text-muted-foreground">{t('requisitesHint')}</p>

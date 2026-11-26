@@ -30,7 +30,6 @@ import {
 import {
   Badge,
   Button,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -42,7 +41,7 @@ import {
   Textarea,
   useConfirm,
 } from '../../../shared/ui'
-import { OPTIONAL_TEXT, toApiError, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, toApiError, useErrorToast } from '../../../shared/lib'
 
 const REASONS = DemoRejectionReasonSchema.options
 
@@ -287,7 +286,7 @@ function ApproveForm({
   onDecided: (request: DemoRequest) => void
 }) {
   const t = useTranslations('DemoAdmin')
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('demo-approve')
 
   const form = useForm<ApproveDemoRequestInput>({
     resolver: zodResolver(ApproveDemoRequestSchema),
@@ -319,18 +318,14 @@ function ApproveForm({
   const mut = useMutation({
     mutationFn: (input: ApproveDemoRequestInput) => approveDemoRequest(request.id, input),
     onSuccess: onDecided,
-    onError: show,
+    onError: (e) => show(e),
   })
 
   return (
     <form
-      onSubmit={form.handleSubmit((values) => {
-        reset()
-        mut.mutate(values)
-      })}
+      onSubmit={form.handleSubmit((values) => mut.mutate(values))}
       className="flex flex-col gap-4 border-t border-border pt-4"
     >
-      <FormAlert error={error} />
       <p className="text-sm text-muted-foreground">
         {t('approveExplain', { email: request.email })}
       </p>
@@ -384,20 +379,18 @@ function RejectForm({
   onDecided: (request: DemoRequest) => void
 }) {
   const t = useTranslations('DemoAdmin')
-  const { error, show, reset } = useFormAlert()
+  const { show } = useErrorToast('demo-reject')
   const [reason, setReason] = useState<DemoRejectionReasonValue>('NO_CAPACITY')
   const [note, setNote] = useState('')
 
   const mut = useMutation({
     mutationFn: () => rejectDemoRequest(request.id, { reason, note: note.trim() || undefined }),
     onSuccess: onDecided,
-    onError: show,
+    onError: (e) => show(e),
   })
 
   return (
     <div className="flex flex-col gap-4 border-t border-border pt-4">
-      <FormAlert error={error} />
-
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="d-reason">{t('fieldReason')}</Label>
         <Select value={reason} onValueChange={(v) => setReason(v as DemoRejectionReasonValue)}>
@@ -426,14 +419,7 @@ function RejectForm({
         <Button type="button" variant="ghost" onClick={onBack}>
           {t('back')}
         </Button>
-        <Button
-          variant="destructive"
-          loading={mut.isPending}
-          onClick={() => {
-            reset()
-            mut.mutate()
-          }}
-        >
+        <Button variant="destructive" loading={mut.isPending} onClick={() => mut.mutate()}>
           {t('rejectConfirm')}
         </Button>
       </div>
