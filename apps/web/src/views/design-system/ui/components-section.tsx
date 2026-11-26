@@ -34,7 +34,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -74,6 +73,7 @@ import {
   useConfirm,
   useTableSort,
 } from '../../../shared/ui'
+import { useErrorToast } from '../../../shared/lib'
 import { Caption, Code, Demo, Pitfall, Section } from './kit'
 
 // Инвентарь shared/ui: каждый компонент во всех состояниях, которые встречаются
@@ -131,6 +131,7 @@ const STEPS = [
 
 export function ComponentsSection() {
   const confirm = useConfirm()
+  const errorToast = useErrorToast('ds-request-error')
   const [tab, setTab] = useState<(typeof DEMO_TABS)[number]['value']>('all')
   const [tablePage, setTablePage] = useState(1)
   const [tableLimit, setTableLimit] = useState(3)
@@ -527,7 +528,7 @@ export function ComponentsSection() {
       <Section
         id="feedback"
         title="Обратная связь и состояния"
-        note="Постоянное сообщение — Alert в потоке; мгновенный отклик на действие — тост. Ошибка сервера в форме — FormAlert по коду ошибки."
+        note="Постоянное сообщение — Alert в потоке; мгновенный отклик на действие — тост. Ошибка сервера или сбой (сеть, NCALayer, загрузка файла) — всегда тост useErrorToast: в потоке не рисуется и высоту не занимает."
       >
         <Demo label="Alert" className="block">
           <div className="flex flex-col gap-3">
@@ -553,17 +554,43 @@ export function ComponentsSection() {
             </Alert>
             <Alert variant="destructive">
               <Trash2 />
-              <AlertTitle>Документ не загрузился</AlertTitle>
-              <AlertDescription>Файл больше 10 МБ.</AlertDescription>
+              <AlertTitle>Приём заявок закрыт</AlertTitle>
+              <AlertDescription>
+                Срок подачи истёк 1 ноября — новые заявки не принимаются.
+              </AlertDescription>
             </Alert>
-            <FormAlert
-              error={{
+            <Caption>
+              destructive — постоянное состояние экрана, а не ответ на нажатие. Ошибка запроса
+              плашкой не рисуется — только тостом (ниже).
+            </Caption>
+          </div>
+        </Demo>
+
+        <Demo label="Ошибка запроса">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              errorToast.show({
                 code: 'VALIDATION_ERROR',
                 message: '',
                 details: [{ field: 'email', message: 'Укажите почту университета' }],
-              }}
-            />
-          </div>
+              })
+            }
+          >
+            useErrorToast
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => errorToast.show({ code: 'RATE_LIMIT', message: '' })}
+          >
+            повторный отказ
+          </Button>
+          <Caption>
+            текст — по коду ошибки, details валидации — строкой под ним; повторный отказ той же
+            формы обновляет тот же тост, закрытие формы его гасит
+          </Caption>
         </Demo>
 
         <Demo label="Тосты">
