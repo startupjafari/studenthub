@@ -23,7 +23,7 @@
 - **Backend**: `@nestjs/platform-fastify`, `@prisma/client`, `zod` + `nestjs-zod`, `passport-jwt`
   - `bcrypt`, `@nestjs/bullmq` (Redis), `@nestjs/schedule`, `socket.io`, `minio`, `pino`, `nodemailer`.
 - **Frontend**: Next.js (App Router), Tailwind + shadcn/ui, Redux Toolkit (auth/UI),
-  TanStack Query, React Hook Form + Zod, axios, socket.io-client, recharts, next-intl (ru/kk/en).
+  TanStack Query, React Hook Form + Zod, axios, socket.io-client, recharts, next-intl (ru/kz/en).
 - **Shared**: `packages/shared-types`, `shared-schemas` (единый Zod-контракт API↔формы),
   `shared-utils`, `shared-config`.
 - **Прочие приложения**: `apps/landing` — Next.js + framer-motion; `apps/mini-app` — Vite +
@@ -121,7 +121,7 @@ pnpm db:deploy
 apps/
   api/           NestJS: src/modules/<feature> (controller/service/dto/spec), src/common/ (guards, interceptors,
                  prisma, queue, realtime); main.ts — HTTP, worker.ts — процесс-воркер медиа; openapi.json
-  web/           Next.js FSD: src/{app,shared,entities,features,widgets,views,i18n} · messages/ (ru/kk/en) · e2e/
+  web/           Next.js FSD: src/{app,shared,entities,features,widgets,views,i18n} · messages/ (ru/kz/en) · e2e/
   landing/       публичный лендинг (Next.js, порт 3002)
   mini-app/      Telegram Mini App для PLATFORM_ADMIN / PLATFORM_MODERATOR (Vite + React, порт 3003)
   ios/           нативный клиент iPhone (Swift, project.yml для XcodeGen)
