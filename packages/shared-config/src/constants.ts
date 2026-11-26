@@ -143,6 +143,29 @@ export const DEFAULT_CHAT_REACTION = '🔥'
 /** Окно редактирования сообщения после отправки (Ф9+), мс. Единый источник для бэка и фронта. */
 export const MESSAGE_EDIT_WINDOW_MS = 10 * 60 * 1000
 
-export const SUPPORTED_LOCALES = ['ru', 'kk', 'en'] as const
+export const SUPPORTED_LOCALES = ['ru', 'kz', 'en'] as const
 export type Locale = (typeof SUPPORTED_LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'ru'
+
+/**
+ * Казахский в приложении — `kz`, а платформа (Intl, `<html lang>`, `Accept-Language`, iOS,
+ * Android, NCALayer) знает его только по коду ISO 639-1 `kk`: `Intl.DateTimeFormat('kz')`
+ * молча откатится на английский. Переход через эту границу — только этими двумя функциями.
+ */
+const PLATFORM_LANGUAGES: Record<Locale, string> = { ru: 'ru', kz: 'kk', en: 'en' }
+
+/** Код приложения → языковой тег платформы: `kz` → `kk`. */
+export function toPlatformLanguage(locale: Locale): string {
+  return PLATFORM_LANGUAGES[locale]
+}
+
+/**
+ * Языковой тег платформы или старое сохранённое значение → код приложения:
+ * `kk`, `kk-KZ`, `kz` → `kz`; `ru-RU` → `ru`. Неподдерживаемое и пустое → `null`.
+ */
+export function fromPlatformLanguage(tag: string | null | undefined): Locale | null {
+  const base = tag?.trim().toLowerCase().split(/[-_]/)[0]
+  if (!base) return null
+  if (base === 'kk' || base === 'kz') return 'kz'
+  return (SUPPORTED_LOCALES as readonly string[]).includes(base) ? (base as Locale) : null
+}

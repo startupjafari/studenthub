@@ -164,7 +164,7 @@ export const AnalyticsReportQuerySchema = z
     facultyId: z.string().min(1).optional(),
     format: AnalyticsReportFormatSchema.default('xlsx'),
     /** Язык заголовков файла. Значения из БД (названия групп) не переводятся. */
-    locale: z.enum(['ru', 'kk', 'en']).optional(),
+    locale: z.enum(['ru', 'kz', 'en']).optional(),
   })
   .strict()
 export type AnalyticsReportQueryInput = z.infer<typeof AnalyticsReportQuerySchema>

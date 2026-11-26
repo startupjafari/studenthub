@@ -26,7 +26,7 @@ export type PlatformSection = (typeof PLATFORM_SECTIONS)[number]
  */
 const localizedText = z.object({
   ru: z.string().trim().min(1).max(300),
-  kk: z.string().trim().min(1).max(300),
+  kz: z.string().trim().min(1).max(300),
   en: z.string().trim().min(1).max(300),
 })
 

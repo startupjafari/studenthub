@@ -23,7 +23,7 @@ export const DOCUMENT_TEMPLATE_CATEGORY_VALUES = [
 export const DocumentTemplateCategorySchema = z.enum(DOCUMENT_TEMPLATE_CATEGORY_VALUES)
 export type DocumentTemplateCategory = z.infer<typeof DocumentTemplateCategorySchema>
 
-export const DOCUMENT_TEMPLATE_LOCALE_VALUES = ['ru', 'kk', 'en'] as const
+export const DOCUMENT_TEMPLATE_LOCALE_VALUES = ['ru', 'kz', 'en'] as const
 export const DocumentTemplateLocaleSchema = z.enum(DOCUMENT_TEMPLATE_LOCALE_VALUES)
 
 const title = z.string().trim().min(1).max(200)

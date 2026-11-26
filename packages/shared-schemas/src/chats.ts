@@ -150,7 +150,7 @@ export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQueryS
 export const ChatExportFileQuerySchema = z
   .object({
     format: z.enum(['txt', 'json']).default('txt'),
-    locale: z.enum(['ru', 'kk', 'en']).optional(),
+    locale: z.enum(['ru', 'kz', 'en']).optional(),
   })
   .strict()
 export type ChatExportFileQueryInput = z.infer<typeof ChatExportFileQuerySchema>
