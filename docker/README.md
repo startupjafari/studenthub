@@ -347,8 +347,9 @@ docker compose -f docker/prod/compose.yml --profile eds up -d
      Railway сейчас тестовый стенд, см. ниже).
 3. **Settings → Volumes** — том на `/app/cache` (необязательно: без него корни и CRL
    скачиваются заново при каждом рестарте).
-4. **Healthcheck Path** — `/actuator/health`. Railway стучится в него по порту из `PORT`;
-   если проверка не проходит — задать `PORT=14579` (сверить).
+4. **Healthcheck Path** — `/actuator/health` и обязательно переменная `PORT=14579`. Railway
+   стучится в healthcheck по порту из `PORT` (без неё — 8080), а NCANode слушает 14579: без
+   переменной деплой висит на `connection refused`, хотя в логе `Started NCANode`.
 5. У **api**: `NCANODE_URL=http://${{ncanode.RAILWAY_PRIVATE_DOMAIN}}:14579` (порт обязателен —
    как `MINIO_PORT=9000`), `EDS_LOGIN_ENABLED=true`, `EDS_IIN_PEPPER` (секретом),
    `EDS_REVOCATION_CHECK=OCSP`.
