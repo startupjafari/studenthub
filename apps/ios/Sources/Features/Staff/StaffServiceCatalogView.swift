@@ -4,9 +4,9 @@ import SwiftUI
 // платформы, которые можно «настроить» (вуз получает копию), у админа платформы — сами
 // шаблоны. Редактор — три раздела (основное, документы, поля анкеты) и переключатель языка.
 
-/// Язык тройки полей `…Ru/…Kk/…En`.
+/// Язык тройки полей `…Ru/…Kz/…En`.
 enum StaffLang: String, CaseIterable, Identifiable {
-    case ru = "RU", kk = "KK", en = "EN"
+    case ru = "RU", kz = "KZ", en = "EN"
 
     var id: String { rawValue }
 }
@@ -261,7 +261,7 @@ private struct StaffServiceEditorSheet: View {
 
     private var title: String {
         if case .new = editing { return String(localized: "staff.svc.new", defaultValue: "Новая услуга") }
-        let name = StaffLocale.pick(draft.nameRu, draft.nameKk, draft.nameEn)
+        let name = StaffLocale.pick(draft.nameRu, draft.nameKz, draft.nameEn)
         return name.isEmpty ? draft.code : name
     }
 
@@ -328,7 +328,7 @@ private struct StaffServiceEditorSheet: View {
     @ViewBuilder
     private var mainSection: some View {
         Section {
-            TextField(String(localized: "staff.svc.name", defaultValue: "Название"), text: localized(\.nameRu, \.nameKk, \.nameEn))
+            TextField(String(localized: "staff.svc.name", defaultValue: "Название"), text: localized(\.nameRu, \.nameKz, \.nameEn))
             Picker(String(localized: "staff.svc.category", defaultValue: "Категория"), selection: $draft.categoryId) {
                 Text(String(localized: "staff.svc.category.pick", defaultValue: "Выберите")).tag("")
                 ForEach(categories) { Text($0.name).tag($0.id) }
@@ -366,7 +366,7 @@ private struct StaffServiceEditorSheet: View {
         Section(String(localized: "staff.svc.description", defaultValue: "Описание")) {
             TextField(
                 String(localized: "staff.svc.description", defaultValue: "Описание"),
-                text: optionalLocalized(\.descriptionRu, \.descriptionKk, \.descriptionEn),
+                text: optionalLocalized(\.descriptionRu, \.descriptionKz, \.descriptionEn),
                 axis: .vertical
             )
             .lineLimit(3...8)
@@ -375,7 +375,7 @@ private struct StaffServiceEditorSheet: View {
         Section(String(localized: "staff.svc.instructions", defaultValue: "Инструкция для студента")) {
             TextField(
                 String(localized: "staff.svc.instructions.placeholder", defaultValue: "Что приготовить, куда прийти за оригиналом"),
-                text: optionalLocalized(\.instructionsRu, \.instructionsKk, \.instructionsEn),
+                text: optionalLocalized(\.instructionsRu, \.instructionsKz, \.instructionsEn),
                 axis: .vertical
             )
             .lineLimit(3...8)
@@ -428,7 +428,7 @@ private struct StaffServiceEditorSheet: View {
                     StaffRequirementEditor(requirement: $requirement, lang: lang, types: documentTypes, readOnly: readOnly)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(langValue(requirement.titleRu, requirement.titleKk, requirement.titleEn).ifEmpty(String(localized: "staff.svc.untitled", defaultValue: "Без названия")))
+                        Text(langValue(requirement.titleRu, requirement.titleKz, requirement.titleEn).ifEmpty(String(localized: "staff.svc.untitled", defaultValue: "Без названия")))
                             .foregroundStyle(Palette.foreground)
                         Text([
                             requirement.required
@@ -468,7 +468,7 @@ private struct StaffServiceEditorSheet: View {
                     StaffFormFieldEditor(field: $field, lang: lang, readOnly: readOnly)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(langValue(field.labelRu, field.labelKk, field.labelEn).ifEmpty(String(localized: "staff.svc.untitled", defaultValue: "Без названия")))
+                        Text(langValue(field.labelRu, field.labelKz, field.labelEn).ifEmpty(String(localized: "staff.svc.untitled", defaultValue: "Без названия")))
                             .foregroundStyle(Palette.foreground)
                         Text([
                             StaffFieldTypeText.title(field.type),
@@ -496,23 +496,23 @@ private struct StaffServiceEditorSheet: View {
         return false
     }
 
-    private func langValue(_ ru: String, _ kk: String, _ en: String) -> String {
+    private func langValue(_ ru: String, _ kz: String, _ en: String) -> String {
         switch lang {
         case .ru: return ru
-        case .kk: return kk
+        case .kz: return kz
         case .en: return en
         }
     }
 
     private func localized(
         _ ru: WritableKeyPath<StaffServiceDraft, String>,
-        _ kk: WritableKeyPath<StaffServiceDraft, String>,
+        _ kz: WritableKeyPath<StaffServiceDraft, String>,
         _ en: WritableKeyPath<StaffServiceDraft, String>
     ) -> Binding<String> {
         let path: WritableKeyPath<StaffServiceDraft, String>
         switch lang {
         case .ru: path = ru
-        case .kk: path = kk
+        case .kz: path = kz
         case .en: path = en
         }
         return $draft[dynamicMember: path]
@@ -520,13 +520,13 @@ private struct StaffServiceEditorSheet: View {
 
     private func optionalLocalized(
         _ ru: WritableKeyPath<StaffServiceDraft, String?>,
-        _ kk: WritableKeyPath<StaffServiceDraft, String?>,
+        _ kz: WritableKeyPath<StaffServiceDraft, String?>,
         _ en: WritableKeyPath<StaffServiceDraft, String?>
     ) -> Binding<String> {
         let path: WritableKeyPath<StaffServiceDraft, String?>
         switch lang {
         case .ru: path = ru
-        case .kk: path = kk
+        case .kz: path = kz
         case .en: path = en
         }
         return Binding(
@@ -553,9 +553,9 @@ private struct StaffServiceEditorSheet: View {
     /// Что не так в форме — до запроса. Поля трёх языков показываются по одному, поэтому
     /// ошибка в скрытом языке названа явно: иначе «Сохранить» выглядит сломанной.
     private func problem() -> String? {
-        let missingName = [draft.nameRu, draft.nameKk, draft.nameEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let missingName = [draft.nameRu, draft.nameKz, draft.nameEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty }
         if missingName {
-            return String(localized: "staff.svc.problem.name", defaultValue: "Заполните название на всех трёх языках (RU, KK, EN)")
+            return String(localized: "staff.svc.problem.name", defaultValue: "Заполните название на всех трёх языках (RU, KZ, EN)")
         }
         if draft.categoryId.isEmpty {
             return String(localized: "staff.svc.problem.category", defaultValue: "Выберите категорию")
@@ -570,10 +570,10 @@ private struct StaffServiceEditorSheet: View {
         if draft.deliveryModes.isEmpty {
             return String(localized: "staff.svc.problem.delivery", defaultValue: "Выберите хотя бы один способ выдачи")
         }
-        if draft.requirements.contains(where: { [$0.titleRu, $0.titleKk, $0.titleEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty } }) {
+        if draft.requirements.contains(where: { [$0.titleRu, $0.titleKz, $0.titleEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty } }) {
             return String(localized: "staff.svc.problem.requirement", defaultValue: "У каждого документа нужно название на всех трёх языках")
         }
-        if draft.formFields.contains(where: { [$0.labelRu, $0.labelKk, $0.labelEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty } }) {
+        if draft.formFields.contains(where: { [$0.labelRu, $0.labelKz, $0.labelEn].contains { $0.trimmingCharacters(in: .whitespaces).isEmpty } }) {
             return String(localized: "staff.svc.problem.field", defaultValue: "У каждого вопроса нужна подпись на всех трёх языках")
         }
         if draft.formFields.contains(where: { $0.isChoice && ($0.options ?? []).isEmpty }) {
@@ -701,7 +701,7 @@ private struct StaffRequirementEditor: View {
     private var title: Binding<String> {
         switch lang {
         case .ru: return $requirement.titleRu
-        case .kk: return $requirement.titleKk
+        case .kz: return $requirement.titleKz
         case .en: return $requirement.titleEn
         }
     }
@@ -771,7 +771,7 @@ private struct StaffFormFieldEditor: View {
                     Button {
                         var options = field.options ?? []
                         let value = "option-\((options.count + 1).formatted())"
-                        options.append(StaffFieldOption(value: value, labelRu: "", labelKk: "", labelEn: ""))
+                        options.append(StaffFieldOption(value: value, labelRu: "", labelKz: "", labelEn: ""))
                         field.options = options
                     } label: {
                         Label(String(localized: "staff.svc.option.add", defaultValue: "Добавить вариант"), systemImage: "plus")
@@ -792,7 +792,7 @@ private struct StaffFormFieldEditor: View {
     private var label: Binding<String> {
         switch lang {
         case .ru: return $field.labelRu
-        case .kk: return $field.labelKk
+        case .kz: return $field.labelKz
         case .en: return $field.labelEn
         }
     }
@@ -801,7 +801,7 @@ private struct StaffFormFieldEditor: View {
         let path: WritableKeyPath<StaffServiceFormField, String?>
         switch lang {
         case .ru: path = \.placeholderRu
-        case .kk: path = \.placeholderKk
+        case .kz: path = \.placeholderKz
         case .en: path = \.placeholderEn
         }
         return Binding(get: { field[keyPath: path] ?? "" }, set: { field[keyPath: path] = $0.isEmpty ? nil : $0 })
@@ -811,7 +811,7 @@ private struct StaffFormFieldEditor: View {
         let path: WritableKeyPath<StaffFieldOption, String>
         switch lang {
         case .ru: path = \.labelRu
-        case .kk: path = \.labelKk
+        case .kz: path = \.labelKz
         case .en: path = \.labelEn
         }
         return Binding(

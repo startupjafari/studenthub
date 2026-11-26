@@ -253,7 +253,7 @@
 - Где: apps/api/src/modules/groups/groups.service.ts:227-229 (любой P2003 → «Нельзя удалить группу со студентами»; реальная причина бывает и в `Schedule`/`Pair` с Restrict — prisma/schema/03-schedule.prisma:24,54)
 - Суть: у группы нет студентов, но есть расписание. Админ видит «со студентами» и не понимает, что мешает.
 - Решение: вместе с B-F05 — явные проверки студентов, расписания, курсов и экзаменов с отдельными сообщениями (i18n-ключи на вебе).
-- Файлы для правки: apps/api/src/modules/groups/groups.service.ts, apps/web/messages/{ru,kk,en}.json
+- Файлы для правки: apps/api/src/modules/groups/groups.service.ts, apps/web/messages/{ru,kz,en}.json
 - Стоп-точки: нет
 
 #### B-F26 [P2] Catch-all `[...section]` превращает любую опечатку в URL зоны роли в заглушку «в разработке»

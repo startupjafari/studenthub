@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { ClipboardList, Plus, Search } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
@@ -62,7 +63,7 @@ type Editing = { kind: 'new' } | { kind: 'existing'; id: string }
 export function ServiceCatalogView() {
   const t = useTranslations('ServiceCatalog')
   const tErr = useTranslations('Errors')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
   const role = useAppSelector((s) => s.auth.role)
   const isUniAdmin = role === Role.UNIVERSITY_ADMIN

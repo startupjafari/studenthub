@@ -5,13 +5,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Role } from '@studenthub/shared-types'
 
-// next-intl → ключ как есть; тосты глушим (Toaster в тесте не смонтирован).
+// next-intl → ключ как есть; тосты глушим (Toaster в тесте не смонтирован). dismiss —
+// useErrorToast гасит тост формы при размонтировании.
 vi.mock('next-intl', () => ({
   useTranslations: () => (k: string) => k,
   useLocale: () => 'ru',
   useFormatter: () => ({ dateTime: () => '20 нояб.' }),
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() } }))
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
@@ -21,6 +22,7 @@ vi.mock('../../../entities/user/api/user-api', async (orig) => {
   return { ...actual, deleteAccountRequest: vi.fn(), fetchAccountDeletionCheck: vi.fn() }
 })
 
+import { toast } from 'sonner'
 import { deleteAccountRequest, fetchAccountDeletionCheck } from '../../../entities/user'
 import type { MeResponse } from '../../../shared/api'
 import { DangerSection } from './account-settings-panels'
@@ -50,6 +52,7 @@ const canDelete = { canDelete: true, blockers: [], libraryDebts: [] }
 const confirmButton = () => screen.getAllByRole('button', { name: /deleteAccount/ }).at(-1)!
 
 beforeEach(() => {
+  vi.mocked(toast.error).mockClear()
   deleteMut.mockReset()
   checkMock.mockReset()
   checkMock.mockResolvedValue(canDelete)
@@ -89,7 +92,8 @@ describe('DangerSection — удаление с повторной аутент�
     expect(deleteMut.mock.calls[0]?.[0]).toEqual({ password: 'Secret123', code: '123456' })
   })
 
-  it('неверный пароль — сообщение в том же окне, введённый пароль не теряется', async () => {
+  // Отказ сервера — тостом: плашка в окне раздвигала его между попытками.
+  it('неверный пароль — тостом, окно открыто, введённый пароль не теряется', async () => {
     const user = userEvent.setup()
     // shared/api/instance.ts отклоняет промис ТЕЛОМ ошибки { code, message }.
     deleteMut.mockRejectedValue({ code: 'BAD_REQUEST', message: 'Неверный текущий пароль' })
@@ -99,7 +103,10 @@ describe('DangerSection — удаление с повторной аутент�
     await user.type(await screen.findByLabelText('currentPassword'), 'wrong')
     await user.click(confirmButton())
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('deleteWrongPassword'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('deleteWrongPassword', { id: 'delete-account' }),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByLabelText('currentPassword')).toHaveValue('wrong')
   })
 
@@ -112,7 +119,9 @@ describe('DangerSection — удаление с повторной аутент�
     await user.type(await screen.findByLabelText('currentPassword'), 'Secret123')
     await user.click(confirmButton())
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('deleteLastAdmin'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('deleteLastAdmin', { id: 'delete-account' }),
+    )
   })
 
   // Фаза 21.C1: книги библиотеки на руках — объяснение и список до ввода пароля.
@@ -181,6 +190,6 @@ describe('DangerSection — удаление с повторной аутент�
 
     expect(await screen.findByText('deleteLibraryTitle')).toBeInTheDocument()
     expect(checkMock).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(toast.error).not.toHaveBeenCalled()
   })
 })

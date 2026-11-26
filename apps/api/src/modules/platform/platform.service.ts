@@ -78,7 +78,7 @@ const STORAGE_CACHE_TTL_SEC = 300
 
 export interface LocalizedText {
   ru: string
-  kk: string
+  kz: string
   en: string
 }
 
@@ -248,7 +248,7 @@ export class PlatformService {
       maintenanceFrom: from,
       maintenanceUntil: until,
       maintenanceMessageRu: input.message?.ru ?? null,
-      maintenanceMessageKk: input.message?.kk ?? null,
+      maintenanceMessageKz: input.message?.kz ?? null,
       maintenanceMessageEn: input.message?.en ?? null,
     })
 
@@ -290,7 +290,7 @@ export class PlatformService {
       bannerRoles: until ? (input.roles ?? []) : [],
       bannerUniversityIds: until ? (input.universityIds ?? []) : [],
       bannerTextRu: until ? (input.text?.ru ?? null) : null,
-      bannerTextKk: until ? (input.text?.kk ?? null) : null,
+      bannerTextKz: until ? (input.text?.kz ?? null) : null,
       bannerTextEn: until ? (input.text?.en ?? null) : null,
     })
 
@@ -775,18 +775,18 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
           active: row.maintenanceFrom === null || row.maintenanceFrom.getTime() <= now.getTime(),
           message: localized(
             row.maintenanceMessageRu,
-            row.maintenanceMessageKk,
+            row.maintenanceMessageKz,
             row.maintenanceMessageEn,
           ),
         }
       : null,
     banner:
       alive(row.bannerUntil, now) &&
-      localized(row.bannerTextRu, row.bannerTextKk, row.bannerTextEn) !== null
+      localized(row.bannerTextRu, row.bannerTextKz, row.bannerTextEn) !== null
         ? {
             until: row.bannerUntil!.toISOString(),
             level: row.bannerLevel === 'WARNING' ? 'WARNING' : 'INFO',
-            text: localized(row.bannerTextRu, row.bannerTextKk, row.bannerTextEn)!,
+            text: localized(row.bannerTextRu, row.bannerTextKz, row.bannerTextEn)!,
             roles: row.bannerRoles,
             universityIds: row.bannerUniversityIds,
           }
@@ -847,8 +847,8 @@ function alive(until: Date | null, now: Date): boolean {
 }
 
 /** Текст отдаём только целиком: строка на двух языках из трёх — это дыра в интерфейсе. */
-function localized(ru: string | null, kk: string | null, en: string | null): LocalizedText | null {
-  return ru && kk && en ? { ru, kk, en } : null
+function localized(ru: string | null, kz: string | null, en: string | null): LocalizedText | null {
+  return ru && kz && en ? { ru, kz, en } : null
 }
 
 /**

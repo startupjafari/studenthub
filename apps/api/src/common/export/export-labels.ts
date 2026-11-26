@@ -62,7 +62,7 @@ const RU: ExportLabels = {
   },
 }
 
-const KK: ExportLabels = {
+const KZ: ExportLabels = {
   generated: 'Қалыптастырылды',
   user: 'Пайдаланушы',
   system: 'Жүйе',
@@ -112,7 +112,7 @@ const EN: ExportLabels = {
   },
 }
 
-const LABELS: Record<ExportLocale, ExportLabels> = { ru: RU, kk: KK, en: EN }
+const LABELS: Record<ExportLocale, ExportLabels> = { ru: RU, kz: KZ, en: EN }
 
 /** Язык интерфейса → язык документа. Неизвестное значение — русский (основной язык). */
 export function exportLabels(locale: ExportLocale): ExportLabels {
@@ -120,11 +120,15 @@ export function exportLabels(locale: ExportLocale): ExportLabels {
 }
 
 /** Список поддерживаемых языков — для валидации `?locale=` и для тестов на полноту. */
-export const EXPORT_LOCALES: ExportLocale[] = ['ru', 'kk', 'en']
+export const EXPORT_LOCALES: ExportLocale[] = ['ru', 'kz', 'en']
 
-/** Тег локали для `Intl`: форматы даты и времени берутся у неё, а не собираются вручную. */
+/**
+ * Тег локали для `Intl`: форматы даты и времени берутся у неё, а не собираются вручную.
+ * Граница с платформой: Intl знает казахский только как ISO `kk`, а код приложения `kz`
+ * молча откатил бы дату на английский; регион нужен для формата «15 қазан 2026 ж.».
+ */
 export const INTL_TAG: Record<ExportLocale, string> = {
   ru: 'ru-RU',
-  kk: 'kk-KZ',
+  kz: 'kk-KZ',
   en: 'en-US',
 }

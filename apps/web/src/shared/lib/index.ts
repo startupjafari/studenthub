@@ -4,7 +4,6 @@ export { ChatLayoutProvider, useChatListSlot, useSetChatOpen } from './chat-layo
 export { toApiError } from './api-error'
 export { requestFile, saveFile, type DownloadedFile } from './download-file'
 export { useEscapeBack } from './use-escape-back'
-export { useFormAlert, type FormAlertController } from './use-form-alert'
 export { useErrorToast } from './use-error-toast'
 export { translateValidationMessage, useValidationMessage } from './validation-message'
 export { useInfiniteScroll } from './use-infinite-scroll'

@@ -1725,7 +1725,6 @@
     "uploading": "Uploading… {percent}%",
     "remove": "Remove file",
     "cancel": "Cancel upload",
-    "retry": "Retry",
     "done": "Uploaded",
     "invalidType": "Unsupported file type",
     "fileTooLarge": "File exceeds {max}"
@@ -6978,7 +6977,7 @@
     "category_DORMITORY": "Dormitory",
     "category_OTHER": "Other",
     "locale_ru": "Russian",
-    "locale_kk": "Kazakh",
+    "locale_kz": "Kazakh",
     "locale_en": "English",
     "searchPlaceholder": "Search by name",
     "filterAllStatuses": "All statuses",

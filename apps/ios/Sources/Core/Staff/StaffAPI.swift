@@ -10,18 +10,17 @@ import Foundation
 
 // MARK: - Локализованные тройки
 
-/// Сервер отдаёт названия тройками `…Ru/…Kk/…En`. Интерфейс приложения по-русски, но
+/// Сервер отдаёт названия тройками `…Ru/…Kz/…En`. Интерфейс приложения по-русски, но
 /// пустое русское поле (старая услуга) не должно давать пустую строку.
 enum StaffLocale {
-    static func pick(_ ru: String?, _ kk: String?, _ en: String?) -> String {
-        let code = Locale.current.language.languageCode?.identifier ?? "ru"
+    static func pick(_ ru: String?, _ kz: String?, _ en: String?) -> String {
         let preferred: String?
-        switch code {
-        case "kk": preferred = kk
+        switch AppLanguage.current {
+        case "kz": preferred = kz
         case "en": preferred = en
         default: preferred = ru
         }
-        for candidate in [preferred, ru, en, kk] {
+        for candidate in [preferred, ru, en, kz] {
             if let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
                 return value
             }
@@ -30,10 +29,7 @@ enum StaffLocale {
     }
 
     /// Язык бланка справки и проверочного документа.
-    static var code: String {
-        let code = Locale.current.language.languageCode?.identifier ?? "ru"
-        return ["ru", "kk", "en"].contains(code) ? code : "ru"
-    }
+    static var code: String { AppLanguage.current }
 }
 
 /// Человек в узкой форме: id и ФИО.
@@ -64,37 +60,49 @@ struct StaffRequirementRef: Decodable, Equatable, Identifiable {
     let id: String
     var documentType: String? = nil
     var titleRu: String? = nil
-    var titleKk: String? = nil
+    var titleKz: String? = nil
     var titleEn: String? = nil
     var required: Bool? = nil
 
-    var title: String { StaffLocale.pick(titleRu, titleKk, titleEn) }
+    var title: String { StaffLocale.pick(titleRu, titleKz, titleEn) }
 }
 
 struct StaffFieldOption: Codable, Equatable, Hashable {
     var value: String
     var labelRu: String
-    var labelKk: String
+    var labelKz: String
     var labelEn: String
 
-    init(value: String, labelRu: String, labelKk: String, labelEn: String) {
+    init(value: String, labelRu: String, labelKz: String, labelEn: String) {
         self.value = value
         self.labelRu = labelRu
-        self.labelKk = labelKk
+        self.labelKz = labelKz
         self.labelEn = labelEn
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case value, labelRu, labelKz, labelEn
+    }
+
+    /// Варианты хранятся на сервере JSON-ом, и сохранённые до перехода на `kz` могут
+    /// держать казахский под `labelKk`: без него при сохранении формы перевод затёрся бы.
+    private enum LegacyKeys: String, CodingKey {
+        case labelKk
     }
 
     /// У старых вариантов перевода могло не быть — подставляем значение, иначе форма
     /// услуги не пройдёт проверку при сохранении.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try? decoder.container(keyedBy: LegacyKeys.self)
         value = try container.decode(String.self, forKey: .value)
         labelRu = (try? container.decodeIfPresent(String.self, forKey: .labelRu)) ?? value
-        labelKk = (try? container.decodeIfPresent(String.self, forKey: .labelKk)) ?? value
+        labelKz = (try? container.decodeIfPresent(String.self, forKey: .labelKz))
+            ?? (try? legacy?.decodeIfPresent(String.self, forKey: .labelKk)) ?? value
         labelEn = (try? container.decodeIfPresent(String.self, forKey: .labelEn)) ?? value
     }
 
-    var label: String { StaffLocale.pick(labelRu, labelKk, labelEn) }
+    var label: String { StaffLocale.pick(labelRu, labelKz, labelEn) }
 }
 
 /// Поле анкеты в карточке заявки — по нему ответы `formData` показываются с подписями.
@@ -103,25 +111,25 @@ struct StaffApplicationFormField: Decodable, Equatable, Identifiable {
     let code: String
     let type: String
     var labelRu: String? = nil
-    var labelKk: String? = nil
+    var labelKz: String? = nil
     var labelEn: String? = nil
     var options: [StaffFieldOption]? = nil
 
-    var label: String { StaffLocale.pick(labelRu, labelKk, labelEn) }
+    var label: String { StaffLocale.pick(labelRu, labelKz, labelEn) }
 }
 
 struct StaffApplicationServiceRef: Decodable, Equatable {
     let id: String
     var code: String? = nil
     var nameRu: String? = nil
-    var nameKk: String? = nil
+    var nameKz: String? = nil
     var nameEn: String? = nil
     var slaHours: Int? = nil
     var deliveryModes: [String]? = nil
     var requirements: [StaffRequirementRef]? = nil
     var formFields: [StaffApplicationFormField]? = nil
 
-    var name: String { StaffLocale.pick(nameRu, nameKk, nameEn) }
+    var name: String { StaffLocale.pick(nameRu, nameKz, nameEn) }
 }
 
 struct StaffApplicationStudent: Decodable, Equatable {
@@ -154,11 +162,11 @@ struct StaffApplicationDocument: Decodable, Equatable, Identifiable {
     struct Requirement: Decodable, Equatable {
         let id: String
         var titleRu: String? = nil
-        var titleKk: String? = nil
+        var titleKz: String? = nil
         var titleEn: String? = nil
         var required: Bool? = nil
 
-        var title: String { StaffLocale.pick(titleRu, titleKk, titleEn) }
+        var title: String { StaffLocale.pick(titleRu, titleKz, titleEn) }
     }
 
     let id: String
@@ -279,19 +287,19 @@ struct StaffCatalogCategory: Decodable, Identifiable {
     struct Service: Decodable, Identifiable, Hashable {
         let id: String
         var nameRu: String? = nil
-        var nameKk: String? = nil
+        var nameKz: String? = nil
         var nameEn: String? = nil
 
-        var name: String { StaffLocale.pick(nameRu, nameKk, nameEn) }
+        var name: String { StaffLocale.pick(nameRu, nameKz, nameEn) }
     }
 
     let id: String
     var nameRu: String? = nil
-    var nameKk: String? = nil
+    var nameKz: String? = nil
     var nameEn: String? = nil
     var services: [Service] = []
 
-    var name: String { StaffLocale.pick(nameRu, nameKk, nameEn) }
+    var name: String { StaffLocale.pick(nameRu, nameKz, nameEn) }
 }
 
 // MARK: - Каталог услуг
@@ -300,10 +308,10 @@ struct StaffManageCategory: Decodable, Equatable, Identifiable, Hashable {
     let id: String
     var code: String? = nil
     var nameRu: String? = nil
-    var nameKk: String? = nil
+    var nameKz: String? = nil
     var nameEn: String? = nil
 
-    var name: String { StaffLocale.pick(nameRu, nameKk, nameEn) }
+    var name: String { StaffLocale.pick(nameRu, nameKz, nameEn) }
 }
 
 struct StaffManagedServiceRow: Decodable, Equatable, Identifiable {
@@ -311,7 +319,7 @@ struct StaffManagedServiceRow: Decodable, Equatable, Identifiable {
     let code: String
     var universityId: String? = nil
     var nameRu: String? = nil
-    var nameKk: String? = nil
+    var nameKz: String? = nil
     var nameEn: String? = nil
     var slaHours: Int? = nil
     var deliveryModes: [String]? = nil
@@ -322,7 +330,7 @@ struct StaffManagedServiceRow: Decodable, Equatable, Identifiable {
     var requirementsCount: Int? = nil
     var formFieldsCount: Int? = nil
 
-    var name: String { StaffLocale.pick(nameRu, nameKk, nameEn) }
+    var name: String { StaffLocale.pick(nameRu, nameKz, nameEn) }
     /// Шаблон, который вуз уже настроил: студенты видят копию, а не его.
     var isReplaced: Bool { isTemplate && customizedId != nil }
 }
@@ -331,7 +339,7 @@ struct StaffServiceRequirement: Codable, Equatable, Identifiable {
     var code: String
     var documentType: String?
     var titleRu: String
-    var titleKk: String
+    var titleKz: String
     var titleEn: String
     var description: String?
     var required: Bool
@@ -343,7 +351,7 @@ struct StaffServiceRequirement: Codable, Equatable, Identifiable {
 
     static func empty() -> StaffServiceRequirement {
         StaffServiceRequirement(
-            code: StaffServiceRequirement.newCode("doc"), documentType: nil, titleRu: "", titleKk: "", titleEn: "",
+            code: StaffServiceRequirement.newCode("doc"), documentType: nil, titleRu: "", titleKz: "", titleEn: "",
             description: nil, required: true, allowStorage: true, allowUpload: true, maxFiles: 1
         )
     }
@@ -361,10 +369,10 @@ struct StaffServiceFormField: Codable, Equatable, Identifiable {
     var code: String
     var type: String
     var labelRu: String
-    var labelKk: String
+    var labelKz: String
     var labelEn: String
     var placeholderRu: String?
-    var placeholderKk: String?
+    var placeholderKz: String?
     var placeholderEn: String?
     var required: Bool
     var options: [StaffFieldOption]?
@@ -373,8 +381,8 @@ struct StaffServiceFormField: Codable, Equatable, Identifiable {
 
     static func empty() -> StaffServiceFormField {
         StaffServiceFormField(
-            code: StaffServiceRequirement.newCode("field"), type: "TEXT", labelRu: "", labelKk: "", labelEn: "",
-            placeholderRu: nil, placeholderKk: nil, placeholderEn: nil, required: false, options: nil
+            code: StaffServiceRequirement.newCode("field"), type: "TEXT", labelRu: "", labelKz: "", labelEn: "",
+            placeholderRu: nil, placeholderKz: nil, placeholderEn: nil, required: false, options: nil
         )
     }
 
@@ -387,13 +395,13 @@ struct StaffServiceDraft: Codable, Equatable {
     var categoryId: String
     var code: String
     var nameRu: String
-    var nameKk: String
+    var nameKz: String
     var nameEn: String
     var descriptionRu: String?
-    var descriptionKk: String?
+    var descriptionKz: String?
     var descriptionEn: String?
     var instructionsRu: String?
-    var instructionsKk: String?
+    var instructionsKz: String?
     var instructionsEn: String?
     var slaHours: Int
     var deliveryModes: [String]
@@ -406,9 +414,9 @@ struct StaffServiceDraft: Codable, Equatable {
 
     static func empty() -> StaffServiceDraft {
         StaffServiceDraft(
-            categoryId: "", code: "", nameRu: "", nameKk: "", nameEn: "",
-            descriptionRu: nil, descriptionKk: nil, descriptionEn: nil,
-            instructionsRu: nil, instructionsKk: nil, instructionsEn: nil,
+            categoryId: "", code: "", nameRu: "", nameKz: "", nameEn: "",
+            descriptionRu: nil, descriptionKz: nil, descriptionEn: nil,
+            instructionsRu: nil, instructionsKz: nil, instructionsEn: nil,
             slaHours: 24, deliveryModes: ["ELECTRONIC"], requiresPickup: false, facultyScoped: true,
             active: true, sortOrder: 0, requirements: [], formFields: []
         )

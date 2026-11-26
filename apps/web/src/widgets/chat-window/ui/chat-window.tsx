@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import {
@@ -317,6 +318,7 @@ export function ChatWindow() {
   const unitLabel = useByteUnitLabel()
   const tRoles = useTranslations('Roles')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const router = useRouter()
   const pathname = usePathname()
   const qc = useQueryClient()
@@ -1163,7 +1165,7 @@ export function ChatWindow() {
   // системы) и единое имя по шаблону платформы. Браузер такой файл собрать не мог —
   // он не знает ни домена, ни версии, ни таймзоны вуза.
   const exportChat = useMutation({
-    mutationFn: (format: 'txt' | 'json') => exportChatFile(activeId as string, format, locale),
+    mutationFn: (format: 'txt' | 'json') => exportChatFile(activeId as string, format, appLocale),
     onSuccess: saveFile,
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })

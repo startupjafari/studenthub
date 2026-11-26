@@ -1725,7 +1725,6 @@
     "uploading": "Загрузка… {percent}%",
     "remove": "Убрать файл",
     "cancel": "Отменить загрузку",
-    "retry": "Повторить",
     "done": "Загружено",
     "invalidType": "Недопустимый тип файла",
     "fileTooLarge": "Файл больше {max}"
@@ -6978,7 +6977,7 @@
     "category_DORMITORY": "Общежитие",
     "category_OTHER": "Другое",
     "locale_ru": "Русский",
-    "locale_kk": "Казахский",
+    "locale_kz": "Казахский",
     "locale_en": "Английский",
     "searchPlaceholder": "Поиск по названию",
     "filterAllStatuses": "Все статусы",

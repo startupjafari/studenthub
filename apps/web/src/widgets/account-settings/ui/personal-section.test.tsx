@@ -5,12 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Role } from '@studenthub/shared-types'
 
-// next-intl → ключ как есть; тосты глушим (Toaster в тесте не смонтирован).
+// next-intl → ключ как есть; тосты глушим (Toaster в тесте не смонтирован). dismiss —
+// useErrorToast гасит тост формы при размонтировании.
 vi.mock('next-intl', () => ({
   useTranslations: () => (k: string) => k,
   useLocale: () => 'ru',
 }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() } }))
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
@@ -20,6 +21,7 @@ vi.mock('../../../entities/user/api/user-api', async (orig) => {
   return { ...actual, updateUsernameRequest: vi.fn(), updateProfileRequest: vi.fn() }
 })
 
+import { toast } from 'sonner'
 import { updateProfileRequest, updateUsernameRequest } from '../../../entities/user'
 import type { MeResponse } from '../../../shared/api'
 import { PersonalSection } from './account-settings-panels'
@@ -47,6 +49,7 @@ const profileMut = vi.mocked(updateProfileRequest)
 const save = () => screen.getByRole('button', { name: /saveChanges/ })
 
 beforeEach(() => {
+  vi.mocked(toast.error).mockClear()
   nameMut.mockReset()
   profileMut.mockReset()
   nameMut.mockResolvedValue(me)
@@ -130,6 +133,25 @@ describe('PersonalSection — имя пользователя', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
 
     await user.type(field, '2')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  // Отказ, не привязанный к полю, всплывает тостом: плашка над формой раздвигала вёрстку.
+  it('отказ сервера не про поле — тостом, в форме ничего не появляется', async () => {
+    const user = userEvent.setup()
+    profileMut.mockRejectedValue({ code: 'INTERNAL_ERROR', message: 'упало' })
+    render(<PersonalSection me={{ ...me, username: 'ivan_petrov' }} />, { wrapper })
+
+    await user.clear(screen.getByLabelText('lastName'))
+    await user.type(screen.getByLabelText('lastName'), 'Сидоров')
+    await user.click(save())
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'INTERNAL_ERROR',
+        expect.objectContaining({ id: 'settings-personal' }),
+      ),
+    )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

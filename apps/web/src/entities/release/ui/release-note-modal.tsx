@@ -1,6 +1,7 @@
 'use client'
 
-import { useLocale, useFormatter, useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { Sparkles } from 'lucide-react'
 import { Badge, Button, Modal } from '../../../shared/ui'
 import { noteContent } from '../lib/note-content'
@@ -19,7 +20,7 @@ export interface ReleaseNoteModalProps {
  */
 export function ReleaseNoteModal({ note, onClose, busy }: ReleaseNoteModalProps) {
   const t = useTranslations('WhatsNew')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const format = useFormatter()
   const content = noteContent(note, locale)
 

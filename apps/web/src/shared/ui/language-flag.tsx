@@ -4,7 +4,7 @@ import { cn } from '../lib/utils'
 import { Flag } from './flag'
 import type { LanguageFlagCode } from '../config/dictionaries'
 
-// Флаг языка для справочника. ru/en/kk — из общего Flag; остальные — простые векторные
+// Флаг языка для справочника. ru/en/kz — из общего Flag; остальные — простые векторные
 // флаги (полосы + пара спец-случаев), одинаковые во всех ОС (emoji-флаги на Windows не рисуются).
 
 const CLS = 'inline-block h-3.5 w-5 shrink-0 rounded-[3px] ring-1 ring-black/10'
@@ -31,7 +31,7 @@ function starPoints(cx: number, cy: number, outer: number, inner: number): strin
 }
 
 export function LanguageFlag({ code, className }: { code: LanguageFlagCode; className?: string }) {
-  if (code === 'ru' || code === 'en' || code === 'kk') {
+  if (code === 'ru' || code === 'en' || code === 'kz') {
     return <Flag code={code} className={className} />
   }
 

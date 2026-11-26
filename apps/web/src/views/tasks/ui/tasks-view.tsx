@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import {
   CalendarClock,
   CheckCircle2,
@@ -68,6 +69,7 @@ const BUCKET_BADGE: Record<
 export function TasksView() {
   const t = useTranslations('Tasks')
   const locale = useLocale()
+  const appLocale = useAppLocale()
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
   const applications = useQuery({
@@ -98,10 +100,10 @@ export function TasksView() {
       assignments: assignments.data ?? [],
       todayDate,
       timezone,
-      locale,
+      locale: appLocale,
     })
     return groupTasks(items)
-  }, [applications.data, events.data, assignments.data, todayDate, timezone, locale])
+  }, [applications.data, events.data, assignments.data, todayDate, timezone, appLocale])
 
   // Задания — такой же источник задач, как заявки и события: их сбой молча убирал
   // сроки сдачи из списка, и студент видел «Задач нет».

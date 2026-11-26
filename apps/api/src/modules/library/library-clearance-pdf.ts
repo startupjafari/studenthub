@@ -66,7 +66,7 @@ export const LIBRARY_CLEARANCE_LABELS: Record<ExportLocale, LibraryClearanceLabe
     issuedAt: 'от',
     verification: 'Проверка подлинности документа',
   },
-  kk: {
+  kz: {
     title: 'КІТАПХАНАДАН БЕРЕШЕГІ ЖОҚ ЕКЕНІ ТУРАЛЫ АНЫҚТАМА',
     issuedTo: 'Берілді',
     body: 'Осы анықтама көрсетілген тұлғада тексеру күні университет кітапханасының кітаптары — қолында да, өтелмеген берешегі бар жоғалған да — жоқ екенін растайды.',

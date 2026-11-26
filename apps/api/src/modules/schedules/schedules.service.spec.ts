@@ -1189,7 +1189,7 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
       expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
       const job = queue.enqueue.mock.calls[0][2]
       expect(job.dedupeKey).toBe('schedule-change-removed:chg-1')
-      // Ключ статьи на тип изменения, а не готовая русская строка в параметре (kk/en).
+      // Ключ статьи на тип изменения, а не готовая русская строка в параметре (kz/en).
       expect(job.bodyKey).toBe('schedule.cancelledRevoked.body')
       expect(job.params).toEqual({ subject: 'Матанализ', date: '2999-01-05' })
       expect(new Set(job.recipientIds)).toEqual(new Set(['s-1', 't-1']))

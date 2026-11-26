@@ -41,7 +41,7 @@ function doc(over: Partial<ApplicationDocumentItem> = {}): ApplicationDocumentIt
     requirement: {
       id: 'r1',
       titleRu: 'Паспорт',
-      titleKk: 'Паспорт',
+      titleKz: 'Паспорт',
       titleEn: 'Passport',
       required: true,
     },
@@ -70,7 +70,7 @@ function app(documents: ApplicationDocumentItem[]): ApplicationDetail {
       id: 's1',
       code: 'ref',
       nameRu: 'Справка',
-      nameKk: 'Анықтама',
+      nameKz: 'Анықтама',
       nameEn: 'Certificate',
       slaHours: 24,
     },

@@ -436,10 +436,7 @@ struct DeanAPI {
         self.client = client
     }
 
-    private static var locale: String {
-        let code = Locale.current.language.languageCode?.identifier ?? "ru"
-        return ["ru", "kk", "en"].contains(code) ? code : "ru"
-    }
+    private static var locale: String { AppLanguage.current }
 
     // MARK: Сводки
 

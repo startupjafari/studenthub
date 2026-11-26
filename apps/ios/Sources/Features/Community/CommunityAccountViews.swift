@@ -88,7 +88,7 @@ struct CommunityLanguageView: View {
     @State private var saving: String?
 
     private static let options: [(code: String, title: String)] = [
-        ("ru", "Русский"), ("kk", "Қазақша"), ("en", "English"),
+        ("ru", "Русский"), ("kz", "Қазақша"), ("en", "English"),
     ]
 
     var body: some View {
@@ -129,7 +129,7 @@ struct CommunityLanguageView: View {
         .softTopEdge()
         .navigationTitle(Text(CommunityScreen.notificationLanguage.title))
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { selection = viewer.profile?.locale ?? "ru" }
+        .onAppear { selection = AppLanguage.fromPlatform(viewer.profile?.locale) ?? AppLanguage.fallback }
     }
 
     @MainActor
@@ -149,9 +149,10 @@ struct CommunityLanguageView: View {
 }
 
 enum CommunityLanguageText {
+    /// Код из профиля — через `AppLanguage`: старое `kk` тоже казахский.
     static func title(_ code: String?) -> String {
-        switch code {
-        case "kk": return "Қазақша"
+        switch AppLanguage.fromPlatform(code) {
+        case "kz": return "Қазақша"
         case "en": return "English"
         default: return "Русский"
         }

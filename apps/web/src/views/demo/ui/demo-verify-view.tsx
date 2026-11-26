@@ -40,7 +40,7 @@ export function DemoVerifyView() {
       .then(() => setState('ok'))
       .catch((err: unknown) => {
         setState('error')
-        // Текст по коду, а не сообщение сервера: оно русское и в kk/en.
+        // Текст по коду, а не сообщение сервера: оно русское и в kz/en.
         const code = toApiError(err).code
         setMessage(
           code === 'NOT_FOUND' || code === 'VALIDATION_ERROR'

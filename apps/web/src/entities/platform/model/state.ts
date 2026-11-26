@@ -7,7 +7,7 @@
  */
 export interface PlatformLocalizedText {
   ru: string
-  kk: string
+  kz: string
   en: string
 }
 

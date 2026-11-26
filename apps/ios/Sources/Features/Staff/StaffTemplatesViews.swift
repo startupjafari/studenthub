@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 enum StaffTemplateText {
     static let statuses = ["DRAFT", "PUBLISHED", "ARCHIVED"]
     static let categories = ["CERTIFICATE", "APPLICATION", "ORDER", "CONTRACT", "CLEARANCE", "DORMITORY", "OTHER"]
-    static let locales = ["ru", "kk", "en"]
+    static let locales = AppLanguage.supported
 
     static func status(_ raw: String) -> (String, Color) {
         switch raw {
@@ -34,10 +34,11 @@ enum StaffTemplateText {
         }
     }
 
+    /// Язык шаблона с сервера; старое `kk` — тоже казахский (`AppLanguage`).
     static func locale(_ raw: String) -> String {
-        switch raw {
+        switch AppLanguage.fromPlatform(raw) {
         case "ru": return String(localized: "staff.tpl.locale.ru", defaultValue: "Русский")
-        case "kk": return String(localized: "staff.tpl.locale.kk", defaultValue: "Казахский")
+        case "kz": return String(localized: "staff.tpl.locale.kz", defaultValue: "Казахский")
         case "en": return String(localized: "staff.tpl.locale.en", defaultValue: "Английский")
         default: return raw
         }
@@ -451,7 +452,7 @@ private struct StaffTemplateInfoSheet: View {
             title = template.title
             category = template.category
             description = template.description ?? ""
-            locale = template.locale
+            locale = AppLanguage.fromPlatform(template.locale) ?? AppLanguage.fallback
         }
     }
 

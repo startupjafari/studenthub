@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertTriangle, Download } from 'lucide-react'
@@ -50,6 +51,7 @@ export function ApplicationDetail({
 }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const err = useActionError()
@@ -99,7 +101,7 @@ export function ApplicationDetail({
   const editableDocs = app?.status === 'NEEDS_CORRECTION'
   const replacementPending = docs.some((d) => d.status === 'REPLACEMENT_REQUIRED')
   const serviceName = app
-    ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
+    ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', appLocale)
     : ''
   // «Отозвать» — по тому же графу переходов, которым сервер проверяет отзыв (SSOT):
   // отдельный список отзываемых статусов разошёлся с графом, и кнопка вела в отказ.
@@ -222,7 +224,7 @@ export function ApplicationDetail({
                 requirements={requirements}
                 documents={docs}
                 editable={editableDocs}
-                locale={locale}
+                locale={appLocale}
                 onChanged={() => void q.refetch()}
               />
             </Card>
@@ -342,13 +344,14 @@ function ResultRow({ appId, result }: { appId: string; result: ApplicationResult
 function Timeline({ app }: { app: ApplicationDetailData }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   if (!app.events.length) return null
   return (
     <ol className="flex flex-col gap-4">
       {app.events.map((e) => {
         const key = `event_${e.action}`
         const label = t.has(key) ? t(key) : e.toStatus ? t(`status2_${e.toStatus}`) : e.action
-        const comment = eventComment(e, app, locale)
+        const comment = eventComment(e, app, appLocale)
         return (
           <li key={e.id} className="flex gap-3">
             <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { CalendarPlus, Check, Layers, MousePointerClick, Plus } from 'lucide-react'
 import type { UpdatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -11,7 +12,6 @@ import {
   Button,
   Card,
   EmptyState,
-  FormAlert,
   Select,
   SelectContent,
   SelectItem,
@@ -20,7 +20,7 @@ import {
   Skeleton,
   PageHeader,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import { GroupSelect } from '../../../entities/group'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
@@ -55,9 +55,9 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
   const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('manage-schedule')
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   // Вуз для выбора аудитории: платформенной роли его надо указать, вуз-ролям сервер
@@ -109,7 +109,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
 
   const activateContainer = useMutation({
     mutationFn: (id: string) => updateScheduleRequest(id, { isActive: true }),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       toast.success(t('containerActivated'))
@@ -127,7 +126,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
 
   const movePair = useMutation({
     mutationFn: (v: { id: string; input: UpdatePairInput }) => updatePairRequest(v.id, v.input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidateContainer()
       toast.success(t('pairMoved'))
@@ -150,7 +148,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   // Клик по пустому месту календаря — заготовка для модалки: день и время уже выбраны,
   // остаётся ввести предмет.
   function openAddPair(dayOfWeek: number, startTime: string): void {
-    resetApiError()
     setSelectedPair(null)
     setAddDraft({ dayOfWeek, startTime, endTime: addMinutes(startTime, 90) })
   }
@@ -261,8 +258,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
           </div>
         }
       />
-
-      <FormAlert error={apiError} />
 
       {!groupId ? (
         <EmptyState

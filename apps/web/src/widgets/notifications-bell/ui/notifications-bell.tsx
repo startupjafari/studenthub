@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Bell, Check, Loader2, Settings, Trash2, X } from 'lucide-react'
@@ -76,6 +77,7 @@ export function NotificationsBell() {
   // Заголовок поповера связывается с ним через aria-labelledby.
   const headingId = useId()
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -105,7 +107,7 @@ export function NotificationsBell() {
   useRealtimeEvent<{ notification: NotificationItem }>('notification:new', (payload) => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
     void queryClient.invalidateQueries({ queryKey: notificationKeys.list() })
-    const incoming = localizeNotification(payload.notification, locale)
+    const incoming = localizeNotification(payload.notification, appLocale)
     toast.info(incoming.title, { description: incoming.body })
     maybeNotify(incoming.title, incoming.body)
   })
@@ -286,7 +288,7 @@ export function NotificationsBell() {
                   {list.data?.map((n) => {
                     // Текст — на текущем языке: у записи есть ключ словарной статьи, и
                     // после смены языка вчерашние уведомления переключаются вместе с ней.
-                    const text = localizeNotification(n, locale)
+                    const text = localizeNotification(n, appLocale)
                     // Заявка в друзья с кнопками принять/отклонить прямо в уведомлении.
                     const friendshipId =
                       n.data && n.data.kind === 'friend-request'

@@ -77,7 +77,7 @@ describe('PlatformGate', () => {
         until: UNTIL,
         startsAt: null,
         active: true,
-        message: { ru: 'Переезжаем на новый сервер', kk: 'Көшеміз', en: 'Migrating' },
+        message: { ru: 'Переезжаем на новый сервер', kz: 'Көшеміз', en: 'Migrating' },
       },
     })
 
@@ -130,7 +130,7 @@ describe('PlatformGate', () => {
         level: 'INFO',
         roles: [],
         universityIds: [],
-        text: { ru: 'Сегодня в 22:00 обновление', kk: 'Бүгін 22:00-де', en: 'Update at 22:00' },
+        text: { ru: 'Сегодня в 22:00 обновление', kz: 'Бүгін 22:00-де', en: 'Update at 22:00' },
       },
     })
 
@@ -205,7 +205,7 @@ describe('PlatformGate — адресный баннер и плановые р�
     level: 'INFO' as const,
     roles: [] as string[],
     universityIds: [] as string[],
-    text: { ru: 'Объявление', kk: 'Хабарландыру', en: 'Notice' },
+    text: { ru: 'Объявление', kz: 'Хабарландыру', en: 'Notice' },
     ...over,
   })
 

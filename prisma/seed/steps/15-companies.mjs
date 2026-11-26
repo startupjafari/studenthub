@@ -111,7 +111,7 @@ export async function seedCompanies(prisma, writer, { passwordHash, pool = null 
         workPhone: phone(random),
         country: 'Казахстан',
         timezone: 'Asia/Almaty',
-        languages: ['kk', 'ru'],
+        languages: ['kz', 'ru'],
         profileVisibility: 'PUBLIC',
         lastSeenAt: random.randomDate(-10, 0),
       })

@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import ru from '../../../../messages/ru.json'
 
 const toastError = vi.fn()
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: (m: string) => toastError(m) } }))
+// dismiss — useErrorToast гасит тост формы при размонтировании.
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: (m: string) => toastError(m), dismiss: vi.fn() },
+}))
 const auth = { user: { id: 'me' }, role: 'STUDENT' }
 vi.mock('../../../shared/store', () => ({
   useAppSelector: (pick: (s: { auth: typeof auth }) => unknown) => pick({ auth }),

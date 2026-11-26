@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { CalendarPlus, History, Save, Trash2, Undo2 } from 'lucide-react'
 import {
   CreateScheduleChangeSchema,
@@ -104,6 +105,7 @@ export function PairDetailsModal({
   const t = useTranslations('Schedule')
   const tPeople = useTranslations('People')
   const locale = useLocale()
+  const appLocale = useAppLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const { show: showApiError } = useErrorToast('pair-details')
@@ -145,7 +147,7 @@ export function PairDetailsModal({
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: conflictDescription(err.details, locale, (k) => t(k)),
+          description: conflictDescription(err.details, appLocale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -196,7 +198,7 @@ export function PairDetailsModal({
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
           id: 'pair-details',
-          description: conflictDescription(err.details, locale, (k) => t(k)),
+          description: conflictDescription(err.details, appLocale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -247,7 +249,7 @@ export function PairDetailsModal({
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
           id: 'pair-details',
-          description: conflictDescription(err.details, locale, (k) => t(k)),
+          description: conflictDescription(err.details, appLocale, (k) => t(k)),
         })
       } else showApiError(e)
     },

@@ -12,9 +12,10 @@ function telegramLanguage(code: string | undefined): void {
 describe('выбор языка', () => {
   beforeEach(() => resetLocale(null))
 
+  // Telegram присылает казахский ISO-кодом `kk`, в приложении он — `kz`.
   it('берёт язык из Telegram', () => {
     telegramLanguage('kk')
-    expect(locale()).toBe('kk')
+    expect(locale()).toBe('kz')
   })
 
   // Telegram присылает и «ru», и «ru-RU» — это один язык.
@@ -48,7 +49,7 @@ describe('подстановки', () => {
   })
 })
 
-// Русский `message` сервера в kk и en торчал бы чужим языком: отказ называется по коду.
+// Русский `message` сервера в kz и en торчал бы чужим языком: отказ называется по коду.
 describe('текст отказа', () => {
   beforeEach(() => resetLocale('en'))
 

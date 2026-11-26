@@ -10,9 +10,9 @@ import { HOLIDAYS } from '../config/holidays'
 // Сверка количества ключей между локалями от этого не спасает: если ключа нет НИГДЕ, счётчики
 // сходятся. Поэтому проверяем два независимых свойства:
 //   1. каждый ключ, вызванный в коде, существует во всех трёх локалях;
-//   2. наборы ключей ru/en/kk совпадают (перевод не забыт).
+//   2. наборы ключей ru/en/kz совпадают (перевод не забыт).
 
-const LOCALES = ['ru', 'en', 'kk'] as const
+const LOCALES = ['ru', 'en', 'kz'] as const
 const SRC = path.join(__dirname, '..', '..')
 const MESSAGES = path.join(__dirname, '..', '..', '..', 'messages')
 
@@ -170,13 +170,13 @@ describe('словари i18n', () => {
     expect(problems).toEqual([])
   })
 
-  it('наборы ключей ru/en/kk совпадают', () => {
+  it('наборы ключей ru/en/kz совпадают', () => {
     const gaps: string[] = []
     for (const key of dicts.ru) {
       const absent = LOCALES.filter((locale) => !dicts[locale].has(key))
       if (absent.length > 0) gaps.push(`${key} — нет в ${absent.join(', ')}`)
     }
-    for (const locale of ['en', 'kk'] as const) {
+    for (const locale of ['en', 'kz'] as const) {
       for (const key of dicts[locale]) {
         if (!dicts.ru.has(key)) gaps.push(`${key} — есть в ${locale}, нет в ru`)
       }

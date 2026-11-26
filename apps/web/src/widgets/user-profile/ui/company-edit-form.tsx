@@ -17,7 +17,6 @@ import {
   Card,
   CardContent,
   FieldError,
-  FormAlert,
   Input,
   Label,
   Select,
@@ -27,7 +26,7 @@ import {
   SelectValue,
   toKzPhone,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import { ENTER } from './profile-content'
 import { OrgPageFieldsForm } from './org-page-fields'
 import { useCompanySizeLabel } from './company-size-label'
@@ -64,7 +63,7 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
   const tOrg = useTranslations('OrgPage')
   const qc = useQueryClient()
   const sizeLabel = useCompanySizeLabel()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('company-edit')
 
   const {
     register,
@@ -78,14 +77,13 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
 
   const save = useMutation({
     mutationFn: updateMyCompany,
-    onMutate: resetApiError,
     onSuccess: (updated) => {
       qc.setQueryData(companyKeys.mine(), updated)
       void qc.invalidateQueries({ queryKey: companyKeys.page(company.id) })
       toast.success(tOrg('saved'))
       onSaved()
     },
-    onError: showApiError,
+    onError: (e) => showApiError(e),
   })
 
   const own = (name: 'name' | 'industry', label: string, error: string) => (
@@ -107,7 +105,6 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
           })}
           className="flex flex-col gap-6"
         >
-          <FormAlert error={apiError} />
           {/* Пока запрос в пути, форма заблокирована: повторное нажатие не отправит дубль. */}
           <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-6">
             <OrgPageFieldsForm

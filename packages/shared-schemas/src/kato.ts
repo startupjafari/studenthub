@@ -52,15 +52,15 @@ export const KatoResolveQuerySchema = z
   .strict()
 export type KatoResolveQueryInput = z.infer<typeof KatoResolveQuerySchema>
 
-// Ответ. `regionNameRu/Kk` — подпись «Кокшетау, Акмолинская область»: строится по regionCode,
+// Ответ. `regionNameRu/Kz` — подпись «Кокшетау, Акмолинская область»: строится по regionCode,
 // который заполнен всегда, в отличие от parentCode (у 38 объектов иерархия в источнике битая).
 export const KatoUnitSchema = z.object({
   code: KatoCodeSchema,
   kind: KatoKindSchema,
   nameRu: z.string(),
-  nameKk: z.string(),
+  nameKz: z.string(),
   regionCode: KatoCodeSchema,
   regionNameRu: z.string().nullable(),
-  regionNameKk: z.string().nullable(),
+  regionNameKz: z.string().nullable(),
 })
 export type KatoUnit = z.infer<typeof KatoUnitSchema>

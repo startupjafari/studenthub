@@ -4,4 +4,4 @@ export {
   useNcaLayerErrorText,
   type NcaLayerSetupProblem,
 } from './lib/ncalayer-errors'
-export { NcaLayerHint } from './ui/ncalayer-hint'
+export { useNcaLayerHint } from './lib/use-ncalayer-hint'

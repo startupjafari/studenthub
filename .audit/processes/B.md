@@ -97,12 +97,12 @@
 
 ### B-09 Справочник КАТО: выбор города вуза и показ названий
 
-- Бизнес-цель: хранить город вуза кодом КАТО (устойчиво к переименованиям, двуязычно ru/kk) и давать комбобокс поиска.
+- Бизнес-цель: хранить город вуза кодом КАТО (устойчиво к переименованиям, двуязычно ru/kz) и давать комбобокс поиска.
 - Роли: любой аутентифицированный (без @Roles и scope); фактически используют PLATFORM_ADMIN/MODERATOR.
 - Вход: комбобокс в `/platform-admin/universities` (создание вуза), колонки города в реестре вузов и `/platform-admin/stats`; `GET /kato`, `GET /kato/resolve`; заливка — сид `pnpm db:seed:kato`.
 - Завершение: код выбран и сохранён в `University.city`; коды в таблицах заменены названиями на языке интерфейса.
 - Шаги и файлы: `GET /kato?search=&scope=places|regions|all&limit=`, `GET /kato/resolve?codes=` (≤100). API: apps/api/src/modules/kato/kato.{controller,service}.ts. Сид: prisma/seed/steps/00-kato.mjs, prisma/seed/data/kato.json, scripts/gen-kato.mjs. Web: apps/web/src/entities/kato/{ui/kato-select.tsx,lib/use-kato-names.ts,lib/kato-name.ts,api/kato-api.ts}, apps/web/src/views/platform-admin/ui/{create-university-modal,universities-admin-view,platform-stats-view}.tsx.
-- Данные на входе / выходе: строка поиска, scope, коды / `KatoUnit` (code, kind, nameRu/nameKk, parentCode, regionCode), 16 205 записей.
+- Данные на входе / выходе: строка поиска, scope, коды / `KatoUnit` (code, kind, nameRu/nameKz, parentCode, regionCode), 16 205 записей.
 - Внешние зависимости: выгрузка stat.gov.kz (офлайн, через скрипт генерации).
 - Тесты: apps/api/src/modules/kato/kato.service.spec.ts; web — нет.
 - Замечено: КАТО не используется ни в форме демо-заявки, ни в одобрении (город — свободный текст), ни на шаге «О вузе» мастера — город вуза хранится в двух форматах вперемешку.
@@ -114,7 +114,7 @@
 - Вход: Telegram мини-апп (экран «Управление»); `PATCH /platform/maintenance` (5/мин); чтение — `GET /platform/state` (@Public).
 - Завершение: режим действует до `maintenance_until` (≤12 ч) и снимается сам; либо снят `minutes: null`; все прочие запросы получают 503 MAINTENANCE.
 - Шаги и файлы: включение требует кода 2FA (`TwoFactorService.verifyForUser`, иначе 401 INVALID_2FA_CODE), `startsInMinutes` → плановое окно. API: apps/api/src/modules/platform/platform.{controller,service}.ts, apps/api/src/common/guards/maintenance.guard.ts (`@MaintenanceExempt` на auth/2FA/mini/platform/health/client-version/telegram-hook). Клиенты: apps/mini-app/src/screens/control.tsx, apps/mini-app/src/api/platform.ts; web apps/web/src/widgets/platform-gate/ui/platform-gate.tsx, apps/web/src/entities/platform/model/use-platform-state.ts, apps/web/src/app/providers.tsx.
-- Данные на входе / выходе: minutes, startsInMinutes, тексты ru/kk/en, code (2FA) / `PlatformState` (singleton: maintenance_from/until), Redis-кэш 60 с + память процесса 5 с, `AuditLog` (`platform.maintenance.on|off`).
+- Данные на входе / выходе: minutes, startsInMinutes, тексты ru/kz/en, code (2FA) / `PlatformState` (singleton: maintenance_from/until), Redis-кэш 60 с + память процесса 5 с, `AuditLog` (`platform.maintenance.on|off`).
 - Внешние зависимости: Redis, Telegram (мини-апп, initData), TOTP.
 - Тесты: apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/common/guards/maintenance.guard.spec.ts, apps/web/src/widgets/platform-gate/ui/platform-gate.test.tsx; e2e — нет.
 - Замечено: в веб-админке платформы нет UI для рычагов — управлять режимом можно только из Telegram мини-аппа (или прямым API-вызовом).
@@ -126,7 +126,7 @@
 - Вход: Telegram мини-апп; `PATCH /platform/banner`, `PATCH /platform/sections`, `PATCH /platform/season`, `POST /platform/undo`; чтение — `GET /platform/state`.
 - Завершение: баннер висит до `banner_until` (≤30 сут), раздел убран из навигации и закрыт по прямой ссылке, сезон выключен/подменён; undo возвращает только переписанные поля (не старше 30 мин, иначе 409).
 - Шаги и файлы: apps/api/src/modules/platform/platform.service.ts (`setBanner`, `setSections`, `setSeason`, `undoLast`, `write`/`snapshot`), dto/{set-banner,set-sections,set-season}.dto.ts. Web: apps/web/src/widgets/platform-gate/ui/platform-gate.tsx (`disabledSectionForPath`), apps/web/src/entities/platform/lib/{sections,pick-text}.ts, apps/web/src/widgets/app-shell/ui/app-shell.tsx (баннер, `isNavKeyDisabled`), apps/web/src/shared/config/holidays.ts, apps/web/src/shared/ui/{season-icon.ts,season-decor.tsx,season-greeting.tsx}. Мини-апп: apps/mini-app/src/screens/control.tsx.
-- Данные на входе / выходе: текст ru/kk/en, level, minutes, roles[], universityIds[], disabled[], {off, override} / `PlatformState`, `AuditLog` (`platform.banner.*`, `platform.sections.set`, `platform.season.set`, снимок «как было» в metadata).
+- Данные на входе / выходе: текст ru/kz/en, level, minutes, roles[], universityIds[], disabled[], {off, override} / `PlatformState`, `AuditLog` (`platform.banner.*`, `platform.sections.set`, `platform.season.set`, снимок «как было» в metadata).
 - Внешние зависимости: Redis (кэш состояния), Telegram (мини-апп).
 - Тесты: apps/api/src/modules/platform/platform.service.spec.ts, apps/web/src/widgets/platform-gate/ui/platform-gate.test.tsx, apps/web/src/shared/config/holidays.test.ts, apps/web/src/shared/ui/season-icon.test.ts; тестов экрана мини-аппа control.tsx — нет.
 

@@ -16,7 +16,7 @@
  * ничего не говорит о схеме. Поэтому чиним данные на входе, а не ловим исключение
  * в трёх местах.
  *
- * Хвостовой слэш срезается: иначе canonical получается вида `https://site.kz//kk`.
+ * Хвостовой слэш срезается: иначе canonical получается вида `https://site.kz//kz`.
  */
 function normalizeOrigin(value: string | undefined, fallback: string): string {
   const raw = value?.trim()
@@ -41,10 +41,25 @@ export const SITE_URL = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL, 'http:
  */
 export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL?.trim() || 'hello@studenthub.app'
 
-export const LOCALES = ['ru', 'kk', 'en'] as const
+export const LOCALES = ['ru', 'kz', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 
 export const DEFAULT_LOCALE: Locale = 'ru'
+
+/**
+ * Казахский на сайте — `kz` (адрес `/kz`, параметр `?lang=kz` для платформы), а браузеры,
+ * поисковики и Intl знают его только по коду ISO 639-1 `kk`: `<html lang="kz">` и
+ * `hreflang="kz"` для них — неизвестный язык. Переход через эту границу — только здесь.
+ *
+ * Своя копия, а не `toPlatformLanguage` из `@studenthub/shared-config`: лендинг не зависит
+ * от пакетов платформы (граница держится линтером, см. корневой eslint.config.mjs).
+ */
+const PLATFORM_LANGUAGES: Record<Locale, string> = { ru: 'ru', kz: 'kk', en: 'en' }
+
+/** Код сайта → языковой тег платформы: `kz` → `kk`. Для `lang`, `hreflang`, `inLanguage`. */
+export function toPlatformLanguage(locale: Locale): string {
+  return PLATFORM_LANGUAGES[locale]
+}
 
 /**
  * Названия языков — каждое на своём языке, поэтому одинаковые на всех версиях сайта.
@@ -53,14 +68,14 @@ export const DEFAULT_LOCALE: Locale = 'ru'
  */
 export const LOCALE_NAMES: Record<Locale, string> = {
   ru: 'Русский',
-  kk: 'Қазақша',
+  kz: 'Қазақша',
   en: 'English',
 }
 
-/** Локаль Open Graph — в формате `язык_СТРАНА`, а не голый код языка. */
+/** Локаль Open Graph — в формате `язык_СТРАНА` по коду платформы (`kk_KZ`), а не код сайта. */
 export const OG_LOCALES: Record<Locale, string> = {
   ru: 'ru_RU',
-  kk: 'kk_KZ',
+  kz: 'kk_KZ',
   en: 'en_US',
 }
 

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { fromPlatformLanguage } from '@studenthub/shared-config'
 import type { EnvVars } from '../../config/env.schema'
 import { pickWebBase } from '../../config/web-base'
 import { brandLogoPng } from '../brand/brand-logo'
 import { attachmentHeader } from '../http/content-disposition'
 import { appVersion, buildSha } from './app-version'
-import { EXPORT_LOCALES, INTL_TAG, exportLabels, type ExportLabels } from './export-labels'
+import { INTL_TAG, exportLabels, type ExportLabels } from './export-labels'
 import type {
   ExportContext,
   ExportFormat,
@@ -73,10 +74,12 @@ export class ExportBrandingService {
     return exportLabels(locale)
   }
 
-  /** `?locale=` из запроса → язык документа. Мусор и отсутствие — русский. */
+  /**
+   * `?locale=` из запроса → язык документа. Мусор и отсутствие — русский. Платформенный
+   * тег (`kk`, `kk-KZ` — так шлют старые сборки приложений) читается как `kz`.
+   */
   resolveLocale(raw: string | undefined): ExportLocale {
-    const value = raw?.trim().toLowerCase()
-    return EXPORT_LOCALES.find((locale) => locale === value) ?? 'ru'
+    return fromPlatformLanguage(raw) ?? 'ru'
   }
 
   /**

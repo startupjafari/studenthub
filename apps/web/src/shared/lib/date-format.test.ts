@@ -10,6 +10,7 @@ describe('date-format', () => {
     const day = { day: 'numeric', month: 'long', year: 'numeric' } as const
     expect(formatDate(at, 'ru', time)).toBe(at.toLocaleTimeString('ru', time))
     expect(formatDate(at, 'en', day)).toBe(at.toLocaleDateString('en', day))
+    // `kk` — тег платформы из useLocale() (next-intl), а не код приложения `kz`.
     expect(formatDate(at.toISOString(), 'kk', day)).toBe(at.toLocaleDateString('kk', day))
   })
 

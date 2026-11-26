@@ -4300,7 +4300,7 @@
     <string name="staff_svc_problem_code">Код: латиница, цифры и дефис, от 2 до 60 символов</string>
     <string name="staff_svc_problem_delivery">Выберите хотя бы один способ выдачи</string>
     <string name="staff_svc_problem_field">У каждого вопроса нужна подпись на всех трёх языках</string>
-    <string name="staff_svc_problem_name">Заполните название на всех трёх языках (RU, KK, EN)</string>
+    <string name="staff_svc_problem_name">Заполните название на всех трёх языках (RU, KZ, EN)</string>
     <string name="staff_svc_problem_options">У вопроса с выбором должен быть хотя бы один вариант ответа</string>
     <string name="staff_svc_problem_requirement">У каждого документа нужно название на всех трёх языках</string>
     <string name="staff_svc_problem_sla">Срок обработки — от 1 часа до 90 дней</string>
@@ -4400,7 +4400,7 @@
     <string name="staff_tpl_issue_unsupported">Конструкция %1$s пока не поддерживается: используйте только простые переменные из каталога.</string>
     <string name="staff_tpl_locale">Язык документа</string>
     <string name="staff_tpl_locale_en">Английский</string>
-    <string name="staff_tpl_locale_kk">Казахский</string>
+    <string name="staff_tpl_locale_kz">Казахский</string>
     <string name="staff_tpl_locale_ru">Русский</string>
     <string name="staff_tpl_needsFix">Нужно исправить</string>
     <string name="staff_tpl_new">Новый шаблон</string>

@@ -25,7 +25,7 @@ import { staffLibrary } from './library-scope'
 type Column =
   'title' | 'authors' | 'isbn' | 'publisher' | 'year' | 'section' | 'inventory' | 'count'
 
-// Синонимы заголовков (ru/kk/en), без учёта регистра.
+// Синонимы заголовков (ru/kz/en), без учёта регистра.
 const HEADER_ALIASES: Record<Column, string[]> = {
   title: ['название', 'наименование', 'книга', 'заглавие', 'title', 'атауы'],
   authors: ['автор', 'авторы', 'author', 'authors', 'авторлар'],

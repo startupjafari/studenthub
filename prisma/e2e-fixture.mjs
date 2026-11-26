@@ -71,7 +71,7 @@ await prisma.katoUnit.upsert({
     code: ALMATY,
     kind: 'REGION',
     nameRu: 'Алматы',
-    nameKk: 'Алматы',
+    nameKz: 'Алматы',
     regionCode: ALMATY,
   },
 })

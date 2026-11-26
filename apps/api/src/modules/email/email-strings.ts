@@ -14,7 +14,12 @@
 // текст уведомления в письме-зеркале (он уже пришёл на языке получателя).
 
 import { Role } from '@studenthub/shared-types'
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES, type Locale } from '@studenthub/shared-config'
+import {
+  DEFAULT_LOCALE,
+  SUPPORTED_LOCALES,
+  toPlatformLanguage,
+  type Locale,
+} from '@studenthub/shared-config'
 
 const BRAND = 'StudentHub'
 
@@ -23,7 +28,10 @@ const BRAND = 'StudentHub'
  * не может оказаться ни лишней статьи, ни недостающей.
  */
 export interface EmailDict {
-  /** Атрибут lang у письма: почтовые клиенты по нему переносят слова и читают вслух. */
+  /**
+   * Атрибут lang у письма: почтовые клиенты по нему переносят слова и читают вслух.
+   * Это тег платформы (BCP 47), а не код приложения: казахский здесь `kk`, не `kz`.
+   */
   htmlLang: string
   /**
    * Тег для Intl: им форматируются даты в письме. Отдельно от `htmlLang`, потому что у
@@ -269,8 +277,8 @@ const RU: EmailDict = {
   },
 }
 
-const KK: EmailDict = {
-  htmlLang: 'kk',
+const KZ: EmailDict = {
+  htmlLang: toPlatformLanguage('kz'),
   dateLocale: 'kk-KZ',
   roles: {
     [Role.PLATFORM_ADMIN]: 'Платформа әкімшісі',
@@ -534,7 +542,7 @@ const EN: EmailDict = {
   },
 }
 
-export const EMAIL_STRINGS: Record<Locale, EmailDict> = { ru: RU, kk: KK, en: EN }
+export const EMAIL_STRINGS: Record<Locale, EmailDict> = { ru: RU, kz: KZ, en: EN }
 
 /**
  * Словарь по языку получателя. Язык приходит из `User.locale` (у внешних адресатов его нет

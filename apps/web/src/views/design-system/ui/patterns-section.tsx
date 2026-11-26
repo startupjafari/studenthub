@@ -209,7 +209,7 @@ export function PatternsSection() {
       <Section
         id="form"
         title="Форма"
-        note="Ошибка поля — под полем, ошибка сервера — FormAlert сверху. Кнопка отправки на время запроса переходит в loading, а не в disabled без объяснения."
+        note="Ошибка поля — в строке подписи поля; ошибка сервера — тостом useErrorToast, в форме не рисуется и не сдвигает её. Кнопка отправки на время запроса переходит в loading, а не в disabled без объяснения."
       >
         <Demo label="Раскладка" className="block">
           <form className="flex max-w-md flex-col gap-4" onSubmit={(e) => e.preventDefault()}>

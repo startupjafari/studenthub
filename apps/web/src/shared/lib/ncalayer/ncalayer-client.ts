@@ -17,6 +17,8 @@
 // Одна операция за раз: два окна выбора ключа поверх друг друга NCALayer не держит, а второй
 // ответ пришёл бы в чужой обработчик. Сокет закрывается после каждой операции.
 
+import type { Locale } from '@studenthub/shared-config'
+
 export const NCALAYER_URL = 'wss://127.0.0.1:13579'
 /** Официальная страница загрузки NCALayer (pki.gov.kz/ncalayer/ переадресует сюда же). */
 export const NCALAYER_DOWNLOAD_URL = 'https://ncl.pki.gov.kz/'
@@ -100,16 +102,17 @@ export interface NcaLayerSession {
    * Открепленная CMS-подпись ключом аутентификации над байтами `dataBase64`.
    * Возвращает подпись в base64.
    */
-  signAuth(dataBase64: string, locale: string): Promise<string>
+  signAuth(dataBase64: string, locale: Locale): Promise<string>
   close(): void
 }
 
 /**
- * Язык окна NCALayer. Модуль basics знает только `kk` и `ru` (без параметра — казахский);
- * английского интерфейса у окна нет, англоязычному пользователю показываем русский.
+ * Язык окна NCALayer по коду приложения. Модуль basics знает только `kk` и `ru` (без
+ * параметра — казахский): наш `kz` для него — платформенный `kk`. Английского интерфейса у
+ * окна нет, англоязычному пользователю показываем русский.
  */
-export function ncaLayerLocale(locale: string): 'kk' | 'ru' {
-  return locale === 'kk' ? 'kk' : 'ru'
+export function ncaLayerLocale(locale: Locale): 'kk' | 'ru' {
+  return locale === 'kz' ? 'kk' : 'ru'
 }
 
 /**
@@ -173,7 +176,8 @@ export interface SignedChallenge {
 export async function signChallengeWithNcaLayer(
   requestChallenge: () => Promise<{ challengeId: string; nonce: string }>,
   options: NcaLayerOptions & {
-    locale: string
+    /** Код приложения (`ru | kz | en`); в язык окна NCALayer его переводит ncaLayerLocale. */
+    locale: Locale
     /** Окно выбора ключа вот-вот откроется — пора сказать человеку, где его искать. */
     onAwaitingKey?: () => void
   },
@@ -258,7 +262,7 @@ function connect(options: NcaLayerOptions): Promise<NcaLayerSession> {
       reject(new NcaLayerError('cancelled'))
     }
 
-    const signAuth = (dataBase64: string, locale: string): Promise<string> => {
+    const signAuth = (dataBase64: string, locale: Locale): Promise<string> => {
       if (closed) return Promise.reject(new NcaLayerError('failed', 'session closed'))
       if (pending) return Promise.reject(new NcaLayerError('busy'))
       return new Promise<string>((resolveSign, rejectSign) => {
@@ -310,7 +314,7 @@ function connect(options: NcaLayerOptions): Promise<NcaLayerSession> {
 }
 
 /** Запрос подписи: открепленная CMS над байтами из base64, ключ — только аутентификации. */
-function authSignRequest(dataBase64: string, locale: string) {
+function authSignRequest(dataBase64: string, locale: Locale) {
   return {
     module: BASICS_MODULE,
     method: 'sign',

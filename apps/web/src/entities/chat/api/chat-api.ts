@@ -6,6 +6,7 @@ import {
   type CreateChatPollInput,
   type MessageSearchKind,
 } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import {
   api,
   toMediaLink,
@@ -542,7 +543,7 @@ export async function sharePostRequest(
 export async function exportChatFile(
   chatId: string,
   format: 'txt' | 'json',
-  locale: string,
+  locale: Locale,
 ): Promise<DownloadedFile> {
   return requestFile(`/chats/${chatId}/export/file`, { format, locale })
 }

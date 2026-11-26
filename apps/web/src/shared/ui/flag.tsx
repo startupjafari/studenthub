@@ -3,7 +3,7 @@
 import { useId } from 'react'
 import { cn } from '../lib/utils'
 
-export type FlagCode = 'ru' | 'kk' | 'en'
+export type FlagCode = 'ru' | 'kz' | 'en'
 
 // Инлайн-SVG флаги: emoji-флаги на Windows не отображаются (Chrome рисует буквенный код),
 // поэтому рисуем векторно — одинаково во всех ОС. Скруглённый прямоугольник ~4:3.
@@ -21,7 +21,7 @@ export function Flag({ code, className }: { code: FlagCode; className?: string }
     )
   }
 
-  if (code === 'kk') {
+  if (code === 'kz') {
     return (
       <svg viewBox="0 0 24 18" className={cls} aria-hidden preserveAspectRatio="none">
         <rect width="24" height="18" fill="#00afca" />

@@ -32,7 +32,7 @@ export class LibraryClearanceController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary:
-      'Справка «задолженностей в библиотеке нет» — PDF с кодом проверки и QR (?locale=ru|kk|en)',
+      'Справка «задолженностей в библиотеке нет» — PDF с кодом проверки и QR (?locale=ru|kz|en)',
   })
   @ApiResponse({
     status: 201,

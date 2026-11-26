@@ -8,7 +8,7 @@ import { translateValidationMessage } from '../lib/validation-message'
 // текст берётся из словаря `Validation`. Ключ без перевода не роняет форму — она покажет
 // сам ключ, — поэтому пропажу ловим здесь, а не глазами на казахском интерфейсе.
 
-const LOCALES = ['ru', 'en', 'kk'] as const
+const LOCALES = ['ru', 'en', 'kz'] as const
 const MESSAGES = path.join(__dirname, '..', '..', '..', 'messages')
 const SCHEMAS = path.join(
   __dirname,
@@ -69,7 +69,7 @@ describe('сообщения валидации shared-schemas', () => {
     const problems: string[] = []
     for (const key of VALIDATION_MESSAGE_KEYS) {
       const ru = placeholders(dicts.ru.get(key) ?? '')
-      for (const locale of ['en', 'kk'] as const) {
+      for (const locale of ['en', 'kz'] as const) {
         const other = placeholders(dicts[locale].get(key) ?? '')
         if (other.join() !== ru.join()) problems.push(`${key}: ${locale} {${other}} ≠ ru {${ru}}`)
       }

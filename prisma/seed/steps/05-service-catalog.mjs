@@ -24,13 +24,13 @@ export async function seedServiceCatalog(prisma) {
     ['OTHER', 'Прочее', 'Басқа', 'Other', 8],
   ]
   const catId = {}
-  for (const [code, nameRu, nameKk, nameEn, sortOrder] of categories) {
+  for (const [code, nameRu, nameKz, nameEn, sortOrder] of categories) {
     const id = `seed-appcat-${code.toLowerCase()}`
     catId[code] = id
     await prisma.applicationCategory.upsert({
       where: { id },
-      update: { nameRu, nameKk, nameEn, sortOrder },
-      create: { id, code, nameRu, nameKk, nameEn, sortOrder },
+      update: { nameRu, nameKz, nameEn, sortOrder },
+      create: { id, code, nameRu, nameKz, nameEn, sortOrder },
     })
   }
 
@@ -40,7 +40,7 @@ export async function seedServiceCatalog(prisma) {
       code: 'study-certificate',
       category: 'CERTIFICATES',
       nameRu: 'Справка с места обучения',
-      nameKk: 'Оқу орнынан анықтама',
+      nameKz: 'Оқу орнынан анықтама',
       nameEn: 'Certificate of study',
       descriptionRu: 'Справка, подтверждающая обучение в университете.',
       slaHours: 8,
@@ -53,7 +53,7 @@ export async function seedServiceCatalog(prisma) {
           code: 'purpose',
           type: 'TEXT',
           labelRu: 'Место требования',
-          labelKk: 'Талап ету орны',
+          labelKz: 'Талап ету орны',
           labelEn: 'Place of demand',
           required: false,
         },
@@ -63,7 +63,7 @@ export async function seedServiceCatalog(prisma) {
       code: 'transcript',
       category: 'ACADEMIC',
       nameRu: 'Транскрипт',
-      nameKk: 'Транскрипт',
+      nameKz: 'Транскрипт',
       nameEn: 'Transcript',
       descriptionRu: 'Выписка об академической успеваемости.',
       slaHours: 48,
@@ -77,7 +77,7 @@ export async function seedServiceCatalog(prisma) {
       code: 'academic-leave',
       category: 'ACADEMIC',
       nameRu: 'Академический отпуск',
-      nameKk: 'Академиялық демалыс',
+      nameKz: 'Академиялық демалыс',
       nameEn: 'Academic leave',
       descriptionRu: 'Оформление академического отпуска.',
       slaHours: 120,
@@ -93,7 +93,7 @@ export async function seedServiceCatalog(prisma) {
           code: 'reason',
           type: 'TEXTAREA',
           labelRu: 'Причина',
-          labelKk: 'Себебі',
+          labelKz: 'Себебі',
           labelEn: 'Reason',
           required: true,
         },
@@ -104,13 +104,13 @@ export async function seedServiceCatalog(prisma) {
     const id = `seed-appsvc-${s.code}`
     await prisma.applicationService.upsert({
       where: { id },
-      update: { nameRu: s.nameRu, nameKk: s.nameKk, nameEn: s.nameEn, sortOrder: i + 1 },
+      update: { nameRu: s.nameRu, nameKz: s.nameKz, nameEn: s.nameEn, sortOrder: i + 1 },
       create: {
         id,
         categoryId: catId[s.category],
         code: s.code,
         nameRu: s.nameRu,
-        nameKk: s.nameKk,
+        nameKz: s.nameKz,
         nameEn: s.nameEn,
         descriptionRu: s.descriptionRu,
         slaHours: s.slaHours,
@@ -120,18 +120,18 @@ export async function seedServiceCatalog(prisma) {
       },
     })
     for (const [j, r] of (s.requirements ?? []).entries()) {
-      const [rcode, docType, titleRu, titleKk, titleEn, required] = r
+      const [rcode, docType, titleRu, titleKz, titleEn, required] = r
       const rid = `seed-appreq-${s.code}-${rcode}`
       await prisma.serviceRequirement.upsert({
         where: { id: rid },
-        update: { titleRu, titleKk, titleEn, required, sortOrder: j + 1 },
+        update: { titleRu, titleKz, titleEn, required, sortOrder: j + 1 },
         create: {
           id: rid,
           serviceId: id,
           code: rcode,
           documentType: docType,
           titleRu,
-          titleKk,
+          titleKz,
           titleEn,
           required,
           sortOrder: j + 1,
@@ -142,14 +142,14 @@ export async function seedServiceCatalog(prisma) {
       const fid = `seed-appfld-${s.code}-${f.code}`
       await prisma.serviceFormField.upsert({
         where: { id: fid },
-        update: { labelRu: f.labelRu, labelKk: f.labelKk, labelEn: f.labelEn, sortOrder: j + 1 },
+        update: { labelRu: f.labelRu, labelKz: f.labelKz, labelEn: f.labelEn, sortOrder: j + 1 },
         create: {
           id: fid,
           serviceId: id,
           code: f.code,
           type: f.type,
           labelRu: f.labelRu,
-          labelKk: f.labelKk,
+          labelKz: f.labelKz,
           labelEn: f.labelEn,
           required: f.required ?? false,
           sortOrder: j + 1,

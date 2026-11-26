@@ -121,7 +121,7 @@ const TEMPLATES = [
     title: 'Айналма парағы',
     category: 'CLEARANCE',
     description: 'Обходной лист при отчислении или академическом отпуске (на казахском).',
-    locale: 'kk',
+    locale: 'kz',
     versions: [
       [
         '{university.name}',

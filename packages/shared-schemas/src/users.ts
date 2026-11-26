@@ -90,7 +90,7 @@ export const UpdateProfileSchema = z
     // shared-schemas от shared-config не зависит, и заводить эту связь ради трёх строк
     // не стали. Расхождение ловит тест apps/api/src/modules/users/locale-contract.spec.ts —
     // он видит оба пакета и падает, если списки разъехались.
-    locale: z.enum(['ru', 'kk', 'en']).optional(),
+    locale: z.enum(['ru', 'kz', 'en']).optional(),
     country: shortText.optional(),
     // студент / староста
     course: z.coerce.number().int().min(1).max(8).optional().nullable(),

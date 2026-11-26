@@ -580,7 +580,7 @@
 
 - [done] P2-D-career-web-followup · P2 · из FIX-D-F12: форма правки вакансии работодателя предупреждает, что сохранение содержательных полей вернёт вакансию на модерацию
   - Файлы: apps/web/src/views/employer/**
-  - Готово, когда: предупреждение в форме (i18n ru/kk/en), тесты зелёные.
+  - Готово, когда: предупреждение в форме (i18n ru/kz/en), тесты зелёные.
 
 - [done] P2-D-applications-web-followup · P2 · из FIX-D-F03: в вебе (и iOS/Android) скрыть «Убрать» у ACCEPTED-документа, пока ждут исправление (сервер отвечает 400); выполнить вместе с FIX-D-F02/D-F05/D-F06
   - Файлы: apps/web/src/views/applications/**, apps/web/src/entities/applications/**

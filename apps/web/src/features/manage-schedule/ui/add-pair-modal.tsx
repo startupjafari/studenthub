@@ -5,7 +5,8 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { Plus } from 'lucide-react'
 import { CreatePairSchema, type CreatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -58,7 +59,7 @@ export function AddPairModal({
   onClose: () => void
 }) {
   const t = useTranslations('Schedule')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const tPeople = useTranslations('People')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()

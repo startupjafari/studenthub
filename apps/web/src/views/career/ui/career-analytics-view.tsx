@@ -3,7 +3,8 @@
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
-import { useFormatter, useLocale, useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { Briefcase, Building2, Download, FileText, UserCheck } from 'lucide-react'
 import type { CareerReportPeriod } from '@studenthub/shared-schemas'
 import {
@@ -52,7 +53,7 @@ export function CareerAnalyticsView() {
   const tA = useTranslations('CareerAnalytics')
   const tErr = useTranslations('Errors')
   const format = useFormatter()
-  const locale = useLocale()
+  const locale = useAppLocale()
   const { palette } = useChartTheme()
   const { needsPick, universityId } = useCareerUniversity()
   const [period, setPeriod] = useState<CareerReportPeriod>('quarter')

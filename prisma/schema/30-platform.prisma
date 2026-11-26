@@ -27,7 +27,7 @@ model PlatformState {
   maintenanceFrom      DateTime? @map("maintenance_from")
   maintenanceUntil     DateTime? @map("maintenance_until")
   maintenanceMessageRu String?   @map("maintenance_message_ru")
-  maintenanceMessageKk String?   @map("maintenance_message_kk")
+  maintenanceMessageKz String?   @map("maintenance_message_kz")
   maintenanceMessageEn String?   @map("maintenance_message_en")
 
   // ── Баннер-объявление ────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ model PlatformState {
   // неделю, читатели перестают видеть — и не увидят следующее, настоящее.
   bannerUntil  DateTime? @map("banner_until")
   bannerTextRu String?   @map("banner_text_ru")
-  bannerTextKk String?   @map("banner_text_kk")
+  bannerTextKz String?   @map("banner_text_kz")
   bannerTextEn String?   @map("banner_text_en")
   /// INFO | WARNING — тон баннера. Строкой, как visibility у контента.
   bannerLevel  String?   @map("banner_level")

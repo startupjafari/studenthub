@@ -96,7 +96,7 @@ export function documentTemplateVariable(key: string): DocumentTemplateVariableD
 }
 
 /** Языки документа: на нём подставляются значения-коды (форма обучения, финансирование). */
-export const DOCUMENT_TEMPLATE_LOCALES = ['ru', 'kk', 'en'] as const
+export const DOCUMENT_TEMPLATE_LOCALES = ['ru', 'kz', 'en'] as const
 export type DocumentTemplateLocale = (typeof DOCUMENT_TEMPLATE_LOCALES)[number]
 
 /**
@@ -119,7 +119,7 @@ export const DOCUMENT_TEMPLATE_CODE_LABELS: Record<
     PAID: 'Платное',
     QUOTA: 'Квота',
   },
-  kk: {
+  kz: {
     BACHELOR: 'Бакалавриат',
     MASTER: 'Магистратура',
     PHD: 'Докторантура (PhD)',

@@ -1,4 +1,5 @@
 import type { CareerEventListQueryInput, CareerReportPeriod } from '@studenthub/shared-schemas'
+import type { Locale } from '@studenthub/shared-config'
 import { api, getPaged, type Paged } from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type {
@@ -59,7 +60,7 @@ export async function fetchCareerReport(
 export async function exportCareerReport(
   period: CareerReportPeriod,
   universityId: string | undefined,
-  locale: string,
+  locale: Locale,
   format: 'xlsx' | 'csv' = 'xlsx',
 ): Promise<DownloadedFile> {
   return requestFile('/career/analytics/university/report/export', {

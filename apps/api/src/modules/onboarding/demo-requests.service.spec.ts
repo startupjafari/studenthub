@@ -286,7 +286,7 @@ describe('DemoRequestsService.approve', () => {
           kind: 'CITY',
           OR: [
             { nameRu: { equals: 'Алматы', mode: 'insensitive' } },
-            { nameKk: { equals: 'Алматы', mode: 'insensitive' } },
+            { nameKz: { equals: 'Алматы', mode: 'insensitive' } },
           ],
         }),
       }),

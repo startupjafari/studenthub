@@ -10,7 +10,7 @@ const passport = {
   id: 'r1',
   documentType: 'ID_CARD',
   titleRu: 'Удостоверение',
-  titleKk: 'Куәлік',
+  titleKz: 'Куәлік',
   titleEn: 'ID card',
   required: true,
 }
@@ -27,7 +27,7 @@ function attached(requirementId: string): ApplicationDocumentItem {
     requirement: {
       id: requirementId,
       titleRu: 'Старое требование',
-      titleKk: 'Ескі талап',
+      titleKz: 'Ескі талап',
       titleEn: 'Old requirement',
       required: false,
     },
@@ -55,7 +55,7 @@ function app(documents: ApplicationDocumentItem[]): ApplicationDetail {
       id: 's1',
       code: 'ref',
       nameRu: 'Справка',
-      nameKk: 'Анықтама',
+      nameKz: 'Анықтама',
       nameEn: 'Certificate',
       slaHours: 24,
       requirements: [passport],

@@ -10,18 +10,20 @@ import {
 } from '@studenthub/shared-schemas'
 import { resendCompanyVerification } from '../../../entities/company'
 import { Button, FieldError, Input, Label } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 
 // Новая ссылка по адресу — для страницы из письма, когда ссылка истекла или потерялась:
 // адрес там неизвестен, токен его не раскрывает.
 export function ResendVerificationForm() {
   const t = useTranslations('Employer')
-  const tErr = useTranslations('Errors')
+  const { show: showApiError } = useErrorToast('resend-verification')
   const form = useForm<ResendCompanyVerificationInput>({
     resolver: zodResolver(ResendCompanyVerificationSchema),
   })
   const resend = useMutation({
     mutationFn: (values: ResendCompanyVerificationInput) => resendCompanyVerification(values.email),
+    // Отказ (лимит запросов, сбой сети) не про введённый адрес — тостом, а не под полем.
+    onError: (e) => showApiError(e),
   })
 
   if (resend.isSuccess) {
@@ -44,7 +46,6 @@ export function ResendVerificationForm() {
           {...form.register('email')}
         />
         <FieldError>{form.formState.errors.email ? t('resendEmailInvalid') : null}</FieldError>
-        {resend.isError && <FieldError>{tErr(toApiError(resend.error).code)}</FieldError>}
       </div>
       <Button type="submit" variant="outline" loading={resend.isPending}>
         {t('resend')}

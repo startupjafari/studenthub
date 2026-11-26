@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
+import { useAppLocale } from '../../../shared/i18n/app-locale'
 import { toast } from 'sonner'
 import { FileKey, Loader2 } from 'lucide-react'
 import { edsChallengeRequest, edsLoginRequest } from '../../../shared/api'
@@ -14,12 +15,11 @@ import {
 } from '../../../shared/lib/ncalayer'
 import { Button } from '../../../shared/ui'
 import {
-  NcaLayerHint,
   edsKeys,
   isNcaLayerSetupProblem,
   useEdsEnabled,
   useNcaLayerErrorText,
-  type NcaLayerSetupProblem,
+  useNcaLayerHint,
 } from '../../../entities/eds'
 
 type Stage = 'idle' | 'connecting' | 'awaiting' | 'verifying'
@@ -41,14 +41,14 @@ export function EdsLoginButton({
   onFailure: (error: unknown) => void
 }) {
   const t = useTranslations('Auth')
-  const locale = useLocale()
+  const locale = useAppLocale()
   const queryClient = useQueryClient()
   const supported = useNcaLayerSupported()
   const enabled = useEdsEnabled(supported)
   const ncaLayerErrorText = useNcaLayerErrorText()
+  // Подсказка «запустите / разрешите / обновите NCALayer» — в том же тосте, что и отказы входа.
+  const ncaLayerHint = useNcaLayerHint('login-error')
   const [stage, setStage] = useState<Stage>('idle')
-  // Подсказка «запустите / разрешите / обновите NCALayer» — до следующей попытки.
-  const [problem, setProblem] = useState<NcaLayerSetupProblem | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // Ушли со страницы посреди операции — сокет NCALayer закрываем, а не бросаем открытым.
@@ -58,7 +58,6 @@ export function EdsLoginButton({
 
   async function start() {
     if (stage !== 'idle') return
-    setProblem(null)
     const controller = new AbortController()
     abortRef.current = controller
     setStage('connecting')
@@ -76,7 +75,7 @@ export function EdsLoginButton({
       setStage('idle')
       if (isNcaLayerError(error)) {
         if (isNcaLayerSetupProblem(error.kind)) {
-          setProblem(error.kind)
+          ncaLayerHint.show(error.kind)
           return
         }
         const text = ncaLayerErrorText(error.kind)
@@ -126,7 +125,6 @@ export function EdsLoginButton({
           </button>
         </div>
       )}
-      {problem && <NcaLayerHint problem={problem} />}
     </div>
   )
 }
