@@ -27,7 +27,6 @@ interface Props {
 export function MaterialDetailModal({ material, canManage, onClose }: Props) {
   const t = useTranslations('Materials')
   const tCommon = useTranslations('Common')
-  const tErr = useTranslations('Errors')
   const byteUnit = useByteUnitLabel()
   const locale = useLocale()
   const qc = useQueryClient()
@@ -139,7 +138,6 @@ export function MaterialDetailModal({ material, canManage, onClose }: Props) {
               void invalidate()
               toast.success(t('fileAdded'))
             }}
-            onError={(code) => toast.error(tErr(code))}
           />
         )}
 

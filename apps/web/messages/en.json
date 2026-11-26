@@ -1725,7 +1725,6 @@
     "uploading": "Uploading… {percent}%",
     "remove": "Remove file",
     "cancel": "Cancel upload",
-    "retry": "Retry",
     "done": "Uploaded",
     "invalidType": "Unsupported file type",
     "fileTooLarge": "File exceeds {max}"

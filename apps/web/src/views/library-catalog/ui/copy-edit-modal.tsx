@@ -23,7 +23,7 @@ import {
   Textarea,
   useConfirm,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import {
   CopyStatusBadge,
   libraryKeys,
@@ -38,7 +38,7 @@ import { useConditionLabels } from '../lib/use-condition-labels'
 export function CopyEditModal({ copy, onClose }: { copy: BookCopyItem; onClose: () => void }) {
   const t = useTranslations('LibraryCatalog')
   const tCommon = useTranslations('Common')
-  const tErr = useTranslations('Errors')
+  const errorToast = useErrorToast('library-copy-edit')
   const qc = useQueryClient()
   const confirm = useConfirm()
   const conditionLabel = useConditionLabels()
@@ -57,9 +57,11 @@ export function CopyEditModal({ copy, onClose }: { copy: BookCopyItem; onClose: 
     onError: (e) => {
       const err = toApiError(e)
       const field = err.details?.[0]?.field
+      // Занятый номер — ошибка поля; остальные отказы (экземпляр выдан или отложен под
+      // бронь, сбой) к полю не относятся — тостом.
       if (err.code === 'CONFLICT' && field === 'inventoryNumber') setError(t('inventoryTaken'))
-      else if (err.code === 'CONFLICT') setError(t('copyBusy'))
-      else toast.error(tErr(err.code))
+      else if (err.code === 'CONFLICT') errorToast.showText(t('copyBusy'))
+      else errorToast.show(e)
     },
   })
 

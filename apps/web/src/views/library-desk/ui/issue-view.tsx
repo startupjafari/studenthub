@@ -39,7 +39,7 @@ import {
   lookupReaderRequest,
   resolveReaderRequest,
 } from '../../../entities/library'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import { parseQrTarget } from '../../../features/qr-scan'
 import { isTicketError, localToday, useDeskErrors } from '../lib/desk-errors'
 import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picker'
@@ -325,7 +325,7 @@ function ReaderSession({
   const [copy, setCopy] = useState<CopyRef>({ copyCode: null, inventoryNumber: '' })
   const [dueDate, setDueDate] = useState(session.defaultDueDate)
   const [issued, setIssued] = useState<LoanItem[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const errorToast = useErrorToast('library-issue')
   // Без скана QR — отметка обязательна и ставится заново на каждого читателя.
   const noPhone = session.via === 'card'
   const [noPhoneChecked, setNoPhoneChecked] = useState(false)
@@ -355,17 +355,19 @@ function ReaderSession({
     onSuccess: (loan) => {
       setIssued((prev) => [loan, ...prev])
       setCopy({ copyCode: null, inventoryNumber: '' })
-      setError(null)
       void qc.invalidateQueries({ queryKey: libraryKeys.all })
       toast.success(t('issuedToast', { title: loan.book.title }))
     },
     onError: (e) => {
+      // Пропуск истёк — экран уходит к скану читателя, и тост формы погас бы вместе с ним:
+      // этот отказ — обычным тостом без привязки к форме.
       if (isTicketError(e)) {
         toast.error(describe(e))
         onReset()
         return
       }
-      setError(describe(e))
+      // Отказ выдачи — тостом: строка над кнопкой раздвигала форму у стойки.
+      errorToast.showText(describe(e))
     },
   })
 
@@ -450,7 +452,6 @@ function ReaderSession({
                   aria-label={t('dueDate')}
                 />
               </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
               <div>
                 <Button type="submit" disabled={!ready} loading={issueMut.isPending}>
                   <BookCheck className="size-4" aria-hidden />
