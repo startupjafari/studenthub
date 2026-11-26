@@ -96,6 +96,17 @@ export interface TwoFactorResetPayload extends LocalizedEmailPayload {
 }
 
 /**
+ * К учётке привязана ЭЦП (docs/PROJECT.md §8.3 «Вход по ЭЦП»). Как и письмо о сбросе 2FA —
+ * без ссылки: оно сообщает о свершившемся. `subjectCn` — ФИО владельца ключа из сертификата:
+ * по нему человек сразу видит, свой ли ключ привязан. ИИН в письмо не попадает.
+ */
+export interface EdsLinkedPayload extends LocalizedEmailPayload {
+  to: string
+  firstName: string
+  subjectCn: string
+}
+
+/**
  * Подтверждение адреса в заявке вуза на тестирование (docs/PROJECT.md §31).
  *
  * Письмо уходит ДО очереди модерации, а не после: форма публичная, и без этого шага
@@ -442,6 +453,27 @@ export function renderTwoFactorReset(data: TwoFactorResetPayload): RenderedEmail
   )
   const text = plain(
     [t.twoFactorReset.lead(data.firstName), '', t.twoFactorReset.next, '', t.twoFactorReset.note],
+    t,
+  )
+  return { subject, html, text }
+}
+
+export function renderEdsLinked(data: EdsLinkedPayload): RenderedEmail {
+  const t = emailDict(data.locale)
+  const subject = t.edsLinked.subject
+  const html = layout(
+    {
+      preheader: t.edsLinked.preheader,
+      heading: t.edsLinked.heading,
+      body:
+        paragraph(t.edsLinked.lead(esc(data.firstName), esc(data.subjectCn))) +
+        paragraph(t.edsLinked.next) +
+        note(t.edsLinked.note),
+    },
+    t,
+  )
+  const text = plain(
+    [t.edsLinked.lead(data.firstName, data.subjectCn), '', t.edsLinked.next, '', t.edsLinked.note],
     t,
   )
   return { subject, html, text }

@@ -58,6 +58,9 @@ class AuthRoutes {
   @AuthThrottle('login-2fa', { limit: 2, ttl: 60_000 }, { limit: 4, ttl: 60_000 })
   loginVerify() {}
 
+  @AuthThrottle('eds-login', { limit: 2, ttl: 60_000 }, { limit: 4, ttl: 60_000 })
+  edsLogin() {}
+
   @AuthThrottle('refresh', { limit: 2, ttl: 60_000 }, { limit: 4, ttl: 60_000 })
   refresh() {}
 
@@ -159,6 +162,24 @@ describe('UserThrottlerGuard — публичные auth-маршруты (@Auth
     await expect(forged()).resolves.toBe(true)
     await expect(forged()).resolves.toBe(true)
     await expect(forged()).rejects.toBeInstanceOf(ThrottlerException)
+  })
+
+  // Вход по ЭЦП: владелец ключа до проверки подписи неизвестен, challenge одноразовый —
+  // нагрузку держит потолок с адреса; повтор одного challenge — свой счётчик.
+  it('ЭЦП: свой счёт на challenge, разные challenge упираются в потолок с адреса', async () => {
+    const { hit } = await makeGuard()
+    const eds = (challengeId: unknown, ip = CAMPUS_IP) =>
+      hit('edsLogin', { ip, body: { challengeId, cms: 'x' } })
+
+    await expect(eds('c-1')).resolves.toBe(true)
+    await expect(eds('c-1')).resolves.toBe(true)
+    await expect(eds('c-1')).rejects.toBeInstanceOf(ThrottlerException)
+    // Каждый свежий challenge — новый свой счётчик, но поток запросов держит потолок адреса (4).
+    await expect(eds('c-2')).resolves.toBe(true)
+    await expect(eds('c-3')).resolves.toBe(true)
+    await expect(eds('c-4')).rejects.toBeInstanceOf(ThrottlerException)
+    // Без challenge в теле — только потолок; другой адрес — свой потолок.
+    await expect(eds(undefined, '10.0.0.2')).resolves.toBe(true)
   })
 
   it('refresh: счёт по id токена из cookie, вкладки кампуса не делят лимит на всех', async () => {

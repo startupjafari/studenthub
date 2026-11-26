@@ -18,7 +18,7 @@ import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
-import { UserService, type UserProfile } from '../users/users.service'
+import { UserService, type OwnProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
 import { UniversityAccessService } from '../universities/university-access.service'
 import { CompaniesService } from '../career/companies.service'
@@ -281,8 +281,14 @@ export class AuthService {
   /**
    * Выдать сессию пользователю по id, без пароля. Используется входом по QR: телефон
    * (уже авторизован, в т.ч. прошёл 2FA) подтвердил вход, поэтому пароль/2FA повторно не нужны.
+   * И входом по ЭЦП: подпись ключом аутентификации — сама два фактора (EdsAuthService).
+   * `method` попадает в аудит входа — по журналу видно, каким способом вошли.
    */
-  async issueSessionForUser(userId: string, ctx: RequestContext): Promise<SessionResult> {
+  async issueSessionForUser(
+    userId: string,
+    ctx: RequestContext,
+    method?: 'eds',
+  ): Promise<SessionResult> {
     const user = await this.users.findByIdForAuth(userId)
     if (!user) {
       throw new AppException('UNAUTHORIZED', 'Пользователь не найден')
@@ -293,7 +299,12 @@ export class AuthService {
     await this.universityAccess.assertAllowed(user)
     await this.assertEmployerVerified(user)
     const session = await this.issueSession(this.toPayload(user), randomUUID())
-    await this.audit.record({ userId, action: 'login', ...ctx })
+    await this.audit.record({
+      userId,
+      action: 'login',
+      ...(method ? { metadata: { method } } : {}),
+      ...ctx,
+    })
     return session
   }
 
@@ -635,9 +646,9 @@ export class AuthService {
    * (сам человек / законный представитель) разошлось с датой рождения. Подробности и
    * принятие — `GET/POST /users/me/consent`.
    */
-  async getMe(userId: string): Promise<UserProfile & { consentRequired: boolean }> {
+  async getMe(userId: string): Promise<OwnProfile & { consentRequired: boolean }> {
     const [profile, consent] = await Promise.all([
-      this.users.findById(userId),
+      this.users.findOwnProfile(userId),
       this.users.consentState(userId),
     ])
     return { ...profile, consentRequired: consent.required }

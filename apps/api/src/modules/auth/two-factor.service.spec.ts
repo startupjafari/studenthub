@@ -387,3 +387,35 @@ describe('TwoFactorService.checkCode — проверка без списани�
     expect(await service.checkCode(rec, token)).toBeNull()
   })
 })
+
+// Привязка ЭЦП: код проверяется первым, а backup-код списывается последним — когда подпись
+// уже прошла NCANode. Счётчик неверных кодов — тот же, что у подтверждения действий.
+describe('TwoFactorService.checkWithLimit — под счётчиком, без списания', () => {
+  it('верный backup-код не списывается до вызова списания', async () => {
+    const { service, users } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    const consume = await service.checkWithLimit(rec, 'ABCD1234')
+    expect(consume).toEqual(expect.any(Function))
+    expect(users.consumeBackupCode).not.toHaveBeenCalled()
+  })
+
+  it('неверные коды считаются: после пяти — RATE_LIMIT, даже с верным', async () => {
+    const { service, store } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    for (let i = 0; i < 5; i++) {
+      await expect(service.checkWithLimit(rec, 'WRONGONE')).resolves.toBeNull()
+    }
+    await expect(service.checkWithLimit(rec, 'ABCD1234')).rejects.toMatchObject({
+      code: 'RATE_LIMIT',
+    })
+    expect(store.get('2fa:confirm-fails:u1')).toBe('6')
+  })
+
+  it('2FA не включена → null, счётчик не трогается', async () => {
+    const { service, redis } = setup()
+    await expect(
+      service.checkWithLimit(loginRecord({ twoFactorEnabled: false }), 'ABCD1234'),
+    ).resolves.toBeNull()
+    expect(redis.incr).not.toHaveBeenCalled()
+  })
+})

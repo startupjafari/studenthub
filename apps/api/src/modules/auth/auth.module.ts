@@ -25,6 +25,10 @@ import { LoginAttemptsService } from './login-attempts.service'
 import { QrLoginService } from './qr-login.service'
 import { PasswordResetService } from './password-reset.service'
 import { QrLoginGateway } from './qr-login.gateway'
+// Вход по ЭЦП (docs/PROJECT.md §8.3). EdsVerifier (проверка подписи в NCANode) приходит из
+// глобального EdsModule (common/eds) — здесь только поток входа и привязки.
+import { EdsController } from './eds.controller'
+import { EdsAuthService } from './eds-auth.service'
 import { JwtStrategy } from './strategies/jwt.strategy'
 import { LocalStrategy } from './strategies/local.strategy'
 
@@ -48,7 +52,7 @@ import { LocalStrategy } from './strategies/local.strategy'
       }),
     }),
   ],
-  controllers: [AuthController, TwoFactorController],
+  controllers: [AuthController, TwoFactorController, EdsController],
   providers: [
     AuthService,
     TwoFactorService,
@@ -56,6 +60,7 @@ import { LocalStrategy } from './strategies/local.strategy'
     QrLoginService,
     QrLoginGateway,
     PasswordResetService,
+    EdsAuthService,
     JwtStrategy,
     LocalStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },

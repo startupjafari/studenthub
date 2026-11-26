@@ -25,11 +25,20 @@ export interface ThrottleWindow {
  * - `invite-body` / `invite-param` — хэш токена инвайта из тела / из пути;
  * - `login` — адрес + идентификатор входа (email или username, без учёта регистра);
  * - `login-2fa` — адрес + владелец проверенного challenge-токена;
+ * - `eds-login` — адрес + challenge входа по ЭЦП: владельца до проверки подписи не узнать
+ *   (ИИН — внутри подписи), а challenge одноразовый, поэтому держит нагрузку потолок с
+ *   адреса; повторы отказов по одному ИИН закрывает счётчик неудач (LOGIN_LOCKED);
  * - `password-forgot` — адрес почты из тела (без учёта регистра), БЕЗ адреса клиента: лимит
  *   защищает чужой ящик, а ротация IP иначе давала поток писем на один адрес.
  */
 export type AuthThrottleKey =
-  'refresh' | 'invite-body' | 'invite-param' | 'login' | 'login-2fa' | 'password-forgot'
+  | 'refresh'
+  | 'invite-body'
+  | 'invite-param'
+  | 'login'
+  | 'login-2fa'
+  | 'eds-login'
+  | 'password-forgot'
 
 interface AuthThrottlePolicy {
   key: AuthThrottleKey
@@ -143,6 +152,11 @@ export class UserThrottlerGuard extends ThrottlerGuard {
       case 'login-2fa': {
         const sub = this.challengeSubject(body.challengeToken)
         return sub ? `login-2fa:${ip}:${sub}` : null
+      }
+      case 'eds-login': {
+        const challengeId = body.challengeId
+        if (typeof challengeId !== 'string' || !challengeId) return null
+        return `eds-login:${ip}:${digest(challengeId)}`
       }
       case 'password-forgot': {
         const email = body.email

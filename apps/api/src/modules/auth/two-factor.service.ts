@@ -205,6 +205,27 @@ export class TwoFactorService {
   }
 
   /**
+   * Проверка кода под тем же счётчиком, что verifyForUser, но БЕЗ списания backup-кода:
+   * верный — функция списания, неверный — null. Нужна действию, у которого после кода есть
+   * ещё отказы, не зависящие от человека, — привязке ЭЦП (подпись могла не пройти в NCANode).
+   * Код проверяется первым, чтобы без него не тратить ни challenge, ни запрос к NCANode, а
+   * backup-код списывается последним, когда отказов уже не будет. TOTP-шаг занимается сразу —
+   * потерять его не страшно.
+   */
+  async checkWithLimit(
+    rec: TwoFactorLoginRecord,
+    code: string,
+  ): Promise<ConsumeTwoFactorCode | null> {
+    if (!rec.twoFactorEnabled) return null
+    let consume: ConsumeTwoFactorCode | null = null
+    await this.verifyWithLimit(rec.id, async () => {
+      consume = await this.checkCode(rec, code)
+      return consume !== null
+    })
+    return consume
+  }
+
+  /**
    * Счётчик неверных кодов на пользователя. Без него подтверждение действия и отключение
    * 2FA перебирались под общим лимитом 100 запросов в минуту — миллион кодов за пару недель
    * с одной сессии. Redis недоступен — проверяем без счётчика: запереть админов из-за сбоя

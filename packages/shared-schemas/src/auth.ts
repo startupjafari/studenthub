@@ -183,6 +183,16 @@ export const EdsLinkSchema = EdsSignedChallengeSchema.extend({
 }).strict()
 export type EdsLinkInput = z.infer<typeof EdsLinkSchema>
 
+/** Ответ `POST /auth/eds/link`: снимок привязки и предупреждение о чужой фамилии. */
+export type EdsLinkResult = EdsCredentialInfo & {
+  /**
+   * Фамилия в сертификате (первое слово CN) не совпала с фамилией в профиле — без учёта
+   * регистра и «ё». Привязку не блокирует: фамилию меняют, пишут латиницей, а в профиле
+   * бывает опечатка. Клиент показывает предупреждение.
+   */
+  nameMismatch: boolean
+}
+
 /** Ответ публичного `GET /auth/eds/config`: показывать ли на странице входа кнопку ЭЦП. */
 export interface EdsPublicConfig {
   enabled: boolean
