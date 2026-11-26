@@ -35,6 +35,7 @@ import {
 import { useAdminListLive } from '../../../entities/admin-list'
 import { edsKeys, useEdsEnabled } from '../../../entities/eds'
 import { AcademicRecordModal } from '../../../features/edit-academic-record'
+import { SecondFactorCodeField } from '../../../features/link-eds'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -688,17 +689,26 @@ function ResetEdsDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
   const qc = useQueryClient()
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [code, setCode] = useState('')
+  const [complete, setComplete] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const ownTfa = me.data?.twoFactorEnabled === true
 
+  // Сброс — действие над чужой учёткой: без автоотправки, полный код только включает кнопку.
   const reset = useMutation({
-    mutationFn: () => resetUserEdsRequest(user.id, code.trim()),
+    mutationFn: (value: string) => resetUserEdsRequest(user.id, value),
     onSuccess: () => {
       toast.success(t('resetEdsDone'))
       onClose()
     },
     onError: (e) => {
       setCode('')
+      setComplete(false)
       const errorCode = (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+      if (errorCode === 'INVALID_2FA_CODE') {
+        setFailed(true)
+        setAttempt((n) => n + 1)
+      }
       if (errorCode === 'BAD_REQUEST') {
         toast.error(t('resetEdsNotLinked'))
         onClose()
@@ -734,17 +744,19 @@ function ResetEdsDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
             className="flex flex-col gap-2"
             onSubmit={(e) => {
               e.preventDefault()
-              if (code.trim() && !reset.isPending) reset.mutate()
+              if (complete && !reset.isPending) reset.mutate(code)
             }}
           >
-            <Label htmlFor="reset-eds-code">{t('resetTwoFactorCode')}</Label>
-            <Input
+            <SecondFactorCodeField
               id="reset-eds-code"
-              autoComplete="one-time-code"
-              placeholder="123456"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              autoFocus
+              onChange={(value, isComplete) => {
+                setCode(value)
+                setComplete(isComplete)
+              }}
+              disabled={reset.isPending}
+              invalid={failed}
+              resetKey={attempt}
             />
           </form>
         )}
@@ -756,7 +768,7 @@ function ResetEdsDialog({ user, onClose }: { user: AdminUser; onClose: () => voi
               form="reset-eds-form"
               variant="destructive"
               loading={reset.isPending}
-              disabled={!code.trim()}
+              disabled={!complete}
             >
               {t('resetEdsConfirm')}
             </Button>

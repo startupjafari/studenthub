@@ -194,6 +194,28 @@ describe('NcaNodeEdsVerifier', () => {
       })
     })
 
+    // NCALayer отдаёт CMS и в PEM-обёртке, и голым base64; часть клиентов — в base64url без
+    // выравнивания. Байты подписи одни и те же — в NCANode уходит канонический base64.
+    it.each([
+      [
+        'PEM-обёртка NCALayer',
+        (b64: string) =>
+          `-----BEGIN CMS-----\r\n${b64.replace(/(.{64})/g, '$1\r\n')}\r\n-----END CMS-----\r\n`,
+      ],
+      [
+        'base64url без выравнивания',
+        (b64: string) => b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+      ],
+    ])('%s', async (_, wrap) => {
+      reply(ncaResponse())
+      const cmsBase64 = signature()
+
+      await verifier().verifyAuthSignature(wrap(cmsBase64), NONCE)
+
+      const init = fetchMock.mock.calls[0]?.[1] as RequestInit
+      expect((JSON.parse(String(init.body)) as Json).cms).toBe(cmsBase64)
+    })
+
     // NCANode за прокси с префиксом пути — путь сохраняется.
     it.each(['http://edge.internal/ncanode', 'http://edge.internal/ncanode/'])(
       'адрес с путём: %s',
@@ -354,6 +376,19 @@ describe('NcaNodeEdsVerifier', () => {
         'EDS_SIGNATURE_INVALID',
       )
       expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    // По журналу должно быть видно, ЧЕМ строка не base64, — но без содержимого подписи.
+    it('отказ «не base64» описывает форму строки, не содержимое', async () => {
+      const garbage = `-----BEGIN CMS-----\nMIIB${'A'.repeat(40)}!секрет\n-----END CMS-----`
+
+      await refusal(verifier().verifyAuthSignature(garbage, NONCE))
+
+      const line = logs.find((message) => message.includes('не base64')) ?? ''
+      expect(line).toContain(`длина ${garbage.length}`)
+      expect(line).toContain('PEM: да')
+      expect(line).toContain('"!"')
+      expect(line).not.toContain('MIIB')
     })
 
     it('вход по ЭЦП выключен — FEATURE_DISABLED', async () => {

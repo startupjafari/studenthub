@@ -34,8 +34,6 @@ import {
   AlertTitle,
   Badge,
   Button,
-  Input,
-  Label,
   Modal,
 } from '../../../shared/ui'
 import { userKeys } from '../../../entities/user'
@@ -47,6 +45,7 @@ import {
   useNcaLayerErrorText,
   type NcaLayerSetupProblem,
 } from '../../../entities/eds'
+import { SecondFactorCodeField } from './second-factor-code-field'
 
 // Вход по ЭЦП в настройках безопасности (docs/PROJECT.md §8.3 «Вход по ЭЦП»).
 //
@@ -168,25 +167,41 @@ function EdsCredentialDetails({ eds }: { eds: EdsCredentialInfo }) {
   )
 }
 
-/** Отвязка — по своему коду 2FA, как отключение 2FA: строка подтверждения кодом. */
+/**
+ * Отвязка — по своему коду 2FA, как отключение 2FA. Действие разрушительное, поэтому без
+ * автоотправки: полный код только включает кнопку, отвязывает нажатие.
+ */
 function UnlinkEdsButton() {
   const t = useTranslations('Settings')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState('')
+  const [complete, setComplete] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+
+  const resetCode = () => {
+    setCode('')
+    setComplete(false)
+  }
 
   const unlink = useMutation({
-    mutationFn: () => edsUnlinkRequest(code.trim()),
+    mutationFn: (value: string) => edsUnlinkRequest(value),
     onSuccess: () => {
-      setCode('')
+      resetCode()
+      setFailed(false)
       setOpen(false)
       void queryClient.invalidateQueries({ queryKey: userKeys.me() })
       toast.success(t('edsUnlinkedToast'))
     },
     onError: (error) => {
-      setCode('')
+      resetCode()
       const errorCode = toApiError(error).code
+      if (errorCode === 'INVALID_2FA_CODE') {
+        setFailed(true)
+        setAttempt((n) => n + 1)
+      }
       // 400 — привязки уже нет (сбросил администратор, отвязали в другой вкладке): цель
       // достигнута, экран просто отстал — перечитываем профиль вместо ошибки.
       if (errorCode === 'BAD_REQUEST') {
@@ -206,7 +221,10 @@ function UnlinkEdsButton() {
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) setCode('')
+        if (!next) {
+          resetCode()
+          setFailed(false)
+        }
       }}
     >
       <AlertDialogTrigger asChild>
@@ -224,18 +242,19 @@ function UnlinkEdsButton() {
           className="flex flex-col gap-2"
           onSubmit={(e) => {
             e.preventDefault()
-            if (code.trim() && !unlink.isPending) unlink.mutate()
+            if (complete && !unlink.isPending) unlink.mutate(code)
           }}
         >
-          <Label htmlFor="eds-unlink-code">{t('edsCodeLabel')}</Label>
-          <Input
+          <SecondFactorCodeField
             id="eds-unlink-code"
-            autoComplete="one-time-code"
-            autoCapitalize="characters"
-            spellCheck={false}
-            placeholder="123456"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(value, isComplete) => {
+              setCode(value)
+              setComplete(isComplete)
+            }}
+            disabled={unlink.isPending}
+            invalid={failed}
+            resetKey={attempt}
           />
         </form>
         <AlertDialogFooter>
@@ -245,7 +264,7 @@ function UnlinkEdsButton() {
             form="eds-unlink-form"
             variant="destructive"
             loading={unlink.isPending}
-            disabled={!code.trim()}
+            disabled={!complete}
           >
             {t('edsUnlink')}
           </Button>
@@ -273,6 +292,9 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
   const [problem, setProblem] = useState<NcaLayerSetupProblem | null>(null)
   const [signed, setSigned] = useState<(SignedChallenge & { expiresAt: string }) | null>(null)
   const [code, setCode] = useState('')
+  const [complete, setComplete] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   // Привязка выполнена, но ФИО в сертификате не совпало с профилем — окно остаётся открытым
   // с предупреждением: тост исчез бы раньше, чем его прочтут.
   const [mismatch, setMismatch] = useState<EdsLinkResult | null>(null)
@@ -326,10 +348,17 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
     },
     onError: (error) => {
       setCode('')
+      setComplete(false)
       const errorCode = toApiError(error).code
-      // Неверный код — подпись ещё годится, достаточно ввести код заново. Остальные отказы
-      // про саму подпись или ключ (устарела, не тот ключ, ключ чужой) — подписывать снова.
-      if (errorCode !== 'INVALID_2FA_CODE' && errorCode !== 'RATE_LIMIT') setSigned(null)
+      // Неверный код — подпись ещё годится, достаточно ввести код заново: ячейки очищаются,
+      // фокус в первой. Остальные отказы про саму подпись или ключ (устарела, не тот ключ,
+      // ключ чужой) — подписывать снова.
+      if (errorCode === 'INVALID_2FA_CODE') {
+        setFailed(true)
+        setAttempt((n) => n + 1)
+      } else if (errorCode !== 'RATE_LIMIT') {
+        setSigned(null)
+      }
       if (errorCode === 'FEATURE_DISABLED') {
         void queryClient.invalidateQueries({ queryKey: edsKeys.config() })
       }
@@ -337,15 +366,15 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
     },
   })
 
-  function submit() {
-    if (!signed || !code.trim() || link.isPending) return
+  function submit(value: string) {
+    if (!signed || link.isPending) return
     // Challenge живёт минуты: просроченную подпись сервер всё равно отвергнет.
     if (Date.parse(signed.expiresAt) <= Date.now()) {
       setSigned(null)
       toast.error(t('edsSignatureStale'), { id: 'eds-link' })
       return
     }
-    link.mutate({ challengeId: signed.challengeId, cms: signed.cms, code: code.trim() })
+    link.mutate({ challengeId: signed.challengeId, cms: signed.cms, code: value })
   }
 
   const title = relink ? t('edsRelinkTitle') : t('edsLinkTitle')
@@ -371,74 +400,75 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
     )
   }
 
+  // Разметка — как у мастера включения 2FA в тех же настройках: шаги сверху вниз без
+  // разделителей, кнопки справа внизу.
   return (
     <Modal onClose={onClose} title={title} size="md">
       <div className="flex flex-col gap-4">
-        <section className="flex flex-col gap-3">
-          <p className="text-sm">{t('edsLinkStepSign')}</p>
-          {signed ? (
-            <p className="flex items-center gap-2 text-sm text-success" role="status">
-              <CircleCheck className="size-4 shrink-0" aria-hidden />
-              {t('edsSigned')}
-            </p>
-          ) : (
-            <Button
+        <p className="text-sm">{t('edsLinkStepSign')}</p>
+        {signed ? (
+          <p className="flex items-center gap-2 text-sm text-success" role="status">
+            <CircleCheck className="size-4 shrink-0" aria-hidden />
+            {t('edsSigned')}
+          </p>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            loading={stage !== 'idle'}
+            onClick={() => void sign()}
+            className="self-start"
+          >
+            <FileKey className="size-4" aria-hidden />
+            {t('edsSign')}
+          </Button>
+        )}
+        {stage === 'awaiting' && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+              {tAuth('edsAwaitingKey')}
+            </span>
+            <button
               type="button"
-              variant="outline"
-              loading={stage !== 'idle'}
-              onClick={() => void sign()}
-              className="self-start"
+              onClick={() => abortRef.current?.abort()}
+              className="cursor-pointer rounded font-medium underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
             >
-              <FileKey className="size-4" aria-hidden />
-              {t('edsSign')}
-            </Button>
-          )}
-          {stage === 'awaiting' && (
-            <div
-              role="status"
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
-                {tAuth('edsAwaitingKey')}
-              </span>
-              <button
-                type="button"
-                onClick={() => abortRef.current?.abort()}
-                className="cursor-pointer rounded font-medium underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
-              >
-                {tAuth('edsCancel')}
-              </button>
-            </div>
-          )}
-          {problem && <NcaLayerHint problem={problem} />}
-        </section>
+              {tAuth('edsCancel')}
+            </button>
+          </div>
+        )}
+        {problem && <NcaLayerHint problem={problem} />}
 
-        {/* Код — только после подписи (см. комментарий у окна). */}
+        {/* Код — только после подписи (см. комментарий у окна). Полный код отправляется сам,
+            как на входе; «Привязать» — запасной путь. */}
         {signed && (
           <form
             id="eds-link-form"
-            className="flex flex-col gap-2 border-t border-border pt-4"
             onSubmit={(e) => {
               e.preventDefault()
-              submit()
+              if (complete) submit(code)
             }}
           >
-            <Label htmlFor="eds-link-code">{t('edsCodeLabel')}</Label>
-            <Input
+            <SecondFactorCodeField
               id="eds-link-code"
-              autoComplete="one-time-code"
-              autoCapitalize="characters"
-              spellCheck={false}
-              placeholder="123456"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              autoFocus
+              onChange={(value, isComplete) => {
+                setCode(value)
+                setComplete(isComplete)
+              }}
+              onComplete={submit}
+              disabled={link.isPending}
+              invalid={failed}
+              resetKey={attempt}
             />
           </form>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-4">
+        <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose} disabled={link.isPending}>
             {t('twoFactorCancel')}
           </Button>
@@ -447,7 +477,7 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
               type="submit"
               form="eds-link-form"
               loading={link.isPending}
-              disabled={!code.trim()}
+              disabled={!complete}
             >
               {relink ? t('edsRelinkConfirm') : t('edsLinkConfirm')}
             </Button>

@@ -37,6 +37,9 @@ const BROKEN_SIGNATURE = new Set([
 const REVOKED = new Set(['CERT_REVOKED', 'REVOKED_NO_POE'])
 const TWELVE_DIGITS = /^\d{12}$/
 const STRICT_BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+// Заголовки PEM: «-----BEGIN CMS-----», «-----END PKCS7-----» и т. п.
+const PEM_ARMOR = /-----(?:BEGIN|END)[^-]*-----/g
+const PEM_ARMOR_TEST = /-----BEGIN[^-]*-----/
 
 type RefusalCode =
   | 'EDS_SIGNATURE_INVALID'
@@ -129,8 +132,11 @@ export class NcaNodeEdsVerifier extends EdsVerifier {
 
     // До NCANode — то, что видно без него: мусор и присоединённая подпись в сеть не уходят.
     const der = decodeBase64(cmsBase64)
-    if (!der || der.length > MAX_CMS_BYTES) {
-      throw this.refuse('EDS_SIGNATURE_INVALID', 'подпись не base64 или длиннее предела')
+    if (!der) {
+      throw this.refuse('EDS_SIGNATURE_INVALID', `подпись не base64 (${describeShape(cmsBase64)})`)
+    }
+    if (der.length > MAX_CMS_BYTES) {
+      throw this.refuse('EDS_SIGNATURE_INVALID', `подпись длиннее предела: ${der.length} байт`)
     }
     let cms: CmsInspection
     try {
@@ -327,11 +333,40 @@ export class NcaNodeEdsVerifier extends EdsVerifier {
   }
 }
 
-/** Строгий base64: Buffer.from(…, 'base64') молча пропускает мусор, а нам нужен отказ. */
+/**
+ * Строгий base64: Buffer.from(…, 'base64') молча пропускает мусор, а нам нужен отказ.
+ *
+ * Обёртку снимаем до проверки: NCALayer отдаёт CMS не только голым base64, но и в PEM
+ * (`-----BEGIN CMS-----` … `-----END CMS-----`, строки по 64 символа), а часть клиентов —
+ * в base64url без выравнивания. Байты подписи от этого не меняются, а строгая проверка
+ * отвергала настоящую подпись как мусор. Сам мусор по-прежнему не проходит: после снятия
+ * обёртки остаться должен ровно алфавит base64.
+ */
 function decodeBase64(text: string): Buffer | null {
-  const compact = text.replace(/\s+/g, '')
+  let compact = text
+    .replace(PEM_ARMOR, '')
+    .replace(/\s+/g, '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+  if (compact.length % 4 === 2) compact += '=='
+  else if (compact.length % 4 === 3) compact += '='
   if (compact.length === 0 || compact.length % 4 !== 0 || !STRICT_BASE64.test(compact)) return null
   return Buffer.from(compact, 'base64')
+}
+
+/**
+ * Чем строка не base64 — для журнала. Содержимое подписи в лог не попадает: только длина,
+ * была ли PEM-обёртка и какие посторонние символы встретились (не больше десяти разных).
+ */
+function describeShape(text: string): string {
+  const stray = [...new Set(text.replace(PEM_ARMOR, '').replace(/[A-Za-z0-9+/=\s_-]/g, ''))]
+  const strayText = stray.length
+    ? stray
+        .slice(0, 10)
+        .map((ch) => JSON.stringify(ch))
+        .join(' ')
+    : 'нет'
+  return `длина ${text.length}, PEM: ${PEM_ARMOR_TEST.test(text) ? 'да' : 'нет'}, посторонние символы: ${strayText}`
 }
 
 function maskIin(text: string): string {
