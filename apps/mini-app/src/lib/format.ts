@@ -3,7 +3,9 @@ import { locale, t } from '../i18n'
 // Форматирование дат и длительностей. Один дом на всё приложение: до этого одинаковая
 // функция `formatDate` лежала в трёх экранах по отдельности и уже начала расходиться.
 
-const LOCALE_TAG = { ru: 'ru-RU', kk: 'kk-KZ', en: 'en-GB' } as const
+// Язык приложения → тег для Intl. Казахский в приложении — `kz`, а Intl знает его только как
+// `kk`: `toLocaleString('kz')` молча откатился бы на английский.
+const LOCALE_TAG = { ru: 'ru-RU', kz: 'kk-KZ', en: 'en-GB' } as const
 
 function tag(): string {
   return LOCALE_TAG[locale()]

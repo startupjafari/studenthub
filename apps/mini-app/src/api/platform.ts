@@ -9,7 +9,7 @@ import type { MessageKey } from '../i18n'
 
 export interface LocalizedText {
   ru: string
-  kk: string
+  kz: string
   en: string
 }
 
@@ -99,7 +99,7 @@ export const BANNER_PRESETS = [
     level: 'INFO' as const,
     text: {
       ru: 'Сегодня вечером платформа ненадолго остановится на обновление.',
-      kk: 'Бүгін кешке платформа жаңарту үшін қысқа уақытқа тоқтайды.',
+      kz: 'Бүгін кешке платформа жаңарту үшін қысқа уақытқа тоқтайды.',
       en: 'The platform will pause briefly for an update this evening.',
     },
   },
@@ -109,7 +109,7 @@ export const BANNER_PRESETS = [
     level: 'WARNING' as const,
     text: {
       ru: 'Платформа отвечает медленнее обычного. Мы уже разбираемся.',
-      kk: 'Платформа әдеттегіден баяу жауап беруде. Біз қарап жатырмыз.',
+      kz: 'Платформа әдеттегіден баяу жауап беруде. Біз қарап жатырмыз.',
       en: 'The platform is slower than usual. We are looking into it.',
     },
   },
@@ -119,7 +119,7 @@ export const BANNER_PRESETS = [
     level: 'INFO' as const,
     text: {
       ru: 'Сбой устранён, всё работает как обычно. Спасибо за терпение.',
-      kk: 'Ақау жойылды, бәрі әдеттегідей жұмыс істеп тұр. Шыдамдылығыңыз үшін рахмет.',
+      kz: 'Ақау жойылды, бәрі әдеттегідей жұмыс істеп тұр. Шыдамдылығыңыз үшін рахмет.',
       en: 'The issue is resolved and everything works as usual. Thanks for your patience.',
     },
   },

@@ -4,7 +4,7 @@
 // ради сотни строк библиотеку с загрузчиками локалей и провайдерами дороже, чем объект.
 // Ключи те же по смыслу, что в вебе, но пространство своё — экраны здесь другие.
 
-export const LOCALES = ['ru', 'kk', 'en'] as const
+export const LOCALES = ['ru', 'kz', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 
 const ru = {
@@ -411,7 +411,7 @@ const ru = {
   bannerCustomHint:
     'Нужны все три языка: строка на двух из трёх — пустое место у тех, кому не повезло с локалью.',
   bannerLang_ru: 'По-русски',
-  bannerLang_kk: 'Қазақша',
+  bannerLang_kz: 'Қазақша',
   bannerLang_en: 'На английском',
   bannerLevelInfo: 'Обычное',
   bannerLevelWarning: 'Тревожное',
@@ -488,7 +488,7 @@ const ru = {
 
 export type MessageKey = keyof typeof ru
 
-const kk: Record<MessageKey, string> = {
+const kz: Record<MessageKey, string> = {
   outsideTitle: 'Telegram-нан ашыңыз',
   outsideHint: 'Мини-қосымша Telegram клиентінің ішінде жұмыс істейді',
   outsideBody:
@@ -882,7 +882,7 @@ const kk: Record<MessageKey, string> = {
   bannerCustomHint:
     'Үш тіл де қажет: екеуінде ғана жазылған жол — тілі сәйкеспегендер үшін бос орын.',
   bannerLang_ru: 'Орысша',
-  bannerLang_kk: 'Қазақ тілінде',
+  bannerLang_kz: 'Қазақ тілінде',
   bannerLang_en: 'Ағылшынша',
   bannerLevelInfo: 'Қарапайым',
   bannerLevelWarning: 'Дабыл',
@@ -1353,7 +1353,7 @@ const en: Record<MessageKey, string> = {
   bannerCustomHint:
     'All three languages are required: two out of three leaves a blank for whoever got the wrong locale.',
   bannerLang_ru: 'In Russian',
-  bannerLang_kk: 'In Kazakh',
+  bannerLang_kz: 'In Kazakh',
   bannerLang_en: 'In English',
   bannerLevelInfo: 'Normal',
   bannerLevelWarning: 'Alarming',
@@ -1429,4 +1429,4 @@ const en: Record<MessageKey, string> = {
   supportRecording: 'Recording · {seconds} s',
 }
 
-export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kk, en }
+export const MESSAGES: Record<Locale, Record<MessageKey, string>> = { ru, kz, en }

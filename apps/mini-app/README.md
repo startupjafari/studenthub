@@ -104,7 +104,7 @@ nginx раздаёт `dist` и проксирует `/api` на `API_TARGET`, с
 | [src/telegram/types.ts](src/telegram/types.ts)                             | Типы ровно на используемую часть API — вместо пакета-обёртки                                          |
 | [src/telegram/use-telegram.ts](src/telegram/use-telegram.ts)               | Хуки над `BackButton` и `MainButton`                                                                  |
 | [src/telegram/use-voice.ts](src/telegram/use-voice.ts)                     | Запись голосового ответа поддержке                                                                    |
-| [src/i18n/messages.ts](src/i18n/messages.ts)                               | Словари ru/kk/en; язык берётся из Telegram, а не из настроек платформы                                |
+| [src/i18n/messages.ts](src/i18n/messages.ts)                               | Словари ru/kz/en; язык берётся из Telegram, а не из настроек платформы                                |
 | [src/telegram/use-pull-to-refresh.ts](src/telegram/use-pull-to-refresh.ts) | Обновление списка потягиванием вниз — своим жестом, без библиотеки                                    |
 | [src/ui/tab-bar.tsx](src/ui/tab-bar.tsx)                                   | Нижняя панель разделов: значок над подписью, счётчик на значке                                        |
 | [src/ui/screen-header.tsx](src/ui/screen-header.tsx)                       | Шапка: возврат, название и переключатель состояний справа от него                                     |
