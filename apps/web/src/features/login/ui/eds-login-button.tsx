@@ -14,12 +14,11 @@ import {
 } from '../../../shared/lib/ncalayer'
 import { Button } from '../../../shared/ui'
 import {
-  NcaLayerHint,
   edsKeys,
   isNcaLayerSetupProblem,
   useEdsEnabled,
   useNcaLayerErrorText,
-  type NcaLayerSetupProblem,
+  useNcaLayerHint,
 } from '../../../entities/eds'
 
 type Stage = 'idle' | 'connecting' | 'awaiting' | 'verifying'
@@ -46,9 +45,9 @@ export function EdsLoginButton({
   const supported = useNcaLayerSupported()
   const enabled = useEdsEnabled(supported)
   const ncaLayerErrorText = useNcaLayerErrorText()
+  // Подсказка «запустите / разрешите / обновите NCALayer» — в том же тосте, что и отказы входа.
+  const ncaLayerHint = useNcaLayerHint('login-error')
   const [stage, setStage] = useState<Stage>('idle')
-  // Подсказка «запустите / разрешите / обновите NCALayer» — до следующей попытки.
-  const [problem, setProblem] = useState<NcaLayerSetupProblem | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // Ушли со страницы посреди операции — сокет NCALayer закрываем, а не бросаем открытым.
@@ -58,7 +57,6 @@ export function EdsLoginButton({
 
   async function start() {
     if (stage !== 'idle') return
-    setProblem(null)
     const controller = new AbortController()
     abortRef.current = controller
     setStage('connecting')
@@ -76,7 +74,7 @@ export function EdsLoginButton({
       setStage('idle')
       if (isNcaLayerError(error)) {
         if (isNcaLayerSetupProblem(error.kind)) {
-          setProblem(error.kind)
+          ncaLayerHint.show(error.kind)
           return
         }
         const text = ncaLayerErrorText(error.kind)
@@ -126,7 +124,6 @@ export function EdsLoginButton({
           </button>
         </div>
       )}
-      {problem && <NcaLayerHint problem={problem} />}
     </div>
   )
 }
