@@ -175,6 +175,19 @@ export const EdsSignedChallengeSchema = z
   .strict()
 export type EdsSignedChallengeInput = z.infer<typeof EdsSignedChallengeSchema>
 
+// Привязка ЭЦП к своей учётке: подписанный challenge привязки + СВОЙ код 2FA (TOTP или
+// backup). Код нужен потому, что привязка добавляет учётке второй способ входа: украденная
+// сессия без кода не должна позволить вору подвесить к учётке свой ключ.
+export const EdsLinkSchema = EdsSignedChallengeSchema.extend({
+  code: z.string().min(6).max(20),
+}).strict()
+export type EdsLinkInput = z.infer<typeof EdsLinkSchema>
+
+/** Ответ публичного `GET /auth/eds/config`: показывать ли на странице входа кнопку ЭЦП. */
+export interface EdsPublicConfig {
+  enabled: boolean
+}
+
 /** Ответ `POST /auth/eds/challenge`: что подписать и до какого момента. */
 export interface EdsChallenge {
   challengeId: string
