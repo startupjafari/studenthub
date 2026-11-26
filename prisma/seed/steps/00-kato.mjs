@@ -35,15 +35,15 @@ export async function seedKato(prisma) {
     // а не подстановкой строки в SQL (BACKEND_RULES §14.4).
     const values = chunk.map(
       (e) =>
-        Prisma.sql`(${e.code}, ${e.kind}::"KatoKind", ${e.nameRu}, ${e.nameKk}, ${e.parentCode}, ${e.regionCode})`,
+        Prisma.sql`(${e.code}, ${e.kind}::"KatoKind", ${e.nameRu}, ${e.nameKz}, ${e.parentCode}, ${e.regionCode})`,
     )
     written += await prisma.$executeRaw`
-      INSERT INTO "kato_units" ("code", "kind", "name_ru", "name_kk", "parent_code", "region_code")
+      INSERT INTO "kato_units" ("code", "kind", "name_ru", "name_kz", "parent_code", "region_code")
       VALUES ${Prisma.join(values)}
       ON CONFLICT ("code") DO UPDATE SET
         "kind"        = EXCLUDED."kind",
         "name_ru"     = EXCLUDED."name_ru",
-        "name_kk"     = EXCLUDED."name_kk",
+        "name_kz"     = EXCLUDED."name_kz",
         "parent_code" = EXCLUDED."parent_code",
         "region_code" = EXCLUDED."region_code"
     `
