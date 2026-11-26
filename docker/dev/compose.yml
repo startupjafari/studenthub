@@ -1,4 +1,5 @@
-# StudentHub — инфраструктура для разработки: postgres, redis, minio, mailpit.
+# StudentHub — инфраструктура для разработки: postgres, redis, minio, mailpit; по профилю
+# eds — ncanode (вход по ЭЦП).
 # Запуск: pnpm infra:up (docker/README.md). Переменные — .env рядом (образец .env.example).
 # Порты — только на 127.0.0.1: база и хранилище стенда не должны слушать внешний интерфейс.
 
@@ -51,7 +52,41 @@ services:
       retries: 10
       start_period: 5s
 
+  # Проверка ЭЦП НУЦ РК для входа по ЭЦП (README, «Вход по ЭЦП: NCANode»). Профиль eds — в
+  # `pnpm infra:up` не входит: нужен только при работе со входом по ЭЦП, а на старте качает
+  # корни и CRL с серверов НУЦ. Корни, CRL и OCSP — ТЕСТОВОГО УЦ НУЦ: принимаются только
+  # тестовые ключи из SDK, настоящая ЭЦП разработчика здесь не пройдёт (и не должна).
+  # В apps/api/.env: EDS_LOGIN_ENABLED=true, NCANODE_URL=http://localhost:14579.
+  ncanode:
+    profiles: ['eds']
+    image: malikzh/ncanode:3.5.1
+    restart: unless-stopped
+    environment:
+      # Адреса тестового УЦ — из расширений AIA/CDP тестовых сертификатов SDK.
+      NCANODE_CA_URL: 'http://test.pki.gov.kz/cert/nca_gost2022_test.cer http://root.gov.kz/cert/root_test_gost_2022.cer'
+      NCANODE_CA_CRL_URL: 'http://crl.root.gov.kz/gost_test_2022.crl'
+      NCANODE_CRL_URL: 'http://test.pki.gov.kz/crl/nca_gost2022_test.crl'
+      # Дельта-CRL у тестового УЦ нет (404): TTL 0 выключает её обновление.
+      NCANODE_CRL_DELTA_URL: ''
+      NCANODE_CRL_DELTA_TTL: '0'
+      NCANODE_OCSP_URL: 'http://test.pki.gov.kz/ocsp/'
+      NCANODE_TSP_URL: 'http://test.pki.gov.kz/tsp/'
+    ports:
+      - '127.0.0.1:${NCANODE_PORT:-14579}:14579'
+    volumes:
+      # Кэш скачанных корней и CRL: без него каждый старт заново ходит к НУЦ.
+      - ncanode_cache:/app/cache
+    healthcheck:
+      <<: *dev-healthcheck
+      # /actuator/health отвечает 503, пока корни и CRL не скачаны: проверки подписи до этого
+      # NCANode тоже отклоняет (503), так что healthy = готов проверять.
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:14579/actuator/health']
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
 volumes:
   pg_data:
   redis_data:
   minio_data:
+  ncanode_cache:

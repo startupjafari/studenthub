@@ -69,14 +69,17 @@ flowchart LR
     worker --> postgres
     worker --> redis
     worker --> minio
+    api -.->|"профиль eds: /cms/verify"| ncanode
     certbot -. "тома certbot_*" .- nginx
   end
 
   miniapp -->|"/api через https://SH_APP_DOMAIN"| nginx
+  ncanode -->|"корни, CRL, OCSP"| nuc((НУЦ РК))
 ```
 
 `worker` берёт медиа-задачи из очереди в redis, которые ставит `api`. Мини-апп ходит к API
-через публичный адрес — то есть снова через nginx (см. «Решения»).
+через публичный адрес — то есть снова через nginx (см. «Решения»). `ncanode` — проверка ЭЦП
+для входа по ЭЦП, поднимается только с профилем `eds` («Вход по ЭЦП: NCANode»).
 
 Камеры (`camera-sim` — эмулятор того, что стоит в вузе; `media-relay` — ретранслятор):
 
@@ -114,6 +117,7 @@ flowchart LR
 | dev         | minio консоль               | `MINIO_CONSOLE_PORT` = 9001   | 9001      | 127.0.0.1                                         |
 | dev         | mailpit SMTP                | `MAILPIT_SMTP_PORT` = 1025    | 1025      | 127.0.0.1                                         |
 | dev         | mailpit UI                  | `MAILPIT_UI_PORT` = 8025      | 8025      | 127.0.0.1                                         |
+| dev `eds`   | ncanode                     | `NCANODE_PORT` = 14579        | 14579     | 127.0.0.1                                         |
 | prod        | nginx                       | 80, 443                       | 80, 443   | все интерфейсы                                    |
 | prod        | postgres                    | `POSTGRES_PORT` = 5432        | 5432      | 127.0.0.1                                         |
 | prod        | api                         | —                             | 3001      | —                                                 |
@@ -121,6 +125,7 @@ flowchart LR
 | prod        | mini-app                    | —                             | 8080      | —                                                 |
 | prod        | minio                       | —                             | 9000      | — (наружу через nginx)                            |
 | prod        | redis                       | —                             | 6379      | —                                                 |
+| prod `eds`  | ncanode                     | —                             | 14579     | —                                                 |
 | camera-sim  | ingest                      | `WEBCAM_PUBLISH_PORT` = 18554 | 8554      | 127.0.0.1                                         |
 | camera-sim  | bad-network (API Toxiproxy) | `TOXIPROXY_API_PORT` = 8474   | 8474      | 127.0.0.1                                         |
 | camera-sim  | nvr, onvif, agent           | —                             | 554, 8080 | — (сеть `campus` 10.77.0.0/24)                    |
@@ -248,7 +253,7 @@ http://localhost:9001.
 | `SH_*`                            | compose подставляет их в `prod/compose.yml` (CORS MinIO, `API_TARGET` мини-аппа, адреса у api) и передаёт nginx; образ nginx прогоняет `templates/*.template` через envsubst при старте                  | `NGINX_ENVSUBST_FILTER='^SH_'` — подставляются только наши имена, `$host` и `$uri` nginx не трогаются                                                                            |
 | `API_TARGET`, `PORT` мини-аппа    | envsubst в nginx-шаблоне образа мини-аппа (`apps/mini-app/nginx.conf.template`)                                                                                                                          | `API_TARGET` — публичный адрес, не имя сервиса (см. «Решения»)                                                                                                                   |
 | `RELAY_TLS_CERT`, `RELAY_TLS_KEY` | `media-relay/entrypoint.sh` пишет их в `/certs` при старте; без них берётся смонтированный `/certs`                                                                                                      | PEM — одной строкой с `\n`, как переменные Railway                                                                                                                               |
-| адреса стека у api в проде        | `x-api` в `prod/compose.yml`: `REDIS_HOST`, `MINIO_*`, `CORS_ORIGIN`, `APP_PUBLIC_URL`, `TRUST_PROXY`, `PORT`                                                                                            | перекрывают `.env.api` — правка там не подействует                                                                                                                               |
+| адреса стека у api в проде        | `x-api` в `prod/compose.yml`: `REDIS_HOST`, `MINIO_*`, `CORS_ORIGIN`, `APP_PUBLIC_URL`, `TRUST_PROXY`, `PORT`, `NCANODE_URL`                                                                             | перекрывают `.env.api` — правка там не подействует                                                                                                                               |
 
 ### Переход со старого `docker/.env`
 
@@ -261,6 +266,130 @@ http://localhost:9001.
   Sentry, APNs, VAPID, Telegram …) — в новый `docker/prod/.env.api`. `REDIS_HOST`,
   `MINIO_ENDPOINT`, `MINIO_USE_SSL`, `MINIO_PUBLIC_*`, `CORS_ORIGIN`, `APP_PUBLIC_URL`,
   `TRUST_PROXY`, `PORT`, `NODE_ENV` и порты dev-секции удалить: их задаёт compose или образ.
+
+## Вход по ЭЦП: NCANode
+
+**Что это.** [NCANode](https://github.com/ncanode-kz/NCANode) (бывший `malikzh/NCANode`,
+лицензия MIT) — сервер на Java поверх KalkanCrypt, криптопровайдера НУЦ РК. Он умеет то,
+чего нет в Node: проверить подпись ГОСТ 34.10-2015 / RSA ключом НУЦ, построить цепочку до
+корня НУЦ, спросить OCSP и CRL. Вход по ЭЦП (`docs/PROJECT.md` §8.3) устроен так: веб берёт
+у api случайный challenge, NCALayer на машине пользователя подписывает его открепленной CMS,
+api отправляет подпись в `POST /cms/verify` NCANode и **решает сам** по разобранному ответу
+(`apps/api/src/common/eds/ncanode-eds-verifier.ts`): итоговый `valid` NCANode отвечает на
+вопрос «была ли подпись действительна в момент подписания», а для входа нужен ответ на
+«сейчас». Образ — `malikzh/ncanode`, порт 14579, тег закреплён (`3.5.1`).
+
+Сервис в стеках — по профилю `eds`: без входа по ЭЦП он не нужен, а на старте качает корни и
+CRL с серверов НУЦ. Выключенный вход (`EDS_LOGIN_ENABLED=false`, по умолчанию) — `/auth/eds/*`
+отвечают `503 FEATURE_DISABLED`, веб прячет кнопку, NCANode не нужен вовсе.
+
+### Локально
+
+1. Поднять NCANode с корнями **тестового** УЦ НУЦ — первый старт около минуты, `--wait`
+   дожидается, пока скачаются корни и CRL (`/actuator/health` до этого отвечает 503):
+
+   ```bash
+   docker compose -f docker/dev/compose.yml --profile eds up -d --wait ncanode
+   curl -s http://localhost:14579/actuator/health   # {"status":"UP",…}
+   ```
+
+2. В `apps/api/.env`:
+
+   | Переменная             | Значение                                     |
+   | ---------------------- | -------------------------------------------- |
+   | `EDS_LOGIN_ENABLED`    | `true`                                       |
+   | `NCANODE_URL`          | `http://localhost:14579`                     |
+   | `EDS_IIN_PEPPER`       | `openssl rand -hex 32` — секрет HMAC для ИИН |
+   | `EDS_REVOCATION_CHECK` | `OCSP` (по умолчанию) или `CRL`              |
+
+3. Перезапустить api. На машине с браузером нужен NCALayer (https://pki.gov.kz/ncalayer/).
+
+Остановить — `docker compose -f docker/dev/compose.yml --profile eds stop ncanode`:
+`pnpm infra:down` сервисы профилей не трогает.
+
+### Тестовые ключи НУЦ
+
+Dev-стек доверяет только тестовому УЦ (`ҰЛТТЫҚ КУӘЛАНДЫРУШЫ ОРТАЛЫҚ (GOST) TEST 2022`), адреса
+корня, CRL и OCSP — в `dev/compose.yml`. Настоящая ЭЦП разработчика на нём не пройдёт
+(`EDS_CERT_NOT_AUTH` — цепочка не до доверенного корня), а тестовый ключ не пройдёт на
+боевых корнях — так и задумано.
+
+Тестовые ключи — в комплекте разработчика (SDK) НУЦ: https://pki.gov.kz/developers/, каталог
+`Keys and Certs`. Там ключи физлиц и сотрудников юрлиц, действующие, отозванные и
+просроченные — удобно проверять все ветки отказа. Пароль и ИИН (обычно `123456789011`) —
+в описании SDK. Ключ выбирается в NCALayer как файл `.p12`. Чтобы войти, ИИН ключа сначала
+привязывают к учётке (привязка ЭЦП в профиле, `docs/PROJECT.md` §8.3).
+
+Какие ключи годятся для входа: ключ аутентификации старой пары (`AUTH_RSA…`/`AUTH_GOST…`) и
+единый ключ ГОСТ 2015 (`GOST512_…`), который НУЦ выдаёт с 2023 года для входа и подписи
+сразу. Ключ старой пары «только для подписи» (`RSA…` без `AUTH`) — `EDS_CERT_NOT_AUTH`.
+
+### Прод-стек (compose)
+
+```bash
+docker compose -f docker/prod/compose.yml --profile eds up -d
+```
+
+В `prod/.env.api`: `EDS_LOGIN_ENABLED=true`, `EDS_IIN_PEPPER`. `NCANODE_URL=http://ncanode:14579`
+задаёт `compose.yml`. Корни, CRL и OCSP — боевые НУЦ (значения образа по умолчанию), порт
+наружу не публикуется. Первый старт — несколько минут: CRL ГОСТ весит около 20 МБ.
+
+### Railway
+
+1. **+ New → Docker Image** → `malikzh/ncanode:3.5.1`, имя сервиса `ncanode`. Домен **не**
+   генерировать: сервису нужна только приватная сеть.
+2. **Variables** сервиса:
+   - `SERVER_ADDRESS=::` — приватная сеть Railway (`*.railway.internal`) ходит по IPv6, как и у
+     MinIO (`docs/RAILWAY.md`, §4). Java по умолчанию и так слушает двухстековый `::`, явное
+     значение страхует от `-Djava.net.preferIPv4Stack=true` (сверить после первого деплоя).
+   - `JAVA_OPTS=-Xms128m -Xmx512m` — значение образа; меньше 512 МБ CRL ГОСТ не проглотит.
+   - для тестовых корней вместо боевых — `NCANODE_*` из `dev/compose.yml` (решение владельца:
+     Railway сейчас тестовый стенд, см. ниже).
+3. **Settings → Volumes** — том на `/app/cache` (необязательно: без него корни и CRL
+   скачиваются заново при каждом рестарте).
+4. **Healthcheck Path** — `/actuator/health`. Railway стучится в него по порту из `PORT`;
+   если проверка не проходит — задать `PORT=14579` (сверить).
+5. У **api**: `NCANODE_URL=http://${{ncanode.RAILWAY_PRIVATE_DOMAIN}}:14579` (порт обязателен —
+   как `MINIO_PORT=9000`), `EDS_LOGIN_ENABLED=true`, `EDS_IIN_PEPPER` (секретом),
+   `EDS_REVOCATION_CHECK=OCSP`.
+6. Проверка из shell сервиса api (в образе есть node, curl нет):
+
+   ```bash
+   node -e "fetch('http://ncanode.railway.internal:14579/actuator/health').then(r=>r.text()).then(console.log)"
+   ```
+
+**Связь NCANode с НУЦ из Railway — проверить до включения входа.** Railway размещает
+сервисы за пределами Казахстана, а серверы НУЦ (`pki.gov.kz`, `crl.pki.gov.kz`,
+`ocsp.pki.gov.kz`, `root.gov.kz`, у тестового УЦ — `test.pki.gov.kz`) работают по HTTP, и
+доступность государственных ресурсов РК из-за рубежа не гарантирована. Из shell сервиса
+`ncanode` (в образе есть `wget`):
+
+```bash
+wget -q -O /dev/null http://ocsp.pki.gov.kz/ && echo ocsp ok
+wget -q -O /dev/null http://crl.pki.gov.kz/nca_gost_2022.crl && echo crl ok
+```
+
+- `/actuator/health` = `UP` значит: корни и CRL скачались. OCSP так не проверить — он
+  спрашивается только на настоящей подписи. Если OCSP недоступен, вход отвечает
+  `EDS_UNAVAILABLE`, а в логе api — «статус отзыва не подтверждён (OCSP)».
+- OCSP не достаётся, CRL — да: `EDS_REVOCATION_CHECK=CRL`. Отзыв тогда виден с задержкой:
+  полный CRL NCANode обновляет раз в сутки (`NCANODE_CRL_TTL=1440` мин), дельту — раз в час.
+- Не достаётся ничего — `NCANODE_PROXY_URL` (прокси в РК для всех запросов NCANode) или
+  NCANode на машине в Казахстане.
+- **`NCANODE_CRL_ENABLED=false` не ставить никогда:** с выключенным CRL NCANode отвечает
+  «не отозван» на любой сертификат (`CrlService.verify` в исходниках), и при
+  `EDS_REVOCATION_CHECK=CRL` проверка отзыва молча исчезает.
+
+### KalkanCrypt и лицензия
+
+Сам NCANode — MIT, но KalkanCrypt (`kalkancrypt-*.jar`, `knca_provider_jce_kalkan-*.jar`) —
+закрытая библиотека НУЦ РК (АО «НИТ»): по требованию НИТ её удалили из репозитория NCANode,
+для сборки из исходников её берут из SDK. Образ `malikzh/ncanode` собирает CI проекта
+(`.github/workflows/create-docker-release.yml`), скачивая jar'ы по закрытым ссылкам, — то
+есть Kalkan внутри образа. Явных условий НИТ на такое распространение не опубликовано. До
+включения входа на проде: запросить SDK у НУЦ (https://pki.gov.kz/developers/), уточнить
+условия использования; при сомнениях — собрать свой образ из исходников NCANode с jar'ами
+из полученного SDK (каталог `lib/`).
 
 ## Частые проблемы
 
@@ -290,6 +419,12 @@ http://localhost:9001.
   `172.17.0.1`. Если мост другой (Docker Desktop, своя сеть), задайте `RELAY_DOCKER_HOST_IP`.
 - **Регистратор стенда отвечает с хоста** — хост Docker всегда видит свои сети. Изоляцию
   сети `campus` проверяйте из контейнера, а не с хоста.
+- **Вход по ЭЦП: `EDS_UNAVAILABLE` сразу после старта NCANode** — он ещё качает корни и CRL
+  и до этого отвечает 503. Ждать `healthy` (`--wait`). Не дождался — смотреть логи:
+  `docker compose -f docker/dev/compose.yml logs ncanode`; чаще всего это недоступный
+  `test.pki.gov.kz`.
+- **Вход по ЭЦП: `EDS_CERT_NOT_AUTH` с тестовым ключом** — NCANode поднят с боевыми корнями
+  (не тот стек или забыт `--profile eds` в dev) либо выбран ключ «только для подписи».
 
 ## Решения
 
@@ -342,6 +477,12 @@ Redis и MinIO разом и отдаёт 503, если моргнул любо�
 что при недоступном кеше стек не поднимается вовсе: nginx ждёт api по `service_healthy` и не
 дождался бы. Проверяется ровно то, что нужно для старта, — процесс слушает свой `PORT`.
 Подробнее — `.github/workflows/README.md`, «Почему в Dockerfile'ах нет HEALTHCHECK».
+
+**NCANode — профиль `eds`, без `depends_on` у api.** Вход по ЭЦП — дополнительный способ, вход
+по паролю работает без него. Если бы api ждал NCANode, а тот ждал серверы НУЦ (корни и CRL на
+старте), недоступный `pki.gov.kz` не давал бы подняться всей платформе. Сейчас упавший NCANode
+даёт `EDS_UNAVAILABLE` на входе по ЭЦП — и только. `NCANODE_URL` у api задан всегда: без
+`EDS_LOGIN_ENABLED=true` он не читается.
 
 **Миграции — отдельно, до старта api.** Стек их не применяет. CLI Prisma — dev-зависимость
 корня репозитория, в образ api не попадает, поэтому postgres опубликован на петле хоста:
