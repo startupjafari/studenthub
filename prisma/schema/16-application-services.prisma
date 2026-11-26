@@ -13,7 +13,7 @@ model ApplicationCategory {
   id          String   @id @default(uuid())
   code        String   @unique
   nameRu      String   @map("name_ru")
-  nameKk      String   @map("name_kk")
+  nameKz      String   @map("name_kz")
   nameEn      String   @map("name_en")
   description String?
   icon        String?
@@ -36,13 +36,13 @@ model ApplicationService {
   universityId   String?  @map("university_id")
   code           String
   nameRu         String   @map("name_ru")
-  nameKk         String   @map("name_kk")
+  nameKz         String   @map("name_kz")
   nameEn         String   @map("name_en")
   descriptionRu  String?  @map("description_ru")
-  descriptionKk  String?  @map("description_kk")
+  descriptionKz  String?  @map("description_kz")
   descriptionEn  String?  @map("description_en")
   instructionsRu String?  @map("instructions_ru")
-  instructionsKk String?  @map("instructions_kk")
+  instructionsKz String?  @map("instructions_kz")
   instructionsEn String?  @map("instructions_en")
   // SLA в часах (простая модель; рабочий календарь — задел на будущее, §14).
   slaHours       Int      @default(24) @map("sla_hours")
@@ -78,7 +78,7 @@ model ServiceRequirement {
   code         String
   documentType String? @map("document_type")
   titleRu      String  @map("title_ru")
-  titleKk      String  @map("title_kk")
+  titleKz      String  @map("title_kz")
   titleEn      String  @map("title_en")
   description  String?
   required     Boolean @default(true)
@@ -105,10 +105,10 @@ model ServiceFormField {
   // TEXT | TEXTAREA | NUMBER | DATE | SELECT | RADIO | CHECKBOX | BOOLEAN
   type          String
   labelRu       String  @map("label_ru")
-  labelKk       String  @map("label_kk")
+  labelKz       String  @map("label_kz")
   labelEn       String  @map("label_en")
   placeholderRu String? @map("placeholder_ru")
-  placeholderKk String? @map("placeholder_kk")
+  placeholderKz String? @map("placeholder_kz")
   placeholderEn String? @map("placeholder_en")
   required      Boolean @default(false)
   options       Json?
