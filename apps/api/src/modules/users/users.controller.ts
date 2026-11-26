@@ -36,6 +36,7 @@ import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 import { BlockUserDto } from './dto/block-user.dto'
 import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
 import { ResetTwoFactorDto } from './dto/reset-two-factor.dto'
+import { ResetEdsDto } from './dto/reset-eds.dto'
 import { DeleteAccountDto } from './dto/delete-account.dto'
 import { AcceptConsentDto } from './dto/accept-consent.dto'
 import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
@@ -53,9 +54,11 @@ export class UsersController {
 
   @RestrictedAllowed(...RESTRICTED_ROLES)
   @Get('me')
-  @ApiOperation({ summary: 'Мой профиль' })
+  @ApiOperation({
+    summary: 'Мой профиль (с полем eds — привязанная ЭЦП или null; только владельцу)',
+  })
   me(@CurrentUser() user: CurrentUserData) {
-    return this.users.findById(user.sub)
+    return this.users.findOwnProfile(user.sub)
   }
 
   @RestrictedAllowed(...RESTRICTED_ROLES)
@@ -494,6 +497,44 @@ export class UsersController {
       () => this.confirmation.verifyForUser(user.sub, dto.code),
       { ip: req.ip, userAgent: req.headers['user-agent'] },
     )
+    return null
+  }
+
+  /**
+   * Сброс привязки ЭЦП (docs/PROJECT.md §8.3 «Вход по ЭЦП») — по образцу сброса 2FA: строго
+   * старший по роли в своём охвате, с кодом СВОЕГО второго фактора. Сессии человека не
+   * гасит (почему — UserService.resetEds). В мини-апп маршрут не открыт.
+   */
+  @Post(':id/eds/reset')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @ApiOperation({
+    summary:
+      'Отвязать ЭЦП пользователя (роль строго ниже, свой scope; код своей 2FA). Сессии не гасит',
+  })
+  @ApiResponse({ status: 201, description: 'Привязка снята' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — у пользователя ЭЦП не привязана / свою' })
+  @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE — неверный код администратора' })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN — роль не ниже вашей или у вас нет 2FA; WRONG_SCOPE — другой вуз',
+  })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — слишком много неверных кодов' })
+  @ApiResponse({ status: 503, description: 'FEATURE_DISABLED — вход по ЭЦП выключен на сервере' })
+  async resetEds(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ResetEdsDto,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
+    await this.users.resetEds(user, id, () => this.confirmation.verifyForUser(user.sub, dto.code), {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
     return null
   }
 

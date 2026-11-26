@@ -2,6 +2,7 @@ import {
   renderCompanyInvite,
   renderDemoApproved,
   renderDemoRejected,
+  renderEdsLinked,
   renderInvite,
   renderNotification,
   renderPasswordReset,
@@ -101,6 +102,22 @@ describe('email templates', () => {
   it('two-factor-reset: письмо на языке получателя', () => {
     const r = renderTwoFactorReset({ to: 'a@b.c', firstName: 'Aliya', locale: 'en' })
     expect(r.subject).toBe('Two-factor authentication turned off')
+  })
+
+  it('eds-linked: чей ключ привязан, без кнопки и с подсказкой на случай чужой привязки', () => {
+    const r = renderEdsLinked({ to: 'a@b.c', firstName: 'Алия', subjectCn: 'АБИШЕВА <b>АЛИЯ</b>' })
+    expect(r.subject).toContain('ЭЦП')
+    expect(r.html).toContain('Алия')
+    // ФИО из сертификата — чужая строка: в html только экранированной.
+    expect(r.html).toContain('АБИШЕВА &lt;b&gt;АЛИЯ&lt;/b&gt;')
+    expect(r.html).not.toContain('<b>АЛИЯ</b>')
+    expect(r.html).not.toContain('Если кнопка не открывается')
+    expect(r.text).toContain('смените пароль')
+  })
+
+  it('eds-linked: письмо на языке получателя', () => {
+    const r = renderEdsLinked({ to: 'a@b.c', firstName: 'Aliya', subjectCn: 'X', locale: 'kk' })
+    expect(r.subject).toBe('Тіркелгіге ЭЦҚ байланыстырылды')
   })
 })
 

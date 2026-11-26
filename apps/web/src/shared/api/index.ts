@@ -38,6 +38,12 @@ export {
   miniLinkRevokeRequest,
   type MiniLinkStatus,
   type MiniLinkCodeResponse,
+  edsConfigRequest,
+  edsChallengeRequest,
+  edsLoginRequest,
+  edsLinkChallengeRequest,
+  edsLinkRequest,
+  edsUnlinkRequest,
 } from './auth-api'
 export {
   uploadFileRequest,

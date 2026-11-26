@@ -47,6 +47,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
 import { TelegramLinkRow } from '../../../features/link-telegram'
+import { EdsLinkRow } from '../../../features/link-eds'
 import type { MeResponse } from '../../../shared/api'
 import {
   setup2faRequest,
@@ -92,6 +93,7 @@ import {
   exportMyData,
   fetchAccountDeletionCheck,
   fetchMe,
+  mergeMeResponse,
   revokeUserSessionsRequest,
   updateProfileRequest,
   updateUsernameRequest,
@@ -286,7 +288,7 @@ export function PersonalSection({ me }: { me: MeResponse }) {
       return updateProfileRequest(profile)
     },
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       // Имя показывается и из стора сессии — обновляем вместе с кэшем `me`.
       syncSessionUser(data)
       toast.success(tP('saved'))
@@ -394,7 +396,7 @@ export function PersonalSection({ me }: { me: MeResponse }) {
   )
 }
 
-// ── Безопасность (смена пароля + 2FA/TOTP) ──────────────────────────────────
+// ── Безопасность (смена пароля + 2FA/TOTP + вход по ЭЦП) ─────────────────────
 function SecuritySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
@@ -467,6 +469,10 @@ function SecuritySection({ me }: { me: MeResponse }) {
       <div className="mt-6 border-t border-border pt-5">
         <TwoFactorManager me={me} />
       </div>
+
+      {/* Вход по ЭЦП — сразу под 2FA: привязка подтверждается её кодом. Строка рисует свою
+          рамку сама: ролям без права на ЭЦП и при выключенном входе её нет целиком. */}
+      <EdsLinkRow me={me} className="mt-6 border-t border-border pt-5" />
 
       {/* Привязка Telegram — ниже 2FA: это тоже про доступ к аккаунту, и платформенным
           ролям мини-апп доступен только после включённой двухфакторной. */}
@@ -969,7 +975,7 @@ function AppearanceSection() {
   // продолжил получать письма на прежнем.
   const mut = useMutation({
     mutationFn: (value: Locale) => updateProfileRequest({ locale: value }),
-    onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
+    onSuccess: (data) => qc.setQueryData(userKeys.me(), mergeMeResponse(data)),
     // Интерфейс уже переключился (cookie), а письма остались на старом языке — молчать
     // об этом нельзя: расхождение человеку не видно, пока не придёт письмо.
     onError: () => toast.error(tS('languageSaveFailed')),
@@ -1228,7 +1234,7 @@ function PrivacySection({ me }: { me: MeResponse }) {
       if (ctx?.prev) qc.setQueryData(userKeys.me(), ctx.prev)
       showApiError(e)
     },
-    onSuccess: (data) => qc.setQueryData(userKeys.me(), data),
+    onSuccess: (data) => qc.setQueryData(userKeys.me(), mergeMeResponse(data)),
   })
 
   // Выгрузка своих данных (Ф14.6): файл собирается на сервере, здесь только сохранение.

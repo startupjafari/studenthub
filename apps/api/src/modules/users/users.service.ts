@@ -9,6 +9,7 @@ import type {
   AccountDeletionBlocker,
   AccountDeletionCheck,
   AvatarPhotoDto,
+  EdsCredentialInfo,
   UserListQueryInput,
   UpdateProfileInput,
   UserDirectoryQueryInput,
@@ -277,6 +278,48 @@ function withCanonicalAcademicStatus(data: UpdateAcademicRecordInput): UpdateAca
 
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
+
+/**
+ * Привязанная ЭЦП в виде для владельца (docs/PROJECT.md §8.3 «Вход по ЭЦП»). Хэша ИИН здесь
+ * нет намеренно: он ключ поиска при входе, а не сведения для человека.
+ */
+const EDS_INFO_SELECT = {
+  iinLast4: true,
+  subjectCn: true,
+  orgBin: true,
+  certNotAfter: true,
+  linkedAt: true,
+  lastUsedAt: true,
+} satisfies Prisma.UserEdsCredentialSelect
+
+function toEdsInfo(
+  row: Prisma.UserEdsCredentialGetPayload<{ select: typeof EDS_INFO_SELECT }>,
+): EdsCredentialInfo {
+  return {
+    iinLast4: row.iinLast4,
+    subjectCn: row.subjectCn,
+    orgBin: row.orgBin,
+    certNotAfter: row.certNotAfter.toISOString(),
+    linkedAt: row.linkedAt.toISOString(),
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+  }
+}
+
+/** Снимок сертификата ЭЦП — последней привязки или последнего входа. */
+export interface EdsCertificateSnapshot {
+  subjectCn: string
+  orgBin: string | null
+  certSerial: string
+  certIssuer: string
+  certNotAfter: Date
+}
+
+/**
+ * Свой профиль (`GET /users/me`, `GET /auth/me`): карточка плюс привязанная ЭЦП. `eds` есть
+ * только здесь — в чужой карточке (getProfileForViewer) его нет вовсе, как нет там флага 2FA:
+ * какой способ входа у человека — приватная деталь владельца.
+ */
+export type OwnProfile = UserProfile & { eds: EdsCredentialInfo | null }
 // access: 'full' — карточка целиком (по правам), 'limited' — только «визитка» закрытого профиля.
 export type ProfileAccessLevel = 'full' | 'limited'
 export type PublicProfile = Omit<
@@ -454,6 +497,19 @@ export class UserService {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
     return user
+  }
+
+  /** Свой профиль с привязанной ЭЦП — одним запросом (см. OwnProfile). */
+  async findOwnProfile(id: string): Promise<OwnProfile> {
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { ...PROFILE_SELECT, edsCredential: { select: EDS_INFO_SELECT } },
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    const { edsCredential, ...profile } = user
+    return { ...profile, eds: edsCredential ? toEdsInfo(edsCredential) : null }
   }
 
   /**
@@ -1812,6 +1868,101 @@ export class UserService {
     })
   }
 
+  // ── Привязка ЭЦП (docs/PROJECT.md §8.3 «Вход по ЭЦП») ─────────────────────────
+  // Привязка — часть учётной записи, как секрет 2FA: таблицей user_eds_credentials владеет
+  // этот сервис, auth-домен (EdsAuthService) ходит сюда методами (§2.1). Хэш ИИН наружу не
+  // уходит — только снимок для владельца (EdsCredentialInfo).
+
+  /**
+   * Чья учётка привязана к ИИН (по HMAC). Удалённая учётка — как непривязанная: её привязку
+   * снимает удаление (softDeleteSelf), а строка, пережившая его, входа не даёт.
+   */
+  async findEdsCredentialByIinHash(
+    iinHash: string,
+  ): Promise<{ userId: string; role: Role } | null> {
+    const row = await this.prisma.userEdsCredential.findUnique({
+      where: { iinHash },
+      select: { userId: true, user: { select: { role: true, deletedAt: true } } },
+    })
+    if (!row || row.user.deletedAt) return null
+    return { userId: row.userId, role: row.user.role }
+  }
+
+  /** Есть ли у учётки привязанная ЭЦП. */
+  async hasEdsCredential(userId: string): Promise<boolean> {
+    const row = await this.prisma.userEdsCredential.findUnique({
+      where: { userId },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
+  /** Кому привязываем: имя — для сверки с CN сертификата, почта и язык — для письма. */
+  getEdsOwner(userId: string): Promise<{
+    firstName: string
+    lastName: string
+    email: string
+    locale: string
+  } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { firstName: true, lastName: true, email: true, locale: true },
+    })
+  }
+
+  /**
+   * Привязать ЭЦП или перепривязать на другой ИИН: у учётки одна привязка, поэтому upsert по
+   * userId. Дата привязки — заново, отметка последнего входа стирается: это уже другой ключ.
+   * ИИН, занятый другой учёткой, отсекает EdsAuthService заранее, а гонку двух одновременных
+   * привязок одного ключа — уникальный индекс `iin_hash` (P2002 → EDS_ALREADY_LINKED).
+   */
+  async linkEdsCredential(
+    userId: string,
+    data: EdsCertificateSnapshot & { iinHash: string; iinLast4: string },
+  ): Promise<{ info: EdsCredentialInfo; replaced: boolean }> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const previous = await tx.userEdsCredential.findUnique({
+          where: { userId },
+          select: { id: true },
+        })
+        const row = await tx.userEdsCredential.upsert({
+          where: { userId },
+          create: { userId, ...data },
+          update: { ...data, linkedAt: new Date(), lastUsedAt: null },
+          select: EDS_INFO_SELECT,
+        })
+        return { info: toEdsInfo(row), replaced: previous !== null }
+      })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppException(
+          'EDS_ALREADY_LINKED',
+          'Эта ЭЦП уже привязана к другой учётной записи',
+        )
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Успешный вход по ЭЦП: отметка времени и свежий снимок сертификата — НУЦ перевыпускает
+   * ключи ежегодно, и владелец должен видеть срок действия того ключа, которым входит сейчас.
+   * `updateMany`: привязку могли снять между проверкой и записью — тогда писать некуда.
+   */
+  async touchEdsCredential(userId: string, cert: EdsCertificateSnapshot): Promise<void> {
+    await this.prisma.userEdsCredential.updateMany({
+      where: { userId },
+      data: { ...cert, lastUsedAt: new Date() },
+    })
+  }
+
+  /** Снять привязку. true — привязка была и снята этим вызовом. */
+  async removeEdsCredential(userId: string): Promise<boolean> {
+    const { count } = await this.prisma.userEdsCredential.deleteMany({ where: { userId } })
+    return count > 0
+  }
+
   /**
    * Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?).
    *
@@ -2507,6 +2658,10 @@ export class UserService {
       // тоже ПДн, а история «этот Telegram здесь уже был» у удалённого аккаунта никому
       // не нужна и только держала бы уникальный telegramId занятым.
       await tx.telegramAccount.deleteMany({ where: { userId } })
+      // Привязка ЭЦП — тоже канал входа, и каскад FK её не снимет: удаление мягкое, строка
+      // User остаётся. А ИИН (его HMAC) оставался бы занятым навсегда — тот же человек не смог
+      // бы привязать ключ к новой учётке.
+      await tx.userEdsCredential.deleteMany({ where: { userId } })
       // Контент профиля — личное, а не общее: статьи, опросы, альбомы и портфолио после
       // удаления продолжали отдаваться с исходным текстом под «Удалённым пользователем».
       // Чужие комментарии к ним, голоса и закладки уходят каскадом. Посты, комментарии
@@ -2868,6 +3023,54 @@ export class UserService {
       { to: target.email, locale: target.locale, firstName: target.firstName },
       { jobId: `two-factor-reset:${userId}:${Date.now()}` },
     )
+  }
+
+  /**
+   * Сброс привязки ЭЦП человеку (docs/PROJECT.md §8.3 «Вход по ЭЦП») — по образцу
+   * resetTwoFactor: строго старший по роли в своём охвате (assertModeratable), подтверждение
+   * СВОИМ вторым фактором, код — последним (backup-код при проверке сгорает).
+   *
+   * Сессии человека здесь НЕ гасим — в отличие от сброса 2FA, и осознанно. 2FA сбрасывают,
+   * когда телефон с аутентификатором потерян, то есть второй фактор, возможно, в чужих руках, и
+   * выгнать нужно всех. ЭЦП сбрасывают при смене работы или ключа (ушёл из организации, ключ
+   * юрлица отозван, человек сам потерял доступ к файлу ключа): пароль и TOTP целы, и выкидывать
+   * его из всех устройств незачем. Если ключ украден — вход им прекращается сразу, привязки
+   * больше нет; уже выданные по нему сессии администратор гасит отдельно и осознанно
+   * (`PATCH /users/:id/logout`).
+   */
+  async resetEds(
+    viewer: JwtPayload,
+    userId: string,
+    confirm: () => Promise<boolean>,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    if (!this.config.get('EDS_LOGIN_ENABLED', { infer: true })) {
+      throw new AppException('FEATURE_DISABLED', 'Вход по ЭЦП выключен на сервере')
+    }
+    if (userId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'Свою ЭЦП отвязывают в настройках аккаунта')
+    }
+    await this.assertModeratable(viewer, userId)
+    if (!(await this.isTwoFactorEnabled(viewer.sub))) {
+      throw new AppException(
+        'FORBIDDEN',
+        'Сбросить ЭЦП другому может только тот, у кого включена 2FA',
+      )
+    }
+    if (!(await this.hasEdsCredential(userId))) {
+      throw new AppException('BAD_REQUEST', 'У пользователя ЭЦП не привязана')
+    }
+    if (!(await confirm())) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
+    }
+    await this.removeEdsCredential(userId)
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'user_eds_reset',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
   }
 
   /**

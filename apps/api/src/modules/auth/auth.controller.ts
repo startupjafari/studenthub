@@ -26,6 +26,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { AuditService } from '../../common/audit/audit.service'
 import { AuthService, type RequestContext, type SessionResult } from './auth.service'
 import { AUTH_COOKIE_PATH, REFRESH_COOKIE, ROLE_COOKIE } from './auth.constants'
+import { setAuthCookies } from './auth-cookies'
 import { RegisterByInviteDto } from './dto/register-by-invite.dto'
 import { AcceptCompanyInviteDto } from './dto/accept-company-invite.dto'
 import { CompanyMembersService } from '../career/company-members.service'
@@ -331,31 +332,7 @@ export class AuthController {
   }
 
   private setAuthCookies(reply: FastifyReply, session: SessionResult): void {
-    const secure = this.isProd()
-    // Refresh — httpOnly, только на auth-пути (§6.2).
-    reply.setCookie(REFRESH_COOKIE, session.refreshToken, {
-      httpOnly: true,
-      secure,
-      sameSite: 'lax',
-      path: AUTH_COOKIE_PATH,
-      expires: session.refreshExpiresAt,
-    })
-    // role-cookie — нечувствительная, для ролевого редиректа в middleware (§16.2). Не httpOnly.
-    const roleValue = Buffer.from(
-      JSON.stringify({
-        role: session.payload.role,
-        universityId: session.payload.universityId,
-        facultyId: session.payload.facultyId,
-        groupId: session.payload.groupId,
-      }),
-    ).toString('base64url')
-    reply.setCookie(ROLE_COOKIE, roleValue, {
-      httpOnly: false,
-      secure,
-      sameSite: 'lax',
-      path: '/',
-      expires: session.refreshExpiresAt,
-    })
+    setAuthCookies(reply, session, this.isProd())
   }
 
   private clearAuthCookies(reply: FastifyReply): void {

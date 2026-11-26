@@ -11,6 +11,7 @@ import {
   renderDemoApproved,
   renderDemoRejected,
   renderDemoVerification,
+  renderEdsLinked,
   renderInvite,
   renderNotification,
   renderPasswordReset,
@@ -20,6 +21,7 @@ import {
   type DemoApprovedPayload,
   type DemoRejectedPayload,
   type DemoVerificationPayload,
+  type EdsLinkedPayload,
   type InvitePayload,
   type NotificationPayload,
   type PasswordResetPayload,
@@ -118,6 +120,8 @@ export class EmailProcessor extends WorkerHost {
         return renderPasswordReset(data as unknown as PasswordResetPayload)
       case EMAIL_JOBS.SEND_TWO_FACTOR_RESET:
         return renderTwoFactorReset(data as unknown as TwoFactorResetPayload)
+      case EMAIL_JOBS.SEND_EDS_LINKED:
+        return renderEdsLinked(data as unknown as EdsLinkedPayload)
       case EMAIL_JOBS.SEND_DEMO_VERIFICATION:
         return renderDemoVerification(data as unknown as DemoVerificationPayload)
       case EMAIL_JOBS.SEND_DEMO_APPROVED:

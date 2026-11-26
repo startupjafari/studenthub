@@ -22,6 +22,12 @@ process.env.TWO_FACTOR_ENFORCE = 'false'
 // Окно грации при повторе ротированного refresh-токена: в тестах узкое, чтобы один прогон
 // проверял обе ветки — повтор внутри окна (тот же преемник) и после него (разрыв цепочки).
 process.env.REFRESH_REUSE_GRACE_MS = '300'
+// Вход по ЭЦП (docs/PROJECT.md §8.3) включён, чтобы eds.e2e-spec проверял поток целиком.
+// NCANode в e2e нет: спек подменяет EdsVerifier фейком, адрес нужен только схеме окружения
+// (при включённом флаге он обязателен). Секрет ИИН — тестовый, к боевому отношения не имеет.
+process.env.EDS_LOGIN_ENABLED = 'true'
+process.env.NCANODE_URL = 'http://127.0.0.1:14579'
+process.env.EDS_IIN_PEPPER = 'e2e-only-eds-iin-pepper-0123456789abcdef'
 // Служебный Telegram-бот в тестах выключен принудительно: .env разработчика может
 // содержать боевой токен, и e2e начали бы слать сообщения в рабочий чат команды.
 delete process.env.TELEGRAM_BOT_TOKEN

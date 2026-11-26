@@ -44,6 +44,7 @@ import { StudentIdButton } from '../../../features/show-student-id'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
   fetchMe,
+  mergeMeResponse,
   removeAvatarRequest,
   removeCoverRequest,
   updateProfileRequest,
@@ -179,7 +180,7 @@ export function UserProfile({
   const updateMut = useMutation({
     mutationFn: updateProfileRequest,
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       setEditing(false)
       toast.success(t('saved'))
     },
@@ -343,7 +344,7 @@ function ProfileHeader({
   const uploadMut = useMutation({
     mutationFn: (f: File) => uploadAvatarRequest(f),
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       // Стор сессии — второй потребитель аватара: без этого композер комментариев
       // и чат до перезагрузки рисовали бы прежнюю картинку.
       syncSessionUser(data)
@@ -356,7 +357,7 @@ function ProfileHeader({
   const uploadCoverMut = useMutation({
     mutationFn: (f: File) => uploadCoverRequest(f),
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       setCoverCropFile(null)
       toast.success(t('coverUpdated'))
     },
@@ -366,7 +367,7 @@ function ProfileHeader({
   const removeCoverMut = useMutation({
     mutationFn: removeCoverRequest,
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       toast.success(t('coverRemoved'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
@@ -375,7 +376,7 @@ function ProfileHeader({
   const removeAvatarMut = useMutation({
     mutationFn: removeAvatarRequest,
     onSuccess: (data) => {
-      qc.setQueryData(userKeys.me(), data)
+      qc.setQueryData(userKeys.me(), mergeMeResponse(data))
       syncSessionUser(data)
       toast.success(t('avatarRemoved'))
     },

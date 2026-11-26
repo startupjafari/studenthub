@@ -171,7 +171,21 @@ function securityHeaders() {
     // Явные origin'ы оставлены документацией: по ним видно, куда ходит приложение.
     uniq(['img-src', "'self'", 'data:', 'blob:', 'https:', minio, api]),
     uniq(['media-src', "'self'", 'blob:', 'https:', minio, api, mediaRelay]),
-    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio, mediaRelay]),
+    // wss://127.0.0.1:13579 — NCALayer на компьютере пользователя: через него подписывают
+    // ключом ЭЦП при входе и привязке (docs/PROJECT.md §8.3). Его и так покрывает `wss:`, но
+    // origin вписан явно: сузят `wss:` до своих адресов — вход по ЭЦП не должен молча отвалиться.
+    uniq([
+      'connect-src',
+      "'self'",
+      'https:',
+      'wss:',
+      api,
+      ws,
+      wsScheme,
+      minio,
+      mediaRelay,
+      'wss://127.0.0.1:13579',
+    ]),
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "object-src 'none'",

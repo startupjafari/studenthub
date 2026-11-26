@@ -32,6 +32,18 @@ export async function fetchMe(): Promise<MeResponse> {
   return data
 }
 
+/**
+ * Обновление кэша своего профиля ответом `PATCH /users/me` и соседних маршрутов (аватар,
+ * обложка). Они отдают карточку БЕЗ `eds` — привязанную ЭЦП возвращает только
+ * `GET /users/me`. Положи такой ответ в кэш как есть — привязка «пропала» бы с экрана
+ * настроек до следующего перезапроса, поэтому прежнее `eds` переносим.
+ *
+ * `qc.setQueryData(userKeys.me(), mergeMeResponse(data))`
+ */
+export function mergeMeResponse(next: MeResponse): (prev: MeResponse | undefined) => MeResponse {
+  return (prev) => ('eds' in next || prev === undefined ? next : { ...next, eds: prev.eds })
+}
+
 // Статус присутствия пользователя (в сети / не в сети) — снапшот; живые апдейты через WS.
 export async function fetchUserPresence(id: string): Promise<{ online: boolean }> {
   const { data } = await api.get<{ online: boolean }>(`/users/${id}/presence`)
@@ -277,6 +289,15 @@ export async function unblockUserRequest(id: string): Promise<void> {
  */
 export async function resetUserTwoFactorRequest(id: string, code: string): Promise<void> {
   await api.post(`/users/${id}/2fa/reset`, { code })
+}
+
+/**
+ * Сброс привязки ЭЦП (потерян или скомпрометирован ключ) — по образцу сброса 2FA: строго
+ * младшему по роли, с кодом СВОЕГО второго фактора. Сессии человека сервер не гасит. У кого
+ * ЭЦП не привязана — `400 BAD_REQUEST`.
+ */
+export async function resetUserEdsRequest(id: string, code: string): Promise<void> {
+  await api.post(`/users/${id}/eds/reset`, { code })
 }
 
 /**

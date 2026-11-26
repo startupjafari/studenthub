@@ -95,6 +95,14 @@ export interface EmailDict {
     next: string
     note: string
   }
+  edsLinked: {
+    subject: string
+    heading: string
+    preheader: string
+    lead: (firstName: string, subjectCn: string) => string
+    next: string
+    note: string
+  }
   demoVerification: {
     subject: string
     heading: string
@@ -212,6 +220,15 @@ const RU: EmailDict = {
       `${firstName}, администратор ${BRAND} отключил двухфакторную аутентификацию в вашей учётной записи — так восстанавливают доступ, когда телефон с приложением-аутентификатором потерян. Все сеансы завершены.`,
     next: 'Войдите с паролем и снова включите двухфакторную аутентификацию в настройках. Прежние резервные коды больше не действуют.',
     note: 'Если вы не просили сброс — сразу смените пароль и сообщите администратору своего вуза.',
+  },
+  edsLinked: {
+    subject: 'К учётной записи привязана ЭЦП',
+    heading: 'Привязана ЭЦП',
+    preheader: 'Новый способ входа в вашу учётную запись — по ЭЦП',
+    lead: (firstName, subjectCn) =>
+      `${firstName}, к вашей учётной записи в ${BRAND} привязана ЭЦП на имя ${subjectCn}. Теперь войти можно и этим ключом — без пароля и кода из приложения.`,
+    next: 'Привязку видно и можно снять в настройках безопасности.',
+    note: 'Если ЭЦП привязывали не вы — сразу смените пароль, снимите привязку в настройках и сообщите администратору своего вуза.',
   },
   demoVerification: {
     subject: `Подтвердите заявку на тестирование ${BRAND}`,
@@ -336,6 +353,15 @@ const KK: EmailDict = {
     next: 'Құпия сөзбен кіріп, баптауларда екі факторлы аутентификацияны қайта қосыңыз. Бұрынғы резервтік кодтар енді жарамсыз.',
     note: 'Егер сіз сұрамаған болсаңыз — құпия сөзді дереу өзгертіп, университетіңіздің әкімшісіне хабарлаңыз.',
   },
+  edsLinked: {
+    subject: 'Тіркелгіге ЭЦҚ байланыстырылды',
+    heading: 'ЭЦҚ байланыстырылды',
+    preheader: 'Тіркелгіңізге кірудің жаңа тәсілі — ЭЦҚ арқылы',
+    lead: (firstName, subjectCn) =>
+      `${firstName}, ${BRAND} платформасындағы тіркелгіңізге ${subjectCn} атына берілген ЭЦҚ байланыстырылды. Енді осы кілтпен де кіруге болады — құпия сөзсіз және қолданбадағы кодсыз.`,
+    next: 'Байланысты қауіпсіздік баптауларынан көруге және алып тастауға болады.',
+    note: 'Егер ЭЦҚ-ны сіз байланыстырмаған болсаңыз — құпия сөзді дереу өзгертіп, баптауларда байланысты алып тастаңыз және университетіңіздің әкімшісіне хабарлаңыз.',
+  },
   demoVerification: {
     subject: `${BRAND} сынақтан өткізу өтінішін растаңыз`,
     heading: 'Поштаңызды растаңыз',
@@ -459,6 +485,15 @@ const EN: EmailDict = {
       `${firstName}, a ${BRAND} administrator turned off two-factor authentication on your account — this is how access is restored when the phone with the authenticator app is lost. All sessions have been ended.`,
     next: 'Sign in with your password and turn two-factor authentication back on in settings. Your old backup codes no longer work.',
     note: 'If you did not ask for this reset, change your password right away and tell your university administrator.',
+  },
+  edsLinked: {
+    subject: 'A digital signature was linked to your account',
+    heading: 'Digital signature linked',
+    preheader: 'A new way to sign in to your account — with a digital signature',
+    lead: (firstName, subjectCn) =>
+      `${firstName}, a digital signature (EDS) issued to ${subjectCn} was linked to your ${BRAND} account. You can now also sign in with this key — without a password or an authenticator code.`,
+    next: 'You can see and remove the link in your security settings.',
+    note: 'If you did not link this signature, change your password right away, remove the link in settings and tell your university administrator.',
   },
   demoVerification: {
     subject: `Confirm your ${BRAND} trial request`,

@@ -51,6 +51,11 @@ function setup() {
     chat: { findMany: jest.fn().mockResolvedValue([]) },
     group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     telegramAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    // Привязка ЭЦП: снимается удалением аккаунта (softDeleteSelf) и сбросом старшим (resetEds).
+    userEdsCredential: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     complaint: { count: jest.fn().mockResolvedValue(0) },
     moderationWarning: {
       create: jest.fn().mockResolvedValue({ id: 'w1' }),
@@ -955,6 +960,18 @@ describe('UserService — softDeleteSelf', () => {
     // Анонимизация, староста, Telegram и пять видов контента профиля — одной транзакцией.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+  })
+
+  // Удаление мягкое — каскад FK привязку ЭЦП не снимет, а ИИН остался бы занятым навсегда.
+  it('снимает привязку ЭЦП в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.findUnique.mockResolvedValue({ role: Role.DEAN })
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.userEdsCredential.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
   })
 
   // Статьи, опросы, альбомы и портфолио после удаления продолжали отдаваться с исходным
@@ -2661,6 +2678,106 @@ describe('UserService — сброс 2FA администратором', () => 
     await expect(
       service.resetTwoFactor(admin(), 'admin', jest.fn().mockResolvedValue(true)),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('UserService — сброс привязки ЭЦП администратором', () => {
+  const targetRow = { id: 't', universityId: 'uni-A', role: Role.DEAN as Role }
+
+  function arrange(
+    prisma: ReturnType<typeof setup>['prisma'],
+    config: ReturnType<typeof setup>['config'],
+    opts: { adminTfa?: boolean; target?: Partial<typeof targetRow>; linked?: boolean } = {},
+  ): void {
+    config.get.mockImplementation((key: string) => (key === 'EDS_LOGIN_ENABLED' ? true : undefined))
+    prisma.user.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === 'admin'
+        ? { twoFactorEnabled: opts.adminTfa ?? true }
+        : { ...targetRow, ...opts.target },
+    )
+    prisma.userEdsCredential.findUnique.mockResolvedValue(
+      (opts.linked ?? true) ? { id: 'eds-1' } : null,
+    )
+    prisma.userEdsCredential.deleteMany.mockResolvedValue({ count: 1 })
+  }
+
+  const admin = (role: Role = Role.UNIVERSITY_ADMIN) =>
+    viewer(role, { universityId: 'uni-A' }, 'admin')
+
+  it('снимает привязку и пишет аудит; сессии человека не гасит', async () => {
+    const { service, prisma, config, authService, audit } = setup()
+    arrange(prisma, config)
+    const confirm = jest.fn().mockResolvedValue(true)
+    await service.resetEds(admin(), 't', confirm, { ip: '10.0.0.1' })
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(prisma.userEdsCredential.deleteMany).toHaveBeenCalledWith({ where: { userId: 't' } })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin',
+        action: 'user_eds_reset',
+        entityId: 't',
+        ip: '10.0.0.1',
+      }),
+    )
+    // Сброс ЭЦП — не компрометация пароля: человека из его устройств не выкидываем.
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalled()
+  })
+
+  it('неверный код администратора → INVALID_2FA_CODE, привязка цела', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config)
+    await expect(
+      service.resetEds(admin(), 't', jest.fn().mockResolvedValue(false)),
+    ).rejects.toMatchObject({ code: 'INVALID_2FA_CODE' })
+    expect(prisma.userEdsCredential.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('у человека ЭЦП не привязана → BAD_REQUEST, код не тратится', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config, { linked: false })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(service.resetEds(admin(), 't', confirm)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('только строго старшему: модератор вуза не сбрасывает админу вуза', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config, { target: { role: Role.UNIVERSITY_ADMIN } })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(
+      service.resetEds(admin(Role.UNIVERSITY_MODERATOR), 't', confirm),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('чужой вуз → WRONG_SCOPE', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config, { target: { universityId: 'uni-B' } })
+    await expect(
+      service.resetEds(admin(), 't', jest.fn().mockResolvedValue(true)),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('у самого администратора 2FA нет → FORBIDDEN', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config, { adminTfa: false })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(service.resetEds(admin(), 't', confirm)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('вход по ЭЦП выключен → FEATURE_DISABLED', async () => {
+    const { service, prisma, config } = setup()
+    arrange(prisma, config)
+    config.get.mockReturnValue(false)
+    await expect(
+      service.resetEds(admin(), 't', jest.fn().mockResolvedValue(true)),
+    ).rejects.toMatchObject({ code: 'FEATURE_DISABLED' })
+    expect(prisma.userEdsCredential.deleteMany).not.toHaveBeenCalled()
   })
 })
 

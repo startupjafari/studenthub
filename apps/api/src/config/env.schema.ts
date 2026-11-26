@@ -92,6 +92,30 @@ export const envSchema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
 
+  /**
+   * Вход по ЭЦП НУЦ РК (docs/PROJECT.md §8.3 «Вход по ЭЦП»). Выключен по умолчанию: без
+   * NCANode подпись проверить нечем. Выключен — `/auth/eds/*` отвечают 503 FEATURE_DISABLED,
+   * веб прячет кнопку. Включён — обязательны NCANODE_URL и EDS_IIN_PEPPER (проверка ниже).
+   */
+  EDS_LOGIN_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  /** Адрес NCANode (сервис проверки CMS-подписей на KalkanCrypt), например http://ncanode:14579. */
+  NCANODE_URL: optionalEnv(z.string().url()),
+  /** Таймаут запроса к NCANode. OCSP НУЦ иногда отвечает секундами — запас нужен. */
+  NCANODE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(15_000),
+  /**
+   * Как проверять отзыв сертификата: OCSP (онлайн у НУЦ) или CRL (списки, которые NCANode
+   * кэширует у себя). OCSP точнее, CRL переживает недоступность OCSP-сервера.
+   */
+  EDS_REVOCATION_CHECK: z.enum(['OCSP', 'CRL']).default('OCSP'),
+  /**
+   * Секрет HMAC для ИИН: в базе хранится HMAC-SHA256(ИИН), а не сам ИИН. Смена секрета
+   * делает все привязки ЭЦП ненаходимыми — их придётся привязать заново.
+   */
+  EDS_IIN_PEPPER: optionalEnv(z.string().min(32, 'EDS_IIN_PEPPER: минимум 32 символа')),
+
   // Окно грации при повторе ротированного refresh-токена (AuthService.refresh). Повтор ТОЛЬКО ЧТО
   // использованного токена — обычно не кража, а недоставленный ответ: браузер оборвал запрос
   // (навигация, закрытие вкладки, спящая мобильная вкладка), новая cookie до клиента не доехала.
@@ -380,11 +404,31 @@ export const envSchema = z.object({
   VAPID_SUBJECT: z.string().default('mailto:admin@studenthub.app'),
 })
 
+// Включённый вход по ЭЦП без NCANode или без секрета ИИН — отказ старта, а не 500 на первом
+// входе: лучше узнать о дыре в настройке при деплое.
+const envSchemaChecked = envSchema.superRefine((env, ctx) => {
+  if (!env.EDS_LOGIN_ENABLED) return
+  if (!env.NCANODE_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['NCANODE_URL'],
+      message: 'обязателен при EDS_LOGIN_ENABLED=true',
+    })
+  }
+  if (!env.EDS_IIN_PEPPER) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['EDS_IIN_PEPPER'],
+      message: 'обязателен при EDS_LOGIN_ENABLED=true',
+    })
+  }
+})
+
 export type EnvVars = z.infer<typeof envSchema>
 
 /** Валидатор для ConfigModule.forRoot({ validate }). Бросает с перечнем проблем. */
 export function validateEnv(config: Record<string, unknown>): EnvVars {
-  const parsed = envSchema.safeParse(config)
+  const parsed = envSchemaChecked.safeParse(config)
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)

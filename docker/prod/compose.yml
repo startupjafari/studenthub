@@ -52,6 +52,9 @@ x-api: &api
     TRUST_PROXY: loopback, linklocal, uniquelocal
     # Медиа обрабатывает worker, api только ставит задачи.
     MEDIA_PROCESSING: worker
+    # NCANode из профиля eds. Задан всегда, а читается, только когда в .env.api включён
+    # EDS_LOGIN_ENABLED (README, «Вход по ЭЦП: NCANode»).
+    NCANODE_URL: http://ncanode:14579
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
@@ -189,6 +192,26 @@ services:
       - certbot_conf:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
 
+  # Проверка ЭЦП НУЦ РК для входа по ЭЦП (README, «Вход по ЭЦП: NCANode»). Профиль eds:
+  # без входа по ЭЦП сервис не нужен — `docker compose --profile eds up -d`. Корни, CRL и
+  # OCSP — боевые НУЦ (значения образа по умолчанию). Порт не публикуется: ходит к нему
+  # только api по сети стека. У api нет depends_on на него — упавший NCANode выключает вход
+  # по ЭЦП (EDS_UNAVAILABLE), а не всю платформу.
+  ncanode:
+    profiles: ['eds']
+    image: malikzh/ncanode:3.5.1
+    restart: always
+    logging: *logging
+    expose: ['14579']
+    volumes:
+      - ncanode_cache:/app/cache
+    healthcheck:
+      <<: *prod-healthcheck
+      # 503, пока не скачаны корни и CRL; боевой CRL ГОСТ — около 20 МБ, отсюда start_period.
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:14579/actuator/health']
+      timeout: 10s
+      start_period: 300s
+
   # Продление сертификата раз в 12 часов. Первый выпуск — разовая команда до старта nginx
   # (docs/RUNBOOK.md): без сертификата nginx не стартует.
   certbot:
@@ -211,3 +234,4 @@ volumes:
   minio_data:
   certbot_conf:
   certbot_www:
+  ncanode_cache:

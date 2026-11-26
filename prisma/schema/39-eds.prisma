@@ -1,0 +1,30 @@
+// Вход по ЭЦП НУЦ РК (docs/PROJECT.md §8.3 «Вход по ЭЦП»): привязка ключа к учётке.
+//
+// Привязка — к ИИН, а не к сертификату: НУЦ перевыпускает ключи ежегодно, и привязка к
+// серийному номеру слетала бы каждый год. ИИН — персональные данные, поэтому в базе его
+// нет: только HMAC-SHA256 с секретом EDS_IIN_PEPPER (для поиска при входе) и последние
+// четыре цифры (показать владельцу, какой ключ привязан). Поля сертификата — снимок
+// последнего успешного входа или привязки.
+//
+// Одна учётка — одна привязка, один ИИН — одна учётка. Право входа по ЭЦП есть только у
+// ролей с обязательной 2FA (TWO_FACTOR_REQUIRED_ROLES); при смене роли на другую привязка
+// удаляется.
+model UserEdsCredential {
+  id           String    @id @default(uuid())
+  userId       String    @unique @map("user_id")
+  iinHash      String    @unique @map("iin_hash")
+  iinLast4     String    @map("iin_last4")
+  // CN сертификата — ФИО владельца ключа, как его записал НУЦ.
+  subjectCn    String    @map("subject_cn")
+  // БИН организации у ключа сотрудника юрлица; у ключа физлица — null.
+  orgBin       String?   @map("org_bin")
+  certSerial   String    @map("cert_serial")
+  certIssuer   String    @map("cert_issuer")
+  certNotAfter DateTime  @map("cert_not_after")
+  linkedAt     DateTime  @default(now()) @map("linked_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("user_eds_credentials")
+}

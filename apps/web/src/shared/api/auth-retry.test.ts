@@ -68,6 +68,14 @@ describe('isRecoverableAuthError', () => {
     ).toBe(false)
   })
 
+  it('вход по ЭЦП не лечится: challenge одноразовый', () => {
+    expect(
+      isRecoverableAuthError(
+        ctx({ code: 'UNAUTHORIZED', hasBearer: false, url: '/auth/eds/login' }),
+      ),
+    ).toBe(false)
+  })
+
   it('повторно один запрос не лечим — защита от цикла', () => {
     expect(isRecoverableAuthError(ctx({ alreadyRetried: true }))).toBe(false)
   })

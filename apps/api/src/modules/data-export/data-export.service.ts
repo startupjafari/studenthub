@@ -783,7 +783,7 @@ export class DataExportService {
 
   /**
    * Обращения к вузу и платформе: жалобы, предупреждения модерации, поддержка, записи в
-   * деканат, консультации, привязка Telegram, приглашение, по которому человек пришёл.
+   * деканат, консультации, привязка Telegram и ЭЦП, приглашение, по которому человек пришёл.
    */
   private async collectServices(
     userId: string,
@@ -796,6 +796,7 @@ export class DataExportService {
       appointments,
       consultations,
       telegram,
+      eds,
       inviteUsed,
       notificationSettings,
       libraryLoans,
@@ -866,6 +867,22 @@ export class DataExportService {
           linkedAt: true,
           lastSeenAt: true,
           revokedAt: true,
+        },
+        take: 1,
+      }),
+      // Привязка ЭЦП (вход по ЭЦП, §8.3): чей ключ, когда привязан и когда им входили. Хэша
+      // ИИН нет — это ключ поиска при входе, а не сведения о человеке; полного ИИН нет и в базе.
+      this.prisma.userEdsCredential.findMany({
+        where: { userId },
+        select: {
+          iinLast4: true,
+          subjectCn: true,
+          orgBin: true,
+          certSerial: true,
+          certIssuer: true,
+          certNotAfter: true,
+          linkedAt: true,
+          lastUsedAt: true,
         },
         take: 1,
       }),
@@ -951,6 +968,7 @@ export class DataExportService {
         telegram.map((t) => ({ ...t, telegramId: t.telegramId.toString() })),
         SECTION_LIMIT,
       ),
+      eds: section(eds, SECTION_LIMIT),
       inviteUsed: section(inviteUsed, SECTION_LIMIT),
       notificationSettings: section(notificationSettings, SECTION_LIMIT),
       libraryLoans: section(libraryLoans, SECTION_LIMIT),
@@ -1415,6 +1433,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'Resume.userId': { section: 'resume' },
     'ReleaseView.userId': { excluded: 'служебная отметка интерфейса «что нового» о версии' },
     'TelegramAccount.userId': { section: 'telegram' },
+    'UserEdsCredential.userId': { section: 'eds' },
     'UniversityDemoRequest.reviewedById': { excluded: STAFF_WORK },
     'Story.authorId': { section: 'stories' },
     'StoryPollVote.userId': { section: 'storyPollVotes' },

@@ -69,6 +69,7 @@ const MODELS = [
   'deaneryAppointment',
   'consultationSlot',
   'telegramAccount',
+  'userEdsCredential',
   'notificationSettings',
   'loan',
   'reservation',
@@ -327,6 +328,22 @@ describe('DataExportService — полнота по схеме (D-F26)', () => {
     const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
     const archive = JSON.parse(body) as { sections: { telegram: { items: unknown[] } } }
     expect(archive.sections.telegram.items[0]).toMatchObject({ telegramId: '900000000001' })
+  })
+
+  // Вход по ЭЦП: человек видит, чей ключ привязан и когда им входили. Хэш ИИН — ключ поиска
+  // при входе, а не сведения о человеке: в архив он не идёт.
+  it('привязка ЭЦП выгружается без хэша ИИН', async () => {
+    const { service, models } = setup()
+    models.userEdsCredential.findMany.mockResolvedValue([
+      { iinLast4: '1234', subjectCn: 'АБИШЕВА АСЕМ', linkedAt: new Date('2026-11-01') },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as { sections: { eds: { items: unknown[] } } }
+
+    expect(models.userEdsCredential.findMany.mock.calls[0]?.[0].select).not.toHaveProperty(
+      'iinHash',
+    )
+    expect(archive.sections.eds.items[0]).toMatchObject({ iinLast4: '1234' })
   })
 
   it('работодатель получает данные своей компании, студент — отклики с названием вакансии', async () => {

@@ -3695,6 +3695,195 @@
         ]
       }
     },
+    "/auth/eds/config": {
+      "get": {
+        "operationId": "EdsController_publicConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ enabled }"
+          }
+        },
+        "summary": "Включён ли вход по ЭЦП (публично; показывать ли кнопку)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/eds/challenge": {
+      "post": {
+        "operationId": "EdsController_challenge",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "{ challengeId, nonce, expiresAt } — живёт 3 минуты"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED — вход по ЭЦП выключен; EDS_UNAVAILABLE — сбой хранилища"
+          }
+        },
+        "summary": "Challenge для входа по ЭЦП: nonce (base64) подписать ключом аутентификации",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/eds/login": {
+      "post": {
+        "operationId": "EdsController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdsSignedChallengeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ accessToken } + refresh-cookie"
+          },
+          "401": {
+            "description": "EDS_SIGNATURE_INVALID (подпись не та, challenge истёк или использован) · EDS_CERT_EXPIRED · EDS_CERT_REVOKED · EDS_CERT_NOT_AUTH · EDS_NOT_LINKED"
+          },
+          "403": {
+            "description": "FORBIDDEN — учётка заблокирована; UNIVERSITY_BLOCKED; EMAIL_NOT_VERIFIED"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT; LOGIN_LOCKED — серия отказов по этому ключу"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED; EDS_UNAVAILABLE — NCANode не ответил, вход по паролю работает"
+          }
+        },
+        "summary": "Вход по ЭЦП: подписанный challenge → сессия (без TOTP — ЭЦП сама два фактора)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/eds/link/challenge": {
+      "post": {
+        "operationId": "EdsController_linkChallenge",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "{ challengeId, nonce, expiresAt } — живёт 3 минуты"
+          },
+          "403": {
+            "description": "FORBIDDEN — роли вход по ЭЦП недоступен"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED; EDS_UNAVAILABLE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Challenge для привязки ЭЦП к своей учётке (роли с обязательной 2FA)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/eds/link": {
+      "post": {
+        "operationId": "EdsController_link",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdsLinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "EdsCredentialInfo + nameMismatch (фамилия в сертификате не совпала с профилем — предупреждение)"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE · EDS_SIGNATURE_INVALID · EDS_CERT_EXPIRED · EDS_CERT_REVOKED · EDS_CERT_NOT_AUTH"
+          },
+          "403": {
+            "description": "FORBIDDEN — роли вход по ЭЦП недоступен; TWO_FACTOR_SETUP_REQUIRED — нет 2FA"
+          },
+          "409": {
+            "description": "EDS_ALREADY_LINKED — ИИН привязан к другой учётке"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных кодов"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED; EDS_UNAVAILABLE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Привязать ЭЦП к своей учётке (подписанный challenge привязки + свой код 2FA); заменяет прежнюю",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/eds": {
+      "delete": {
+        "operationId": "EdsController_unlink",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EdsUnlinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Привязка снята"
+          },
+          "400": {
+            "description": "BAD_REQUEST — ЭЦП не привязана"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных кодов"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отвязать свою ЭЦП (свой код 2FA)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/users/me": {
       "get": {
         "operationId": "UsersController_me",
@@ -3704,7 +3893,7 @@
             "description": ""
           }
         },
-        "summary": "Мой профиль",
+        "summary": "Мой профиль (с полем eds — привязанная ЭЦП или null; только владельцу)",
         "tags": [
           "Пользователи"
         ]
@@ -4556,6 +4745,55 @@
           }
         },
         "summary": "Сбросить 2FA пользователя (роль строго ниже, свой scope; код своей 2FA): выключает 2FA, гасит сессии, письмо владельцу",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/{id}/eds/reset": {
+      "post": {
+        "operationId": "UsersController_resetEds",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetEdsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Привязка снята"
+          },
+          "400": {
+            "description": "BAD_REQUEST — у пользователя ЭЦП не привязана / свою"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE — неверный код администратора"
+          },
+          "403": {
+            "description": "FORBIDDEN — роль не ниже вашей или у вас нет 2FA; WRONG_SCOPE — другой вуз"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных кодов"
+          },
+          "503": {
+            "description": "FEATURE_DISABLED — вход по ЭЦП выключен на сервере"
+          }
+        },
+        "summary": "Отвязать ЭЦП пользователя (роль строго ниже, свой scope; код своей 2FA). Сессии не гасит",
         "tags": [
           "Пользователи"
         ]
@@ -17258,1784 +17496,6 @@
         ]
       }
     },
-    "/profile/media": {
-      "post": {
-        "operationId": "ProfileContentController_uploadMedia",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Медиа загружено"
-          },
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
-          },
-          "409": {
-            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Загрузить фото/видео в свой профиль (?as=company|university — страницы организации)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/media/{fileId}/poster": {
-      "post": {
-        "operationId": "ProfileContentController_attachPoster",
-        "parameters": [
-          {
-            "name": "fileId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Прикрепить обложку к своему видео (выбранный кадр раскадровки)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/media/presign": {
-      "post": {
-        "operationId": "ProfileContentController_presignMedia",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PresignProfileMediaDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
-          },
-          "409": {
-            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Presigned URL для прямой загрузки крупного медиа (>10МБ) в MinIO",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/media/confirm": {
-      "post": {
-        "operationId": "ProfileContentController_confirmMedia",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmProfileMediaDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
-          },
-          "409": {
-            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Подтвердить presigned-загрузку медиа (создаёт запись File)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/company/{companyId}/media": {
-      "get": {
-        "operationId": "ProfileContentController_listCompanyMedia",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Медиа страницы компании (фото и видео)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/company/{companyId}/albums": {
-      "get": {
-        "operationId": "ProfileContentController_listCompanyAlbums",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Альбомы страницы компании",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/company/{companyId}/articles": {
-      "get": {
-        "operationId": "ProfileContentController_listCompanyArticles",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "view",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "full",
-                "card"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Статьи страницы компании (view=card — без полного текста)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/company/{companyId}/counts": {
-      "get": {
-        "operationId": "ProfileContentController_companyCounts",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Итоги вкладок страницы компании: фото, видео, статьи, опросы",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/university/{universityId}/media": {
-      "get": {
-        "operationId": "ProfileContentController_listUniversityMedia",
-        "parameters": [
-          {
-            "name": "universityId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Медиа страницы университета (фото и видео)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/university/{universityId}/albums": {
-      "get": {
-        "operationId": "ProfileContentController_listUniversityAlbums",
-        "parameters": [
-          {
-            "name": "universityId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Альбомы страницы университета",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/university/{universityId}/articles": {
-      "get": {
-        "operationId": "ProfileContentController_listUniversityArticles",
-        "parameters": [
-          {
-            "name": "universityId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "view",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "full",
-                "card"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Статьи страницы университета (view=card — без полного текста)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/university/{universityId}/counts": {
-      "get": {
-        "operationId": "ProfileContentController_universityCounts",
-        "parameters": [
-          {
-            "name": "universityId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Итоги вкладок страницы университета: фото, видео, статьи, опросы",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/{userId}/media": {
-      "get": {
-        "operationId": "ProfileContentController_listMedia",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Медиа профиля пользователя (фото и видео)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/{userId}/counts": {
-      "get": {
-        "description": "Списки вкладок отдаются с потолком (PROFILE_LIST_LIMITS); здесь — настоящие итоги для бейджей. Закрытый для смотрящего профиль — нули.",
-        "operationId": "ProfileContentController_counts",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Итоги вкладок профиля: фото, видео, статьи, опросы (по видимости смотрящего)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/media/{fileId}": {
-      "delete": {
-        "operationId": "ProfileContentController_deleteMedia",
-        "parameters": [
-          {
-            "name": "fileId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE — модератор вне scope или ранга"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить медиа из профиля (своё; чужое — модератор scope, роль выше автора)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/albums": {
-      "post": {
-        "operationId": "ProfileContentController_createAlbum",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateAlbumDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Создать альбом фото (?as=company|university — на странице организации)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/{userId}/albums": {
-      "get": {
-        "operationId": "ProfileContentController_listAlbums",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Альбомы пользователя (с обложкой и счётчиком)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/albums/{id}": {
-      "patch": {
-        "operationId": "ProfileContentController_updateAlbum",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateAlbumDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Переименовать альбом / выбрать обложку",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "delete": {
-        "operationId": "ProfileContentController_deleteAlbum",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить альбом (фото остаются, без альбома)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/albums/{id}/media": {
-      "post": {
-        "operationId": "ProfileContentController_assignAlbumMedia",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignAlbumMediaDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Добавить свои фото в альбом",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/albums/{id}/media/{fileId}": {
-      "delete": {
-        "operationId": "ProfileContentController_removeAlbumMedia",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fileId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Убрать фото из альбома",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles": {
-      "post": {
-        "operationId": "ProfileContentController_createArticle",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateProfileArticleDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Статья создана"
-          },
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Создать статью в своём профиле (?as=company|university — на странице организации)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/cover": {
-      "post": {
-        "operationId": "ProfileContentController_uploadArticleCover",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Загрузить обложку статьи (изображение) → URL",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/{userId}/articles": {
-      "get": {
-        "description": "view=card — без полного текста (content): для плиток профиля. Без параметра — с текстом.",
-        "operationId": "ProfileContentController_listArticles",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "view",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "full",
-                "card"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Статьи пользователя (по видимости смотрящего)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}": {
-      "get": {
-        "operationId": "ProfileContentController_getArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "NOT_FOUND — нет статьи или она не видна"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Статья целиком — для читалки и редактора (по видимости смотрящего)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "patch": {
-        "operationId": "ProfileContentController_updateArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProfileArticleDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить свою статью",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "delete": {
-        "operationId": "ProfileContentController_deleteArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить статью (свою; чужую — модератор scope, роль выше автора)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/view": {
-      "post": {
-        "description": "Один просмотр на зрителя в сутки; повтор отвечает текущим числом.",
-        "operationId": "ProfileContentController_incrementArticleView",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Засчитать просмотр статьи (при открытии читалки)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/related": {
-      "get": {
-        "operationId": "ProfileContentController_relatedArticles",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Похожие статьи автора (по категории/тегам)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/comments": {
-      "get": {
-        "description": "Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total.",
-        "operationId": "ProfileContentController_listArticleComments",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Комментарии статьи",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "post": {
-        "operationId": "ProfileContentController_addArticleComment",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ContentCommentDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Добавить комментарий к статье",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/comments/{commentId}": {
-      "delete": {
-        "operationId": "ProfileContentController_deleteArticleComment",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "commentId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить комментарий (автор, владелец статьи или модератор scope)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/bookmark": {
-      "post": {
-        "operationId": "ProfileContentController_toggleBookmark",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Переключить закладку на статью",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/articles/{id}/like": {
-      "post": {
-        "operationId": "ProfileContentController_likeArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "{ liked: true, likesCount }"
-          },
-          "400": {
-            "description": "Статья — черновик"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Лайкнуть статью (идемпотентно)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "delete": {
-        "operationId": "ProfileContentController_unlikeArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "{ liked: false, likesCount }"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Снять лайк со статьи (идемпотентно)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/profile/bookmarks": {
-      "get": {
-        "operationId": "ProfileContentController_listBookmarks",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мои закладки (статьи)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
-    "/polls": {
-      "post": {
-        "operationId": "PollsController_create",
-        "parameters": [
-          {
-            "name": "as",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "user",
-                "company",
-                "university"
-              ]
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePollDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Опрос создан"
-          },
-          "403": {
-            "description": "FORBIDDEN — as=company не работодателем"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Создать опрос (?as=company — страница своей компании, ?as=university — своего вуза)",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/by-company/{companyId}": {
-      "get": {
-        "operationId": "PollsController_listByCompany",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Опросы страницы компании (сотрудники, платформа, вузы с допуском; иначе пусто). Без limit/cursor — массив",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/by-university/{universityId}": {
-      "get": {
-        "operationId": "PollsController_listByUniversity",
-        "parameters": [
-          {
-            "name": "universityId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Опросы страницы университета (свои, платформа, компании с допуском; иначе пусто). Без limit/cursor — массив",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/by-user/{userId}": {
-      "get": {
-        "operationId": "PollsController_listByUser",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Опросы пользователя (по видимости смотрящего). Без limit/cursor — массив (до 100), с ними — страница",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/{id}": {
-      "get": {
-        "operationId": "PollsController_get",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Опрос с результатами/состоянием для смотрящего",
-        "tags": [
-          "Опросы"
-        ]
-      },
-      "patch": {
-        "operationId": "PollsController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdatePollDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить свой опрос (до появления голосов)",
-        "tags": [
-          "Опросы"
-        ]
-      },
-      "delete": {
-        "operationId": "PollsController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить опрос (свой; чужой — модератор scope, роль выше автора)",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/{id}/vote": {
-      "post": {
-        "operationId": "PollsController_vote",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VotePollDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Проголосовать",
-        "tags": [
-          "Опросы"
-        ]
-      },
-      "delete": {
-        "operationId": "PollsController_cancelVote",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отменить свой голос (если разрешено автором)",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/{id}/comments": {
-      "get": {
-        "operationId": "PollsController_listComments",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Комментарии опроса. Без limit/cursor — последние 200 массивом по порядку, с ними — страница, свежие сверху",
-        "tags": [
-          "Опросы"
-        ]
-      },
-      "post": {
-        "operationId": "PollsController_addComment",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PollCommentDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Добавить комментарий к опросу",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
-    "/polls/{id}/comments/{commentId}": {
-      "delete": {
-        "operationId": "PollsController_deleteComment",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "commentId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить комментарий (автор, владелец опроса или модератор scope)",
-        "tags": [
-          "Опросы"
-        ]
-      }
-    },
     "/stories/highlights": {
       "get": {
         "operationId": "StoryHighlightsController_list",
@@ -26183,6 +24643,1784 @@
         ]
       }
     },
+    "/profile/media": {
+      "post": {
+        "operationId": "ProfileContentController_uploadMedia",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Медиа загружено"
+          },
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
+          },
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузить фото/видео в свой профиль (?as=company|university — страницы организации)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/media/{fileId}/poster": {
+      "post": {
+        "operationId": "ProfileContentController_attachPoster",
+        "parameters": [
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прикрепить обложку к своему видео (выбранный кадр раскадровки)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/media/presign": {
+      "post": {
+        "operationId": "ProfileContentController_presignMedia",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresignProfileMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
+          },
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Presigned URL для прямой загрузки крупного медиа (>10МБ) в MinIO",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/media/confirm": {
+      "post": {
+        "operationId": "ProfileContentController_confirmMedia",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmProfileMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
+          },
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подтвердить presigned-загрузку медиа (создаёт запись File)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/company/{companyId}/media": {
+      "get": {
+        "operationId": "ProfileContentController_listCompanyMedia",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Медиа страницы компании (фото и видео)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/company/{companyId}/albums": {
+      "get": {
+        "operationId": "ProfileContentController_listCompanyAlbums",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Альбомы страницы компании",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/company/{companyId}/articles": {
+      "get": {
+        "operationId": "ProfileContentController_listCompanyArticles",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "full",
+                "card"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Статьи страницы компании (view=card — без полного текста)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/company/{companyId}/counts": {
+      "get": {
+        "operationId": "ProfileContentController_companyCounts",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Итоги вкладок страницы компании: фото, видео, статьи, опросы",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/university/{universityId}/media": {
+      "get": {
+        "operationId": "ProfileContentController_listUniversityMedia",
+        "parameters": [
+          {
+            "name": "universityId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Медиа страницы университета (фото и видео)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/university/{universityId}/albums": {
+      "get": {
+        "operationId": "ProfileContentController_listUniversityAlbums",
+        "parameters": [
+          {
+            "name": "universityId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Альбомы страницы университета",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/university/{universityId}/articles": {
+      "get": {
+        "operationId": "ProfileContentController_listUniversityArticles",
+        "parameters": [
+          {
+            "name": "universityId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "full",
+                "card"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Статьи страницы университета (view=card — без полного текста)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/university/{universityId}/counts": {
+      "get": {
+        "operationId": "ProfileContentController_universityCounts",
+        "parameters": [
+          {
+            "name": "universityId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Итоги вкладок страницы университета: фото, видео, статьи, опросы",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/{userId}/media": {
+      "get": {
+        "operationId": "ProfileContentController_listMedia",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Медиа профиля пользователя (фото и видео)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/{userId}/counts": {
+      "get": {
+        "description": "Списки вкладок отдаются с потолком (PROFILE_LIST_LIMITS); здесь — настоящие итоги для бейджей. Закрытый для смотрящего профиль — нули.",
+        "operationId": "ProfileContentController_counts",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Итоги вкладок профиля: фото, видео, статьи, опросы (по видимости смотрящего)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/media/{fileId}": {
+      "delete": {
+        "operationId": "ProfileContentController_deleteMedia",
+        "parameters": [
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE — модератор вне scope или ранга"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить медиа из профиля (своё; чужое — модератор scope, роль выше автора)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/albums": {
+      "post": {
+        "operationId": "ProfileContentController_createAlbum",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlbumDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать альбом фото (?as=company|university — на странице организации)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/{userId}/albums": {
+      "get": {
+        "operationId": "ProfileContentController_listAlbums",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Альбомы пользователя (с обложкой и счётчиком)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/albums/{id}": {
+      "patch": {
+        "operationId": "ProfileContentController_updateAlbum",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAlbumDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переименовать альбом / выбрать обложку",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "delete": {
+        "operationId": "ProfileContentController_deleteAlbum",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить альбом (фото остаются, без альбома)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/albums/{id}/media": {
+      "post": {
+        "operationId": "ProfileContentController_assignAlbumMedia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignAlbumMediaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить свои фото в альбом",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/albums/{id}/media/{fileId}": {
+      "delete": {
+        "operationId": "ProfileContentController_removeAlbumMedia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать фото из альбома",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles": {
+      "post": {
+        "operationId": "ProfileContentController_createArticle",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProfileArticleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Статья создана"
+          },
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать статью в своём профиле (?as=company|university — на странице организации)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/cover": {
+      "post": {
+        "operationId": "ProfileContentController_uploadArticleCover",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузить обложку статьи (изображение) → URL",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/{userId}/articles": {
+      "get": {
+        "description": "view=card — без полного текста (content): для плиток профиля. Без параметра — с текстом.",
+        "operationId": "ProfileContentController_listArticles",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "full",
+                "card"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Статьи пользователя (по видимости смотрящего)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}": {
+      "get": {
+        "operationId": "ProfileContentController_getArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — нет статьи или она не видна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Статья целиком — для читалки и редактора (по видимости смотрящего)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "patch": {
+        "operationId": "ProfileContentController_updateArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileArticleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить свою статью",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "delete": {
+        "operationId": "ProfileContentController_deleteArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить статью (свою; чужую — модератор scope, роль выше автора)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/view": {
+      "post": {
+        "description": "Один просмотр на зрителя в сутки; повтор отвечает текущим числом.",
+        "operationId": "ProfileContentController_incrementArticleView",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Засчитать просмотр статьи (при открытии читалки)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/related": {
+      "get": {
+        "operationId": "ProfileContentController_relatedArticles",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Похожие статьи автора (по категории/тегам)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/comments": {
+      "get": {
+        "description": "Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total.",
+        "operationId": "ProfileContentController_listArticleComments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Комментарии статьи",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "post": {
+        "operationId": "ProfileContentController_addArticleComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContentCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить комментарий к статье",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/comments/{commentId}": {
+      "delete": {
+        "operationId": "ProfileContentController_deleteArticleComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить комментарий (автор, владелец статьи или модератор scope)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/bookmark": {
+      "post": {
+        "operationId": "ProfileContentController_toggleBookmark",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переключить закладку на статью",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/like": {
+      "post": {
+        "operationId": "ProfileContentController_likeArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ liked: true, likesCount }"
+          },
+          "400": {
+            "description": "Статья — черновик"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Лайкнуть статью (идемпотентно)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "delete": {
+        "operationId": "ProfileContentController_unlikeArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ liked: false, likesCount }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять лайк со статьи (идемпотентно)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/bookmarks": {
+      "get": {
+        "operationId": "ProfileContentController_listBookmarks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои закладки (статьи)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/polls": {
+      "post": {
+        "operationId": "PollsController_create",
+        "parameters": [
+          {
+            "name": "as",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "company",
+                "university"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Опрос создан"
+          },
+          "403": {
+            "description": "FORBIDDEN — as=company не работодателем"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать опрос (?as=company — страница своей компании, ?as=university — своего вуза)",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/by-company/{companyId}": {
+      "get": {
+        "operationId": "PollsController_listByCompany",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опросы страницы компании (сотрудники, платформа, вузы с допуском; иначе пусто). Без limit/cursor — массив",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/by-university/{universityId}": {
+      "get": {
+        "operationId": "PollsController_listByUniversity",
+        "parameters": [
+          {
+            "name": "universityId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опросы страницы университета (свои, платформа, компании с допуском; иначе пусто). Без limit/cursor — массив",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/by-user/{userId}": {
+      "get": {
+        "operationId": "PollsController_listByUser",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опросы пользователя (по видимости смотрящего). Без limit/cursor — массив (до 100), с ними — страница",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/{id}": {
+      "get": {
+        "operationId": "PollsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опрос с результатами/состоянием для смотрящего",
+        "tags": [
+          "Опросы"
+        ]
+      },
+      "patch": {
+        "operationId": "PollsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить свой опрос (до появления голосов)",
+        "tags": [
+          "Опросы"
+        ]
+      },
+      "delete": {
+        "operationId": "PollsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить опрос (свой; чужой — модератор scope, роль выше автора)",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/{id}/vote": {
+      "post": {
+        "operationId": "PollsController_vote",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VotePollDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проголосовать",
+        "tags": [
+          "Опросы"
+        ]
+      },
+      "delete": {
+        "operationId": "PollsController_cancelVote",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить свой голос (если разрешено автором)",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/{id}/comments": {
+      "get": {
+        "operationId": "PollsController_listComments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Комментарии опроса. Без limit/cursor — последние 200 массивом по порядку, с ними — страница, свежие сверху",
+        "tags": [
+          "Опросы"
+        ]
+      },
+      "post": {
+        "operationId": "PollsController_addComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PollCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить комментарий к опросу",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
+    "/polls/{id}/comments/{commentId}": {
+      "delete": {
+        "operationId": "PollsController_deleteComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить комментарий (автор, владелец опроса или модератор scope)",
+        "tags": [
+          "Опросы"
+        ]
+      }
+    },
     "/document-templates": {
       "get": {
         "operationId": "DocumentTemplatesController_list",
@@ -29409,6 +29647,64 @@
         ],
         "additionalProperties": false
       },
+      "EdsSignedChallengeDto": {
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cms": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 64000
+          }
+        },
+        "required": [
+          "challengeId",
+          "cms"
+        ],
+        "additionalProperties": false
+      },
+      "EdsLinkDto": {
+        "type": "object",
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cms": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 64000
+          },
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "challengeId",
+          "cms",
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "EdsUnlinkDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
       "UpdateProfileDto": {
         "type": "object",
         "properties": {
@@ -29765,6 +30061,20 @@
         "additionalProperties": false
       },
       "ResetTwoFactorDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": false
+      },
+      "ResetEdsDto": {
         "type": "object",
         "properties": {
           "code": {
@@ -34405,431 +34715,6 @@
         ],
         "additionalProperties": false
       },
-      "PresignProfileMediaDto": {
-        "type": "object",
-        "properties": {
-          "mime": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "size": {
-            "type": "integer",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "maximum": 104857600
-          }
-        },
-        "required": [
-          "mime",
-          "size"
-        ],
-        "additionalProperties": false
-      },
-      "ConfirmProfileMediaDto": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 300
-          },
-          "mime": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          }
-        },
-        "required": [
-          "key",
-          "mime"
-        ],
-        "additionalProperties": false
-      },
-      "CreateAlbumDto": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          }
-        },
-        "required": [
-          "title"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateAlbumDto": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "coverFileId": {
-            "type": "string",
-            "minLength": 1,
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AssignAlbumMediaDto": {
-        "type": "object",
-        "properties": {
-          "fileIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "minItems": 1,
-            "maxItems": 50
-          }
-        },
-        "required": [
-          "fileIds"
-        ],
-        "additionalProperties": false
-      },
-      "CreateProfileArticleDto": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 300
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 20000
-          },
-          "coverUrl": {
-            "type": "string",
-            "maxLength": 1000
-          },
-          "coverGradient": {
-            "type": "string",
-            "maxLength": 20
-          },
-          "category": {
-            "type": "string",
-            "enum": [
-              "STUDY",
-              "SCIENCE",
-              "STUDENT_LIFE",
-              "PROJECTS",
-              "INTERNSHIPS",
-              "CAREER",
-              "EVENTS",
-              "RESOURCES"
-            ]
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 40
-            },
-            "maxItems": 15
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "ALL",
-              "UNIVERSITY",
-              "FACULTY",
-              "GROUP"
-            ],
-            "default": "ALL"
-          },
-          "allowComments": {
-            "type": "boolean",
-            "default": true
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "DRAFT",
-              "PUBLISHED"
-            ],
-            "default": "PUBLISHED"
-          }
-        },
-        "required": [
-          "title",
-          "content"
-        ],
-        "additionalProperties": false
-      },
-      "ContentCommentDto": {
-        "type": "object",
-        "properties": {
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "content"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateProfileArticleDto": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "description": {
-            "type": "string",
-            "maxLength": 300
-          },
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 20000
-          },
-          "coverUrl": {
-            "type": "string",
-            "maxLength": 1000
-          },
-          "coverGradient": {
-            "type": "string",
-            "maxLength": 20
-          },
-          "category": {
-            "type": "string",
-            "enum": [
-              "STUDY",
-              "SCIENCE",
-              "STUDENT_LIFE",
-              "PROJECTS",
-              "INTERNSHIPS",
-              "CAREER",
-              "EVENTS",
-              "RESOURCES"
-            ]
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 40
-            },
-            "maxItems": 15
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "ALL",
-              "UNIVERSITY",
-              "FACULTY",
-              "GROUP"
-            ],
-            "default": "ALL"
-          },
-          "allowComments": {
-            "type": "boolean",
-            "default": true
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "DRAFT",
-              "PUBLISHED"
-            ],
-            "default": "PUBLISHED"
-          }
-        },
-        "required": [
-          "title",
-          "content"
-        ],
-        "additionalProperties": false
-      },
-      "CreatePollDto": {
-        "type": "object",
-        "properties": {
-          "question": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 150
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 120
-            },
-            "minItems": 2,
-            "maxItems": 10
-          },
-          "multiple": {
-            "type": "boolean",
-            "default": false
-          },
-          "anonymous": {
-            "type": "boolean",
-            "default": true
-          },
-          "allowRevote": {
-            "type": "boolean",
-            "default": false
-          },
-          "resultsVisibility": {
-            "type": "string",
-            "enum": [
-              "AFTER_VOTE",
-              "AFTER_END",
-              "HIDDEN"
-            ],
-            "default": "AFTER_VOTE"
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "ALL",
-              "UNIVERSITY",
-              "FACULTY",
-              "GROUP"
-            ],
-            "default": "ALL"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "DRAFT",
-              "PUBLISHED"
-            ],
-            "default": "PUBLISHED"
-          },
-          "closesAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        },
-        "required": [
-          "question",
-          "options"
-        ],
-        "additionalProperties": false
-      },
-      "VotePollDto": {
-        "type": "object",
-        "properties": {
-          "optionIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "minItems": 1,
-            "maxItems": 10
-          }
-        },
-        "required": [
-          "optionIds"
-        ],
-        "additionalProperties": false
-      },
-      "UpdatePollDto": {
-        "type": "object",
-        "properties": {
-          "question": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 150
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 120
-            },
-            "minItems": 2,
-            "maxItems": 10
-          },
-          "multiple": {
-            "type": "boolean",
-            "default": false
-          },
-          "anonymous": {
-            "type": "boolean",
-            "default": true
-          },
-          "allowRevote": {
-            "type": "boolean",
-            "default": false
-          },
-          "resultsVisibility": {
-            "type": "string",
-            "enum": [
-              "AFTER_VOTE",
-              "AFTER_END",
-              "HIDDEN"
-            ],
-            "default": "AFTER_VOTE"
-          },
-          "visibility": {
-            "type": "string",
-            "enum": [
-              "ALL",
-              "UNIVERSITY",
-              "FACULTY",
-              "GROUP"
-            ],
-            "default": "ALL"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "DRAFT",
-              "PUBLISHED"
-            ],
-            "default": "PUBLISHED"
-          },
-          "closesAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        },
-        "required": [
-          "question",
-          "options"
-        ],
-        "additionalProperties": false
-      },
-      "PollCommentDto": {
-        "type": "object",
-        "properties": {
-          "content": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          }
-        },
-        "required": [
-          "content"
-        ],
-        "additionalProperties": false
-      },
       "CreateStoryHighlightDto": {
         "type": "object",
         "properties": {
@@ -36943,6 +36828,431 @@
         "required": [
           "key",
           "uploadId"
+        ],
+        "additionalProperties": false
+      },
+      "PresignProfileMediaDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 104857600
+          }
+        },
+        "required": [
+          "mime",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "ConfirmProfileMediaDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "mime": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "key",
+          "mime"
+        ],
+        "additionalProperties": false
+      },
+      "CreateAlbumDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateAlbumDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "coverFileId": {
+            "type": "string",
+            "minLength": 1,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssignAlbumMediaDto": {
+        "type": "object",
+        "properties": {
+          "fileIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "fileIds"
+        ],
+        "additionalProperties": false
+      },
+      "CreateProfileArticleDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "coverUrl": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "coverGradient": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "STUDY",
+              "SCIENCE",
+              "STUDENT_LIFE",
+              "PROJECTS",
+              "INTERNSHIPS",
+              "CAREER",
+              "EVENTS",
+              "RESOURCES"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "maxItems": 15
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "UNIVERSITY",
+              "FACULTY",
+              "GROUP"
+            ],
+            "default": "ALL"
+          },
+          "allowComments": {
+            "type": "boolean",
+            "default": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "default": "PUBLISHED"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "ContentCommentDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateProfileArticleDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          },
+          "coverUrl": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "coverGradient": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "STUDY",
+              "SCIENCE",
+              "STUDENT_LIFE",
+              "PROJECTS",
+              "INTERNSHIPS",
+              "CAREER",
+              "EVENTS",
+              "RESOURCES"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "maxItems": 15
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "UNIVERSITY",
+              "FACULTY",
+              "GROUP"
+            ],
+            "default": "ALL"
+          },
+          "allowComments": {
+            "type": "boolean",
+            "default": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "default": "PUBLISHED"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "CreatePollDto": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "minItems": 2,
+            "maxItems": 10
+          },
+          "multiple": {
+            "type": "boolean",
+            "default": false
+          },
+          "anonymous": {
+            "type": "boolean",
+            "default": true
+          },
+          "allowRevote": {
+            "type": "boolean",
+            "default": false
+          },
+          "resultsVisibility": {
+            "type": "string",
+            "enum": [
+              "AFTER_VOTE",
+              "AFTER_END",
+              "HIDDEN"
+            ],
+            "default": "AFTER_VOTE"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "UNIVERSITY",
+              "FACULTY",
+              "GROUP"
+            ],
+            "default": "ALL"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "default": "PUBLISHED"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "VotePollDto": {
+        "type": "object",
+        "properties": {
+          "optionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "optionIds"
+        ],
+        "additionalProperties": false
+      },
+      "UpdatePollDto": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "minItems": 2,
+            "maxItems": 10
+          },
+          "multiple": {
+            "type": "boolean",
+            "default": false
+          },
+          "anonymous": {
+            "type": "boolean",
+            "default": true
+          },
+          "allowRevote": {
+            "type": "boolean",
+            "default": false
+          },
+          "resultsVisibility": {
+            "type": "string",
+            "enum": [
+              "AFTER_VOTE",
+              "AFTER_END",
+              "HIDDEN"
+            ],
+            "default": "AFTER_VOTE"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "UNIVERSITY",
+              "FACULTY",
+              "GROUP"
+            ],
+            "default": "ALL"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PUBLISHED"
+            ],
+            "default": "PUBLISHED"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "question",
+          "options"
+        ],
+        "additionalProperties": false
+      },
+      "PollCommentDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "content"
         ],
         "additionalProperties": false
       },

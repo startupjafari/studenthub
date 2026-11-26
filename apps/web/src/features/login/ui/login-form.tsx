@@ -18,6 +18,7 @@ import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
 import { resendCompanyVerification } from '../../../entities/company'
 import { QrLoginPanel } from './qr-login-panel'
+import { EdsLoginButton } from './eds-login-button'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
@@ -232,6 +233,9 @@ export function LoginForm() {
             <QrCode className="size-4" aria-hidden />
             {t('qrTab')}
           </Button>
+          {/* Вход по ЭЦП — для ролей с обязательной 2FA, привязавших ключ в настройках.
+              Без включённого на сервере входа и на телефоне кнопки нет вовсе. */}
+          <EdsLoginButton onAuthenticated={completeLogin} onFailure={(err) => failLogin(err)} />
         </form>
       </div>
     )
