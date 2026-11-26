@@ -4300,7 +4300,7 @@
     <string name="staff_svc_problem_code">Код: латын әріптері, сандар және сызықша, 2-ден 60 таңбаға дейін</string>
     <string name="staff_svc_problem_delivery">Кемінде бір беру тәсілін таңдаңыз</string>
     <string name="staff_svc_problem_field">Әр сұрақтың үш тілде де жазуы болуы керек</string>
-    <string name="staff_svc_problem_name">Атауын үш тілде де толтырыңыз (RU, KK, EN)</string>
+    <string name="staff_svc_problem_name">Атауын үш тілде де толтырыңыз (RU, KZ, EN)</string>
     <string name="staff_svc_problem_options">Таңдау сұрағында кемінде бір жауап нұсқасы болуы керек</string>
     <string name="staff_svc_problem_requirement">Әр құжаттың үш тілде де атауы болуы керек</string>
     <string name="staff_svc_problem_sla">Өңдеу мерзімі — 1 сағаттан 90 күнге дейін</string>
@@ -4400,7 +4400,7 @@
     <string name="staff_tpl_issue_unsupported">%1$s құрылымы әзірге қолдау таппайды: каталогтағы қарапайым айнымалыларды ғана пайдаланыңыз.</string>
     <string name="staff_tpl_locale">Құжат тілі</string>
     <string name="staff_tpl_locale_en">Ағылшын тілі</string>
-    <string name="staff_tpl_locale_kk">Қазақ тілі</string>
+    <string name="staff_tpl_locale_kz">Қазақ тілі</string>
     <string name="staff_tpl_locale_ru">Орыс тілі</string>
     <string name="staff_tpl_needsFix">Түзету керек</string>
     <string name="staff_tpl_new">Жаңа үлгі</string>

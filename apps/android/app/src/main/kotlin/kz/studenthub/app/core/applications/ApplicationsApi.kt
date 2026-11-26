@@ -1,9 +1,12 @@
 package kz.studenthub.app.core.applications
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonObject
+import kz.studenthub.app.core.model.AppLanguage
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.Endpoint
 import kz.studenthub.app.core.network.HttpMethod
@@ -17,11 +20,14 @@ import java.util.Locale
  * документов по обязательным требованиям — без них сервер отвечает отказом.
  */
 
-/** Текст на языке человека: казахский или английский, если он есть, иначе русский. */
-fun localized(ru: String?, kk: String?, en: String?, locale: Locale = Locale.getDefault()): String =
-    when (locale.language) {
-        "kk" -> kk?.takeIf { it.isNotEmpty() }
-        "en" -> en?.takeIf { it.isNotEmpty() }
+/**
+ * Текст на языке человека: казахский или английский, если он есть, иначе русский.
+ * Язык платформы (`kk`) переводится в код API (`kz`) через [AppLanguage].
+ */
+fun localized(ru: String?, kz: String?, en: String?, locale: Locale = Locale.getDefault()): String =
+    when (AppLanguage.of(locale)) {
+        AppLanguage.KZ -> kz?.takeIf { it.isNotEmpty() }
+        AppLanguage.EN -> en?.takeIf { it.isNotEmpty() }
         else -> null
     } ?: ru.orEmpty()
 
@@ -30,11 +36,11 @@ data class ServiceCategoryDto(
     val id: String,
     val code: String? = null,
     val nameRu: String,
-    val nameKk: String? = null,
+    val nameKz: String? = null,
     val nameEn: String? = null,
     val services: List<ServiceDto> = emptyList(),
 ) {
-    fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKk, nameEn, locale)
+    fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKz, nameEn, locale)
 }
 
 @Serializable
@@ -42,13 +48,13 @@ data class ServiceDto(
     val id: String,
     val code: String? = null,
     val nameRu: String,
-    val nameKk: String? = null,
+    val nameKz: String? = null,
     val nameEn: String? = null,
     val descriptionRu: String? = null,
-    val descriptionKk: String? = null,
+    val descriptionKz: String? = null,
     val descriptionEn: String? = null,
     val instructionsRu: String? = null,
-    val instructionsKk: String? = null,
+    val instructionsKz: String? = null,
     val instructionsEn: String? = null,
     /** Срок по SLA в часах — так его и показывает веб. */
     val slaHours: Int? = null,
@@ -57,11 +63,11 @@ data class ServiceDto(
     val requirements: List<Requirement> = emptyList(),
     val formFields: List<FormField> = emptyList(),
 ) {
-    fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKk, nameEn, locale)
+    fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKz, nameEn, locale)
 
-    fun description(locale: Locale = Locale.getDefault()) = localized(descriptionRu, descriptionKk, descriptionEn, locale).ifEmpty { null }
+    fun description(locale: Locale = Locale.getDefault()) = localized(descriptionRu, descriptionKz, descriptionEn, locale).ifEmpty { null }
 
-    fun instructions(locale: Locale = Locale.getDefault()) = localized(instructionsRu, instructionsKk, instructionsEn, locale).ifEmpty { null }
+    fun instructions(locale: Locale = Locale.getDefault()) = localized(instructionsRu, instructionsKz, instructionsEn, locale).ifEmpty { null }
 
     /**
      * Какие способы получения можно выбрать — то же правило, что на сервере
@@ -84,12 +90,12 @@ data class ServiceDto(
         val code: String? = null,
         val documentType: String? = null,
         val titleRu: String,
-        val titleKk: String? = null,
+        val titleKz: String? = null,
         val titleEn: String? = null,
         val description: String? = null,
         val required: Boolean = false,
     ) {
-        fun title(locale: Locale = Locale.getDefault()) = localized(titleRu, titleKk, titleEn, locale)
+        fun title(locale: Locale = Locale.getDefault()) = localized(titleRu, titleKz, titleEn, locale)
     }
 
     @Serializable
@@ -99,22 +105,32 @@ data class ServiceDto(
         /** TEXT, TEXTAREA, NUMBER, DATE, SELECT, RADIO, CHECKBOX, BOOLEAN. */
         val type: String,
         val labelRu: String,
-        val labelKk: String? = null,
+        val labelKz: String? = null,
         val labelEn: String? = null,
         val placeholderRu: String? = null,
-        val placeholderKk: String? = null,
+        val placeholderKz: String? = null,
         val placeholderEn: String? = null,
         val required: Boolean = false,
         val options: List<Option>? = null,
     ) {
-        fun label(locale: Locale = Locale.getDefault()) = localized(labelRu, labelKk, labelEn, locale)
+        fun label(locale: Locale = Locale.getDefault()) = localized(labelRu, labelKz, labelEn, locale)
 
-        fun placeholder(locale: Locale = Locale.getDefault()) = localized(placeholderRu, placeholderKk, placeholderEn, locale).ifEmpty { null }
+        fun placeholder(locale: Locale = Locale.getDefault()) = localized(placeholderRu, placeholderKz, placeholderEn, locale).ifEmpty { null }
     }
 
+    /**
+     * Вариант выбора. Варианты хранятся на сервере JSON-ом, и сохранённые до перехода
+     * на `kz` могут держать казахский под `labelKk`.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
     @Serializable
-    data class Option(val value: String, val labelRu: String, val labelKk: String? = null, val labelEn: String? = null) {
-        fun label(locale: Locale = Locale.getDefault()) = localized(labelRu, labelKk, labelEn, locale)
+    data class Option(
+        val value: String,
+        val labelRu: String,
+        @JsonNames("labelKk") val labelKz: String? = null,
+        val labelEn: String? = null,
+    ) {
+        fun label(locale: Locale = Locale.getDefault()) = localized(labelRu, labelKz, labelEn, locale)
     }
 }
 
@@ -136,8 +152,8 @@ data class ApplicationDto(
     val results: List<Result> = emptyList(),
 ) {
     @Serializable
-    data class ServiceRef(val id: String, val nameRu: String, val nameKk: String? = null, val nameEn: String? = null) {
-        fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKk, nameEn, locale)
+    data class ServiceRef(val id: String, val nameRu: String, val nameKz: String? = null, val nameEn: String? = null) {
+        fun name(locale: Locale = Locale.getDefault()) = localized(nameRu, nameKz, nameEn, locale)
     }
 
     /** Шаг истории: смена статуса с комментарием сотрудника. */

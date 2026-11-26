@@ -11,6 +11,7 @@ import kz.studenthub.app.core.applications.ServiceCategoryDto
 import kz.studenthub.app.core.applications.ServiceDto
 import kz.studenthub.app.core.applications.localized
 import kz.studenthub.app.core.network.ApiClient
+import kz.studenthub.app.core.network.AppJson
 import kz.studenthub.app.features.applications.ApplicationFormModel
 import kz.studenthub.app.features.applications.ApplicationStatus
 import mockwebserver3.MockResponse
@@ -29,7 +30,7 @@ class ApplicationsTest {
     private val service = ServiceDto(
         id = "s1",
         nameRu = "Справка с места учёбы",
-        nameKk = "Оқу орнынан анықтама",
+        nameKz = "Оқу орнынан анықтама",
         deliveryModes = listOf("ELECTRONIC", "PAPER"),
         requirements = listOf(
             ServiceDto.Requirement("r1", documentType = "ID_CARD", titleRu = "Удостоверение", required = true),
@@ -40,7 +41,7 @@ class ApplicationsTest {
             ServiceDto.FormField("f2", "urgent", "CHECKBOX", "Срочно"),
             ServiceDto.FormField(
                 "f3", "lang", "SELECT", "Язык", required = true,
-                options = listOf(ServiceDto.Option("ru", "Русский"), ServiceDto.Option("kk", "Казахский")),
+                options = listOf(ServiceDto.Option("ru", "Русский"), ServiceDto.Option("kz", "Казахский")),
             ),
         ),
     )
@@ -57,6 +58,13 @@ class ApplicationsTest {
         assertEquals("Оқу орнынан анықтама", service.name(Locale.forLanguageTag("kk")))
         assertEquals("Справка с места учёбы", service.name(Locale.forLanguageTag("en")))
         assertEquals("ru", localized("ru", "", null, Locale.forLanguageTag("kk")))
+    }
+
+    /** Варианты — JSON сервера: сохранённые до перехода на `kz` держат казахский под `labelKk`. */
+    @Test
+    fun legacyOptionLabelIsRead() {
+        val option = AppJson.decodeFromString(ServiceDto.Option.serializer(), """{"value":"ru","labelRu":"Русский","labelKk":"Орыс"}""")
+        assertEquals("Орыс", option.labelKz)
     }
 
     /** Отозвать можно оттуда, откуда граф переходов сервера ведёт в `CANCELLED`. */
@@ -79,7 +87,7 @@ class ApplicationsTest {
         val model = ApplicationFormModel("s1", StubApplications(service))
         model.load()
         model.answers["copies"] = "2"
-        model.answers["lang"] = "kk"
+        model.answers["lang"] = "kz"
         assertFalse(model.isComplete)
         model.deliveryType = "ELECTRONIC"
         assertFalse(model.isComplete)
@@ -175,16 +183,17 @@ class ApplicationsRequestTest {
     fun serviceCardIsDecoded() = runTest {
         server.enqueue(
             MockResponse.Builder().code(200).body(
-                """{"success":true,"data":{"id":"s1","code":"STUDY_CERT","nameRu":"Справка","nameKk":"Анықтама","nameEn":"Certificate",
+                """{"success":true,"data":{"id":"s1","code":"STUDY_CERT","nameRu":"Справка","nameKz":"Анықтама","nameEn":"Certificate",
                 "slaHours":24,"deliveryModes":["ELECTRONIC"],"requiresPickup":false,"processingMode":"MANUAL",
-                "requirements":[{"id":"r1","code":"ID","documentType":"ID_CARD","titleRu":"Удостоверение","titleKk":"Куәлік","titleEn":"ID","required":true,"allowStorage":true,"allowUpload":true,"maxFiles":2}],
-                "formFields":[{"id":"f1","code":"lang","type":"SELECT","labelRu":"Язык","labelKk":"Тіл","labelEn":"Language","required":true,
-                "options":[{"value":"ru","labelRu":"Русский","labelKk":"Орыс","labelEn":"Russian"}],"validation":null}]}}""",
+                "requirements":[{"id":"r1","code":"ID","documentType":"ID_CARD","titleRu":"Удостоверение","titleKz":"Куәлік","titleEn":"ID","required":true,"allowStorage":true,"allowUpload":true,"maxFiles":2}],
+                "formFields":[{"id":"f1","code":"lang","type":"SELECT","labelRu":"Язык","labelKz":"Тіл","labelEn":"Language","required":true,
+                "options":[{"value":"ru","labelRu":"Русский","labelKz":"Орыс","labelEn":"Russian"}],"validation":null}]}}""",
             ).build(),
         )
         val service = api.service("s1")
         assertEquals("STUDY_CERT", service.code)
         assertEquals("ru", service.formFields.single().options?.single()?.value)
+        assertEquals("Орыс", service.formFields.single().options?.single()?.label(Locale.forLanguageTag("kk")))
         assertEquals(listOf("ELECTRONIC"), service.deliveryTypes)
     }
 }
