@@ -39,12 +39,11 @@ import {
 } from '../../../shared/ui'
 import { userKeys } from '../../../entities/user'
 import {
-  NcaLayerHint,
   edsKeys,
   isNcaLayerSetupProblem,
   useEdsEnabled,
   useNcaLayerErrorText,
-  type NcaLayerSetupProblem,
+  useNcaLayerHint,
 } from '../../../entities/eds'
 import { SecondFactorCodeField } from './second-factor-code-field'
 
@@ -288,9 +287,9 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
   const locale = useAppLocale()
   const queryClient = useQueryClient()
   const errorToast = useErrorToast('eds-link')
+  const ncaLayerHint = useNcaLayerHint('eds-link')
   const ncaLayerErrorText = useNcaLayerErrorText()
   const [stage, setStage] = useState<SignStage>('idle')
-  const [problem, setProblem] = useState<NcaLayerSetupProblem | null>(null)
   const [signed, setSigned] = useState<(SignedChallenge & { expiresAt: string }) | null>(null)
   const [code, setCode] = useState('')
   const [complete, setComplete] = useState(false)
@@ -306,7 +305,6 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
 
   async function sign() {
     if (stage !== 'idle') return
-    setProblem(null)
     const controller = new AbortController()
     abortRef.current = controller
     setStage('connecting')
@@ -325,7 +323,7 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
       if (!isNcaLayerError(error)) {
         errorToast.show(error)
       } else if (isNcaLayerSetupProblem(error.kind)) {
-        setProblem(error.kind)
+        ncaLayerHint.show(error.kind)
       } else {
         const text = ncaLayerErrorText(error.kind)
         if (text) toast.error(text, { id: 'eds-link' })
@@ -442,7 +440,6 @@ function EdsLinkModal({ relink, onClose }: { relink: boolean; onClose: () => voi
             </button>
           </div>
         )}
-        {problem && <NcaLayerHint problem={problem} />}
 
         {/* Код — только после подписи (см. комментарий у окна). Полный код отправляется сам,
             как на входе; «Привязать» — запасной путь. */}

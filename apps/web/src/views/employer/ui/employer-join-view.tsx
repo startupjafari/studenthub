@@ -12,8 +12,8 @@ import {
   type AcceptCompanyInviteInput,
 } from '@studenthub/shared-schemas'
 import { acceptCompanyInvite, companyKeys, previewCompanyInvite } from '../../../entities/company'
-import { Button, FieldError, FormAlert, Input, Label, PageLoader } from '../../../shared/ui'
-import { toApiError, useFormAlert } from '../../../shared/lib'
+import { Button, FieldError, Input, Label, PageLoader } from '../../../shared/ui'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
 
@@ -29,7 +29,7 @@ export function EmployerJoinView({ token }: { token: string }) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const router = useRouter()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('employer-join')
 
   const preview = useQuery({
     queryKey: companyKeys.invitePreview(token),
@@ -93,7 +93,6 @@ export function EmployerJoinView({ token }: { token: string }) {
 
       <form
         onSubmit={handleSubmit(async (values) => {
-          resetApiError()
           try {
             const accessToken = await acceptCompanyInvite(values)
             const role = await establishSession(accessToken)
@@ -104,8 +103,6 @@ export function EmployerJoinView({ token }: { token: string }) {
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
-
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{t('fieldFirstName')}</Label>

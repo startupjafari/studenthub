@@ -34,7 +34,7 @@ import {
   TableText,
 } from '../../../shared/ui'
 import { LoanDueBadge, fetchLoans, libraryKeys, returnCopyRequest } from '../../../entities/library'
-import { cn } from '../../../shared/lib'
+import { cn, useErrorToast } from '../../../shared/lib'
 import { useDeskErrors } from '../lib/desk-errors'
 import { CancelReturnAction } from './cancel-return-action'
 import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picker'
@@ -61,7 +61,7 @@ export function ReturnView() {
   const qc = useQueryClient()
   const [copy, setCopy] = useState<CopyRef>({ copyCode: null, inventoryNumber: '' })
   const [condition, setCondition] = useState<BookConditionValue>('GOOD')
-  const [error, setError] = useState<string | null>(null)
+  const errorToast = useErrorToast('library-return')
   const [returned, setReturned] = useState<ReturnLoanResult[]>([])
   const conditionLabel: Record<BookConditionValue, string> = {
     GOOD: tCat('conditionValue.GOOD'),
@@ -75,11 +75,11 @@ export function ReturnView() {
       setReturned((prev) => [result, ...prev])
       setCopy({ copyCode: null, inventoryNumber: '' })
       setCondition('GOOD')
-      setError(null)
       void qc.invalidateQueries({ queryKey: libraryKeys.all })
       toast.success(t('returnedToast', { title: result.loan.book.title }))
     },
-    onError: (e) => setError(describe(e)),
+    // Отказ приёма — тостом: строка над кнопкой раздвигала узкую панель формы.
+    onError: (e) => errorToast.showText(describe(e)),
   })
 
   const latest = returned[0]
@@ -122,7 +122,6 @@ export function ReturnView() {
                 </SelectContent>
               </Select>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
             <Button
               type="submit"
               className="w-full"

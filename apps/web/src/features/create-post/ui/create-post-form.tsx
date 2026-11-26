@@ -14,7 +14,7 @@ import {
   contentDraftKey,
   readContentDraft,
   removeContentDraft,
-  useFormAlert,
+  useErrorToast,
   useLocalDraft,
   type LocalDraftStatus,
 } from '../../../shared/lib'
@@ -38,7 +38,6 @@ import {
   Button,
   EmojiPicker,
   FieldError,
-  FormAlert,
   Input,
   Label,
   Popover,
@@ -112,7 +111,7 @@ export function CreatePostForm({
   const tPeople = useTranslations('People')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('create-post')
   const role = useAppSelector((s) => s.auth.role)
   const me = useAppSelector((s) => s.auth.user)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -199,7 +198,6 @@ export function CreatePostForm({
         targetUserId: target?.id,
         ...(asUniversity ? { asUniversity: true } : {}),
       }),
-    onMutate: () => resetApiError(),
     onSuccess: (created, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       if (draftKey) removeContentDraft(draftKey)
@@ -316,8 +314,6 @@ export function CreatePostForm({
       className="relative flex min-h-0 flex-1 flex-col"
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pt-4 pb-3 sm:px-5">
-        <FormAlert error={apiError} />
-
         {/* Автор и аудитория — кто пишет и кому. */}
         <div className="flex items-center gap-3">
           <Avatar className="size-10 shrink-0">

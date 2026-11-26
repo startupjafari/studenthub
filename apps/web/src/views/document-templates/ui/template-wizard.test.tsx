@@ -6,7 +6,8 @@ import { NextIntlClientProvider } from 'next-intl'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import ru from '../../../../messages/ru.json'
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// dismiss — загрузка файла (useErrorToast) гасит свой тост, когда шаг уходит с экрана.
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() } }))
 vi.mock('../../../entities/document-template', async (orig) => {
   const actual = await orig<typeof import('../../../entities/document-template')>()
   return { ...actual, createDocumentTemplate: vi.fn() }

@@ -12,7 +12,6 @@ import {
   Button,
   Card,
   EmptyState,
-  FormAlert,
   Select,
   SelectContent,
   SelectItem,
@@ -21,7 +20,7 @@ import {
   Skeleton,
   PageHeader,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { useErrorToast } from '../../../shared/lib'
 import { GroupSelect } from '../../../entities/group'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
@@ -58,7 +57,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   const t = useTranslations('Schedule')
   const locale = useAppLocale()
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('manage-schedule')
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   // Вуз для выбора аудитории: платформенной роли его надо указать, вуз-ролям сервер
@@ -110,7 +109,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
 
   const activateContainer = useMutation({
     mutationFn: (id: string) => updateScheduleRequest(id, { isActive: true }),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       toast.success(t('containerActivated'))
@@ -128,7 +126,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
 
   const movePair = useMutation({
     mutationFn: (v: { id: string; input: UpdatePairInput }) => updatePairRequest(v.id, v.input),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       invalidateContainer()
       toast.success(t('pairMoved'))
@@ -151,7 +148,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   // Клик по пустому месту календаря — заготовка для модалки: день и время уже выбраны,
   // остаётся ввести предмет.
   function openAddPair(dayOfWeek: number, startTime: string): void {
-    resetApiError()
     setSelectedPair(null)
     setAddDraft({ dayOfWeek, startTime, endTime: addMinutes(startTime, 90) })
   }
@@ -262,8 +258,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
           </div>
         }
       />
-
-      <FormAlert error={apiError} />
 
       {!groupId ? (
         <EmptyState

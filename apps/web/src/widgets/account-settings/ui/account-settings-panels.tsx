@@ -75,7 +75,6 @@ import {
   CardTitle,
   CodeInput,
   Flag,
-  FormAlert,
   Input,
   Label,
   Modal,
@@ -113,7 +112,7 @@ import { syncSessionUser } from '../../../shared/session'
 import {
   promptPwaInstall,
   toApiError,
-  useFormAlert,
+  useErrorToast,
   usePwaInstall,
   useScrollRow,
   useSeasonEnabled,
@@ -263,9 +262,9 @@ export function PersonalSection({ me }: { me: MeResponse }) {
   const tP = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('settings-personal')
   // Ошибка занятого имени принадлежит конкретному полю, поэтому живёт под ним,
-  // а не в общем баннере формы (docs/DESIGN_SYSTEM.md §10.3).
+  // а не в общем тосте формы (docs/DESIGN_SYSTEM.md §10.3).
   const [usernameError, setUsernameError] = useState<string | null>(null)
 
   const form = useForm<PersonalFormInput>({
@@ -308,13 +307,11 @@ export function PersonalSection({ me }: { me: MeResponse }) {
     <SectionCard icon={UserRound} title={tS('personalTitle')} desc={tS('personalDesc')}>
       <form
         onSubmit={form.handleSubmit((v) => {
-          resetApiError()
           setUsernameError(null)
           mut.mutate(v)
         })}
         className="flex flex-col gap-4"
       >
-        <FormAlert error={apiError} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2 sm:col-span-2">
             <Label htmlFor="username">{tS('usernameLabel')}</Label>
@@ -401,7 +398,7 @@ export function PersonalSection({ me }: { me: MeResponse }) {
 function SecuritySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('settings-password')
 
   const form = useForm<ChangePasswordInput>({ resolver: zodResolver(ChangePasswordSchema) })
   const mut = useMutation({
@@ -422,13 +419,9 @@ function SecuritySection({ me }: { me: MeResponse }) {
   return (
     <SectionCard icon={ShieldCheck} title={tS('securityTitle')} desc={tS('securityDesc')}>
       <form
-        onSubmit={form.handleSubmit((v) => {
-          resetApiError()
-          mut.mutate(v)
-        })}
+        onSubmit={form.handleSubmit((v) => mut.mutate(v))}
         className="flex max-w-md flex-col gap-4"
       >
-        <FormAlert error={apiError} />
         <div className="flex flex-col gap-2">
           <Label htmlFor="currentPassword">{tP('currentPassword')}</Label>
           <Input
@@ -1221,12 +1214,11 @@ function PrivacySection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const locale = useAppLocale()
   const qc = useQueryClient()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('settings-privacy')
 
   const mut = useMutation({
     mutationFn: updateProfileRequest,
     onMutate: async (patch) => {
-      resetApiError()
       await qc.cancelQueries({ queryKey: userKeys.me() })
       const prev = qc.getQueryData<MeResponse>(userKeys.me())
       if (prev) qc.setQueryData(userKeys.me(), { ...prev, ...patch } as MeResponse)
@@ -1252,7 +1244,6 @@ function PrivacySection({ me }: { me: MeResponse }) {
   return (
     <SectionCard icon={Lock} title={tS('privacyTitle')} desc={tS('privacyDesc')}>
       <div className="flex flex-col">
-        <FormAlert error={apiError} />
         <SettingRow title={tS('documentsStorage')} desc={tS('documentsStorageDesc')}>
           <Link
             href="/documents"
@@ -1320,12 +1311,11 @@ function PrivacySection({ me }: { me: MeResponse }) {
 export function DangerSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
-  const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const errorToast = useErrorToast('delete-account')
   const needCode = me.twoFactorEnabled === true
   const check = useQuery({
     queryKey: userKeys.deletionCheck(),
@@ -1342,36 +1332,29 @@ export function DangerSection({ me }: { me: MeResponse }) {
   const reset = () => {
     setPassword('')
     setCode('')
-    setError(null)
   }
 
   const mut = useMutation({
     mutationFn: () =>
       deleteAccountRequest({ password, ...(needCode ? { code: code.trim() } : {}) }),
-    onMutate: () => setError(null),
     onSuccess: async () => {
       // Аккаунта уже нет — сбой выхода не повод оставлять человека на экране настроек.
       await endSession().catch(() => undefined)
       window.location.assign('/login')
     },
-    // Ошибка — в том же окне: пароль и код вводятся там, и закрывать его значит заставить
-    // набирать всё заново. Неверный пароль сервер отдаёт как BAD_REQUEST.
+    // Отказ — тостом, а окно остаётся открытым: пароль и код вводятся там, и закрывать его
+    // значит заставить набирать всё заново. Неверный пароль сервер отдаёт как BAD_REQUEST.
     onError: (e) => {
       const c = errCode(e)
       setCode('')
       if (c === 'LIBRARY_DEBTS_OPEN') {
         // Книгу выдали, пока окно было открыто: список — из свежей предпроверки.
-        setError(null)
         void qc.invalidateQueries({ queryKey: userKeys.deletionCheck() })
         return
       }
-      setError(
-        c === 'BAD_REQUEST'
-          ? tS('deleteWrongPassword')
-          : c === 'CONFLICT'
-            ? tS('deleteLastAdmin')
-            : tErr(c),
-      )
+      if (c === 'BAD_REQUEST') errorToast.showText(tS('deleteWrongPassword'))
+      else if (c === 'CONFLICT') errorToast.showText(tS('deleteLastAdmin'))
+      else errorToast.show(e)
     },
   })
   const canSubmit = password.length > 0 && (!needCode || code.trim().length > 0)
@@ -1406,8 +1389,8 @@ export function DangerSection({ me }: { me: MeResponse }) {
             {tP('deleteAccount')}
           </Button>
           {/* Окно — системный `Modal` (шапка с крестиком, тело, подвал с действиями), как
-              остальные окна приложения; отказ и блокировки — плашкой `Alert`, а не голым
-              красным текстом. */}
+              остальные окна приложения; блокировка из предпроверки — плашкой `Alert` (это
+              состояние, а не ответ на нажатие), отказ сервера — тостом. */}
           {open && (
             <Modal
               onClose={close}
@@ -1470,12 +1453,6 @@ export function DangerSection({ me }: { me: MeResponse }) {
                           onChange={(e) => setCode(e.target.value)}
                         />
                       </div>
-                    )}
-                    {error && (
-                      <Alert variant="destructive">
-                        <ShieldAlert aria-hidden />
-                        <AlertDescription>{error}</AlertDescription>
-                      </Alert>
                     )}
                   </form>
                 )}

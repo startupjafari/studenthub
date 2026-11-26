@@ -19,8 +19,10 @@ vi.mock('../../../entities/library/api/library-api', async (orig) => {
 // Камера в jsdom не нужна: экран проверяем без сканера.
 vi.mock('next/dynamic', () => ({ default: () => () => null }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// dismiss — useErrorToast гасит тост формы при размонтировании.
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn() } }))
 
+import { toast } from 'sonner'
 import { issueLoanRequest, lookupReaderRequest } from '../../../entities/library'
 import { IssueView } from './issue-view'
 
@@ -96,6 +98,29 @@ describe('IssueView — читатель без телефона', () => {
         withoutPhone: true,
       }),
     )
+  })
+
+  it('отказ выдачи — тостом, в форме строка ошибки не появляется', async () => {
+    vi.mocked(lookupReaderRequest).mockResolvedValue(SESSION)
+    vi.mocked(issueLoanRequest).mockRejectedValue({
+      code: 'CONFLICT',
+      message: 'на руках',
+      details: [{ field: 'onLoan', message: 'на руках' }],
+    })
+    const user = setup()
+
+    await user.type(screen.getByPlaceholderText('Номер студенческого билета'), '2023-0042')
+    await user.click(screen.getByRole('button', { name: 'Найти' }))
+    await user.type(await screen.findByPlaceholderText('Инвентарный номер'), '101')
+    await user.click(screen.getByRole('checkbox', { name: /Читатель без телефона/ }))
+    await user.click(screen.getByRole('button', { name: 'Выдать' }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(ru.LibraryDesk.error.onLoan, {
+        id: 'library-issue',
+      }),
+    )
+    expect(screen.queryByText(ru.LibraryDesk.error.onLoan)).not.toBeInTheDocument()
   })
 
   it('номера нет — понятная ошибка', async () => {

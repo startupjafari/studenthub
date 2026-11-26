@@ -1346,7 +1346,7 @@ Email при регистрации сохраняется в нижнем ре�
 меняется — меняется только содержимое `message`. Реестр ключей — `VALIDATION_MESSAGE_KEYS`
 (`packages/shared-schemas/src/validation-messages.ts`), подстановки чисел (`{max}`, `{length}`) —
 `VALIDATION_MESSAGE_VALUES`. Перевод на клиенте: веб — пространство `Validation` в
-`apps/web/messages/*.json` (`FieldError`, `FormAlert`, тост ошибки), iOS — `Localizable.xcstrings`
+`apps/web/messages/*.json` (`FieldError`, тост ошибки `useErrorToast`), iOS — `Localizable.xcstrings`
 (`ValidationMessage`), Android — `strings_ios.xml` (`ValidationMessages`). Незнакомый ключ и
 обычный текст клиент показывает как есть. В `details[].message` по-прежнему может прийти
 стандартный текст zod (`Required`, `String must contain…`) у правил без своего сообщения и

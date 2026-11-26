@@ -18,7 +18,7 @@ import {
   type StoryBackgroundValue,
   type VideoTrimInput,
 } from '@studenthub/shared-schemas'
-import { localId, localMediaSrc, useFormAlert, useMediaQuery } from '../../../shared/lib'
+import { localId, localMediaSrc, useErrorToast, useMediaQuery } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { createStoryRequest, storyKeys, uploadStoryMedia } from '../../../entities/story'
 import {
@@ -134,13 +134,12 @@ export function CreateStoryForm({
   onClose,
 }: { onCreated?: () => void; onClose?: () => void } = {}) {
   const t = useTranslations('Stories')
-  const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const formId = useId()
   const qc = useQueryClient()
   const wide = useMediaQuery('(min-width: 1024px)')
   const audienceLabel = useAudienceLabel()
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const { show: showApiError } = useErrorToast('create-story')
   const [photo, setPhoto] = useState<File | null>(null)
   const [video, setVideo] = useState<PickedVideo | null>(null)
   // Выбранный на раскадровке отрезок видео.
@@ -302,7 +301,6 @@ export function CreateStoryForm({
       return createStoryRequest(input)
     },
     onSettled: () => setUploadPercent(null),
-    onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: storyKeys.all })
       if (video) URL.revokeObjectURL(video.url)
@@ -813,16 +811,13 @@ export function CreateStoryForm({
         </aside>
 
         {/* Публикация 64px — во всю ширину под колонками: на центр кадра не влияет. Слева —
-            формат или ошибка, справа — кому видна сторис, «Отмена» и «Опубликовать». */}
+            формат или ошибка заполнения (отказ сервера уходит тостом), справа — кому видна
+            сторис, «Отмена» и «Опубликовать». */}
         <footer className="col-span-full row-start-3 flex h-16 items-center gap-3 border-t border-white/10 px-4 md:row-start-2 lg:row-start-2 box-content pb-[env(safe-area-inset-bottom)]">
           <div className="min-w-0 flex-1 text-xs">
             {uploadPercent !== null ? (
               <p className="truncate text-muted-foreground tabular-nums">
                 {t('uploadingPercent', { percent: uploadPercent })}
-              </p>
-            ) : apiError ? (
-              <p role="alert" className="truncate text-destructive">
-                {tErr(apiError.code)}
               </p>
             ) : contentError || elementsError ? (
               <p role="alert" className="truncate text-destructive">

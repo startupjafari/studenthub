@@ -23,7 +23,6 @@ export {
 } from './card'
 export { Badge, badgeVariants } from './badge'
 export { Alert, AlertTitle, AlertDescription, alertVariants } from './alert'
-export { FormAlert, type FormAlertProps } from './form-alert'
 export { Checkbox } from './checkbox'
 export { Textarea } from './textarea'
 export { DictSingleSelect } from './dict-single-select'

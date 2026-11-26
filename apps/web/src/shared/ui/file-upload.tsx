@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import Image from 'next/image'
 import { useTranslations } from 'next-intl'
-import { Upload, X, FileText, RotateCcw, CheckCircle2 } from 'lucide-react'
+import { Upload, X, FileText, CheckCircle2 } from 'lucide-react'
 import { FILE_UPLOAD, type FileCategory } from '@studenthub/shared-config'
 import { cn } from '../lib/utils'
 import { formatBytes, useByteUnitLabel } from '../lib/format-bytes'
+import { useErrorToast } from '../lib/use-error-toast'
 import { Button } from './button'
 
 export interface FileUploadProps<T> {
@@ -20,7 +21,7 @@ export interface FileUploadProps<T> {
   uploadFn: (file: File, onProgress: (percent: number) => void, signal: AbortSignal) => Promise<T>
   /** Успешная загрузка — родитель привязывает результат к своей сущности. */
   onUploaded: (result: T) => void
-  /** Ошибка загрузки (код) — для внешней обработки при необходимости. */
+  /** Ошибка загрузки (код) — для внешней реакции; тост компонент показывает сам. */
   onError?: (code: string) => void
   className?: string
   disabled?: boolean
@@ -31,14 +32,16 @@ export interface FileUploadProps<T> {
   accept?: { mimes: readonly string[]; extensions: readonly string[] }
   /** Предел меньше лимита категории (шаблону документа — мегабайты, а не 500 МБ). */
   maxBytes?: number
-  /** Подробное описание ошибки загрузки вместо общего текста по коду; null — общий. */
+  /** Подробное описание ошибки загрузки для тоста вместо общего текста по коду; null — общий. */
   describeError?: (error: unknown) => string | null
 }
 
 type Status = 'idle' | 'ready' | 'uploading' | 'error' | 'done'
 
-// Клиентская проверка размера/типа ДО отправки (docs/FRONTEND_RULES.md §7.6).
-// Серверная проверка по magic bytes при этом не отменяется.
+// Клиентская проверка размера/типа ДО отправки (docs/FRONTEND_RULES.md §7.6) — её текст
+// стоит под зоной выбора, как ошибка поля. Серверная проверка по magic bytes при этом не
+// отменяется; отказ сервера или сбой сети — тостом (DESIGN_SYSTEM §9), а файл остаётся
+// выбранным, и «Загрузить» служит повтором.
 export function FileUpload<T>({
   category,
   uploadFn,
@@ -51,8 +54,9 @@ export function FileUpload<T>({
   describeError,
 }: FileUploadProps<T>) {
   const t = useTranslations('FileUpload')
-  const tErr = useTranslations('Errors')
   const unit = useByteUnitLabel()
+  const uploadId = useId()
+  const errorToast = useErrorToast(`file-upload-${uploadId}`)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [status, setStatus] = useState<Status>('idle')
@@ -149,8 +153,11 @@ export function FileUpload<T>({
         return
       }
       const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR'
-      setError(describeError?.(err) ?? tErr(code))
-      setStatus('error')
+      const described = describeError?.(err)
+      if (described) errorToast.showText(described)
+      else errorToast.show(err)
+      setProgress(0)
+      setStatus('ready')
       onError?.(code)
     }
   }
@@ -251,18 +258,8 @@ export function FileUpload<T>({
         </div>
       )}
 
-      {/* Ошибка + повтор. */}
-      {status === 'error' && error && (
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-destructive">{error}</p>
-          {file && (
-            <Button type="button" variant="outline" size="sm" onClick={upload}>
-              <RotateCcw className="size-4" aria-hidden />
-              {t('retry')}
-            </Button>
-          )}
-        </div>
-      )}
+      {/* Файл не прошёл проверку типа или размера. */}
+      {status === 'error' && error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Кнопка загрузки для готового к отправке файла. */}
       {(status === 'ready' || status === 'uploading') && (

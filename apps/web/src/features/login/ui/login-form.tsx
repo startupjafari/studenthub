@@ -12,7 +12,7 @@ import type { ApiErrorBody } from '@studenthub/shared-types'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
 import { Button, CodeInput, Input, Label, LegalLinks, FieldError } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
-import { useFormAlert, useValidationMessage, safeNextPath, toApiError } from '../../../shared/lib'
+import { useValidationMessage, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
@@ -31,9 +31,11 @@ export function LoginForm() {
   const [mode, setMode] = useState<'password' | 'qr'>('password')
   // Если у пользователя включена 2FA — после пароля храним challenge и показываем ввод кода.
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
-  // Хук остался состоянием последней серверной ошибки, но больше ничего не «показывает»:
-  // alert'а на экране нет, отсюда markApiError вместо show.
-  const { error: apiError, show: markApiError, reset: resetApiError } = useFormAlert()
+  // Последняя серверная ошибка. На экран её текст не выводится — он уходит тостом; состояние
+  // нужно шагу 2FA, чтобы очистить код и покрасить рамку.
+  const [apiError, setApiError] = useState<ApiErrorBody | null>(null)
+  const markApiError = (err: unknown) => setApiError(toApiError(err))
+  const resetApiError = () => setApiError(null)
   const {
     register,
     handleSubmit,
