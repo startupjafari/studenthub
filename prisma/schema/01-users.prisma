@@ -127,6 +127,7 @@ model User {
   moderationAreas   String?   @map("moderation_areas")
 
   refreshTokens        RefreshToken[]
+  edsCredential        UserEdsCredential?
   passwordResetTokens  PasswordResetToken[]
   invitesCreated       Invite[]                @relation("InviteCreatedBy")
   invitesUsed          Invite[]                @relation("InviteUsedBy")
