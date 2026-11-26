@@ -3219,7 +3219,7 @@ const EXPORT_HEADERS: Record<ExportLocale, Record<keyof ExportUserRow, string>> 
     isBlocked: 'Заблокирован',
     createdAt: 'Дата регистрации',
   },
-  kk: {
+  kz: {
     id: 'ID',
     email: 'Email',
     lastName: 'Тегі',

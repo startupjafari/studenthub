@@ -396,7 +396,7 @@ describe('UserService — приватность профиля', () => {
     const { service, prisma } = setup()
     prisma.user.findFirst.mockResolvedValue({
       ...target,
-      locale: 'kk',
+      locale: 'kz',
       username: 'secret_login',
       twoFactorEnabled: true,
     })
@@ -2575,7 +2575,7 @@ describe('UserService — сброс 2FA администратором', () => 
     twoFactorEnabled: true,
     email: 'dean@uni-a.io',
     firstName: 'Айгуль',
-    locale: 'kk',
+    locale: 'kz',
   }
 
   // Одна выборка на id: администратор (есть ли у него 2FA) и цель (охват, ранг, 2FA, почта).
@@ -2616,7 +2616,7 @@ describe('UserService — сброс 2FA администратором', () => 
     expect(queue.enqueue).toHaveBeenCalledWith(
       'email',
       'send-two-factor-reset',
-      { to: 'dean@uni-a.io', locale: 'kk', firstName: 'Айгуль' },
+      { to: 'dean@uni-a.io', locale: 'kz', firstName: 'Айгуль' },
       expect.objectContaining({ jobId: expect.stringContaining('two-factor-reset:t:') }),
     )
   })

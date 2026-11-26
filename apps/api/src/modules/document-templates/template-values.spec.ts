@@ -63,8 +63,8 @@ describe('buildTemplateValues', () => {
     expect(ru.get('student.studyForm')).toBe('Очная')
     expect(ru.get('student.fundingType')).toBe('Грант')
     expect(ru.get('student.educationLevel')).toBe('Магистратура')
-    const kk = buildTemplateValues({ ...sources(), locale: 'kk' })
-    expect(kk.get('student.studyForm')).toBe('Күндізгі')
+    const kz = buildTemplateValues({ ...sources(), locale: 'kz' })
+    expect(kz.get('student.studyForm')).toBe('Күндізгі')
   })
 
   it('свободный текст, совпавший с именем метода объекта, подставляется как есть', () => {

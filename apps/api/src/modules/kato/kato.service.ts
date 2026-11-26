@@ -7,7 +7,7 @@ const KATO_SELECT = {
   code: true,
   kind: true,
   nameRu: true,
-  nameKk: true,
+  nameKz: true,
   regionCode: true,
 } satisfies Prisma.KatoUnitSelect
 
@@ -46,7 +46,7 @@ export class KatoService {
           ? {
               OR: [
                 { nameRu: { contains: search, mode: 'insensitive' } },
-                { nameKk: { contains: search, mode: 'insensitive' } },
+                { nameKz: { contains: search, mode: 'insensitive' } },
               ],
             }
           : {}),
@@ -82,7 +82,7 @@ export class KatoService {
    */
   private listMajorCities(limit: number): Promise<KatoRow[]> {
     return this.prisma.$queryRaw<KatoRow[]>`
-      SELECT "code", "kind", "name_ru" AS "nameRu", "name_kk" AS "nameKk",
+      SELECT "code", "kind", "name_ru" AS "nameRu", "name_kz" AS "nameKz",
              "region_code" AS "regionCode"
       FROM "kato_units"
       WHERE "kind" = 'CITY'::"KatoKind"
@@ -100,7 +100,7 @@ export class KatoService {
    */
   private async listRegions(search: string | undefined, limit: number): Promise<KatoRow[]> {
     const rows = await this.prisma.$queryRaw<KatoRow[]>`
-      SELECT "code", "kind", "name_ru" AS "nameRu", "name_kk" AS "nameKk",
+      SELECT "code", "kind", "name_ru" AS "nameRu", "name_kz" AS "nameKz",
              "region_code" AS "regionCode"
       FROM "kato_units"
       WHERE "region_code" = "code"
@@ -111,7 +111,7 @@ export class KatoService {
       ? rows.filter(
           (r) =>
             r.nameRu.toLocaleLowerCase('ru').includes(needle) ||
-            r.nameKk.toLocaleLowerCase('ru').includes(needle),
+            r.nameKz.toLocaleLowerCase('ru').includes(needle),
         )
       : rows
     return filtered.slice(0, limit)
@@ -124,7 +124,7 @@ export class KatoService {
       ? await this.prisma.katoUnit.findMany({
           where: { code: { in: regionCodes } },
           take: regionCodes.length,
-          select: { code: true, nameRu: true, nameKk: true },
+          select: { code: true, nameRu: true, nameKz: true },
         })
       : []
     const byCode = new Map(regions.map((r) => [r.code, r]))
@@ -136,10 +136,10 @@ export class KatoService {
         code: r.code,
         kind: r.kind,
         nameRu: r.nameRu,
-        nameKk: r.nameKk,
+        nameKz: r.nameKz,
         regionCode: r.regionCode,
         regionNameRu: region?.nameRu ?? null,
-        regionNameKk: region?.nameKk ?? null,
+        regionNameKz: region?.nameKz ?? null,
       }
     })
   }

@@ -502,7 +502,7 @@ describe('Раскладка файла', () => {
 
   it('заголовок подразделения зависит от уровня', () => {
     expect(reportColumns('platform', 'ru')[0]?.header).toBe('Вуз')
-    expect(reportColumns('university', 'kk')[0]?.header).toBe('Факультет')
+    expect(reportColumns('university', 'kz')[0]?.header).toBe('Факультет')
     expect(reportColumns('faculty', 'en')[0]?.header).toBe('Group')
   })
 

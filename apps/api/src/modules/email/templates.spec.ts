@@ -116,7 +116,7 @@ describe('email templates', () => {
   })
 
   it('eds-linked: письмо на языке получателя', () => {
-    const r = renderEdsLinked({ to: 'a@b.c', firstName: 'Aliya', subjectCn: 'X', locale: 'kk' })
+    const r = renderEdsLinked({ to: 'a@b.c', firstName: 'Aliya', subjectCn: 'X', locale: 'kz' })
     expect(r.subject).toBe('Тіркелгіге ЭЦҚ байланыстырылды')
   })
 })
@@ -141,8 +141,9 @@ describe('язык письма', () => {
   })
 
   it('казахский: тема, каркас и текстовая версия', () => {
-    const r = renderInvite({ ...invite, locale: 'kk' })
+    const r = renderInvite({ ...invite, locale: 'kz' })
     expect(r.subject).toBe('StudentHub платформасына шақыру')
+    // Атрибут lang — тег платформы (BCP 47): казахский там `kk`, а не код приложения `kz`.
     expect(r.html).toContain('<html lang="kk">')
     expect(r.html).toContain('Шақыруды қабылдау')
     expect(r.html).toContain('автоматты хаты')
@@ -171,7 +172,7 @@ describe('язык письма', () => {
       firstName: 'Алия',
       notificationTitle: 'Жаңа тапсырма',
       notificationBody: 'Математика: Лаб. 3',
-      locale: 'kk',
+      locale: 'kz',
     })
     // Заголовок и тело приходят уже отрисованными процессором уведомлений — их не трогаем.
     expect(r.subject).toBe('Жаңа тапсырма')

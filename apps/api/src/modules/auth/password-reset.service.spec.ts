@@ -46,7 +46,7 @@ const account = {
   email: 'aliya@uni.kz',
   username: 'aliya',
   firstName: 'Алия',
-  locale: 'kk',
+  locale: 'kz',
   isBlocked: false,
 }
 
@@ -68,7 +68,7 @@ describe('PasswordResetService.requestReset', () => {
     const raw = new URL(payload.resetUrl).searchParams.get('token') ?? ''
     expect(payload.to).toBe('aliya@uni.kz')
     // Письмо — на языке получателя.
-    expect(payload.locale).toBe('kk')
+    expect(payload.locale).toBe('kz')
     expect(payload.resetUrl).toContain('/reset-password?token=')
     expect(stored.data.tokenHash).toBe(sha(raw))
     expect(stored.data.tokenHash).not.toBe(raw)

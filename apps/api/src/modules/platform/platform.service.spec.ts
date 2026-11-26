@@ -15,11 +15,11 @@ function row(patch: Partial<PlatformState> = {}): PlatformState {
     maintenanceFrom: null,
     maintenanceUntil: null,
     maintenanceMessageRu: null,
-    maintenanceMessageKk: null,
+    maintenanceMessageKz: null,
     maintenanceMessageEn: null,
     bannerUntil: null,
     bannerTextRu: null,
-    bannerTextKk: null,
+    bannerTextKz: null,
     bannerTextEn: null,
     bannerLevel: null,
     bannerRoles: [],
@@ -114,7 +114,7 @@ describe('PlatformService.publicState', () => {
       row({
         maintenanceUntil: until,
         maintenanceMessageRu: 'Обновляем платформу',
-        maintenanceMessageKk: 'Платформаны жаңартамыз',
+        maintenanceMessageKz: 'Платформаны жаңартамыз',
         maintenanceMessageEn: 'Upgrading the platform',
       }),
     )
@@ -127,7 +127,7 @@ describe('PlatformService.publicState', () => {
       active: true,
       message: {
         ru: 'Обновляем платформу',
-        kk: 'Платформаны жаңартамыз',
+        kz: 'Платформаны жаңартамыз',
         en: 'Upgrading the platform',
       },
     })
@@ -147,7 +147,7 @@ describe('PlatformService.publicState', () => {
       row({
         bannerUntil: new Date('2026-09-22T00:00:00Z'),
         bannerTextRu: 'Сегодня в 22:00 обновление',
-        bannerTextKk: null,
+        bannerTextKz: null,
         bannerTextEn: 'Update tonight at 22:00',
       }),
     )
@@ -160,7 +160,7 @@ describe('PlatformService.publicState', () => {
       row({
         bannerUntil: new Date('2026-09-22T00:00:00Z'),
         bannerTextRu: 'р',
-        bannerTextKk: 'қ',
+        bannerTextKz: 'қ',
         bannerTextEn: 'e',
         bannerLevel: 'DANGER',
       }),
@@ -302,7 +302,7 @@ describe('PlatformService — запись рычагов', () => {
 
     expect(updates.at(0) ?? {}).toMatchObject({
       bannerTextRu: null,
-      bannerTextKk: null,
+      bannerTextKz: null,
       bannerTextEn: null,
       bannerLevel: null,
       bannerRoles: [],
@@ -475,7 +475,7 @@ describe('PlatformService — адресный баннер', () => {
     row({
       bannerUntil: new Date(NOW.getTime() + 60 * 60_000),
       bannerTextRu: 'р',
-      bannerTextKk: 'қ',
+      bannerTextKz: 'қ',
       bannerTextEn: 'e',
       bannerRoles: ['TEACHER'],
       bannerUniversityIds: [UNI_A, UNI_B],
